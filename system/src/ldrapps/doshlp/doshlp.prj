@@ -1,0 +1,127 @@
+[project]
+name=doshlp
+version=0x0001
+
+[config]
+0=Common
+1=LinkExe_Backup
+
+[vars]
+aa=@wasm
+cc=@wcc386
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+aflags=-mf -4p -zq -i=inc -i=%(QS_BASE)\hc -i=$(hd4disk)\inc -dDOSHLP_BUILD -fo=
+
+osboot=OS2BOOT
+hd4disk=..\..\tools\src\hd4disk
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name).
+&clean=$(outdir)\cleanall.cmd
+
+[vars.*.0]
+&wlnk=$(outdir)\$(name).lnk
+ld=@wlink
+
+[vars.*.1]
+&lnk=$(outdir)\$(name).lnk
+ld=@link /batch /map:address
+
+[files]
+$(bld_dir).dir $(outdir).dir clean.cln
+doshlp.asm boothlp.asm oemhlp.asm pubinfo.asm disk.asm
+..\..\init\misc\prn16.asm
+$(hd4disk)\swcall.asm
+vesa.asm
+
+[make_footer]
+MAKEDIRS : $(bld_dir).dir $(outdir).dir
+    @echo Building $(name)...
+
+nolink : $(**dir) @@wait $(**asm)
+
+[&lnk]
+$(**asm) [[128| |+]]
+qload.exe
+$(name).map
+
+doshlp.def
+
+[&wlnk]
+sys os2v2
+name DOSHLP.
+file /[[$(**asm)! !,]]
+order clname PUBINFO
+      clname DHCODE
+      clname DHDATA
+      clname OEMCODE
+      clname OEMDATA
+      clname DH32CODE
+      clname DH32DATA
+      clname MARKER
+      clname DISCODE segment BOOTHLP_CODE segment BOOTHLP32_CODE segment _TEXT
+      clname DISDATA segment BOOTHLP_DATA segment _DATA
+      clname FIXDATA segment IODELAY_FIXB segment IODELAY_FIXUP segment IODELAY_FIXE
+      clname FIXDATA2 segment COMMON_FIXB segment COMMON_FIXUP segment COMMON_FIXE
+      clname BSS NOEMIT
+      clname FINI NOEMIT    
+      clname STACK NOEMIT
+op map=DOSHLP.MAP
+sort global
+op mixed1632
+op nod
+op quiet
+op start=DHReboot
+OUTPUT RAW OFF=0x10000
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist *.h @del *.h
+if exist $(name).* @del $(name).*
+cd ..\..
+
+[config.0]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&wlnk) | \
+     @mkdir $(osboot) | copy $(outname) $(osboot) >nul | \
+     copy msg\messages.ini $(osboot) >nul | \
+     @pkzip /add /max /silent /nozipextension /dir /rec \
+     %(QS_BIN)\%(QS_ARCH) $(osboot)\*.* | \
+     del $(osboot)\$(outname) >nul | del $(osboot)\messages.ini >nul | \
+     rmdir $(osboot)
+
+[config.1]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&lnk) | bios2com >nul | \
+     if EXIST qload.exe del qload.exe >nul | \
+     if EXIST doshlp del doshlp >nul |\
+     @if EXIST OS2LDR ren OS2LDR doshlp>nul | \
+     @mkdir $(osboot) | copy $(outname) $(osboot) >nul | \
+     copy msg\messages.ini $(osboot) >nul | \
+     @pkzip /add /max /silent /nozipextension /dir /rec \
+     %(QS_BIN)\%(QS_ARCH) $(osboot)\*.* | \
+     del $(osboot)\$(outname) >nul | del $(osboot)\messages.ini >nul | \
+     rmdir $(osboot)

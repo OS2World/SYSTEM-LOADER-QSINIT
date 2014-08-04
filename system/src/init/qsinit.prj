@@ -1,0 +1,133 @@
+[project]
+name=qsinit
+
+; 0.01 - first version
+; 0.02 - stable kernel boot
+; 0.03 - FAT switched to LFN
+; 0.04 - rev 100, 1 year of svn, storage/log added
+; 0.05 - rev 128, trace added
+; 0.06 - rev 150, mtrr, pci, vmtrr.exe, fat32 boot
+; 0.07 - rev 168, 3 years ;), primary creation, fat32 format, lvm
+; 0.08 - rev 200, cache, disk editor, wlink for binary files
+; 0.09 - rev 225, PAE paging mode, nice disk management, graphic console
+; 0.10 - rev 256, bootable PAE ram disk
+; 0.11 - rev 277, 4 years, GPT support, huge disk i/o, memory view
+version=0x0011
+
+[config]
+0=Debug
+1=Release
+2=Verbose
+
+[vars]
+aa=wasm
+cc=wcc386
+cc16=wcc
+chgn=chgnam
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name) | \
+     $(chgn) misc\init32.pat $@ >nul
+
+*cc=$(outdir)\$(*cur_fp).obj|$(*cur_pref).c| @echo $(*cur_fp).c | \
+     $(cc16) $(ccinc) $(ccflags)$* $(*cur_pref).c
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+&ver=inc\version.inc
+&clean=$(outdir)\cleanall.cmd
+
+aflags=-d1 -mt -zq -6p -i=%(QS_BASE)\hc -fo=
+
+cflags=-4s -ecd %(QS_CFLAGS) -zld -nt=CODE32 -q -s -mf \
+       -os -g=DGROUP -Ihc -i=hc -i=fat -i=zip -i=$(outdir) -fo=
+
+ccflags=-ecd -fp3 -fpi87 -q -zl -zfp -zgp -5 -zp1 -i=hc -i=$(outdir) -s -os -fo=
+
+ld=@wlink
+
+cinc=
+ccinc=$(cinc)
+ainc=
+outdir=bld\$(config)
+
+[vars.*.0]
+cinc=-DDEBUG -DVERBOSE_LOG
+ainc=-dDEBUG
+&watlnk=$(outdir)\qsinit.lnk
+
+[vars.*.1]
+cinc=-ox
+&watlnk=$(outdir)\qsinit.lnk
+
+[vars.*.2]
+cinc=-DDEBUG -DINITDEBUG -DVERBOSE_LOG
+ainc=-dDEBUG -dINITDEBUG
+&watlnk=$(outdir)\qsinit.lnk
+
+[files]
+bld.dir $(outdir).dir clean.cln
+..\hc\inc\ioint13.inc ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc 
+..\hc\inc\filetab.inc inc\qsinit.inc inc\dskinfo.inc
+start.asm pm_open.asm pm_main.asm meminit.c misc\timer.asm init32.c
+disk1.c misc\logmgr.c misc\iniparm.c
+misc\text.asm misc\util.asm misc\viofunc.c misc\disk.asm misc\wcrt.asm
+misc\membase.c misc\fileio.c misc\rmcall.asm misc\exptable.asm
+fat\diskio.c fat\ff.c misc\mdt.c misc\prn16.asm misc\log.asm
+misc\print.c
+zip\puff.c zip\crc32.c zip\unzip.c
+
+[make_footer]
+MAKEDIRS : bld.dir $(outdir).dir
+    @echo Building ...
+
+start.asm : inc\version.inc
+
+nolink : $(**dir) $(**inc) @@wait $(**asm) $(**c)
+
+[&ver]
+db 'QSinit $(vershort), rev $(svnrev), $(config) build at $(timestr)',0
+db '@#QS:$(vershort).$(svnrev)#@  QSinit loader',0
+
+[&watlnk]
+sys os2v2
+name OS2LDR.
+file /[[$(**asm)! !,]]
+file /[[$(**c)! !,]]
+order clname INIT
+      clname CODE
+      clname CODEHI
+      clname DATA
+      clname EDATA
+      clname BSS NOEMIT
+      clname STACK NOEMIT
+op map=OS2LDR.MAP
+sort global
+op mixed1632
+op nod
+op quiet
+OUTPUT RAW OFF=0x10000
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.h @del *.h
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist os2ldr.* @del os2ldr.*
+cd ..\..
+
+[config.0,1,2]
+*out=os2ldr | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&watlnk)

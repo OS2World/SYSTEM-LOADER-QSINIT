@@ -1,0 +1,11 @@
+type = dll
+name = "VDISK"
+
+exports = {
+   _shl_ramdisk       = { index =  1  group="shell"  format="usp"           }
+
+
+   _sys_vdiskinit     = { index = 10  group="vdisk"  format="uuu@uucc&@*u"  }
+   _sys_vdiskfree     = { index = 11  group="vdisk"  format="uv"            }
+   _sys_vdiskinfo     = { index = 12  group="vdisk"  format="u&@*u&@*u&@*u" }
+}

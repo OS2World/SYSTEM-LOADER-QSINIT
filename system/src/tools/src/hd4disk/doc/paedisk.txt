@@ -1,0 +1,150 @@
+
+  I think, you know about one of OS/2 "32-bit problems" - it cannot access
+  memory above 4Gb.
+
+  This driver, in conjunction with QSINIT - designed to use this memory, at
+  least, for RAM disk.
+
+  Use RAMDISK command in QSINIT shell to create this ram disk.
+
+  This disk will be visible in OS/2 like another one HDD - just add
+  HD4DISK.ADD to CONFIG.SYS and put this file to ?:\OS2\BOOT
+
+  There is one limitation - you MUST use QSINIT as boot loader, i.e., directly
+  loads KERNEL file, not another one loader (IBM or OS/4 with RESTART option).
+
+  The reason - ADD driver must ask QSINIT about disk location and only QSINIT
+  can manage memory tables for kernel with ram disk in mind.
+
+  There is a chance to avoid this limitation - but only if memory above 4GB
+  used (driver makes a try to search ram disk at the start of 4GB - if no
+  QSINIT loader found).
+
+  By default this HDD contain one primary partition, formatted with FAT or
+  FAT32 (depends on size). This can be altered by RAMDISK command keys or
+  manual partition creation by DMGR command.
+
+  You can put swap file to this disk`s FAT partition :)
+
+  ADD driver works fine on Warp 3 (at least, with FP43).
+
+  Some examples of RAMDISK command syntax:
+
+  1. use all memory above 4Gb and no memory below 4Gb.
+     One partition, FAT (if disk smaller 2Gb) or FAT32 with LVM letter z:
+
+        ramdisk z:
+
+     On typical PC with 4GB - 500-700Mb always moved above 4Gb border, so
+     disk will have such size.
+
+  2. use all memory above 4Gb, but can use 100Mb of memory below 4Gb to create
+     guaranteed disk size of 100Mb. If disk size if greater 100Mb - is will be
+     splitted to 2 partitions. 
+     First will be Z: FAT, second (if exist) - Q:, FAT or FAT32 - depends on
+     size.
+
+        ramdisk min=100 z: q: div=100
+
+  3. use maximum 500Mb of memory above 4Gb, but can use 400Mb of memory below
+     4Gb to create guaranteed disk size of 400Mb.
+     Disk will have one unformatted partition with LVM letter W:
+
+        ramdisk min=400 max=500 w: nofmt
+
+  4. QSINIT batch file for creating 50Mb disk in memory below 4Gb with one
+     logical (not primary!) FAT formatted partition W:
+     In QSINIT it will be mounted to E: (mount required for FORMAT command in
+     QSINIT). You can read help for used commands to understand what they do
+     here:
+        ramdisk /q nopt nohigh min=50
+        if errorlevel 1 goto err
+        dmgr pm %ramdisk% create 0 l 100%
+        mount e: %ramdisk% 0
+        format e: /quick /q /f:1
+        lvm assign %ramdisk% 0 w: force
+        echo ok!
+        exit
+        :err
+        echo error!
+
+  Parameters accepted by HD4DISK.ADD:
+      /v - print at least something ;)
+
+      /i - do not install disk, but leave driver in memory.
+           This allow to use disk memory as storage for one app at time.
+           (example code in QS_SDK.ZIP\QS\system\src\usrapps\rdtest)
+
+      /1 - use STRAT1 instead of STRAT2.
+           Add this key if you NOT using FAT32 and JFS on RAM disk.
+           (i.e. RAMDISK NOFAT32 must be used to create it).
+
+           STRAT2 calls designed to be more advanced for real hardware i/o,
+           but adds additional delay on RAM disk. 
+           
+           STRAT1 is ancient, simple and fast method - but it works only
+           with FAT and HPFS filesystems. FAT32 just traps the system on
+           trying to mount and JFS unable to work with it.
+
+  For more details QSINIT / OS/4 loader log must be turned on
+  (driver prints some messages to it).
+
+
+  And, finally, you can BOOT from PAE RAM disk :)
+
+  There is no special menu implementation for this type of boot now and
+batch file must be used. SOURCE option of BOOTOS2.EXE is the way to change
+boot partition to another FAT - including PAE RAM disk.
+
+  There is one problem: RAM disk emulated as LAST HDD in system, so if any
+partition with the same LVM drive letter is exist on real HDD - system boot
+will fail.
+
+  Boot disk creation sequence:
+
+  1. Make OS/2 installation on FAT drive Q: (without WPS, because no EA
+     support in QSINIT). Q: is example letter.
+
+  2. Copy HD4DISK.ADD to Q:\OS2\BOOT on this installation and add
+
+        BASEDEV=HD4DISK.ADD
+
+     to CONFIG.SYS of it.
+
+  3. Pack entire system to FATOS2.ZIP (example name).
+
+  4. Make QSINIT boot disk (flash drive, for example). This can be FAT or
+     FAT32 partition, big floppy and so on... It is no need for OS/2 to have
+     access to it at the boot stage - only BIOS must see it as boot device.
+
+     Run tool\instboot.cmd from QS_LDR.ZIP to make it bootable in OS/2
+     or Windows.
+
+  5. Copy your ZIP file to the root of this disk.
+
+  6. Create QSSETUP.CMD (example contents) in this root:
+
+     rem create FAT ramdisk with max 1900Mb and guaranteed 100Mb size
+     rem and Q: LVM drive letter
+     RAMDISK Q: min=100 max=1900
+     rem ramdisk mounted to first available QSINIT drive letter, this will
+     rem be C:, so unzip ZIP to drive C:
+     echo unzipping...
+     unzip /q /boot FATOS2.ZIP c:\
+     rem launch OS2KRNL from the root of RAM disk
+     bootos2 os2krnl source=c
+
+  7. Boot from this device.
+
+  8. The same process can be used for PXE boot (with PXEOS4).
+     Just put QSSETUP.CMD and FATOS2.ZIP to TFTP dir for this PC. 
+
+     On gigabit network it takes 10 seconds to download 30Mb zip with console
+     OS/2 installation (without PM).
+
+  9. Menus can be used in the same way as on normal boot - put os2ldr.ini to
+     the root of disk with ZIP file and fill it with kernel options. Only one
+     difference here - "source=c" must be added to [CONFIG] section or lines
+     with kernel options.
+     Remove "bootos2" line from the batch file above and go.
+     

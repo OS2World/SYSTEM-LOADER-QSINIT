@@ -1,0 +1,89 @@
+[project]
+name=vmtrr
+version=0x0001
+
+[config]
+0=Common
+
+[vars]
+aa=@wasm
+cc=@wcc386
+cpp=@wpp386
+ld=@wlink
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
+
+cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
+       -fi=%(appinit_lib)\initdef.h -i=$(outdir) -fo= 
+
+cppflags=-zv $(cflags)
+
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name).exe
+&lnk=$(outdir)\$(name).lnk
+&clean=$(outdir)\cleanall.cmd
+
+[files]
+$(bld_dir).dir $(outdir).dir clean.cln
+..\..\hc\inc\pci.inc
+vmtrr.c opt.cpp
+
+[make_footer]
+MAKEDIRS : $(bld_dir).dir $(outdir).dir
+    @echo Building $(name)...
+
+nolink : $(**dir) @@wait $(**inc) @@wait $(**c) $(**cpp) 
+
+[&lnk]
+sys os2v2
+name $(outname)
+file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
+file %(appinit_lib)\bld\Common\init.obj 
+lib %(appinit_lib)\runtime.lib 
+op quiet
+op el
+op internalrelocs
+op togglerelocs
+op nod
+op st=32768
+op osname=%(QS_NAME)
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist *.h @del *.h
+if exist $(name).* @del $(name).*
+cd ..\..
+
+[config.0]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&lnk) | lxlite $(outname) >nul | \
+     @pkzip /add /max /silent /nozipextension /path=none \
+     %(QS_BIN)\%(QS_ARCH) $(outname)

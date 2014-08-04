@@ -1,0 +1,13 @@
+@echo off
+rem
+rem ----------------------------------------------------
+rem add your prefix to QS_ROOT or put QS to the root ;)
+rem ----------------------------------------------------
+rem
+rem  * make sure "set WATCOM=..." is not empty
+rem  * if QS is not in the root, update Doxyfile INPUT for doxygen
+rem  * doxygen require ODIN (pec.exe) in the path
+rem
+set QS_ROOT=\QS
+rem
+call %QS_ROOT%\system\src\tools\setupi.cmd

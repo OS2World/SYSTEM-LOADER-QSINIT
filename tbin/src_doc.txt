@@ -1,0 +1,48 @@
+Setup:
+   1. set WATCOM=....  in path
+   2. copy src\setup.cmd.template src\setup.cmd
+   3. edit src\setup.cmd
+   4. if QS is not in the root, update Doxyfile INPUT (optional)
+
+Build:
+   _all.cmd                        - build all
+   system\src\init\make.cmd        - build os2ldr
+   system\src\ldrapps\make.cmd     - build all qsinit.ldi apps
+   system\src\ldrapps\make.cmd app - build single qsinit.ldi app
+                                     (ex. "make sysview")
+   target dir - this (tbin) dir.
+
+   Apps in "system\src\usrapps" must be built individually and not included
+   into common qsinit build.
+
+   QSINIT source code included into this SDK and buildable, but available for
+   non-commercial use only.
+
+   Games are ugly-looking, especially "anaconda" ;) It was found somewhere
+   over net after one minute search, sorry.
+
+Source tree:
+
+   system\src\hc                   - common include
+   system\src\init                 - QSINIT module (OS2LDR file)
+   system\src\init\hc              - QSINIT include (exports)
+
+   system\src\ldrapps              - common QSINIT modules
+   system\src\ldrapps\hc           - headers (exports) of all common modules
+   system\src\ldrapps\runtime      - app/dll startup code and def/lib files
+   system\src\ldrapps\bootmenu     - boot menu
+   system\src\ldrapps\bootos2      - load and start OS/2 kernel
+   system\src\ldrapps\cache        - disk i/o cache
+   system\src\ldrapps\cmd          - command processor
+   system\src\ldrapps\console      - advanced console support
+   system\src\ldrapps\doshlp       - doshlp (binary file)
+   system\src\ldrapps\partmgr      - partition management module
+   system\src\ldrapps\start        - START module
+   system\src\ldrapps\sysview      - UI app (req. Turbo Vision)
+   system\src\ldrapps\tv           - Turbo Vision
+   system\src\ldrapps\vdisk        - PAE ram disk support module
+   system\src\ldrapps\vmtrr        - Write Combining MTRR setup
+
+   system\src\usrapps              - additional apps
+   system\src\usrapps\example      - example of LE EXE with wmake`s makefile
+   system\src\usrapps\mptable      - mp table dump app (from bsd)

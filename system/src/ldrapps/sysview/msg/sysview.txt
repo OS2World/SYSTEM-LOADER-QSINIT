@@ -1,0 +1,439 @@
+.topic NoContext=0
+ QSINIT test app Ü
+  ßßßßßßßßßßßßßßßß
+This a QSINIT test program with some actual functionality like disk and
+text file editor.
+
+Common key sequences:
+ * F10 - menu
+ * Alt-F3 - close window
+ * Alt-X / Ctrl-X - exit from app
+
+.topic about_this_file=2
+This file requires Borland C++ tvhc.exe to compile Ü
+ ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+
+It is not supplied with QSINIT, because this is temporary, first time
+help implementation.
+
+.topic RunExecute=2029
+ System³Run Ü    (F4)
+  ßßßßßßßßßßß
+Run specified QSINIT program. Type program and arguments in edit string,
+them press Go!
+
+[X] Echo ON - will turn command echo to ON (it off by default).
+
+[X] Pause in Exit - will make pause after program exit.
+
+To run batch file use command processor:
+
+    cmd /c batch_file.cmd
+
+.topic ViewLog=2030
+ System³View log Ü
+  ßßßßßßßßßßßßßßßß
+View internal QSINIT log.
+
+Log saved in cycled buffer with 64kb size, and sorted by time. Output
+can be slightly different in compare with COM port logging.
+
+Also, output can be distorted if you changed the system time by
+"time" command.
+
+.topic PowerOff=2031
+ System³Power off Ü
+  ßßßßßßßßßßßßßßßßß
+Power OFF the system, if APM (old BIOS power management method) is
+available.
+
+ACPI Power OFF is not supported now.
+
+.topic CpuInfo=2033
+ System³CPU info Ü
+  ßßßßßßßßßßßßßßßß
+Window with information about CPU, installed in system.
+
+All information received from CPUID command.
+
+Read Intel/AMD CPU manual for details about every marked feature.
+
+.topic SaveLog=2034
+ System³Save log Ü
+  ßßßßßßßßßßßßßßßß
+Save internal QSINIT log to a file.
+
+Remember - drive B: is QSINIT virtual memory drive.
+
+To save log on real disk use "mount" command in shell to mount physical
+FAT/FAT32 partition to drive letters C:..J:
+
+.topic MBRCode=2035
+ Disk³MBR code Ü
+  ßßßßßßßßßßßßßß
+Replace Master boot record boot code to QSINIT one.
+
+This option provided for test reason only.
+
+You can try it for partitioned flash drives, for example.
+
+.topic FOpen=2037
+ Edit³Open Ü    (F3)
+  ßßßßßßßßßß
+The Open command displays the Open a File dialog box. In this
+dialog box you select the text file you want browse in a
+file editor.
+
+.topic WSizeMove=2047
+ Window³Size/Move Ü    (Ctrl-F5)
+  ßßßßßßßßßßßßßßßßß
+Choose this command to change the size or position of the active
+window.
+
+ ÜÜÜÜÜÜ
+  Size
+ ßßßßßß
+If you press Shift while you use the arrow keys, you can change
+the size of the active window. Once you've adjusted its size or
+position, press Enter.
+
+If a window has a Resize corner, you can drag that corner to
+resize the window.
+
+ ÜÜÜÜÜÜ
+  Move
+ ßßßßßß
+When you choose Window³Size/Move, the active window moves in
+response to the arrow keys. Once you've moved the window to where
+you want it, press Enter.
+
+You can also move a window by dragging its title bar with the
+mouse.
+
+.topic WNext=2048
+ Window³Next Ü    (F6)
+  ßßßßßßßßßßßß
+Choose Next to cycle forwards through the windows on the desktop.
+
+.topic WPrevious=2049
+ Window³Previous Ü    (Shift-F6)
+  ßßßßßßßßßßßßßßßß
+Choose Previous to cycle backwards through the windows on the desktop.
+
+.topic WClose=2050
+ Window³Close Ü    (Alt-F3)
+  ßßßßßßßßßßßßß
+Choose Close to close the active window.
+
+You can also click the Close box in the upper right corner to
+close a window.
+
+.topic WTile=2053
+ Window³Tile Ü
+  ßßßßßßßßßßßß
+Choose Window³Tile to tile all file viewers on the desktop.
+
+ ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+ ³ ÉÍÍÍÍÍÍÍÍÍÍÍÍ1ÍÍ»ÚÄÄÄÄÄÄÄÄÄÄÄÄ2ÄÄ¿ ³
+ ³ º               º³               ³ ³
+ ³ º               º³               ³ ³
+ ³ º               º³               ³ ³
+ ³ º               º³               ³ ³
+ ³ ÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ ³
+ ³ ÚÄÄÄÄÄÄÄÄÄÄÄÄ3ÄÄ¿ÚÄÄÄÄÄÄÄÄÄÄÄÄ4ÄÄ¿ ³
+ ³ ³               ³³               ³ ³
+ ³ ³               ³³               ³ ³
+ ³ ³               ³³               ³ ³
+ ³ ³               ³³               ³ ³
+ ³ ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ ³
+ ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+             Tiled Windows
+
+.topic WCascade=2054
+ Window³Cascade Ü
+  ßßßßßßßßßßßßßßß
+Choose Window³Cascade to stack all file viewers on the desktop.
+
+ ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ1Ä¿
+ ³ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ2Ä¿
+ ³³ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ3Ä¿
+ ³³³ÉÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ4Í»
+ ³³³º                         º
+ ³³³º                         º
+ ³³³º                         º
+ ³³³º                         º
+ ³³³º                         º
+ ÀÀÀÈÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼
+
+        Cascaded Windows
+
+.topic WZoom=2057
+ Window³Zoom Ü   (F5)
+  ßßßßßßßßßßßß
+Choose Zoom to resize the active window to the maximum size. If
+the window is already zoomed, you can choose this command to
+restore it to its previous size.
+
+You can also double-click anywhere on the window's title bar
+(except where an icon appears) to zoom or unzoom the window.
+
+.topic InitDisk=2060
+ Disk³Init disk Ü
+  ßßßßßßßßßßßßßßß
+Use this command to init empty hard disk. It will make the following:
+
+* write MBR boot code
+
+* write empty partition table
+
+* write LVM signature to disk. 
+
+Written LVM geometry will be compatible with OS/2 DANIS and AHCI (>=1.27)
+drivers.
+
+.topic SectEdit=2061
+ Disk³Sector editor Ü
+  ßßßßßßßßßßßßßßßßßßß
+Physical sector editor window.
+
+Be careful, if you will press "Yes" in confirmation dialog - all changes in
+sector will be written to disk!
+
+All actual changes in sector is marked by red color.
+
+Available keys:
+
+* Home/End - to start/end of line
+
+* Arrows/PageUp/PageDown - navigation
+
+* Tab or Shift-Tab - switch between hex/asc editing
+
+* Backspace - undo changes in byte, left to cursor position
+
+* Ctrl-Home - go to first sector
+
+* Ctrl-End  - go to last sector
+
+* Ctrl-S - {go to sector:SectGoto}
+
+* Ctrl-F/Ctrl-A - {find data:SectFind}/{find next:SectFindNext}
+
+.topic Goto=2062
+ Disk³Go to Ü    (F11)
+  ßßßßßßßßßßß
+Go to sector on physical disk or physical memory location (depends
+on active window).
+
+.topic SectFind=2063
+ Disk³Find data Ü    (Ctrl-F)
+  ßßßßßßßßßßßßßßß
+Start searching on physical disk or in memory.
+
+Use Ins key to switch between insertition/replacement in search string
+editor and Backspace/Del key to delete bytes from the middle of it.
+
+[X] case insensitive - will start case insensitive search for 'A'-'Z'
+letters.
+
+.topic SectFindNext=2064
+ Disk³Find next Ü    (Ctrl-A)
+  ßßßßßßßßßßßßßßß
+Continue the last searching on physical disk / memory.
+
+.topic Calendar=2065
+ Calendar Ü
+  ßßßßßßßßß
+The calendar displays the current month, highlighting todays date. The
+next and previous months can be viewed using the '+' or '-' keys
+respectivly.  The mouse can also be used to change the month by pressing
+the  or  icons.
+
+.topic hcViewAsPT=2066
+ Disk³View as Partition table Ü    (Ctrl-F2)
+  ßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+View/Edit current sector in physical {sector editor:SectEdit} as
+partition table.
+
+You can modify values here, but you must be really familiar with partition
+management to do this.
+
+Buttons #1..#4 will switch editor window to 1st sector of appropriate
+partition, but this navigation works right only if it was started from
+sector 0. I.e. goto sector 0, press #3, in next slice of extended
+partition open dialog again and press #2 and so on.
+
+.topic FExit=2067
+ System³Exit Ü    (Alt-X)
+  ßßßßßßßßßßßß
+The Exit command terminates this program.
+
+.topic HelpCont=2068
+ About Ü
+  ßßßßßß
+QSINIT is a some kind of boot loader ;) Basically it load OS/2 kernel ;),
+but suitable for many other things - like playing tetris or implementing
+boot time disk editor.
+
+Common idea of it is creating a small 32 bit protected mode environment
+with runtime and module execution support. It looks like old good DOS/4GW
+apps, but without DOS at all.
+
+This application is basically self-explaining.
+
+To get help on shell commands - type "help command" or "command /?" in
+shell.
+
+Shell invoked by F3 key from boot time menu, or type "cmd" in
+{run dialog:RunExecute} in this program.
+
+Full shell command list available by single "help" command.
+
+.topic ViewAsBPB=2070
+ Disk³View as Boot sector Ü    (Ctrl-F3)
+  ßßßßßßßßßßßßßßßßßßßßßßßßß
+View/Edit current sector in physical {sector editor:SectEdit} as
+boot sector with BIOS Parameter Block.
+
+BPB showed for classic file system types: FAT, FAT32, HPFS and JFS.
+
+.topic SectExport=2071
+ Disk³Copy sector to file Ü
+  ßßßßßßßßßßßßßßßßßßßßßßßßß
+Copy one or more disk sectors to file on mounted partition.
+
+.topic SectImport=2072
+ Disk³Copy file to sector Ü
+  ßßßßßßßßßßßßßßßßßßßßßßßßß
+Replace one or more disk sector contents by data from a file.
+
+.topic SectCopy=2073
+ Disk³Copy sectors Ü
+  ßßßßßßßßßßßßßßßßßß
+Copy one or more disk sectors to other location on disk or another
+disk in system.
+
+.topic DmgrDisk=2074
+ Select disk Ü
+  ßßßßßßßßßßßß
+Select hard disk here.
+
+QSINIT shows only disks, reported by BIOS.
+
+If your disk (ex. flash drive) is not listed here - it can be 
+unsuported by BIOS code or big-floppy formatted.
+
+Big-floppy flash drive still can be mounted from QSINIT command line.
+
+.topic DmgrPart=2075
+ Select partition Ü
+  ßßßßßßßßßßßßßßßßß
+Select partition or free space to manage.
+
+.topic DmgrAction=2076
+ Partition actions Ü
+  ßßßßßßßßßßßßßßßßßß
+This list contain available actions for selected partition:
+
+* "Boot" - boot from this partition. System will hang if no boot code available!
+
+* "Delete" - delete this partition.
+
+* "Format" - format partition to FAT/FAT32 file system.
+
+* "Make active" - make primary partition active. 
+
+For GPT disks this command set "BIOS Bootable" attribute to partition.
+I.e. this partition will be booted in "BIOS mode boot", by MBR code of
+GPT disk. 
+
+You also need to replace MBR code to provided by QSINIT.
+
+* "Mount" - mount partition to QSINIT drive letter
+
+* "Unmount" - unmount partition from QSINIT
+
+* "LVM drive letter" - set OS/2 LVM drive letter
+
+* "LVM rename" - set OS/2 LVM volume name
+
+* "Set type GUID" - set partition type on GPT disks
+
+* "Create logical" - create logical partition on selected free space
+
+* "Create primary" - create primary partition on selected free space
+
+* "Sector view" - go to first sector of this partition in disk editor window.
+
+.topic DmgrDlg=2077
+ Disk management Ü
+  ßßßßßßßßßßßßßßßß
+This dialog allow to manage hard disks and partitions. 
+
+To manage entire disk select disk first, then disk action from action list.
+
+To manage partition - select disk, then partition on it and then action from
+partition action list.
+
+.topic DmgrDiskAction=2078
+ Disk actions Ü
+  ßßßßßßßßßßßßß
+This list contain actions on entire disk. Be cafrefully with all of it:
+
+* "Boot" - boot MGR code of disk disk
+
+* "Init disk" - write empty partition table to empty disk (i.e. init it to use).
+This action will can also write initial LVM signature.
+
+* "Init disk (GPT)" - write GPT partition table to empty disk (GPT is not
+supported by OS/2, but QSINIT can operate with it).
+
+* "Replace MBR code" - replace MBR code to provided by QSINIT. This code
+compatible with OS/2 boot.
+
+* "Update LVM info" - update LVM info (option available only if LVM info on disk
+have one or more correctable errors).
+
+* "Wipe disk" - wipe partition table (ENTIRE DISK!)
+
+* "Write LVM info" - write LVM info to non-LVM disk.
+
+.topic DmgrRescan=2081
+ Rescan disks Ü
+  ßßßßßßßßßßßßß
+Force rescanning of partition table on all disks.
+
+This action is not required by default, but can be used in some rare cases,
+like update after manual partition table editing in sector editor.
+
+.topic Calculator=2100
+ Calculator Ü
+  ßßßßßßßßßßß
+This calculator operates only with signed 64-bit integer values.
+
+ * ESC - clear
+ * "_" - sign change (+/-), decimal mode only
+ * "x" - hex/dec view mode
+ * "p" - power of
+ * "!" - binary not
+ * "m" - save to memory
+ * "r" - get from memory
+ * "%" - mod
+ * "<>" - shift to left/right
+ * "^|&" - binary xor/or/and
+ * "+-/*" - i hope you know ;)
+
+.topic MemEdit=2101
+ Edit memory Ü
+  ßßßßßßßßßßßß
+View/edit PC memory.
+
+Memory editor operates with 256 byte blocks. When you leave this block
+editor will ask for update actual memory.
+
+.topic SectGoto=2102
+ Disk³Go to sector Ü    (F11)
+  ßßßßßßßßßßßßßßßßßß
+Type physical disk sector number to go to.
+
+Use decimal values or C language hex notation (0xA1B2C3D4).

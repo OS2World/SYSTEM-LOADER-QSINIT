@@ -1,0 +1,42 @@
+
+  Import/export module reference file.
+
+
+  REF2LBC tool can convert it to def, watcom .lnk script or ordinals.h include
+          file.
+  Format is self-explaining, additional data fields:
+
+    * offset = yes  - direct export/import, without creating asm thunk
+
+    * expname = ... - function name in module (alternative name for export lib)
+
+    * group = ...   - trace group (use "trace on ..." to trace this group calls)
+
+    * trace format string:
+
+      fmt    = [e] [result][arg][arg][arg][arg] [.]
+                e - errno changed (ignored now)
+                . - ... argument (ignored)
+
+      result = [*][@]type
+      arg    = [&][*][@]type
+                & - out value
+                * - pointer to next type
+                @ - print in hex form
+
+      type   = s - char*
+               c - char
+               i - int/long
+               b - unsigned char
+               u - unsigned
+               h - unsigned short
+               q - unsigned long long
+               p - pointer
+               v - void (for result/no args only, use "p" for void*)
+               S - wchar_t*
+               C - wchar_t
+
+      Example:
+         char*  ctime_r(const time_t *timer, char* buffer);
+
+         format = "s*@up" --> string (out hex ulong, pointer)

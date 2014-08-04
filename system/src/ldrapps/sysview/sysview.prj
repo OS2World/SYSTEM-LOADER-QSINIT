@@ -1,0 +1,168 @@
+;
+; Build: 0 - qsinit common, 1/2 - debug/release for current build OS
+;
+[project]
+name=sysview
+version=0x0001
+
+[config]
+0=Common
+1=DebugPC
+2=RelPC
+
+[vars]
+aa=@wasm
+cc=@wcc386
+cpp=@wpp386
+ld=@wlink
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
+
+cflags_common=-5s -zri -fp5 -fpi87 -s -mf -DNO_TV_STREAMS \
+              -DTV1 -i=..\tv\hc -i=$(outdir) -os -fo=
+cflags_tv=-DMAXSTR=1024 -DNT_CDECL= -zld -j -zq -zm -bm -w2 -u__QSINIT__
+
+cppflags=-i=%(QS_APPINC)\rt -i=bootopt -i=tvext -i=info -zv $(cflags)
+
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outname=$(name).exe
+&clean=$(outdir)\cleanall.cmd
+tvloc=../tv/src/
+spdefs=-DSRT -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_HUGELIST -DNO_RANDOM -DNO_SP_POINTRECT
+
+; qs target
+[vars.*.0]
+&lnk0=$(outdir)\$(name).lnk
+cflags=-u__NT__ -u__OS2__ -fi=%(appinit_lib)\initdef.h %(QS_CFLAGS) \
+       -ox -i=%(QS_WCCINC) -i=..\partmgr $(cflags_common)
+outdir=$(bld_dir)\$(config)
+
+[vars.os/2]
+oskey=-bt=os2 -D__OS2__ -DSP_OS2 $(spdefs)
+oslink=os2v2
+[vars.win32]
+oskey=-bt=nt -D__NT__ -DSP_WIN32 $(spdefs)
+oslink=nt
+
+; pc debug target
+[vars.*.1]
+cflags=$(cflags_tv) -d2 -hw -of -DDEBUG $(oskey) $(cflags_common)
+&lnk1=$(outdir)\$(name).lnk
+dbgkey=debug watcom all
+outdir=$(bld_dir)\$(config).$(build_osc)
+
+; pc release target
+[vars.*.2]
+cflags=$(cflags_tv) -ox -d0 $(oskey) $(cflags_common)
+&lnk1=$(outdir)\$(name).lnk
+dbgkey=
+outdir=$(bld_dir)\$(config).$(build_osc)
+
+[files]
+$(bld_dir).dir $(outdir).dir clean.cln
+..\..\hc\inc\ioint13.inc ..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc
+..\..\hc\inc\parttab.inc
+tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
+tvext\tcolortx.cpp tvext\tinplong.cpp tvext\tcombo.cpp tvext\tnocstr.cpp
+tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp
+info\miscdlg.cpp info\diskdlg.cpp
+bootopt\kdlg.cpp bootopt\kdlgset.cpp bootopt\ldrdlg.cpp bootopt\opts.cpp
+bootopt\rundlg.cpp bootopt\zipload.cpp info\cpuinfo.cpp info\ptabdlg.cpp
+longedit.cpp editor.cpp info\helpwin.cpp info\bpbdlg.cpp info\diskact.cpp
+info\lvmdlat.cpp info\setgpt.cpp
+
+[files.*.1]
+##..\tv\tvfiles.lst
+..\tv\src\qs_main.c
+..\runtime\rt\sp_defs.cpp ..\runtime\rt\sp_str.cpp
+
+[files.*.2]
+##..\tv\tvfiles.lst
+..\tv\src\qs_main.c
+..\runtime\rt\sp_defs.cpp ..\runtime\rt\sp_str.cpp
+
+[make_footer]
+MAKEDIRS : $(bld_dir).dir $(outdir).dir
+    @echo Building $(name)...
+
+nolink : $(**dir) $(**inc) @@wait $(**c) $(**cpp)
+
+#$(**asm)
+
+[&lnk0]
+sys os2v2
+name $(outname)
+file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
+#file /[[$(**asm)! !,]]
+file %(appinit_lib)\bld\Common\init.obj 
+lib %(appinit_lib)\runtime.lib 
+lib ..\tv\tv.lib 
+lib %(WATCOM)\lib386\plib3s.lib
+op map=$(name).map
+sort global
+op quiet
+op el
+op vfr
+op internalrelocs
+op togglerelocs
+op nod
+op st=32768
+op osname=%(QS_NAME)
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+
+[&lnk1]
+sys $(oslink)
+name $(outname)
+$(dbgkey)
+file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
+#file /[[$(**asm)! !,]]
+op map=$(name).map
+op quiet
+#op el
+op st=262144
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist *.h @del *.h
+if exist $(name).* @del $(name).*
+cd ..\..
+
+[config.0]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&lnk0) | lxlite $(outname) >nul | \
+     @pkzip /add /max /silent /nozipextension /path=none \
+     %(QS_BIN)\%(QS_ARCH) $(outname) | \
+     @pkzip /add /max /silent /nozipextension /dir /rec \
+     %(QS_BIN)\%(QS_ARCH) MSG\*.hlp
+
+[config.1,2]
+*out=$(outname) | nolink | \
+     @echo Linking... | \
+     $(ld) @$(&lnk1)

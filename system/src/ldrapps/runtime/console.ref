@@ -1,0 +1,23 @@
+type = dll
+name = "CONSOLE"
+
+exports = {
+   _con_modeavail          = { index =  2 }            # query mode presence
+   _con_getmode            = { index =  3 }            # get current mode
+   _con_setmode            = { index =  4 }            # set current mode
+   _con_querymode          = { index =  5 }            # query mode list
+   _con_currentmode        = { index =  6 }            # query current mode
+
+   _con_write              = { index =  10 }           # write to screen
+   _con_read               = { index =  11 }           # read from screen
+   _con_setvgapal          = { index =  12 }           #
+   _con_getvgapal          = { index =  13 }           #
+
+   _con_instshot           = { index =  25 }           # screen shot functions
+   _con_removeshot         = { index =  26 }           #
+   _con_makeshot           = { index =  27 }           #
+
+   _shl_mkshot             = { index =  30 }           # mkshot shell command
+
+   _con_fontadd            = { index =  35 }           # add/replace font
+}

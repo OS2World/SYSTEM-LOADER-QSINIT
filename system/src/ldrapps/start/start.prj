@@ -1,0 +1,126 @@
+[project]
+name=start
+version=0x0011
+
+[config]
+0=Common
+
+[vars]
+aa=@wasm
+cc=@wcc386
+cpp=@wpp386
+ld=@wlink
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*ord=$(outdir)\$(*cur_fp)_ord.h|$(*cur_pref).ref| @echo $(*cur_name) | \
+     ref2lbc ord $(*cur_pref).ref $@
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init -fo=
+
+cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -DNO_ERRNO \
+       -fi=%(appinit_lib)\initdef.h -i=$(outdir) -i=. -i=..\hc\rt \
+       -i=%(QS_BASE)\init -fo=
+
+;-ecd 
+msgdir=MSG
+cppflags=-zv $(cflags)
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name).
+&lnk=$(outdir)\$(name).lnk
+&clean=$(outdir)\cleanall.cmd
+&bldlevel=$(outdir)\bldlevel.lnk
+
+[files]
+$(bld_dir).dir $(outdir).dir clean.cln
+..\runtime\qsinit.ord ..\runtime\start.ord
+..\..\hc\inc\seldesc.inc ..\..\hc\inc\qsconst.inc
+..\..\hc\inc\cpudef.inc  ..\..\init\inc\qsinit.inc
+..\..\hc\inc\pci.inc     ..\..\hc\inc\pagedesc.inc
+..\hc\inc\qschain.inc
+start.c misc\trapscrn.c main\diskio.c misc\clibio.c
+loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
+main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
+misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c misc\timer.asm
+cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
+misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
+loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
+main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp
+
+[make_footer]
+MAKEDIRS : $(bld_dir).dir $(outdir).dir
+    @echo Building $(name)...
+
+nolink : $(**dir) $(**ord) $(**inc) @@wait $(**c) $(**cpp) $(**asm)
+
+cmd\extcmd.cpp : cmd\zz.cpp cmd\mtrr.cpp cmd\shpci.cpp
+
+[&bldlevel]
+@#QS:$(vershort).$(svnrev)#@  QSinit loader
+
+[&lnk]
+sys os2v2
+name $(outname)
+op redefsok
+file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
+file /[[$(**asm)! !,]]
+file %(appinit_lib)\bld\Common\init.obj
+#lib %(appinit_lib)\runtime.lib
+lib %(appinit_lib)\imp_st.lib
+lib %(WATCOM)\lib386\plib3s.lib
+op map=$(name).map
+sort global
+op quiet
+op el
+op vfr
+op internalrelocs
+op togglerelocs
+op nod
+op statics
+op st=32768
+op osname=%(QS_NAME)
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+anonymousexport=$(outdir)\$(name).lbc
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist *.h @del *.h
+if exist $(name).* @del $(name).*
+cd ..\..
+
+[config.0]
+*out=$(outname) | ..\runtime\$(name).ref nolink | \
+     @echo Linking ... | \
+     @ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
+     $(ld) @$(&lnk) | lxlite $(outname) >nul | \
+     @pkzip /add /max /silent /nozipextension /path=none \
+     %(QS_BIN)\%(QS_ARCH) sc\*.cmd | \
+     @pkzip /add /max /silent /nozipextension /path=none \
+     %(QS_BIN)\%(QS_ARCH) $(outname) | \
+     @pkzip /silent /hea=@$(&bldlevel) /nozipextension %(QS_BIN)\%(QS_ARCH) | \
+     @pkzip /add /max /silent /nozipextension /dir /rec \
+     %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*

@@ -1,0 +1,39 @@
+  Usage: 
+  inc2h.exe <.inc> [<.h>] [keys]
+
+   	/t  - use toolkit types (ULONG, USHORT, etc)
+   	/pX - add #pragma pack(x) 
+   	/rY - make typedef for all structs by adding prefix Y to name
+   	/k  - make typedef for all structs with suffix _s in name, by
+   	  replacing "_s" to "_t".
+          Example:
+
+          dce_s           struc
+          dce_flags       db ?
+          dce_gate        dw ?
+          dce_s           ends
+
+          struct dce_s {
+            unsigned char                 dce_flags;
+            unsigned short                 dce_gate;
+          };
+          typedef struct dce_s	dce_t;
+
+
+  Special lines in file:
+
+  ;cc string
+          ‘ string, just for adding to output file
+
+  ;cr string
+          ‘ string for adding instead of convertion of next line
+
+  ;ct string
+          replace variable/field type in next line
+          Example:
+
+          ;ct struct ljmp_s*
+          ljmp_pljmp      dd ?
+
+          struct ljmp_s*               ljmp_pljmp;
+
