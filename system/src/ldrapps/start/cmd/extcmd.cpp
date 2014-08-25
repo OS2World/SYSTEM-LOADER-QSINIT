@@ -34,6 +34,7 @@ void cmd_shellerr(int errorcode, const char *prefix) {
       case EEXIST : printf("A duplicate file name exists. \n"); break;
       case EMFILE : printf("Too many open files. \n"); break;
       case ENOTBLK: printf("Block device required. \n"); break;
+      case EFAULT : printf("Memory access error.\n"); break;
       case ENAMETOOLONG : printf("File name too long. \n"); break;
       case EINTR  : break;
       default:
@@ -688,6 +689,22 @@ u32t _std shl_mkdir(const char *cmd, str_list *args) {
    return rc;
 }
 
+/// internal chdir for CD / PUSHD / POPD commands
+static int chdir_int(const char *path) {
+   char *fp = _fullpath(0, path, 0);
+   spstr pstr(fp);
+   free(fp);
+   int rc = chdir(pstr());
+   if (rc) rc = get_errno();
+
+   if (!rc && pstr[1]==':') {
+      char disk = toupper(pstr[0]);
+      if (disk>='A'&&disk<='Z') disk+='0'-'A';
+      hlp_chdisk(disk - '0');
+   }
+   return rc;
+}
+
 u32t _std shl_chdir(const char *cmd, str_list *args) {
    int rc=-1;
    TPtrStrings al;
@@ -698,16 +715,7 @@ u32t _std shl_chdir(const char *cmd, str_list *args) {
    // process
    al.TrimEmptyLines();
    if (al.Count()>=1) {
-      char *fp = _fullpath(0,al[0](),0);
-      al[0] = fp;
-      free(fp);
-      chdir(al[0]());
-      rc = get_errno();
-      if (rc==EZERO && al[0][1]==':') {
-         char disk = toupper(al[0][0]);
-         if (disk>='A'&&disk<='Z') disk+='0'-'A';
-         hlp_chdisk(disk - '0');
-      }
+      rc = chdir_int(al[0]());
    } else {
       printf("%s\n",hlp_curdir(hlp_curdisk()));
       rc = EZERO;
@@ -1755,6 +1763,74 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
    return rc;
 }
 
+// free pushd stack
+void pushd_free(void* lptr) {
+   if (lptr) delete (TStrings*)lptr;
+}
+
+u32t _std shl_pushd(const char *cmd, str_list *args) {
+   int quiet=0, rc=-1;
+   TPtrStrings al;
+
+   if (args->count>0) {
+      str_getstrs(args,al);
+      // is help?
+      int idx = al.IndexOf("/?");
+      if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
+      idx = al.IndexOfName("/q");
+      if (idx>=0) { quiet=1; al.Delete(idx); }
+   }
+   if (al.Count()<=1) {
+      process_context *pq = mod_context();
+      // GS register damaged?
+      if (!pq) rc = EFAULT; else {
+         char cd[NAME_MAX+1];
+         TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
+         if (!pdlist) pdlist = new TStrings;
+
+         getcwd(cd, NAME_MAX+1);
+         pdlist->Add(cd);
+         pq->rtbuf[RTBUF_PUSHDST] = (u32t)pdlist;
+         
+         if (al.Count()==1) rc = chdir_int(al[0]());
+         if (rc<0) rc = 0;
+      }
+   }
+   if (quiet) return rc;
+   if (rc<0) rc = EINVAL;
+   if (rc) cmd_shellerr(rc,0);
+   return 0;
+}
+
+u32t _std shl_popd(const char *cmd, str_list *args) {
+   int quiet=0, rc=-1;
+
+   if (args->count>0) {
+      TPtrStrings al;
+      str_getstrs(args,al);
+      // is help?
+      int idx = al.IndexOf("/?");
+      if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
+      idx = al.IndexOfName("/q");
+      if (idx>=0) { quiet=1; al.Delete(idx); }
+   }
+   // get PUSHD stack from process context data
+   process_context *pq = mod_context();
+   // GS register damaged?
+   if (!pq) rc = EFAULT; else {
+      TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
+      if (pdlist)
+         if (pdlist->Count()) {
+            rc = chdir_int((*pdlist)[pdlist->Max()]());
+            pdlist->Delete(pdlist->Max());
+         }
+      if (rc<0) rc = 0;
+   }
+   if (quiet) return rc;
+   if (rc<0) rc = EINVAL;
+   if (rc) cmd_shellerr(rc,0);
+   return 0;
+}
 
 #include "zz.cpp"
 #include "mtrr.cpp"
@@ -1793,6 +1869,9 @@ void setup_shell(void) {
    cmd_shelladd("MODE"   , shl_mode   );
    cmd_shelladd("LOG"    , shl_log    );
    cmd_shelladd("ATTRIB" , shl_attrib );
+   cmd_shelladd("PUSHD"  , shl_pushd  );
+   cmd_shelladd("POPD"   , shl_popd   );
+   
    // install MODE SYS handler
    cmd_modeadd("SYS", shl_mode_sys);
    /* install stubs for pre-defined external commands */

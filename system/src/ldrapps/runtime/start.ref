@@ -357,6 +357,8 @@ exports = {
    _shl_mode         = { index =342  group = "shell"   format = "usp"   }
    _shl_log          = { index =343  group = "shell"   format = "usp"   }
    _shl_attrib       = { index =344  group = "shell"   format = "usp"   }
+   _shl_pushd        = { index =345  group = "shell"   format = "usp"   }
+   _shl_popd         = { index =346  group = "shell"   format = "usp"   }
 
    # log support
 
@@ -428,7 +430,7 @@ exports = {
                          expname = "__hlp_pcigetnext"
                        }
    _hlp_pciexist     = { index =370  group = "system"  format = "i*@u"  }
-   _hlp_memcpy       = { index =371  group = "system"  format = "pppu"  }
+   _hlp_memcpy       = { index =371  group = "system"  format = "pppui" }
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
    _hlp_setupmem     = { index =373  group = "system"  format = "@uu*up@u" }
    _hlp_memcprint    = { index =374  group = "system"  format = "vv"    }
@@ -473,10 +475,6 @@ exports = {
    _sys_gdtdump      = { index =384  group = "system"  format = "vv"    }
    _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
 
-   # time functions
-   _tm_getdate       = { index =390  group = "time"    format = "@uv"   }
-   _tm_setdate       = { index =391  group = "time"    format = "v@u"   }
-   _vio_beep         = { index =392  group = "vio"     format = "vhu"   }
-   _vio_beepactive   = { index =393  }
+   # time functions (390..393 was moved back to QSINIT)
    _clock            = { index =394  group = "time"    format = "qv"    }
 }

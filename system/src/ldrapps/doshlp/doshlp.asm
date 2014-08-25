@@ -714,7 +714,6 @@ GetMask         proc    near                                    ;
                 pushf                                           ; disable interrupts
                 cli                                             ;
                 xor     eax,eax                                 ;
-                not     eax                                     ; mask all 32 ints
                 in      al,PIC2_PORT1                           ; read PIC2
                 xchg    al,ah                                   ;
                 in      al,PIC1_PORT1                           ; read PIC1
@@ -1506,7 +1505,7 @@ CommonIRQRouter label   near                                    ;
                 xor     ebx,ebx                                 ;
                 mov     ax,ss                                   ; ss/esp fix:
                 CmpFlatDS CMPFLATDSTYPE                         ;
-                jz      @@cirq_jump                             ; check for different
+                jz      @@cirq_jump                             ; check for various
                 CmpFlatDS PUSHFLAT_PSSEL                        ; kernel stack
                 jz      @@cirq_jump                             ; selectors
                 CmpFlatDS PUSHFLAT_HSSEL                        ;
@@ -1520,6 +1519,8 @@ CommonIRQRouter label   near                                    ;
                 LDIrqB                                          ;
                 KJmp    IRQRouter                               ; go to kernel
 
+; Warp kernel router. Warp Server SMP router must be the same,
+; but with 16 bytes airq and not implemented now.
                 align   16
                 public  CommonIRQWarp                           ;
 CommonIRQWarp   label   near                                    ;
@@ -1528,7 +1529,7 @@ CommonIRQWarp   label   near                                    ;
                 xor     ebx,ebx                                 ;
                 mov     ax,ss                                   ; ss/esp fix:
                 CmpFlatDS CMPFLATDSTYPE                         ;
-                jz      @@cwirq_jump                            ; check for different
+                jz      @@cwirq_jump                            ; check for various
                 CmpFlatDS PUSHFLAT_PSSEL                        ; kernel stack
                 jz      @@cwirq_jump                            ; selectors
                 movzx   esp,sp                                  ;

@@ -83,28 +83,43 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
       return 0;
    }
    if (args->count>0) {
-      u32t ii, vt[DISK_COUNT];
+      static char *argstr   = "list|/v";
+      static short argval[] = { 1,   1};
+      int       list = 0, verbose = 0;
+      u32t         ii, vt[DISK_COUNT];
       disk_volume_data vi[DISK_COUNT];
       for (ii=0; ii<DISK_COUNT; ii++) vt[ii] = hlp_volinfo(ii, vi+ii);
 
-      if (stricmp(args->item[0],"list")==0) {
-         static char *fattype[4] = { " ??? ", "FAT12", "FAT16", "FAT32" };
+      str_parseargs(args, argstr, argval, &list, &verbose);
+
+      if (list) {
+         static char *fattype[4] = { "uncknown", "  FAT12 ", "  FAT16 ", "  FAT32 " };
+
+         cmd_printseq(0,1,0);
 
          for (ii=0; ii<DISK_COUNT; ii++)
             if (vi[ii].TotalSectors) {
-               char mntstr[128];
-               u32t    dsk = FFFF;
-               long    idx = dsk_volindex(ii,&dsk);
-               mntstr[0]   = 0; 
+               char  str[128];
+               u32t  dsk = FFFF;
+               long  idx = dsk_volindex(ii,&dsk);
+               str[0] = 0; 
 
-               if (idx>=0) {
-                  char *dn = dsk_disktostr(dsk,0);
-                  if (dn) sprintf(mntstr,"at %s.%d ",dn,idx);
+               if (verbose) {
+                  char *dn = dsk_disktostr(vi[ii].Disk,0), idxstr[8];
+                  itoa(idx, idxstr, 10);
+
+                  snprintf(str, 128, "(%08X) %-4s at %09LX, partition %s",
+                     vi[ii].TotalSectors, dn, vi[ii].StartSector,
+                        idx<0 ? "not matched" : idxstr);
+               } else {
+                  if (idx>=0) {
+                     char *dn = dsk_disktostr(dsk,0);
+                     if (dn) sprintf(str," at %s.%d ",dn,idx);
+                  }
                }
-               if (vt[ii]==FST_NOTMOUNTED) strcat(mntstr,"(uncknown FS)");
-
-               printf(" %c:/%c: %s %s  %s\n",'0'+ii,'A'+ii, fattype[vt[ii]],
-                  get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), mntstr);
+               if (shellprn(" %c:/%c: %s %s %s",'0'+ii,'A'+ii, fattype[vt[ii]],
+                  get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
+                     return EINTR;
             }
          return 0;
       }

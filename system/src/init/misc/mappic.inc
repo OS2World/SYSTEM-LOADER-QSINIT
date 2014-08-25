@@ -1,5 +1,5 @@
 
-_DATA           segment
+DATA16          segment
 ; PIC1 initialization sequence
 Pic1InitSeq     dw      PIC1_PORT0
                 db      ICW1_ICW + ICW1_ICW4_NEEDED
@@ -12,12 +12,12 @@ Pic2InitSeq     dw      PIC2_PORT0
                 db      PIC2_IRQ_NEW
                 db      PIC_SLAVE_IRQ
                 db      ICW4_8086_MODE
-_DATA           ends
+DATA16          ends
 
 
-_TEXT           segment
+TEXT16          segment
 remap_pic       proc    near
-                assume  cs:dgroup,ds:dgroup,es:nothing,ss:dgroup
+                assume  cs:G16, ds:G16, es:nothing, ss:G16
 
                 pushfd                                          ; disable interrupts
                 cli                                             ;
@@ -57,5 +57,5 @@ remap_pic       proc    near
                 out     dx,al                                   ;
                 ret                                             ;
 remap_pic       endp
-_TEXT           ends
+TEXT16          ends
 

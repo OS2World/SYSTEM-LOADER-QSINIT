@@ -36,6 +36,20 @@ unpack QSINIT.LDI to it.
 @defgroup CODE2 START source code
 @defgroup CODE3 BootOS2.exe source code
 @defgroup CODE4 PARTMGR source code
+@defgroup CODE5 CACHE source code
+
+
+@file qscache.h
+@ingroup CODE5
+CACHE module interface
+
+@file cache.c
+@ingroup CODE5
+CACHE module main file
+
+@file cproc.c 
+@ingroup CODE5
+Common caching code
 
 @file kload.h
 @ingroup CODE3
@@ -109,17 +123,6 @@ API: shell functions.
 @ingroup API2
 API: additional console functions.
 
-Some limits applied to command processing. For example, no support for quotes
-in program names:
-@code
-"bootos2.exe" OS2KRNL, 
-@endcode
-nested quotes in arguments:
-@code
-test.exe "("quoted text")" 
-@endcode
-and many other such "featured" things ;) 
-
 @file qsxcpt.h
 @ingroup API2
 API: exception handling.
@@ -133,6 +136,10 @@ See classes.hpp for detailed list desctiption.
 @file qspage.h
 @ingroup API2
 API: paging mode support
+
+@file qshm.h
+@ingroup API2
+API: hardware management functions
 
 @file qssys.h
 @ingroup API2
@@ -210,6 +217,10 @@ API: utils
 @file qsmod.h
 @ingroup API1
 API: module/process base functions 
+
+@file qsmodext.h
+@ingroup API2
+API: module/process additional functions 
 
 @file qslog.h
 @ingroup API1
@@ -351,7 +362,7 @@ cmd_shelladd() for more details.
 
 Shell commands can be called directly, from C code, without invoking command
 processor. Actually, cmd.exe is a stub, which implements only searching modules
-in path and determining it type.
+in path and determining its type.
 
 Embedded help is supported for all installed commands (and can easy be implemended 
 for a new ones by calling cmd_shellhelp()). Messages located in msg.ini file.
@@ -360,11 +371,11 @@ for a new ones by calling cmd_shellhelp()). Messages located in msg.ini file.
 There is one predefined environment variables:
 BOOTTYPE - current boot type. Values are: FAT, FSD, PXE and SINGLE. SINGLE
            mean FAT16/32 boot without OS/2 installed (detemined by absence of
-           OS2BOOT file in the root - QSINIT boot sector does not require it).
+           OS2BOOT file in the root - FAT16 OS2BOOT file required for IBM OS/2
+           loader only).
 
 Some other can be accessed from shell as part of SET command syntax: "%TIME%",
 "%DATE%", "%DBPORT%", etc.
-
 */
 
 /** @page pg_screen Screen and keyboard access.
@@ -542,22 +553,29 @@ address. Catched violation will produce INT 1 exception.
 /** @page pg_common Common topics.
 
 @section comm_addrspace Address space
-Address space is not physical-zero based. Actually zero of FLAT selectors
-placed at 9100 or 9000 real mode segment (may be a much lower on PXE boot).
+Address space is physical-zero based. In previous versions of QSINIT it was
+non-zero based, and actually zero of FLAT selectors was placed at 9100 or 
+9000 real mode segment (may be a much lower on PXE boot).
+
+But now FLAT is classic zero-based, with linear==physical mapping.
+
+BUT! To use any memory above the end of RAM in first 4GBs (call sys_endofram()
+to query it) - pag_physmap() MUST be used. This is the only way to preserve
+access to this memory when QSINIT will be switched to PAE paging mode 
+(can occur at any time by single API call).
 
 In safe mode (left shift was pressed on start) - all 4GBs are writable,
 including address 0. In normal mode - first page is placed beyond of segment
 limit and writing to offset 0...4095 of FLAT address space will cause GPF.
 
-Reading from first page is possible in any mode, but at least first 512 bytes
-of FLAT space filled with "int 3" call - which will shows trap screen if code
-make a jump to it.
+Reading from first page is possible in any mode.
 
 @section comm_paemode PAE paging mode
 
 QSINIT can be switched to PAE paging mode to get access to memory above 4Gb
 limit. This can be done by pag_enable() API function or "mode sys pae" shell
-command.
+command. Switching is permanent, returning back to non-paged mode is not
+possible.
 
 In this mode QSINIT itself still operates in "FLAT" mode, without using
 of page mapping. I.e. entire PC RAM below 4Gb is directly mapped "one-in-one",
@@ -567,9 +585,9 @@ But new option available: possibility of mapping physical memory above the end
 RAM in first 4th GBs / above 4GB limit.
 
 @section comm_stack Using stack
-First (binary) part of QSINIT loader partially designed in TINY 16 bit model
-and assume DS==ES==SS way of living. Real mode call helpers like hlp_rmcall()
-are always switch to this stack duaring call.
+Real mode part of QSINIT designed in TINY 16 bit model and assume DS==ES==SS
+way of living. Real mode call helpers like hlp_rmcall() are always switch 
+to its stack duaring call.
 
 The size of this stack is printed to log before "start" module init: 
 <b>"stack for rm calls: xx bytes"</b>. It vary on size from build to build
@@ -716,8 +734,11 @@ Contain:
 @li ini files support (ldrini.cpp)
 @li shell functions (shell.cpp)
 @li exportable to C "classes" support (exi.cpp) and lists based on it.
+@li final PC memory parsing code (meminit.cpp). Initial code located in QSINIT binary.
+@li PAE paging management (pages.c)
+and many other ...
 
-@section sec_boot Boot process
+@section sec_boot Boot process (outdated!)
 
 @subsection sec_bootstep1 Step 1: QSINIT module
 @li QSINIT (named as OS2LDR) loaded by micro-FSD code or FAT boot

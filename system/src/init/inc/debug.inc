@@ -7,25 +7,16 @@
 ; * 32 bit in print.c 
 ;
 
-HICODE          segment                                         ;
+TEXT16          segment
                 extrn   _printf16:near                          ; 
-HICODE          ends                                            ;
-
-_TEXT           segment
 ifndef NOSTORSAVE                                               ;
                 extrn   sto_save_w:near                         ; 
 endif                                                           ;
-_TEXT           ends
+TEXT16          ends
 
-_CODE32         segment                                         ;
+_TEXT           segment                                         ;
                 extrn   _log_it:near                            ;
-_CODE32         ends                                            ;
-
-ifndef NOSELDATA
-_BSS            segment                                         ;
-                extrn   SELDATA32:word                          ;
-_BSS            ends                                            ;
-endif
+_TEXT           ends                                            ;
 
 ;
 ; save named dword value into storage (qsstor.h)
@@ -56,14 +47,14 @@ Done:
 dbg16print      macro   FmtStr,args                             ; do not need to save regs here
                 local   FmtString, StackPtr, BeginPar           ; because _printf16 preserve all
 ifdef INITDEBUG                                                 ;
-                BSS     segment
+                _BSS16  segment
 StackPtr:       
                 dd      0                                       ;
-                BSS     ends
-                _DATA   segment
+                _BSS16  ends
+                DATA16  segment
 FmtString:      
                 db      &FmtStr,0                               ; format string
-                _DATA   ends
+                DATA16  ends
 
                 mov     dword ptr ss:[StackPtr],esp             ; saving stack
                 irp y,<args>                                    ; pushing args
@@ -84,9 +75,10 @@ ifdef DEBUG                                                     ;
                 pushad                                          ;
                 push    ds                                      ;
                 push    es                                      ;
-                mov     ds,cs:SELDATA32                         ; setup segments for C code
-                mov     es,cs:SELDATA32                         ;
-                mov     dword ptr ss:[StackPtr],esp             ; saveing stack
+                push    SEL32DATA                               ;
+                mov     es,[esp]                                ;
+                pop     ds                                      ; FLAT DS/ES
+                mov     dword ptr ss:[StackPtr],esp             ; saving stack
                 jmp     BeginPar                                ;
 StackPtr:       
                 dd      0                                       ;

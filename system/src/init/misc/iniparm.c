@@ -2,9 +2,6 @@
 // QSINIT
 // critical ini parameters read
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "clib.h"
 #include "qsutil.h"
 #include "qsint.h"

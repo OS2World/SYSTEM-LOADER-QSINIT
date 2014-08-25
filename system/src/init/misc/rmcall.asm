@@ -5,42 +5,37 @@
                 include inc/segdef.inc
                 include inc/qstypes.inc
                 include inc/filetab.inc                         ;
-                include inc/dpmi.inc
+                include inc/dpmi.inc                            ;
                 include inc/debug.inc
 
                 .486
 
+                extrn   _rm_regs:rmcallregs_s
+                extrn   _filetable:filetable_s                  ;
+                extrn   _stack16_pos:word                       ;
+                extrn   _rm16code:word                          ;
+                extrn   _qs16base:dword                         ;
+                extrn   sector_io:far                           ;
+                extrn   panic_initpm_np:near                    ;
+                extrn   _mfsd_openname:byte                     ;
+                extrn   _mfsd_fsize:dword                       ;
+                extrn   _rmpart_size:word                       ;
+
 _BSS            segment                                         ;
-                extrn   _rm_regs:rmcallregs_s                   ; real mode call regs
 save_edi        dd      ?                                       ;
 save_esi        dd      ?                                       ; regs storage
 save_ebp        dd      ?                                       ;
 save_ebx        dd      ?                                       ;
 save_ret        dd      ?                                       ;
 save_ret2       dd      ?                                       ;
-                extrn   save32_esp:dword                        ;
-                extrn   _rm16code:word                          ;
 _BSS            ends                                            ;
-
-STARTBSS        segment                                         ;
-                extrn   _filetable:filetable_s                  ;
-STARTBSS        ends                                            ;
-
-_TEXT           segment                                         ;
-                extrn   sector_io:far                           ;
-_TEXT           ends                                            ;
-
-INITCODE        segment
-                extrn   panic_initpm_np:near                    ;
-INITCODE        ends
 
 _DATA           segment                                         ;
 rmcall32ax      dw      0301h                                   ; dpmi func for rmcall
 _DATA           ends                                            ;
 
-
-CODE32          segment
-                assume  cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP
+_TEXT           segment
+                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
                 extrn   _log_flush:near                         ;
                 extrn   _key_filter:near                        ;
@@ -58,13 +53,10 @@ rmcall32:
                 mov     dword ptr [edi+rmcallregs_s.r_fs],eax   ;
                 mov     ax,_rm16code                            ;
                 mov     [edi+rmcallregs_s.r_ds],ax              ; set ds to 9100h
+                mov     [edi+rmcallregs_s.r_es],ax              ;
                 mov     [edi+rmcallregs_s.r_ss],ax              ; set ss:sp to own stack,
-                mov     eax,esp                                 ; but reserve 100h for DPMI
-                test    eax, 0FFFF0000h                         ;
-                jz      @@rmc32_goodstack                       ; if we are called with other stack,
-                mov     eax,save32_esp                          ; use saved pointer from 1st exec
-@@rmc32_goodstack:                                              ;
-                sub     eax,100h
+
+                mov     ax,_stack16_pos                         ; use saved pointer
                 mov     [edi+rmcallregs_s.r_sp],ax              ; the reason is a tiny model
                                                                 ; of 16 bit code (ss=ds)
                 mov     dword ptr [edi+rmcallregs_s.r_ip],edx   ; cs:ip
@@ -103,24 +95,45 @@ rmcall32:
                 popf                                            ;
                 ret                                             ; return to caller
 
-;u16t __cdecl mfs_open(char *name, u32t *retsize);
+; convert edx to seg:ofs but panic if it not in 16-bit segments
+make_rmaddr     label   near                                    ;
+                sub     edx,_qs16base                           ;
+                push    ebx                                     ;
+                mov     ebx,0FFFF0000h                          ;
+                add     ebx,edx                                 ;
+                into                                            ; YES! now i used it ;)
+                mov     bx,_rm16code                            ; it will make trap 4 on wrong addr
+                shl     ebx,16                                  ;
+                or      edx,ebx                                 ;
+                pop     ebx                                     ;
+                ret                                             ;
+
+;u16t _std mfs_open(void);
                 public  _mfs_open                               ;
-_mfs_open       label   near                                    ; save 9100 to seg part
-                mov     ax,_rm16code                            ; of pushed addreses
-                mov     [esp+6],ax                              ; both must be in DGROUP
-                mov     [esp+10],ax                             ; to make such hack ;)
+_mfs_open       label   near                                    ;
+                mov     edx,offset _mfsd_fsize                  ;
+                call    make_rmaddr                             ;
+                push    edx                                     ;
+                mov     edx,offset _mfsd_openname               ;
+                call    make_rmaddr                             ;
+                push    edx                                     ;
                 mov     ecx,4                                   ;
                 mov     edx,_filetable.ft_muOpen                ; function ptr
-                jmp     rmcall32                                ;
+                call    rmcall32                                ;
+                add     esp,8                                   ;
+                ret
 
-;u16t __cdecl strm_open(char *name);
+;u16t _std strm_open(void);
                 public  _strm_open                              ;
-_strm_open      label   near                                    ; save 9100 to seg part
-                mov     ax,_rm16code                            ; of pushed address
-                mov     [esp+6],ax                              ; (the same as above)
+_strm_open      label   near                                    ;
+                mov     edx,offset _mfsd_openname               ;
+                call    make_rmaddr                             ;
+                push    edx                                     ;
                 mov     ecx,2                                   ;
                 mov     edx,_filetable.ft_resofs                ; function ptr
-                jmp     rmcall32                                ;
+                call    rmcall32                                ;
+                add     esp,4                                   ;
+                ret
 
 ;u32t __cdecl mfs_read(u32t offset, u32t buf, u32t readsize);
                 public  _mfs_read                               ;
@@ -153,13 +166,26 @@ _mfs_term       label   near                                    ;
 ;u32t __cdecl hlp_rmcall(u32t rmfunc,u32t dwcopy,...);
                 public  _hlp_rmcall                             ;
 _hlp_rmcall     label   near                                    ;
-                pop     save_ret2                               ; if segment addr
-                pop     edx                                     ; is 0 - replace it
-                mov     ax,_rm16code                            ; with qsinit rm seg
-                shld    eax,edx,16                              ;
-                or      ax,ax                                   ;
-                jnz     @@hrmc_ext                              ;
-                or      edx,eax                                 ;
+                pop     save_ret2                               ;
+                pop     edx                                     ;
+                cmp     edx,0A0000h                             ; value < A0000?
+                jnc     @@hrmc_ext                              ;
+                mov     ecx,_qs16base                           ; hack, used for compat.
+                cmp     edx,ecx                                 ; with QSINITs <rev 281
+                jc      @@hrmc_cvt                              ;
+                movzx   eax,_rmpart_size                        ; if addr < A0000 is in
+                add     ecx,eax                                 ; the our`s 16-bit obj
+                cmp     edx,ecx                                 ; boundaries - we just
+                jnc     @@hrmc_cvt                              ; set for it our CS
+                sub     edx,_qs16base                           ;
+                mov     cx,_rm16code                            ;
+                shl     ecx,16                                  ;
+                or      edx,ecx                                 ;
+                jmp     @@hrmc_ext                              ;
+@@hrmc_cvt:
+                bswap   edx                                     ; make it far ptr in
+                shr     dx,4                                    ; simple way
+                bswap   edx                                     ;
 @@hrmc_ext:
                 pop     ecx                                     ;
                 call    rmcall32                                ;
@@ -171,16 +197,16 @@ _hlp_rmcall     label   near                                    ;
 _raw_io         label   near                                    ;
                 pop     eax                                     ; return addr
                 mov     edx,offset _rm_regs                     ;
-                pop     [edx+rmcallregs_s.r_esi]                ; pop esi (must be in DGROUP!)
+                pop     ecx                                     ;
+                sub     ecx,_qs16base                           ; pop esi (must be in DGROUP!)
+                mov     [edx+rmcallregs_s.r_esi],ecx            ;
                 pop     [edx+rmcallregs_s.r_eax]                ; pop edx:eax
                 pop     [edx+rmcallregs_s.r_edx]                ; start sector
                 pop     [edx+rmcallregs_s.r_ecx]                ; number of sectors
                 pop     [edx+rmcallregs_s.r_ebx]                ; write flag
                 push    eax                                     ; return addr
-
-                mov     dx,_rm16code                            ; setup addr
-                shl     edx,16                                  ;
-                mov     dx,offset sector_io                     ;
+                mov     edx,offset sector_io                    ;
+                call    make_rmaddr                             ; setup addr
                 xor     ecx,ecx                                 ;
                 call    rmcall32                                ;
                 setc    al                                      ; set al to 1 if failed
@@ -298,10 +324,9 @@ rmstop          label   near                                    ; exit to rm
                 mov     [edx+rmcallregs_s.r_eax], ebx           ;
                 mov     [edx+rmcallregs_s.r_edx], eax           ;
                 xor     ecx,ecx                                 ;
-                mov     dx,_rm16code                            ; setup addr
-                shl     edx,16                                  ;
-                mov     dx,offset panic_initpm_np               ;
+                mov     edx,offset panic_initpm_np              ; setup addr
+                call    make_rmaddr                             ;
                 call    rmcall32                                ; never return
 
-CODE32          ends
+_TEXT           ends
                 end

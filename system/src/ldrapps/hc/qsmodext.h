@@ -51,16 +51,15 @@ typedef struct mod_chaininfo_s {
     initialized by zero before entry call. Be careful - it shared by all hooks,
     installed for this function!
 
-    Exit chain is a harder choice. It cannot be used if called function
-    changes ebp register and it can, theoretically, exhaust internal stack of
-    128 recursive calls if exception occured in called function and catched in
-    caller.
+    Exit chain is a harder choice. It cannot be used if callee changes ebp
+    register and it can, theoretically, exhaust internal stack of 128 recursive
+    calls if exception occured in callee function and catched in caller.
     Also, do not set it on mod_exec() ;) because it recusive in fact (every
     module execute mod_exec() until child`s exit).
     Stack exhaustion will cause stop exit chain calling for this ordinal and
-    produce warning message in log on every call.
+    produce warning message to log on every call.
 
-    By default entry/exit hook appending to the end of chain list for this
+    By default entry/exit hook appends to the end of chain list for this
     function. APICN_FIRSTPOS can be added to mod_apichain() "chaintype" arg
     to insert function to the first pos.
     Entry/exit hooks used by tracing. To cooperate with it all exit chains

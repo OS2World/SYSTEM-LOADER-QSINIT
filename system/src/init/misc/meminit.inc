@@ -17,18 +17,18 @@ LengthHigh      dd      ?
 AcpiMemType     dd      ?
 AcpiInfo        ends
 
-_BSS            segment
+_BSS16          segment
 _AcpiMemCnt     dw      ?                                       ;
 _Int1588Mem     dw      ?                                       ;
 _Int15E8Mem     dw      ?                                       ;
                 public  _AcpiInfoBuf, _AcpiMemCnt               ;
                 public  _Int1588Mem, _Int15E8Mem                ;
 _AcpiInfoBuf    db (ACPI_MEMTABLE_SIZE*SIZE AcpiInfo) dup (?)   ; int 15-E820 memory info
-_BSS            ends
+_BSS16          ends
 
-_TEXT           segment
+TEXT16          segment
 init_memory     proc    near
-                assume  cs:dgroup,ds:dgroup,es:dgroup,ss:dgroup
+                assume  cs:G16, ds:G16, es:G16, ss:G16
 
                 push    ds
                 pop     es
@@ -87,7 +87,7 @@ init_memory     endp
 
 ; do not save nothing, called via DPMI only, saving result to disk i/o buffer
                 public  _getfullSMAP                            ;
-                assume  cs:_TEXT,ds:nothing,es:nothing,ss:DGROUP;
+                assume  cs:G16, ds:nothing, es:nothing, ss:G16  ;
 _getfullSMAP    proc    far                                     ;
                 xor     ebx, ebx                                ;
                 mov     es, cs:_DiskBufRM_Seg                   ;
@@ -108,5 +108,5 @@ _getfullSMAP    proc    far                                     ;
                 ret                                             ;
 _getfullSMAP    endp                                            ;
 
-_TEXT           ends
+TEXT16          ends
 

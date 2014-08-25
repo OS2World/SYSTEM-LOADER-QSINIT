@@ -7,35 +7,40 @@
                 include inc/qsinit.inc
                 include inc/qstypes.inc
 
+_B8000          equ     0B8000h
+
 _DATA           segment
-                extrn   _B8000:dword
-                extrn   __0400:dword
-                public  _text_col, _max_x, _max_y
-_pagesize       dw      0
-_max_x          dw      80
-_max_y          dw      25
-cursor_x        dw      0
-cursor_y        dw      0
-_text_col       dw      07h
-crt_port        dw      3D4h
-shape           dw      0
-tabstr          db      "    ",0
+                public  _text_col, _max_x, _max_y, _page0_fptr  ;
+_pagesize       dw      0                                       ;
+_max_x          dw      80                                      ;
+_max_y          dw      25                                      ;
+cursor_x        dw      0                                       ;
+cursor_y        dw      0                                       ;
+_text_col       dw      07h                                     ;
+crt_port        dw      3D4h                                    ;
+shape           dw      0                                       ;
+tabstr          db      "    ",0                                ;
+; in non-paged mode FLAT DS have no 0 page.
+; in paged mode, no 0 page in page table, it mapped separately.
+; so, this is a page 0 access far32 pointer for moment of use,
+; this value updated by START module when it turns on PAE
+_page0_fptr     dd      0                                       ;
+                dd      SELZERO                                 ;
 _DATA           ends
 
-
 _TEXT           segment
-                assume  cs:DGROUP,ds:DGROUP,es:DGROUP,ss:DGROUP
-;
+                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT      ;
+
 ; initialize text output
 ;----------------------------------------------------------------
 ;
                 public  vio_init
 vio_init        proc    near                                    ;
-                SaveReg <ax,bx,dx,gs>                           ; preserve registers
-                mov     bx, SELZERO                             ; gs:FLAT
-                mov     gs, bx                                  ;
-                mov     bx, gs:[463h]                           ; Controller index register
-                mov     crt_port, bx                            ;
+                SaveReg <ax,dx,gs>                              ; preserve registers
+                mov     ax, SELZERO                             ;
+                mov     gs, ax                                  ;
+                mov     ax, gs:[463h]                           ; Controller index register
+                mov     crt_port, ax                            ;
                 mov     dl, gs:[484h]                           ;
                 inc     dl                                      ; lines number
                 mov     byte ptr _max_y, dl                     ;
@@ -49,27 +54,9 @@ vio_init        proc    near                                    ;
                 mov     byte ptr cursor_y, ah                   ;
                 mov     ax, gs:[460h]                           ; cursor shape
                 mov     shape, ax                               ;
-                RestReg <gs,dx,bx,ax>                           ;
+                RestReg <gs,dx,ax>                              ;
                 ret                                             ;
 vio_init        endp
-
-                public  vio_charout16
-vio_charout16   proc    near                                    ;
-                push    ds                                      ;
-                push    es                                      ;
-                mov     dx,SEL32DATA                            ;
-                mov     es,dx                                   ; setup ds, es
-                mov     ds,dx                                   ; but leave original ss
-                CallF32w SEL32CODE, vio_charoutf                ; (it must be flat or
-                pop     es                                      ;  QS init ss)
-                pop     ds                                      ;
-                ret                                             ;
-vio_charout16   endp
-
-_TEXT           ends
-
-CODE32          segment
-                assume  cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP
 
 ;
 ; fini text output
@@ -77,11 +64,14 @@ CODE32          segment
 ; return current line/col in ax
                 public  vio_done
 vio_done        proc    near
-                push    ebx                                     ;
-                mov     ebx, __0400                             ;
                 mov     al, byte ptr cursor_x                   ; update cursor pos
                 mov     ah, byte ptr cursor_y                   ;
-                mov     [ebx+50h], ax                           ;
+
+                push    ebx                                     ;
+                push    es                                      ;
+                les     ebx,_page0_fptr                         ;
+                mov     es:[ebx+450h], ax                       ;
+                pop     es                                      ;
                 pop     ebx                                     ;
                 ret                                             ;
 vio_done        endp
@@ -209,22 +199,22 @@ vio_strout      endp                                            ;
 ;----------------------------------------------------------------
                 public  _vio_updateinfo
 _vio_updateinfo proc    near                                    ;
-                SaveReg <eax,ebx>                               ;
-                mov     ebx, __0400                             ;
-                mov     dl, [ebx+84h]                           ;
+                SaveReg <eax,ebx,gs>                            ;
+                lgs     ebx, _page0_fptr                        ;
+                mov     dl, gs:[ebx+484h]                       ;
                 inc     dl                                      ; lines number
                 mov     byte ptr _max_y, dl                     ;
-                mov     ax, [ebx+4Ah]                           ; columns number
+                mov     ax, gs:[ebx+44Ah]                       ; columns number
                 mov     _max_x, ax                              ;
                 mul     dl                                      ;
                 shl     ax, 1                                   ;
                 mov     _pagesize, ax                           ;
-                mov     ax, [ebx+50h]                           ; current position for page 0
+                mov     ax, gs:[ebx+450h]                       ; current position for page 0
                 mov     byte ptr cursor_x, al                   ;
                 mov     byte ptr cursor_y, ah                   ;
-                mov     ax, [ebx+60h]                           ; cursor shape
+                mov     ax, gs:[ebx+460h]                       ; cursor shape
                 mov     shape, ax                               ;
-                RestReg <ebx,eax>                               ;
+                RestReg <gs,ebx,eax>                            ;
                 ret                                             ;
 _vio_updateinfo endp
 
@@ -288,7 +278,7 @@ vio_setpos      endp                                            ;
 ;----------------------------------------------------------------
 ; IN:  cursor_x, cursor_y
 setpos          proc    near                                    ;
-                SaveReg <eax,ebx,edx>                           ;
+                SaveReg <eax,ebx,edx,gs>                        ;
                 mov     ax, cursor_y                            ;
                 mul     _max_x                                  ;
                 add     ax, cursor_x                            ;
@@ -299,11 +289,11 @@ setpos          proc    near                                    ;
                 inc     al                                      ;
                 mov     ah, bl                                  ;
                 out     dx, ax                                  ;
-                mov     edx, __0400                             ; update BIOS pos
+                lgs     edx, _page0_fptr                        ; update BIOS pos
                 mov     al, byte ptr cursor_x                   ;
                 mov     ah, byte ptr cursor_y                   ;
-                mov     [edx+50h], ax                           ;
-                RestReg <edx,ebx,eax>                           ;
+                mov     gs:[edx+450h], ax                       ;
+                RestReg <gs,edx,ebx,eax>                        ;
                 ret                                             ;
 setpos          endp                                            ;
 ;
@@ -321,9 +311,9 @@ _vio_setshape   label   near                                    ;
                 add     esp, 8                                  ; fix stack ptr
 vio_setshape    proc    near                                    ;
                 mov     shape, ax                               ; save current shape
-                SaveReg <eax,ebx,edx>                           ;
-                mov     ebx, __0400                             ; save in bios data
-                mov     [ebx+60h], ax                           ;
+                SaveReg <eax,ebx,edx,gs>                        ;
+                lgs     ebx, _page0_fptr                        ; save in bios data
+                mov     gs:[ebx+460h], ax                       ;
                 mov     bl, al                                  ;
                 mov     al, 0Ah                                 ;
                 mov     dx, crt_port                            ;
@@ -331,7 +321,7 @@ vio_setshape    proc    near                                    ;
                 inc     al                                      ;
                 mov     ah, bl                                  ;
                 out     dx, ax                                  ;
-                RestReg <edx,ebx,eax>                           ;
+                RestReg <gs,edx,ebx,eax>                        ;
                 ret                                             ;
 vio_setshape    endp
 
@@ -354,8 +344,10 @@ _vio_defshape   proc    near                                    ;
                 sub     dl, 4                                   ;
                 jz      @@vdshape_hide                          ;
                 jnc     @@vdshape_exit                          ; > VIO_SHAPE_NONE
-                mov     ecx, __0400                             ;
-                mov     al, [ecx+85h]                           ;
+                push    gs                                      ;
+                lgs     ecx, _page0_fptr                        ;
+                mov     al, gs:[ecx+485h]                       ;
+                pop     gs                                      ;
                 cmp     al, 11h                                 ;
                 jc      @@vdshape_fix                           ; fix wrong value
                 mov     al, 10h                                 ;
@@ -406,5 +398,5 @@ _vio_getpos     proc    near                                    ;
                 ret     8
 _vio_getpos     endp
 
-CODE32          ends
+_TEXT           ends
                 end

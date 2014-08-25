@@ -302,7 +302,7 @@ u32t  _std hlp_selsetup(u16t selector, u32t base, u32t limit, u32t type);
 #define QSEL_CODE    0x001    ///< code selector, else data
 #define QSEL_16BIT   0x002    ///< selector is 16 bit
 #define QSEL_BYTES   0x004    ///< limit in bytes, not pages
-#define QSEL_LINEAR  0x008    ///< base is current FLAT address, not physical
+#define QSEL_LINEAR  0x008    ///< base is FLAT address, not physical (obsolette, ignored)
 #define QSEL_R3      0x010    ///< ring 3
 //@}
 
@@ -329,10 +329,7 @@ u32t  _std hlp_selfree(u32t selector);
 u32t  _std hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length);
 
 /** convert real mode segment to flat address.
-    QSINIT FLAT space is not zero-based!
-
-    You can get FLAT address of physical 0 by call hlp_segtoflat(0), and
-    assume this difference for entire memory (in non-paging mode only!).
+    QSINIT FLAT space is zero-based since version 0.12 (rev.281).
 
     BUT! To use any memory above the end of RAM in first 4GBs (call
     sys_endofram() to query it) - pag_physmap() MUST be used. This is the
@@ -347,7 +344,8 @@ u32t  _std hlp_segtoflat(u16t Segment);
 #define hlp_rmtopm(x) (hlp_segtoflat((u32t)(x)>>16) + (u16t)x)
 
 /** real mode function call with arguments.
-    @param rmfunc  16 bit far pointer, if seg is 0 - qsinit seg assumed!
+    @param rmfunc  16 bit far pointer / FLAT addr,
+                   if high word (segment) < 10, then this is FLAT addr in first 640k
     @param dwcopy  Number of words to copy to real mode stack.
     @param ...     Whose arguments. Be careful with 32bit push and 16bit args! ;)
 

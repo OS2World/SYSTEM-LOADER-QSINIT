@@ -315,6 +315,10 @@ int _std mod_startcb(process_context *pq) {
 
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    fcloseall();
+   if (pq->rtbuf[RTBUF_PUSHDST]) {
+      pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]); 
+      pq->rtbuf[RTBUF_PUSHDST] = 0;
+   }
    if (!memCheckMgr()) {
       vio_clearscr();
       vio_setcolor(VIO_COLOR_LRED);
@@ -347,10 +351,8 @@ void setup_loader(void) {
    mod_secondary=&table;
    // flush log first time
    log_flush();
-   log_printf("setup_loader done\n");
    // minor print
    log_printf("i/o delay value: %d\n",IODelay);
-   log_printf("zero is %X\n",-(long)hlp_segtoflat(0)>>PARASHIFT);
 
    /* because process context is a CONSTANT value for all processes (it swapped
       on start/exit) - we just replace fake stdin/stdout/stderr exports to

@@ -3,7 +3,7 @@
 ; raw disk info & read/write
 ; ---------------------------------------------------------------
 ; * must be placed in discardable part of doshlp (for readbuf_ptr usage)
-; * was shard with QSINIT until rev 268
+; * was shared with QSINIT until rev 268
 ;
                 include inc/qstypes.inc                         ;
                 include inc/segdef.inc                          ; segments

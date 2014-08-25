@@ -17,11 +17,11 @@
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DATA
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
-SYSSELECTORS    = 9                                             ; number of system selectors in GDT
+SYSSELECTORS    = 7                                             ; number of system selectors in GDT
 
 off             equ     offset
 ; ----------------------------------------------------------------------------
-_BSS            segment
+_BSS16          segment
                 align 4
 codebase        dd      ?                                       ; PMODE_TEXT linear address
 pmstacklen      dd      ?                                       ; protected mode stack length in bytes
@@ -56,11 +56,11 @@ tempb7          db      ?                                       ;
                 extrn   _rm16code:word                          ; rm code segment
                 extrn   intrmatrix:byte                         ; int route table
                 extrn   _safeMode:byte                          ; safe mode is active
-_BSS            ends
+_BSS16          ends
 
-_DATA           segment
+DATA16          segment
                 align   4
-int3vector      dd      intrmatrix+3                            ; protected mode INT 3 vector
+int3vector      dd      offset intrmatrix+3                     ; protected mode INT 3 vector
                 dw      SELCODE
 
 _selzero        dw      SELZERO                                 ; for immediate segreg loading
@@ -107,10 +107,10 @@ int31routtbl    dw      int310900, int310901, int310902, int310000, int310001, i
                 dw      int310300, int310301, int310302, int310303, int310304, int310305, int310306
                 dw      int310400
 flatdsmode      dw      0D096h, 0DF92h
-_DATA           ends
+DATA16          ends
 ; ----------------------------------------------------------------------------
 PMODE_TEXT      segment
-assume          cs:DGROUP, ds:DGROUP
+                assume  cs:G16, ds:G16
 
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DETECT/INIT CODE
@@ -275,17 +275,17 @@ _pm_init        proc    near
                 mov     ds,ax                                   ;
                 mov     word ptr xr_pmtormsw_cs,ax              ;
 
-                xor     eax,eax
+                xor     eax,eax                                 ;
                 mov     ax,cs                                   ; set base addx of PMODE_TEXT
-                shl     eax,4
-                mov     codebase,eax
+                shl     eax,4                                   ;
+                mov     codebase,eax                            ;
 
                 call    enablea20                               ; enable A20
 
                 mov     ax,es                                   ; set IDT base address
-                movzx   ebx,ax
-                shl     ebx,4
-                mov     idtbase,ebx
+                movzx   ebx,ax                                  ;
+                shl     ebx,4                                   ;
+                mov     idtbase,ebx                             ;
 
                 movzx   bx,_pm_rmstacks                         ; set top and base of real mode stack
                 imul    bx,_pm_rmstacklen                       ; area for interrupt redirection
@@ -329,15 +329,15 @@ _pm_init        proc    near
 ;-----------------------------------------------------------------------------
                 mov     ax,es                                   ; set protected mode stack area base
                 movzx   eax,ax                                  ; for callbacks
-                shl     eax,4
-                mov     pmstackbase,eax
+                shl     eax,4                                   ;
+                mov     pmstackbase,eax                         ;
 
                 movzx   ecx,_pm_pmstacklen                      ; set protected mode stack area top
                 movzx   ebx,_pm_pmstacks                        ; for callbacks
-                shl     ecx,4
+                shl     ecx,4                                   ;
                 mov     pmstacklen,ecx                          ; protected mode stack size in bytes
-                imul    ebx,ecx
-                add     ebx,eax
+                imul    ebx,ecx                                 ;
+                add     ebx,eax                                 ;
                 mov     pmstacktop,ebx                          ; protected mode stack area top
 
                 mov     cl,_pm_callbacks                        ; CL = number of callbacks
@@ -346,7 +346,7 @@ _pm_init        proc    near
 
                 mov     callbackbase,ebx                        ; top of stacks is base of callbacks
                 shr     ebx,4                                   ; BX = seg of callback area
-                mov     callbackseg,bx
+                mov     callbackseg,bx                          ;
 
                 mov     es,bx                                   ; ES = seg of callback area
                 xor     di,di                                   ; location within callback seg
@@ -360,8 +360,8 @@ _pm_init        proc    near
                 mov     byte ptr es:[di+11],0B9h                ; MOV CX,? instruction
                 mov     word ptr es:[di+14],06866h              ; PUSH DWORD instruction
                 mov     byte ptr es:[di+20],0EAh                ; JMP FAR PTR ?:? intruction
-                mov     word ptr es:[di+21],off callback
-                mov     word ptr es:[di+23],ax
+                mov     word ptr es:[di+21],off callback        ;
+                mov     word ptr es:[di+23],ax                  ;
 
                 add     di,25                                   ; increment ptr to callback
                 dec     cl                                      ; decrement loop counter
@@ -380,7 +380,7 @@ _pm_init        proc    near
                 shl     eax,4
                 mov     gdtbase,eax
 
-                mov     cx,_pm_selectors                        ; set GDT limit
+                movzx   ecx,_pm_selectors                        ; set GDT limit
                 lea     ecx,[8*ecx+8*5+8*SYSSELECTORS-1]
                 mov     gdtlimit,cx
 
@@ -388,7 +388,7 @@ _pm_init        proc    near
                 inc     cx
                 shr     cx,1
                 xor     ax,ax
-                rep     stos word ptr es:[di]
+            rep stos    word ptr es:[di]
 
 @@vxr_initf1:
                 mov     word ptr es:[SELZERO],0FFFFh            ; set SELZERO descriptor
@@ -400,12 +400,12 @@ _pm_init        proc    near
                 mov     word ptr es:[SELREAL],0FFFFh            ; set real mode attributes descriptor
                 mov     word ptr es:[SELREAL+5],01092h
 
-                mov     ax,cs                                   ; set SELCODE32 and SELDATA32
-                mov     bx,SEL32CODE                            ; descriptors for cs-based FLAT
+                xor     ax,ax                                   ; set SELCODE32 and SELDATA32
+                mov     bx,SEL32CODE                            ; FLAT descriptors
                 mov     cx,0FFFFh                               ; 
                 mov     dx,0DF9Ah                               ;
                 call    vxr_initsetdsc                          ;
-                mov     ax,cs                                   ; normally creates expand down FLAT
+                xor     ax,ax                                   ; normally creates expand down FLAT
                 movzx   dx,_safeMode                            ; with one missing page at 0 address.
                 mov     cx,dx                                   ;
                 shl     dx,1                                    ;
@@ -425,8 +425,8 @@ _pm_init        proc    near
                 push    bx                                      ; store selector
 
                 mov     ax,ss                                   ; set caller SS descriptor
-                mov     dx,5092h
-                call    vxr_initsetdsc
+                mov     dx,5092h                                ;
+                call    vxr_initsetdsc                          ;
 
 ;-----------------------------------------------------------------------------
                 mov     cx,SELZERO                              ; CX = ES descriptor, SELZERO
@@ -434,8 +434,9 @@ _pm_init        proc    near
                 mov     ax,dx
 ;                mov     ax,SELZERO                              ; AX = DS descriptor, SELZERO
                 movzx   ebx,sp                                  ; EBX = SP, current SP - same stack
+                xor     edi,edi                                 ;
                 mov     si,SELCODE                              ; target CS is SELCODE, same segment
-                mov     edi,off @@vxr_initf2                    ; target EIP
+                mov     di,off @@vxr_initf2                     ; target EIP (16-bit fixup)
 
                 jmp     xr_rmtopmsw                             ; jump to mode switch routine
 ;-----------------------------------------------------------------------------
@@ -707,8 +708,9 @@ callback:                                                       ; real mode call
 
                 mov     ax,SELZERO                              ; DS selector for protected mode
                 mov     dx,ax                                   ; SS selector = DS selector
+                xor     edi,edi                                 ;
                 mov     si,SELCODE                              ; target protected mode CS:EIP
-                mov     edi,offset @@callbackf0
+                mov     di,offset @@callbackf0                  ; prevent 32-bit offset fixup
 
                 jmp     xr_rmtopmsw                             ; go to protected mode
 
@@ -717,7 +719,7 @@ callback:                                                       ; real mode call
 
                 lea     esi,[esp+24]                            ; copy general registers from stack
                 mov     ecx,8                                   ;  to register structure
-                rep     movs dword ptr es:[edi],dword ptr ds:[esi]
+            rep movs    dword ptr es:[edi],dword ptr ds:[esi]
 
                 mov     esi,esp                                 ; copy FLAGS, ES, DS, FG, and GS
                 movs    word ptr es:[edi],word ptr ds:[esi]
@@ -766,7 +768,7 @@ callback:                                                       ; real mode call
                 lea     edi,[edi*4+ebx]                         ;  of vars to be stored
 
                 mov     ecx,8                                   ; copy general registers to stack
-                rep     movs dword ptr es:[edi],dword ptr ds:[esi]
+            rep movs    dword ptr es:[edi],dword ptr ds:[esi]
 
                 mov     eax,[esi+6]                             ; EAX = return FS and GS for real mode
                 mov     es:[edi],eax                            ; store on real mode stack for return
@@ -855,8 +857,9 @@ intrirq:                                                        ; an IRQ redirec
                 mov     cx,ax                                   ; ES selector value for protected mode
                 pop     ebx                                     ; get protected mode SS:ESP from stack
                 pop     dx
+                xor     edi,edi                                 ;
                 mov     si,SELCODE                              ; target CS:EIP in protected mode
-                mov     edi,off @@intrirqf1
+                mov     di,off @@intrirqf1                      ; prevent 32-bit fixup
 
                 jmp     xr_rmtopmsw                             ; go back to protected mode
 
@@ -878,7 +881,7 @@ intrint:                                                        ; an INT redirec
                 lea     esi,[esp+8]
                 mov     ecx,8
                 cld
-                rep     movs dword ptr es:[edi],dword ptr ss:[esi]
+            rep movs    dword ptr es:[edi],dword ptr ss:[esi]
 
                 mov     si,cs:_rm16code                         ; real mode target CS:IP
                 mov     di,off @@intrintf0
@@ -909,8 +912,9 @@ intrint:                                                        ; an INT redirec
 
                 mov     ax,SELZERO                              ; DS selector value for protected mode
                 mov     cx,ax                                   ; ES selector value for protected mode
+                xor     edi,edi                                 ;
                 mov     si,SELCODE                              ; target CS:EIP in protected mode
-                mov     edi,off @@intrintf1
+                mov     di,off @@intrintf1                      ; prevent 32-bit fixup
 
                 jmp     xr_rmtopmsw                         ; go back to protected mode
 
@@ -1514,7 +1518,7 @@ int3103:                                                        ; common to 0300
                 sub     edi,10                                  ; copy stack parms from protected mode
                 movzx   ecx,cx                                  ;  stack to real mode stack
                 lea     esi,[esp+ecx*2+36h-2]
-                rep     movs word ptr es:[edi],word ptr ss:[esi]
+            rep movs    word ptr es:[edi],word ptr ss:[esi]
 
                 mov     esi,[esp+2]                             ; ESI = offset of structure from stack
                 mov     ax,[esi+20h]                            ; AX = FLAGS from register structure
@@ -1532,7 +1536,7 @@ int3103:                                                        ; common to 0300
                 lea     edi,[edi*4+ebx]
 
                 mov     ecx,8                                   ; copy general regs to real mode stack
-                rep     movs dword ptr es:[edi],dword ptr ds:[esi]
+            rep movs    dword ptr es:[edi],dword ptr ds:[esi]
 
                 add     esi,6                                   ; copy FS and GS to real mode stack
                 movs    dword ptr es:[edi],dword ptr ds:[esi]
@@ -1580,8 +1584,9 @@ int3103:                                                        ; common to 0300
                 add     ebp,eax                                 ; EBP -> stored regs on stack
 
                 mov     ax,SELZERO                              ; DS selector value for protected mode
+                xor     edi,edi                                 ;
                 mov     si,SELCODE                              ; target CS:EIP in protected mode
-                mov     edi,off @@int3103f2
+                mov     di,off @@int3103f2                      ;
 
                 jmp     xr_rmtopmsw                             ; go back to protected mode
 
@@ -1593,7 +1598,7 @@ int3103:                                                        ; common to 0300
                 mov     esi,ebp                                 ; copy return regs from real mode
                 mov     ecx,15h                                 ;  stack to register structure
                 cld
-                rep     movs word ptr es:[edi],word ptr ds:[esi]
+            rep movs    word ptr es:[edi],word ptr ds:[esi]
 
                 cmp     dword ptr es:[edi+4],0                  ; stack provided by caller?
                 jne     int31ok                                 ; if yes, done now
@@ -1670,8 +1675,9 @@ int310305:                                                      ; get state save
                 xor     ax,ax                                   ; size needed is none
                 mov     bx,_rm16code                            ; real mode seg of same RETF
                 mov     cx,off vxr_saverestorerm                ; same offset of 16bit RETF
+                xor     edi,edi                                 ;
                 mov     si,cs                                   ; selector of routine is this one
-                mov     edi,off vxr_saverestorepm               ; offset of simple 32bit RETF
+                mov     di,off vxr_saverestorepm                ; offset of simple 32bit RETF
 
                 jmp     int31oknopop                            ; return ok, dont pop registers
 ;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ

@@ -42,6 +42,8 @@ int   get_errno(void);
 // set errno from FatFs lib error code
 void  set_errno2(int ffliberr);
 
+// free pushd stack
+void  pushd_free(void* ptr); 
 
 // random
 u32t  _std random(u32t range);

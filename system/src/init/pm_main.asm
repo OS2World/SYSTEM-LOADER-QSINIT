@@ -9,46 +9,33 @@
                 include inc/basemac.inc
                 include inc/dpmi.inc
                 include inc/seldesc.inc
-                NOSELDATA = 1
                 include inc/debug.inc
-
 ; ---------------------------------------------------------------
-_DATA           segment                                         ;
-                align   4                                       ;
-                public  _B8000                                  ;
-                public  __0400                                  ;
-                public  pm16data                                ;
-_B8000          dd      0B8000h                                 ; B800 address
-__0400          dd      000400h                                 ; 40 address
-init32_addr     dd      offset _init32                          ; 48bit address of init32()
-SELCODE32       dw      0                                       ;
-pm16code        dw      0                                       ;
-pm16data        dw      0                                       ;
-_DATA           ends                                            ;
-; ---------------------------------------------------------------
-_BSS            segment                                         ;
-                public  _rm_regs                                ;
-                public  desc32                                  ;
+_BSS16          segment                                         ;
                 public  _pminitres                              ;
-                public  SELDATA32                               ;
-_rm_regs        rmcallregs_s <?>                                ; real mode call regs
-SELDATA32       dw      ?                                       ; DGROUP based flat ds
-desc32          desctab_s <>                                    ; descriptor data
 _pminitres      db      ?                                       ;
-                extrn save32_esp:dword                          ;
-                extrn _rm16code:word                            ;
-_BSS            ends                                            ;
+                extrn   _rm16code:word                          ;
+                extrn   _highbase:dword                         ;
+_BSS16          ends                                            ;
 ; ---------------------------------------------------------------
-CODE32          segment                                         ;
+LOADER          segment                                         ;
+                extrn   _prepare32:near                         ;
+LOADER          ends                                            ;
+; ---------------------------------------------------------------
+_TEXT           segment                                         ;
                 extrn   _init32:near                            ;
                 extrn   _exit_prepare:near                      ;
                 extrn   vio_charout:near                        ;
+                extrn   vio_init:near                           ; text mode prn init/done
                 extrn   vio_done:near                           ;
-                extrn   rmcall32:near                           ;
                 extrn   rmstop:near                             ;
+                public  init32call                              ;
                 public  _exit_pm32                              ;
                 public  _exit_pm32s                             ;
-                assume cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP  ;
+                assume  cs:_TEXT, ds:DGROUP, es:DGROUP, ss:DGROUP
+init32call      label   near                                    ;
+                call    vio_init                                ;
+                call    _init32                                 ;
 ; return from init32() here                                     ;
 _exit_pm32a:
                 push    eax                                     ; rc code
@@ -71,38 +58,33 @@ endif
                 jnz     rmstop                                  ;
                 mov     bl,9                                    ;
                 jmp     rmstop                                  ;
-CODE32          ends                                            ;
+_TEXT           ends                                            ;
 ; ---------------------------------------------------------------
 ;
 ; 16 bit pm code
 ;
 
-_TEXT           segment                                         ;
-                assume cs:_TEXT,ds:DGROUP,es:nothing,ss:DGROUP
-
-                extrn   vio_init:near                           ; text mode prn init/done
-
-                public  pm16set                                 ; entry point
-pm16set:                                                        ;
-                mov     pm16code,cs                             ; save seg regs
-                mov     pm16data,ss                             ; ss==ds
-                mov     _pminitres,al                           ;
-                movzx   edx,_rm16code                           ;
-                shl     edx,PARASHIFT                           ; phys addr of flat
-                sub     _B8000,edx                              ; B800 address
-                sub     __0400,edx                              ; 40:0 address
-                mov     SELCODE32,SEL32CODE                     ;
-                mov     SELDATA32,SEL32DATA                     ;
-                call    vio_init                                ;
+TEXT16          segment                                         ;
+                assume  cs:TEXT16, ds:G16, es:nothing, ss:G16   ;
+                public  pm16set                                 ;
+; here we start in 16 bits PM (going from start.asm)
+pm16set:
+                mov     _pminitres,al                           ; entry point
 ifdef INITDEBUG
                 dbg16print <"hi!",10>                           ;
 endif
-                push    offset _exit_pm32a                      ; 32bit retn
-                mov     ax,SELDATA32                            ;
-                mov     es,ax                                   ; setup ds, es and ss
+                xor     eax,eax                                 ;
+                mov     ax,offset _prepare32                    ; jump to 32-bit code
+                movzx   ecx,_rm16code                           ; with flat DS/ES, but
+                shl     ecx,PARASHIFT                           ; 16-bit current stack
+                add     ecx,eax                                 ; selector
+                mov     ax,SEL32CODE                            ;
+                push    eax                                     ;
+                push    ecx                                     ;
+                mov     ax,SEL32DATA                            ;
+                mov     es,ax                                   ; set flat ds & es
                 mov     ds,ax                                   ;
-                mov     ss,ax                                   ;
-                movzx   esp,sp                                  ;
-                jmp     fword ptr cs:init32_addr                ; far jmp to 32bit
-_TEXT           ends                                            ;
+                db      66h                                     ;
+                retf                                            ;
+TEXT16          ends                                            ;
                 end

@@ -23,8 +23,12 @@ if not exist ..\OS2LDR goto berr
 :runit
 bootset%suffix% -w %2 -q %1
 if errorlevel 1 goto serr
+if exist %1\QSINIT attrib -r -s -h %1\QSINIT
+if exist %1\QSINIT.LDI attrib -r -s -h %1\QSINIT.LDI
 copy %bsrc%OS2LDR %1\QSINIT /b
 copy %bsrc%QSINIT.LDI %1\QSINIT.LDI /b
+attrib +r +s +h %1\QSINIT
+attrib +r +s +h %1\QSINIT.LDI
 exit
 :berr
 echo Unable to locate QSINIT files: OS2LDR and QSINIT.LDI.

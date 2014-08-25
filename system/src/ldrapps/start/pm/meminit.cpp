@@ -70,6 +70,7 @@ void setup_memory(void) {
    hlp_memavail(0, &availmem);
    // parse full E820 list, but copying data from disk buffer first
    AcpiMemInfo *rtbl = int15mem();
+
    acnt = 0;
    while (rtbl[acnt].LengthLow || rtbl[acnt].LengthHigh) acnt++;
    if (acnt) {
@@ -546,9 +547,13 @@ void* pag_physmap(u64t address, u32t size, u32t flags) {
    // map on border of physical memory
    if (address<maxmap4g && address+size>maxmap4g) return 0;
 
-   if (address<maxmap4g) {
+   if (address<maxmap4g && (flags&PHMAP_FORCE)==0) {
       // do nothing, just return offset
       return (char*)hlp_segtoflat(0) + (u32t)address + pgdiff;
+   } else
+   if ((flags&PHMAP_FORCE) && !in_pagemode) {
+      log_it(3,"Force mapping in non-paged mode! %LX, %X\n", address, size);
+      return 0;
    } else {
       u32t  zero = hlp_segtoflat(0), ii;
       // called before structs init?
@@ -656,9 +661,6 @@ void pag_inittables(void) {
       if (start>=_1MB)
          pag_mappages(start, len, fl&MEM_MAPPED ? memx[ii].paddr : start, fl);
    }
-   // map page on FLAT:0 (QSINIT CS/DS segments, not physical 0) as read-only
-   pag_mappages(-(long)hlp_segtoflat(0), PAGESIZE, -(long)hlp_segtoflat(0),
-      MEM_DIRECT|MEM_READONLY);
 }
 
 void hlp_pgprint(void) {

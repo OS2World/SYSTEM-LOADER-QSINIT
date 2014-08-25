@@ -1,6 +1,3 @@
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "qstypes.h"
 #include "qsutil.h"
 #include "qsint.h"
@@ -57,6 +54,10 @@ extern u32t NextBeepEnd;
 
 static u8t _rate = 0, _delay = 0;
 
+u8t _std vio_beepactive(void) {
+   return NextBeepEnd?1:0;
+}
+
 void _std key_speed(u8t rate, u8t delay) {
    _rate  = rate  &= 0x1F;
    _delay = delay &= 3;
@@ -78,10 +79,6 @@ u8t  _std vio_getmode(u32t *cols, u32t *lines) {
    u8t rc=rmcall(istextmode,0);
    vio_getmodefast(cols,lines);
    return rc;
-}
-
-u32t _std tm_counter(void) {
-   return *(u32t*)(hlp_segtoflat(0x40)+0x6C);
 }
 
 void _std tm_calibrate(void) {
@@ -109,20 +106,23 @@ u32t key_filter(u32t key) {
 }
 
 u16t _std key_wait(u32t seconds) {
-   u32t *ptimer = (u32t*)(hlp_segtoflat(0x40)+0x6C), btime, diff;
+   u32t  btime, diff;
 
    cache_ctrl(CC_IDLE, DISK_LDR);
    if (key_pressed()) return key_read();
 
-   btime = *ptimer;
+   btime = tm_counter();
    diff  = 0;
    while (seconds>0) {
        if (hltflag) cpuhlt(); else usleep(20000); // 20 ms
        cache_ctrl(CC_IDLE, DISK_LDR);
-       if (key_pressed()) return key_read();
-       if (*ptimer != btime) {
-           if ((diff+=*ptimer-btime)>=18) { seconds--; diff = 0; }
-           btime = *ptimer;
+
+       if (key_pressed()) return key_read(); else {
+          u32t now = tm_counter();
+          if (now != btime) {
+              if ((diff+=now-btime)>=18) { seconds--; diff = 0; }
+              btime = now;
+          }
        }
    }
    return 0;

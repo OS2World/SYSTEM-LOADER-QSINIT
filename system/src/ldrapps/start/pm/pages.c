@@ -47,13 +47,13 @@ static u64t   *pdpt = 0,         // 32-aligned pointer
 static u64t  *pdmem = 0;         // page dirs
 u8t     in_pagemode = 0;         // QSINIT in page mode
 static int   global = 0;         // PGE extension present
-static u32t  cpattr = 0,         // common page attributes
-           zeroaddr = 0,
-               vcr3 = 0,         // cr3 value
+static u32t    vcr3 = 0,         // cr3 value
                vcr4 = 0;         // cr4 value
 
 // page tables (128 blocks of 64kb, only allocated if used one).
 static void    *pta[PTAENTRIES];
+
+extern u64t _std page0_fptr;     // 48-bit pointer to page 0 in QSINIT
 
 /** set cr3 and cr4 regs.
     Function also updates internal variables of DPMI code.
@@ -76,8 +76,9 @@ int _std sys_pagemode(void) {
     @param  start     Page index from array`s start
     @param  len       Number of pages to set, can overflow array size */
 static void ptset(u32t ptaidx, u32t start, u32t len, u64t phys, u32t flags) {
-   // r/w page mode
-   u32t pattr = flags&MEM_READONLY ? 0 : PT_WRITE;
+   // setup flags
+   u32t pattr = flags&MEM_DIRECT ? global : 0;
+   if ((flags&MEM_READONLY)==0) pattr|=PT_WRITE;
 
    if (start>=PTAPAGES) {
       log_it(2, "ptset invalid start (%d)\n", start);
@@ -103,12 +104,12 @@ static void ptset(u32t ptaidx, u32t start, u32t len, u64t phys, u32t flags) {
          log_it(2, "pdi %d, cnt %d\n", pdi, pdcnt);
 #endif
          while (pdcnt--) 
-            *pde++ = PT_PRESENT|PT_WRITE|(u32t)pta[ptaidx] + (pdi++<<PAGESHIFT) - zeroaddr;
+            *pde++ = PT_PRESENT|PT_WRITE|(u32t)pta[ptaidx] + (pdi++<<PAGESHIFT);
          // update page table
          if (flags) {
             u64t *pte = (u64t*)pta[ptaidx] + start;
             while (leave) {
-              *pte++ = cpattr|pattr|phys;
+              *pte++ = PT_PRESENT|pattr|phys;
               phys  += PAGESIZE;
               leave--;
             }
@@ -126,9 +127,6 @@ static void ptset(u32t ptaidx, u32t start, u32t len, u64t phys, u32t flags) {
 static int map_common(u32t virt, u32t len, u64t phys, u32t flags) {
    int intsv;
    if ((virt&PAGEMASK) || (len&PAGEMASK) || (phys&PAGEMASK)) return 0;
-   // non-reenterable setup!
-   if (global)
-      if (flags&MEM_DIRECT) cpattr|=PT_GLOBAL; else cpattr&=~PT_GLOBAL;
 #if 0 // removed, else ramdisk will annoy us terribly ;)
    log_it(2, "map_common(%08X,%08X,%010LX,%08X)\n", virt, len, phys, flags);
 #endif
@@ -156,16 +154,16 @@ static int map_common(u32t virt, u32t len, u64t phys, u32t flags) {
       // map/unmap big pages
       if (len) {
          u64t  *pde = pdmem + (virt>>PD2M_ADDRSHL);
-         u32t pattr = cpattr;
+         u32t pattr = flags&MEM_DIRECT ? global : 0;
          if ((flags&MEM_READONLY)==0) pattr|=PT_WRITE;
 
          len >>=PD2M_ADDRSHL;
          while (len) {
             if (flags) {
-               *pde = PD_BIGPAGE|pattr|phys;
+               *pde = PT_PRESENT|PD_BIGPAGE|pattr|phys;
                phys+= BIGPAGE;
             } else {
-               /* clear page table 4k (else we get old-mapped entires on next
+               /* clear page table 4k (else we get old-mapped entries on next
                   partial use of these 2Mb. pta entry must exist here! */
                if ((*pde&(PD_BIGPAGE|PT_PRESENT))==PT_PRESENT)
                   memset((u8t*)pta[PTAE(virt)] + (PTAIDX(virt)<<PAGESHIFT), 0, PAGESIZE);
@@ -194,16 +192,16 @@ int pag_unmappages(u32t virt, u32t len) {
 }
 
 int _std pag_enable(void) {
-   u32t  ii, idbuf[4],
+   u32t  ii, idbuf[4], map0,
       diff0 = hlp_segtoflat(0);
 
    if (pdptf) return EEXIST;
-   // add global flag if PGE is supported
    hlp_getcpuid(1,idbuf);
+   // no PAE?
    if ((idbuf[3]&CPUID_FI2_PAE)==0) return ENODEV;
-   if (idbuf[3]&CPUID_FI2_PGE) global = 1;
+   // add global flag if PGE supported
+   if (idbuf[3]&CPUID_FI2_PGE) global = PT_GLOBAL;
 
-   zeroaddr = hlp_segtoflat(0);
    // malloc always return memory aligned to 16 bytes
    pdpt = pdptf = (u64t*)malloc(8*4+16);
    // align PDPT to 32 bytes
@@ -213,12 +211,9 @@ int _std pag_enable(void) {
    // zero page table pointers
    memset(&pta, 0, sizeof(pta));
    // fill 4 PDPTEs
-   for (ii=0; ii<4; ii++) {
-      pdpt[ii] = PT_PRESENT | (u32t)pdmem + (ii<<PAGESHIFT) - zeroaddr;
-   }
+   for (ii=0; ii<4; ii++)
+      pdpt[ii] = PT_PRESENT | (u32t)pdmem + (ii<<PAGESHIFT);
    //log_it(2, "PDPTE: %4Lb\n", pdpt);
-   // common page attributes
-   cpattr = PT_PRESENT;
    // call meminit.cpp to map all available memory via pag_mappages()
    pag_inittables();
    log_it(2, "tables created\n");
@@ -230,7 +225,7 @@ int _std pag_enable(void) {
       key_status() call below */
    if (!hlp_insafemode()) {
       struct desctab_s sd;
-      u32t   fbase = (u32t)-zeroaddr;
+      u32t   fbase = 0;
       sd.d_limit   = 0xFFFF;
       sd.d_loaddr  = fbase;
       sd.d_hiaddr  = fbase>>16;
@@ -241,15 +236,16 @@ int _std pag_enable(void) {
       sys_seldesc(SEL32DATA, &sd);
    }
    // calc cr3 & cr4 values
-   vcr3 = (u32t)pdpt - zeroaddr;
+   vcr3 = (u32t)pdpt;
    vcr4 = getcr4() | (global?CPU_CR4_PGE:0) | CPU_CR4_PAE;
    log_it(2, "cr3=%08X, cr4=%08X\n", vcr3, vcr4);
    // go on!
    ii = sys_intstate(0);
    sys_tsscr3(vcr3);
    sys_setcr3(vcr3, vcr4);
-   /* first interrupt or RM call in key_status() will switch us to PAE 
-      on return from RM */
+   /* First interrupt or RM call in key_status() will switch us to PAE 
+      on return from RM.
+      Page 0 is r/w here - until the end of this function. */
 #if 0
    __asm {
       mov eax, cr0
@@ -262,9 +258,26 @@ int _std pag_enable(void) {
    // flag and print Hello!
    in_pagemode = 1;
    log_it(0, "Hello, PAE world!\n");
+   // replace FLAT:0 access pointer in QSINIT
+   map0       = (u32t)pag_physmap(0, _4KB, PHMAP_FORCE);
+   page0_fptr = MAKEFAR32(SEL32DATA, map0);
+   // remap first page as read-only
+   pag_mappages(0, _4KB, 0, MEM_DIRECT|MEM_READONLY);
 
+   log_it(2, "Map zero to %08X\n", map0);
+   // reload ss from ds. It was SELZERO, not SEL32DATA before.
+   __asm {
+      mov  ax, ds
+      mov  ss, ax
+      nop
+   }
    return 0;
 }
+
+#define FILLastr(value)                  \
+   astr[0] = (value)&PT_WRITE ?'W':'R';  \
+   astr[1] = (value)&PT_GLOBAL ?'G':0;   \
+   astr[2] = 0;
 
 void _std pag_printall(void) {
    u32t ii, pi;
@@ -276,21 +289,29 @@ void _std pag_printall(void) {
       log_it(2, "PDPTE[%d]: %010LX\n", ii, pdpt[ii]);
 
       for (pi=0; pi<512; pi++) {
-         u64t *pde = (u64t*)((pdpt[ii]&~(u64t)PAGEMASK) + zeroaddr) + pi,
+         u64t *pde = (u64t*)(pdpt[ii]&~(u64t)PAGEMASK) + pi,
                 pv = *pde;
          u32t addr = pi*2*_1MB + ii*_1GB;
+         char astr[8];
+
          if (pv&PT_PRESENT) {
+            FILLastr(pv)
+
             if (pv&PD_BIGPAGE) {
-               log_it(2, "%08X: big page (%010LX) \n", addr, pv&~(u64t)((1<<PD2M_ADDRSHL)-1));
+               log_it(2, "%08X: big page (%010LX) %s\n", addr, pv&~(u64t)((1<<PD2M_ADDRSHL)-1),
+                  astr);
             } else {
                u32t pti;
-               u64t *pt = (u64t*)((pv&~(u64t)PAGEMASK) + zeroaddr);
-               log_it(2, "%08X: page tab (%010LX) \n", addr, pv&~(u64t)PAGEMASK);
+               u64t *pt = (u64t*)(pv&~(u64t)PAGEMASK);
+               log_it(2, "%08X: page tab (%010LX) %s\n", addr, pv&~(u64t)PAGEMASK, astr);
                for (pti=0; pti<512; pti++) {
-                  if (pt[pti]&PT_PRESENT)
-                     log_it(2, "%08X:          (%010LX) \n", addr+pti*PAGESIZE, 
-                        pt[pti]&~(u64t)PAGEMASK);
-                  else
+                  u64t ptv = pt[pti];
+                  if (ptv&PT_PRESENT) {
+                     FILLastr(ptv)
+
+                     log_it(2, "%08X:          (%010LX) %s\n", addr+pti*PAGESIZE, 
+                        ptv&~(u64t)PAGEMASK, astr);
+                  } else
                      log_it(2, "%08X: np\n", addr+pti*PAGESIZE);
                }
             }

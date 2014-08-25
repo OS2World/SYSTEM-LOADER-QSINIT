@@ -8,8 +8,6 @@
 #include "qslog.h"
 #include "internal.h"
 
-extern u32t _std NextBeepEnd;
-
 #define TEXTMEM_SEG  0xB800
 void _std vio_getmodefast(u32t *cols, u32t *lines);
 
@@ -206,10 +204,6 @@ void _std START_EXPORT(vio_readbuf)(u32t col, u32t line, u32t width, u32t height
    void *buf, u32t pitch)
 {
    vio_bufcommon(col, line, width, height, buf, pitch, 0);
-}
-
-u8t _std vio_beepactive(void) {
-   return NextBeepEnd?1:0;
 }
 
 /* this is stub, it will be replaced by CONSOLE.DLL on loading to allow virtual

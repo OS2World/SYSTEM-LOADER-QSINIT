@@ -293,25 +293,25 @@ void setup_exceptions(int stage) {
          tss13 = (struct tss_s *)((u8t*)tss12 + step);
          // this stack used in exception handling
          tss_data->tss_esp0  = (u32t)tss_data + step * 4 + TRAP_STACK;
-         tss_data->tss_ss0   = SEL32DATA;
+         tss_data->tss_ss0   = SELZERO;
          tss_data->tss_iomap = sizeof(struct tss_s);
          // task stacks
          tss08->tss_esp   = tss_data->tss_esp0 + TRAP_STACK;
-         tss08->tss_ss    = SEL32DATA;
+         tss08->tss_ss    = SELZERO;
          tss08->tss_eip   = (u32t)&traptask_8;
          tss08->tss_cs    = SEL32CODE;
          tss08->tss_esp2  = (u32t)tss08;
          tss08->tss_iomap = sizeof(struct tss_s);
       
          tss12->tss_esp   = tss08->tss_esp + TRAP_STACK;
-         tss12->tss_ss    = SEL32DATA;
+         tss12->tss_ss    = SELZERO;
          tss12->tss_eip   = (u32t)&traptask_12;
          tss12->tss_cs    = SEL32CODE;
          tss12->tss_esp2  = (u32t)tss12;
          tss12->tss_iomap = sizeof(struct tss_s);
       
          tss13->tss_esp   = tss12->tss_esp + TRAP_STACK;
-         tss13->tss_ss    = SEL32DATA;
+         tss13->tss_ss    = SELZERO;
          tss13->tss_eip   = (u32t)&traptask_13;
          tss13->tss_cs    = SEL32CODE;
          tss13->tss_esp2  = (u32t)tss13;

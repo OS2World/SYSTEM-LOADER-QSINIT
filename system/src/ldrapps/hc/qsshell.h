@@ -371,6 +371,12 @@ u32t      _std shl_attrib (const char *cmd, str_list *args);
 /// GPT command.
 u32t      _std shl_gpt    (const char *cmd, str_list *args);
 
+/// PUSHD command.
+u32t      _std shl_pushd  (const char *cmd, str_list *args);
+
+/// POPD command.
+u32t      _std shl_popd   (const char *cmd, str_list *args);
+
 #ifdef __cplusplus
 }
 #endif

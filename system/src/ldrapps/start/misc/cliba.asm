@@ -258,10 +258,10 @@ _hlp_copytoflat proc    near                                    ;
                 push    ebp                                     ;
                 mov     ebp,esp                                 ;
                 mov     esi,@@Offset                            ; 
-                mov     ax,ss                                   ; is it FLAT?
+                mov     ax,ds                                   ; is it FLAT?
                 cmp     ax,word ptr @@Sel                       ; skip all checks
                 mov     eax,@@Length                            ; (lsl will lie because
-                jz      @@cpf_lenok                             ; segment is up-down)
+                jz      @@cpf_lenok                             ; segment can be up-down)
 
                 lsl     ecx,word ptr @@Sel                      ;
                 jnz     @@cpf_exit0                             ;
@@ -558,6 +558,38 @@ _wcsncpy        proc near
                 ret     12                                      ;
 _wcsncpy        endp
 
+;----------------------------------------------------------------
+;void* __stdcall memcpy0(void *dst, void *src, u32t length);
+                public  _memcpy0                                ;
+_memcpy0        proc    near                                    ;
+@@dst           =  4                                            ;
+@@src           =  8                                            ;
+@@length        = 12                                            ;
+                mov     ecx, [esp+@@length]                     ;
+                jecxz   @@cpy0                                  ;
+                push    edi                                     ;
+                mov     edi, [esp+4+@@dst]                      ;
+                push    esi                                     ;
+                mov     esi, [esp+8+@@src]                      ;
+                cld                                             ;
+                push    es                                      ;
+                push    ecx                                     ;
+                mov     ax,ss                                   ;
+                mov     es,ax                                   ;
+                shr     ecx,2                                   ;
+                jz      @@cpyb                                  ;
+            rep movs    dword ptr es:[esi], dword ptr ss:[esi]  ;
+@@cpyb:
+                pop     ecx                                     ;
+                and     ecx,3                                   ;
+            rep movs    byte ptr es:[esi], byte ptr ss:[esi]    ;
+                pop     es                                      ;
+                pop     esi                                     ;
+                pop     edi                                     ;
+@@cpy0:                                                         ;
+                mov     eax, [esp+@@dst]                        ;
+                ret     12                                      ;
+_memcpy0        endp
 
 CODE32          ends
 

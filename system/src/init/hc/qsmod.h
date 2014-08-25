@@ -174,7 +174,7 @@ typedef struct {
    module       *self;    ///< current module info
    module     *parent;    ///< parent module info
    u32t         flags;    ///< internal flags
-   u32t      rtbuf[6];    ///< data buffer for runtime data
+   u32t      rtbuf[8];    ///< data buffer for runtime data
    u32t    userbuf[4];    ///< data buffer for user data
 } process_context;
 
@@ -186,6 +186,7 @@ typedef struct {
 #define RTBUF_STDERR    3  ///< stderr file handle
 #define RTBUF_STDAUX    4  ///< stdaux file handle
 #define RTBUF_STCLOCK   5  ///< process start tm_counter()
+#define RTBUF_PUSHDST   6  ///< PUSHD shell command stack
 //@}
 
 #define PCTX_BIGMEM      0x0001  ///< envptr was hlp_memalloc-ed
@@ -247,7 +248,7 @@ typedef struct {
    void    _std (*memprint)(void *,void *,u32t);
    /** memcpy with catched exceptions.
        @return 0 if exception occured. */
-   void*   _std (*memcpysafe)(void *dst, const void *src, u32t length);
+   void*   _std (*memcpysafe)(void *dst, const void *src, u32t length, int page0);
    /// get date/time in dos format
    u32t    _std (*getdate)(void);
 } mod_addfunc;

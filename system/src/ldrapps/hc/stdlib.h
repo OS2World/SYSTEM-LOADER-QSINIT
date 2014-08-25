@@ -361,8 +361,16 @@ u32t*  __stdcall memrchrnd(const u32t*mem, u32t chr, u32t buflen);
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
 /** safe memcpy.
+    Function makes a memcpy(), but protected by exception handler.
+    Optionally it allow copying from/to page 0 (this page mapped as read-only
+    in PAE paging mode and inaccessible from FLAT DS in non-paged mode).
+
+    @param dst    Destination address.
+    @param src    Source address.
+    @param length Number of bytes to copy
+    @param page0  Page 0 flag (set 1 to allow page 0 be a part of destination)
     @return dst if copy was ok, 0 if exception occur */
-void*  __stdcall hlp_memcpy(void *dst, const void *src, u32t length);
+void*  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0011
+version=0x0012
 
 [config]
 0=Common
@@ -60,7 +60,7 @@ $(bld_dir).dir $(outdir).dir clean.cln
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
 loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
 main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
-misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c misc\timer.asm
+misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c
 cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
 misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c

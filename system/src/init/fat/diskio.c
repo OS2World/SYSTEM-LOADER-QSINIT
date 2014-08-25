@@ -1,6 +1,3 @@
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "diskio.h"
 #include "ioint13.h"
 #include "qsint.h"
@@ -35,7 +32,7 @@ static char was_inited[_VOLUMES];
 // Initialize a Drive
 DSTATUS disk_initialize(BYTE drv) {
    if (drv>=_VOLUMES) return STA_NOINIT;
-#ifdef INITDEBUG
+#if 0 //def INITDEBUG
    log_misc(2,"disk_init(%d)\n",(DWORD)drv);
 #endif
    cache_ctrl(CC_RESET, drv);

@@ -5,7 +5,7 @@
 ; placed to separate segment at the end of code to remove it from
 ; 1st page, because this function used as mixed code/data.
 
-HICODE          segment
+TEXT16          segment
                 public  _LdrRstCode
                 public  _LdrRstCS
                 public  _dd_bootdisk
@@ -16,7 +16,7 @@ HICODE          segment
                 public  _dd_rootseg
                 public  _dd_firstsector
 _LdrRstCode     proc    near                                    ;
-                assume cs:nothing,ds:nothing,es:nothing,ss:nothing
+                assume  cs:nothing, ds:nothing, es:nothing, ss:nothing
                 mov     ax, 0E2Ah                               ;
                 int     10h                                     ;
 
@@ -61,4 +61,4 @@ _dd_firstsector label   near                                    ; bx
 _LdrRstCS       label   near                                    ;
                 dw      0                                       ;
 _LdrRstCode     endp
-HICODE          ends
+TEXT16          ends

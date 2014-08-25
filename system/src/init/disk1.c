@@ -2,9 +2,6 @@
 // QSINIT
 // virtual disk init code
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "clib.h"
 #include "qsutil.h"
 #include "qsint.h"
@@ -93,7 +90,10 @@ int unpack_zip(int disk, ZIP *zz, u32t totalsize) {
             // open file again
             rc=f_open(extfl[disk],path,FA_WRITE|FA_CREATE_ALWAYS);
          }
+         // these messages scroll up from screen actual info in verbose build
+#ifndef INITDEBUG
          log_printf("%s %s, %d bytes\n",skip?"skip ":"unzip",path,getsize);
+#endif
          errprev=errors;
          if (rc==FR_OK) {
             UINT rsize;

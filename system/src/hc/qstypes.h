@@ -92,6 +92,7 @@ typedef unsigned long ptrdiff_t;
 #define OFFSETOF(x)   (((u16t*)&(x))[0])
 #define SELECTOROF(x) (((u16t*)&(x))[1])
 #define MAKEFAR16(seg,ofs) ((u32t)(seg)<<16|(ofs))
+#define MAKEFAR32(sel,ofs) ((u64t)(sel)<<32|(ofs))
 #define MAKEID4(c1,c2,c3,c4)  ((u32t)((s8t)(c4))<<24|(u32t)((s8t)(c3))<<16|(u32t)((s8t)(c2))<<8|((s8t)(c1)))
 #define Xor(v1,v2)    (((v1)?1:0)^((v2)?1:0))
 

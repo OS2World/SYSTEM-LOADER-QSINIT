@@ -1,6 +1,3 @@
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "clib.h"
 #include "qsint.h"
 #include "qsinit.h"
@@ -11,15 +8,14 @@
 #include "ioint13.h"
 #include "qsstor.h"
 
-#define MFSD_NAME_LEN 64
-
 extern struct Disk_BPB      BootBPB;
 extern struct filetable_s filetable;
 extern u8t              dd_bootdisk;
 extern u8t             dd_bootflags;
 extern u32t               DiskBufPM, // flat disk buffer address
                           DiskBufRM; // r/m far disk buffer address
-static char    cname[MFSD_NAME_LEN]; // current file name (need to be in DGROUP)
+extern char         mfsd_openname[]; // current file name
+extern u32t              mfsd_fsize;
 
 static struct _io {
    u32t        micro;           // micro-fsd present?
@@ -48,14 +44,12 @@ extern u32t     Disk1Size; // and it`s size
 #define file_len (iop->file_len)
 
 // micro-fsd call thunks
-// both mfs_open parameters must be placed in DGROUP
-extern u16t __cdecl mfs_open(char *name, u32t *retsize);
-extern u32t __cdecl mfs_read(u32t offset, u32t buf, u32t readsize);
-extern u32t __cdecl mfs_close(void);
-extern u32t __cdecl mfs_term(void);
-// moveton`s new stream api: actually it supported only by hlp_freadfull call
-extern u16t __cdecl strm_open(char *name);
+extern u16t _std    mfs_open (void);
+extern u16t _std    strm_open(void);
+extern u32t __cdecl mfs_read (u32t offset, u32t buf, u32t readsize);
 extern u16t __cdecl strm_read(u32t buf, u16t readsize);
+extern u32t __cdecl mfs_close(void);
+extern u32t __cdecl mfs_term (void);
 // cache control
 void _std cache_ctrl(u32t action, u8t vol);
 // setup boot partition i/o
@@ -71,15 +65,15 @@ int __stdcall tolower(int cc) {
 
 static void nametocname(const char *name) {
    int ii;
-   strncpy(cname,name,MFSD_NAME_LEN-1);
-   cname[MFSD_NAME_LEN-1]=0;
+   strncpy(mfsd_openname, name, MFSD_NAME_LEN-1);
+   mfsd_openname[MFSD_NAME_LEN-1]=0;
    // micro-FSD does not uppercase requested names
    for (ii=0; ii<MFSD_NAME_LEN-1; ii++) {
-      char ch=toupper(cname[ii]);
-      cname[ii]=ch;
+      char ch=toupper(mfsd_openname[ii]);
+      mfsd_openname[ii]=ch;
       if (!ch) { // remove trailing dot
          if (ii--)
-            if (cname[ii]=='.') cname[ii]=0;
+            if (mfsd_openname[ii]=='.') mfsd_openname[ii]=0;
          break;
       }
    }
@@ -87,31 +81,32 @@ static void nametocname(const char *name) {
 
 // open file. return -1 on no file, else file size
 u32t hlp_fopen(const char *name) {
-   static u32t retsize=0;
+   u32t retsize = 0;
    IOPTR;
    if (!iop||file_ok) return FFFF;
-#ifdef INITDEBUG
+#if 0 //def INITDEBUG
    log_misc(2,"hlp_fopen(%s)\n",name);
 #endif
    if (micro) {
       nametocname(name);
-      if (mfs_open(cname, &retsize)) return FFFF;
+      if (mfs_open()) return FFFF;
+      retsize = mfsd_fsize;
    } else {
       FRESULT rc;
-      cname[0]='0'; cname[1]=':'; cname[2]='\\';
-      strncpy(cname+3, name, MFSD_NAME_LEN-4);
-      cname[MFSD_NAME_LEN-1]=0;
-      rc=f_open(fat_fl,cname,FA_READ);
+      mfsd_openname[0]='0'; mfsd_openname[1]=':'; mfsd_openname[2]='\\';
+      strncpy(mfsd_openname+3, name, MFSD_NAME_LEN-4);
+      mfsd_openname[MFSD_NAME_LEN-1]=0;
+      rc = f_open(fat_fl, mfsd_openname, FA_READ);
       if (rc==FR_NO_FILE||rc==FR_INVALID_NAME||rc==FR_NO_PATH) return FFFF; else
       if (rc) {
-#ifdef INITDEBUG
-         log_printf("opn(%s): %d\n", cname, rc);
+#if 0 //def INITDEBUG
+         log_printf("opn(%s): %d\n", mfsd_openname, rc);
 #endif
          exit_pm32(QERR_DISKERROR);
       }
       retsize = fat_fl->fsize;
-#ifdef INITDEBUG
-      log_printf("%s size: %d\n", cname, retsize);
+#if 0 //def INITDEBUG
+      log_printf("%s size: %d\n", mfsd_openname, retsize);
 #endif
    }
    file_ok=1;
@@ -156,7 +151,7 @@ u32t hlp_fread2(u32t offset, void *buf, u32t readsize, read_callback cbprint) {
    } else
       fatrc=f_read(fat_fl, buf, readsize, (UINT*)&res);
 #ifdef INITDEBUG
-   if (fatrc) log_printf("rd(%s): %d\n",cname,fatrc);
+   if (fatrc) log_printf("rd(%s): %d\n", mfsd_openname, fatrc);
 #endif
    return res;
 }
@@ -188,10 +183,10 @@ void* hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint) {
       u32t  allocsize;
       char  mvpxe = filetable.ft_cfiles==6;
       nametocname(name);
-#ifdef INITDEBUG
-      log_misc(2,"pxe open(%s)\n",cname);
+#if 0 //def INITDEBUG
+      log_misc(2,"pxe open(%s)\n", mfsd_openname);
 #endif
-      if ((mvpxe?strm_open(cname):mfs_open(cname,&allocsize))!=0) return 0;
+      if ((mvpxe?strm_open():mfs_open())!=0) return 0;
       // alloc 256kb first
       res=hlp_memalloc(allocsize=_256KB,0);
       while (true) {
@@ -228,7 +223,7 @@ void hlp_finit() {
    IOPTR;
    int   ii;
    char *ptr;
-#ifdef INITDEBUG
+#if 0 //def INITDEBUG
    log_misc(2,"hlp_finit()\n");
 #endif
    if (iop) return;
@@ -269,6 +264,9 @@ void hlp_finit() {
          exit_pm32(QERR_FATERROR);
       }
    }
+#if 0 //def INITDEBUG
+   log_misc(2,"hlp_finit() done\n");
+#endif
 }
 
 // fini file i/o

@@ -176,7 +176,7 @@ static u32t opts_memio(u64t pos, void *data, int write) {
    } else
       addr = (char*)pos + hlp_segtoflat(0);
 
-   data = hlp_memcpy(write?addr:data, write?data:addr, 256);
+   data = hlp_memcpy(write?addr:data, write?data:addr, 256, 1);
 
    if (map) pag_physunmap(map);
    return data?1:0;

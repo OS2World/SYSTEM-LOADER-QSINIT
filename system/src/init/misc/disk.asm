@@ -18,7 +18,7 @@
                 SECT_PER_READ   = 120                           ; number of sectors per one r/w op
 AF_SECTORS      equ     AF_ALIGN SHR SECTSHIFT                  ;
 
-_BSS            segment                                         ;
+_BSS16          segment                                         ;
 ext_packet      ExtReadPacket <>                                ;
                 align   4                                       ;
 lasterror_i13   db      ?                                       ;
@@ -31,20 +31,20 @@ REPT MAX_QS_DISK                                                ;
 ENDM                                                            ;
 _qd_fdds        db      ?                                       ; # fdds in qs_diskinfo
 _qd_hdds        db      ?                                       ; # hdds in qs_diskinfo
-_BSS            ends                                            ;
+_BSS16          ends                                            ;
 
-_DATA           segment
+DATA16          segment
                 extrn   _DiskBufRM_Seg:word                     ;
                 public  _useAFio, _qd_bootidx                   ;
 _useAFio        db      1                                       ;
 _qd_bootidx     dd      -1                                      ;
-_DATA           ends
+DATA16          ends
 
 
 MAX_QS_FLOPPY
 
-_TEXT           segment
-                assume  cs:DGROUP,ds:DGROUP,es:nothing,ss:nothing
+TEXT16          segment                                         ;
+                assume  cs:G16, ds:G16, es:nothing, ss:nothing  ;
 
 ; read disks configuration 
 ;----------------------------------------------------------------
@@ -256,7 +256,7 @@ sector_io       proc    far
                 add     bl,2                                    ;
                 push    bx                                      ; int 13 ah value
                 push    bx                                      ; reserve place for variables
-ifdef INITDEBUG
+if 0 ;def INITDEBUG
                 movzx   di,[si].qd_biosdisk                     ;
                 lea     edx,[ebx-2]                             ;
                 dbg16print <"int13 %d %x %lx %x",10>,<cx,eax,di,dx>
@@ -362,7 +362,7 @@ int13_rwext     label   near
 @@WriteSeg      = word  ptr [bp-18]                             ;
                 push    eax                                     ; @@Readed + @@RetryCount
                 push    bx                                      ; @@Action
-ifdef INITDEBUG
+if 0 ;def INITDEBUG
                 movzx   di,[si].qd_biosdisk                     ;
                 dbg16print <"int13 %d %x %lx%lx %d",10>,<cx,eax,edx,di,bx>
 endif
@@ -551,5 +551,5 @@ int13_action    proc    near
                 ret                                             ;
 int13_action    endp                                            ;
 
-_TEXT           ends
+TEXT16          ends
                 end

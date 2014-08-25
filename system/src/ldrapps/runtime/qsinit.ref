@@ -109,7 +109,8 @@ exports = {
   _vio_setmode     = { index=106 group="vio"   format="vu"    }  # set text mode
   _vio_resetmode   = { index=107 group="vio"   format="vv"    }  # reset mode to 80x25
   _vio_getmode     = { index=108 }                               # query current text mode
-
+  _vio_beep        = { index=109 group="vio"   format="vhu"   }  # speaker sound
+ 
   _zip_open        = { index=110 group="zip"   format="ippu"  }  # open zip
   _zip_close       = { index=111 group="zip"   format="vp"    }  # close zip
   _zip_nextfile    = { index=112 group="zip"   format="ip&*s&*u" } # seek next file
@@ -126,7 +127,7 @@ exports = {
   _exit_restart    = { index=127 }                               # restart another loader
   _boot_info       = { index=128 offset = yes }                  # internal, for OS/2 boot
   _IODelay         = { index=129 offset = yes }                  # i/o delay value
-  _NextBeepEnd     = { index=130 offset = yes }                  # internal, beep end time
+  _page0_fptr      = { index=130 offset = yes }                  # 48-bit writable page 0 ptr
   _exit_prepare    = { index=131 }                               # call exit list
   _exit_handler    = { index=132 }                               # add/remove exit callbacks
   _hlp_boottype    = { index=133 }                               # query boot type
@@ -167,6 +168,9 @@ exports = {
   _key_getspeed    = { index=187 group="vio" format="v&*b&*b" }  # get keyboard rate/delay
 
   _tm_counter      = { index=190 }                               # bios timer counter value
+  _tm_getdate      = { index=191 }                               # query cmos date/time
+  _vio_beepactive  = { index=192 }                               # is beep active now
+  _tm_setdate      = { index=193 }                               # set cmos date/time
   _tm_calibrate    = { index=194 }                               # calibrate i/o delay
 
   _vio_getshape    = { index=200 group="vio" format="@hv" }      # get cursor shape

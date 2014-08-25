@@ -1,11 +1,15 @@
   Usage: 
   inc2h.exe <.inc> [<.h>] [keys]
 
-   	/t  - use toolkit types (ULONG, USHORT, etc)
+   	/tX - use another types:
+   	      /t or /tt == toolkit types: ULONG, USHORT, etc
+   	      /tq       == QSInit types: u8t, u16t, u32t, u64t
+   	      /tx       == 64-bit code types ("unsigned int" as 32-bit
+   	                   uint and "unsigned long" as 64-bit uint).
    	/pX - add #pragma pack(x) 
    	/rY - make typedef for all structs by adding prefix Y to name
    	/k  - make typedef for all structs with suffix _s in name, by
-   	  replacing "_s" to "_t".
+   	      replacing "_s" to "_t".
           Example:
 
           dce_s           struc

@@ -4,10 +4,6 @@
     - allocated size is zero filled
     - incorrect free/damaged block structure will cause immediate panic
 */
-
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "qstypes.h"
 #include "clib.h"
 #include "qsutil.h"
@@ -23,9 +19,9 @@ u32t         *memtable; // size of block if used block starts here
                         // -1   if it is in the middle of the used block
 u8t        *memheapres; // bit array - r/o blocks, available to heap mgr
 free_block **memftable; // pointers to first block in list of free blocks with same size
-u32t         memblocks; // number of 64k blocks
-u32t          availmem; // total avail memory for as (above 16M, including those arrays)
-u32t         phmembase; // physical address of used memory (16Mb or larger on PXE)
+extern u32t  memblocks; // number of 64k blocks
+extern u32t   availmem; // total avail memory for as (above 16M, including those arrays)
+extern u32t  phmembase; // physical address of used memory (16Mb or larger on PXE)
 
 extern mod_addfunc 
         *mod_secondary; // secondary function table, from "start" module

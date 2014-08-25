@@ -3,9 +3,6 @@
 // printf support
 // -------------------------------------------------------
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "qstypes.h"
 #include "qslog.h"
 #include "vio.h"

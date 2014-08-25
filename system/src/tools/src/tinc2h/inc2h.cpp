@@ -38,7 +38,7 @@ int main(int argc,char *argv[]) {
 #else
     printf("\tQSINIT tools.\nusage:\tinc2h <.inc> [<.h>] [/t]\n"
 #endif
-           "\t/t  - use Toolkit types\n\t/pX - add #pragma pack(x)\n\t/rY - make *struct with Y prefix\n"
+           "\t/tX - use types: t=Toolkit, q=QSInit, x=for 64bit code\n\t/pX - add #pragma pack(x)\n\t/rY - make *struct with Y prefix\n"
            "\t/k  - add *_t typedef for *_s struct types\n");
     return 1;
   }
@@ -50,7 +50,18 @@ int main(int argc,char *argv[]) {
   l ll, in_macro=0, unckcnt, tktype=0, ppack=0, make_t=0;
   spstr recptr;
   while (argc>2&&(argv[argc-1][0]=='-'||argv[argc-1][0]=='/')) {
-    if (toupper(argv[argc-1][1])=='T') { tktype=1; argc--; } else
+    if (toupper(argv[argc-1][1])=='T') {
+       char typeltr = argv[--argc][2];
+       switch (toupper(typeltr)) {
+          case 0:
+          case 'T': tktype=1; break;
+          case 'X': tktype=2; break;
+          case 'Q': tktype=3; break;
+          default:
+             printf("Invalid type letter (%c)\n",typeltr);
+             return 7;
+       }
+    } else
     if (toupper(argv[argc-1][1])=='K') { make_t=1; argc--; } else
     if (toupper(argv[argc-1][1])=='R') recptr=spstr(argv[--argc]+2); else
     if (toupper(argv[argc-1][1])=='P') {
@@ -169,8 +180,11 @@ int main(int argc,char *argv[]) {
       if (!in_macro&&recname.length()&&(str.words()>2||types.IsMember(op)&&str.words()>1)) {
         static const char *recsize[6] = {"DB","DW","DD","DF","DQ","DT"};
         static int         sizeval[6] = {1,2,4,6,8,10};
-        static const char *typenam[2][6]={{"unsigned char","unsigned short","unsigned long",0,
-          "unsigned long long",0},{"UCHAR","USHORT","ULONG",0,"ULONGLONG",0}};
+        static const char *typenam[4][6]= {
+           {"unsigned char","unsigned short","unsigned long",0,"unsigned long long",0}, 
+           {"UCHAR"        ,"USHORT"        ,"ULONG"        ,0,"ULONGLONG"         ,0},
+           {"unsigned char","unsigned short","unsigned int" ,0,"unsigned long"     ,0},
+           {"u8t"          ,"u16t"          ,"u32t"         ,0,"u64t"              ,0}};
         int    size=0, ps, sizeidx=0;
 
         if (types.IsMember(op)) {

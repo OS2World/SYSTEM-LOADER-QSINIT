@@ -1,0 +1,104 @@
+[project]
+name=mkbin
+version=0x0011
+
+[config]
+0=Debug
+1=Release
+
+[vars]
+aa=@wasm
+cc=@wcc386
+cpp=@wpp386
+ld=@wlink
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /tq /p1
+
+*cln=clean|.SYMBOLIC|@echo Cleaning ... | \
+     @if exist $(outdir)\*.obj @del $(outdir)\*.obj | \
+     @if exist $(outdir)\*.lst @del $(outdir)\*.lst | \
+     @if exist $(outdir)\*.h @del $(outdir)\*.h | \
+     @if exist $(outdir)\$(name).* @del $(outdir)\$(name).*
+
+aflags=-mf -4p -zq -fo=
+
+cflags=-4s -zri -zq -fp5 -fpi87 -s -mf -ox $(oskey) -i=..\..\..\ldrapps\hc\rt \
+       -DSRT -DNO_HUGELIST -DNO_RANDOM -DSORT_BY_OBJECTS_ON -i=..\..\..\hc \
+       -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_SP_POINTRECT \
+       -i=$(outdir) -DAPPVER=$(verishort) -fo=
+
+cppflags=$(dbtype) $(cflags)
+
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)_$(build_osc)
+outname=$(name).exe
+&lnk=$(outdir)\$(name).lnk
+
+[vars.*.0]
+dbgkey=debug watcom all
+dbtype=-d3s -hw -of
+
+[vars.*.1]
+dbgkey=
+dbtype=-d0
+
+[vars.os/2]
+target=os2v2
+oskey=-bt=os2 -DSP_OS2
+exedir=..\..\t_os2
+
+[vars.win32]
+target=nt
+oskey=-bt=nt -DSP_WIN32
+exedir=..\..\t_nt
+
+[vars.dos]
+target=pmodew
+oskey=-bt=dos -DSP_DOS32
+exedir=..\..
+
+[files]
+$(bld_dir).dir $(outdir).dir clean.cln
+..\..\..\init\inc\qsbinfmt.inc
+..\..\..\ldrapps\runtime\rt\sp_defs.cpp
+..\..\..\ldrapps\runtime\rt\sp_str.cpp
+mkbin.cpp pack2.c lxread.cpp
+
+[make_footer]
+MAKEDIRS : $(bld_dir).dir $(outdir).dir
+    @echo Building $(name)...
+
+nolink : $(**dir) @@wait $(**inc) @@wait $(**cpp) $(**c)
+
+[&lnk]
+sys $(target)
+name $(outname)
+$(dbgkey)
+file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
+op quiet
+op st=32768
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+
+[config.0,1]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&lnk) | \
+     if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >nul | \
+     copy $(outname) $(exedir) >nul

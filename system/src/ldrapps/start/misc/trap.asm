@@ -69,6 +69,7 @@ CODE32          segment dword public USE32 'CODE'
                 extrn   _trap_screen:near
                 extrn   _exit_pm32:near
                 extrn   __longjmp:near
+                extrn   _sys_idtdump:near
 
                 public  _except_init
 ;----------------------------------------------------------------
@@ -128,7 +129,7 @@ traptask_&x     label   near                                    ;
 ENDM                                                            ;
 ;----------------------------------------------------------------
 task_trap       label   near                                    ;
-                mov     ax,cs                                   ; we assume ds = cs+8
+                mov     ax,cs                                   ; assume ds = cs+8
                 add     ax,SEL_INCR                             ;
                 mov     es,ax                                   ;
                 clts                                            ;
@@ -261,7 +262,7 @@ walk_xcpt       proc    near
                 mov     fs:[0].tss_cs,cs                        ;
                 mov     fs:[0].tss_ds,ds                        ;
                 mov     fs:[0].tss_es,ds                        ;
-                mov     fs:[0].tss_ss,ds                        ;
+                mov     fs:[0].tss_ss,ss                        ;
                 mov     edx,fs:[0].tss_esp0                     ; this must be main_tss
                 mov     fs:[0].tss_esp,edx                      ;
                 mov     fs,cx                                   ;
@@ -480,28 +481,24 @@ _sys_seldesc    endp
 _sys_intgate    proc    near                                    ;
                 push    ebx                                     ;
                 push    edi                                     ;
-                push    fs                                      ;
                 pushfd                                          ;
                 cli                                             ;
 
-                movzx   ebx,byte ptr [esp+20]                   ; vector
-                mov     cx,[esp+24]                             ; tss sel
+                movzx   ebx,byte ptr [esp+16]                   ; vector
+                mov     cx,[esp+20]                             ; tss sel
                 shl     ebx,3                                   ;
                 sub     esp,8                                   ;
                 sidt    [esp]                                   ;
-                mov     ax,SELZERO                              ;
-                mov     fs,ax                                   ;
                 mov     edi,[esp].lidt_base                     ;
                 add     esp,8                                   ;
                 shl     ecx,16                                  ;
-                mov     fs:[edi+ebx].g_handler,ecx              ;
-                mov     fs:[edi+ebx].g_access,D_TASK0           ;
+                mov     [edi+ebx].g_handler,ecx                 ;
+                mov     [edi+ebx].g_access,D_TASK0              ;
                 xor     eax,eax                                 ;
-                mov     fs:[edi+ebx].g_parms,al                 ;
-                mov     fs:[edi+ebx].g_extoffset,ax             ;
+                mov     [edi+ebx].g_parms,al                    ;
+                mov     [edi+ebx].g_extoffset,ax                ;
 
                 popfd                                           ;
-                pop     fs                                      ;
                 pop     edi                                     ;
                 pop     ebx                                     ;
                 inc     eax                                     ;

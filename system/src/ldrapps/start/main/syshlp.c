@@ -12,6 +12,7 @@
 #include "internal.h"
 #include "qsstor.h"
 #include "qsint.h"
+#include "qsinit.h"
 
 #define MSR_IA32_MTRRCAP             0x00FE
 #define MSR_IA32_EXT_CONFIG          0x00EE
@@ -537,13 +538,51 @@ u32t _std hlp_mtrrbatch(void *buffer) {
    }
 }
 
-void* _std hlp_memcpy(void *dst, const void *src, u32t length) {
+/** memcpy with SS segment as source & destination.
+    I.e., function have access to 1st page in non-paging mode. */
+void* _std memcpy0(void *dst, const void *src, u32t length);
+// 48-bit ptr to page 0, but we use only offset here
+extern u32t _std page0_fptr;
+
+static void* hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
    _try_ {
-      memcpy(dst, src, length);
+      /* page0 flag here affect SOURCE access in paging mode and 
+         SOURCE+DST access in non-paging */
+      if (page0) memcpy0(dst,src,length); else memcpy(dst,src,length);
       _ret_in_try_(dst);
    }
    _catch_(xcpt_all) {
    }
    _endcatch_
    return 0;
+}
+
+void* _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
+   if (page0 && in_pagemode) {
+      u32t  dstv = (u32t)dst;
+      char *srcv = (char*)src;
+      // wrap around 0?
+      if (dstv+length < dstv) {
+         u32t upto0 = FFFF-dstv+1;
+         void   *rc = hlp_memcpy_int(dst, srcv, upto0, 1);
+         if (!rc) return 0;
+         dst = 0; dstv = 0;
+         srcv   += upto0;
+         length -= upto0;
+      }
+      if (!length) return dst;
+      // 1st page copying
+      if (dstv < PAGESIZE) {
+         u32t upto4 = dstv+length > PAGESIZE ? PAGESIZE-dstv : length;
+         void   *rc = hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1);
+         if (!rc) return 0;
+         dstv   += upto4; dst = (void*)dstv; 
+         srcv   += upto4;
+         length -= upto4;
+      }
+      if (!length) return dst;
+      // above 1st page - normal copying
+      return hlp_memcpy_int(dst, srcv, length, 1);
+   } else
+   return hlp_memcpy_int(dst, src, length, page0);
 }

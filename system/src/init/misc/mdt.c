@@ -1,6 +1,3 @@
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "clib.h"
 #include "qsint.h"
 #define MODULE_INTERNAL
@@ -9,20 +6,28 @@
 #include "ff.h"
 #include "seldesc.h"
 #include "qsinit.h"
+#include "qsbinfmt.h"
 
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
 module          *mod_ilist = 0; // currently loading modules list
 module           *mod_self = 0; // QSINIT module reference
-u16t              pinfo_gs = 0; // selector for process context access
 process_context    *ctxmem = 0; // current process context (const pointer)
 u8t              *page_buf = 0; // 4k buffer for various needs
 u32t           lastusedpid = 1; // unique pid for processes
+#ifdef INITDEBUG
+u8t              mod_delay = 0; // exe delayed unpack
+#else
 u8t              mod_delay = 1; // exe delayed unpack
+#endif
 
-static char  qsinit_str[] = MODNAME_QSINIT;
-extern u16t  exptable_data[];
-extern u16t  qsinit_size;
+static char     qsinit_str[] = MODNAME_QSINIT;
+extern u32t  exptable_data[];
+extern u16t    qsinit_size;
+extern u16t       pinfo_gs;     // selector for process context access
+extern 
+MKBIN_HEADER    bin_header;
+extern u32t       highbase;     // base of 32bit object
 
 
 // launch routines
@@ -148,7 +153,7 @@ u32t mod_query(const char *name, u32t searchtype) {
       // adding QSINIT
       u32t   sz16 = Round16(sizeof(module) + 255*sizeof(mod_export));
       module *slf = hlp_memalloc(sz16 + EXPORT_THUNK*256, QSMA_READONLY);
-      u16t   *exp = exptable_data, ord=0;
+      u32t   *exp = exptable_data, ord=0;
       u8t   noffs = 0;
       slf->baseaddr = slf;
       slf->usage    = slf->objects = 1;
@@ -157,14 +162,16 @@ u32t mod_query(const char *name, u32t searchtype) {
       slf->exps     = (mod_export*)((u8t*)slf + sizeof(module));
       slf->thunks   = (u8t*)slf + sz16;
       memset(slf->thunks, 0xCC, EXPORT_THUNK*256);
-      slf->obj[0].size  = qsinit_size;
-      slf->obj[0].flags = OBJBIGDEF|OBJREAD|OBJWRITE|OBJEXEC;
-      slf->obj[0].sel   = SEL32CODE;
+
+      slf->obj[0].address = (void*)highbase;
+      slf->obj[0].size    = bin_header.pmSize;
+      slf->obj[0].flags   = OBJBIGDEF|OBJREAD|OBJWRITE|OBJEXEC;
+      slf->obj[0].sel     = SEL32CODE;
       // setting up export table
-      while (*exp!=0xFF00) {
-         if (*exp>>8==0xFF) {
-            auto u16t nord = *exp&0xFF;
-            if (nord==0xFF) noffs = 1; else ord = nord;
+      while (*exp!=0xFFFF0000) {
+         if (*exp>>16==0xFFFF) {
+            auto u32t nord = *exp&0xFFFF;
+            if (nord==0xFFFF) noffs = 1; else ord = nord;
          } else {
             auto mod_export *eptr = slf->exps+slf->exports;
             // check for zero offset - (re)moved function and ignore it
@@ -571,7 +578,7 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    if ((sflags&MODUNP_OBJLOADED) && strange->objloaded)
       (*strange->objloaded)(mh,object);
 #ifdef INITDEBUG
-   log_misc(3, "fixuping %s, obj %d\n", mh->name, object+1);
+   //log_misc(3, "fixuping %s, obj %d\n", mh->name, object+1);
 #endif
    // process fixups
    for (ii=0;ii<oe->o32_mapsize;ii++) {

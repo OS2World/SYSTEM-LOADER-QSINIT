@@ -501,7 +501,7 @@ void _std sto_flush(void) {
       stoinit_entry *ste = stl+ii;
       if (ste->name[0]) {
          void *data = ste->isptr?(void*)ste->data:&ste->data;
-         log_printf("key %s(%d): %4lb\n", ste->name, ste->len, data);
+         // log_printf("key %s(%d): %4lb\n", ste->name, ste->len, data);
          sto_save(ste->name, data, ste->len, !ste->isptr);
          ste->name[0] = 0;
       }

@@ -3,7 +3,6 @@
 ; init process
 ;
 
-                .386p
                 include inc/qstypes.inc                         ;
                 include inc/segdef.inc                          ;
                 include inc/basemac.inc                         ;
@@ -12,33 +11,31 @@
                 include inc/ioint13.inc                         ; for BPB
                 include inc/iopic.inc                           ;
                 include inc/qsconst.inc                         ;
-                include inc/cpudef.inc
+                include inc/cpudef.inc                          ;
+                include inc/qsbinfmt.inc                        ;
+
+                .486p
 
 PMODE_TEXT      segment                                         ;
                 extrn _pm_info:near                             ;
                 extrn _pm_init:near                             ;
 PMODE_TEXT      ends                                            ;
 
-_TEXT           segment                                         ;
-                extrn _calibrate_delay:near                     ; io delay calibrate call
-                extrn settimerirq:near                          ; set int 50h handler
-                extrn pm16set:near                              ; 16bit pm init part
-                extrn int13check:near                           ; int13 support check
-                extrn _checkresetmode:near                      ;
-_TEXT           ends                                            ;
+TEXT16          segment                                         ;
+                extrn   _calibrate_delay:near                   ; io delay calibrate call
+                extrn   settimerirq:near                        ; set int 50h handler
+                extrn   pm16set:near                            ; 16bit pm init part
+                extrn   int13check:near                         ; int13 support check
+                extrn   _checkresetmode:near                    ;
+                extrn   _init16:near                            ;
+                extrn   _settextmode:near                       ;
+TEXT16          ends                                            ;
 
-_STACK          segment
-                public  bssend                                  ;
-                align   2                                       ;
-bssend          label word                                      ; end of BSS seg
-                dw      1536 dup (?)                            ;
-stacktop        dw      $                                       ; top of stack
-_STACK          ends
-
-_DATA           segment                                         ;
+DATA16          segment                                         ;
                 public  _filetable                              ;
                 public  _minifsd_ptr                            ;
                 public  _DiskBufRM_Seg                          ;
+                public  _rmpart_size, _bin_header, bin32_seg    ;
                 ; ----> must be in the same order and place,
                 ;       exported to bootos2.exe <----------------
 _minifsd_ptr    dd      0                                       ; minifsd copied here
@@ -47,38 +44,58 @@ _DiskBufRM_Seg  dw      0                                       ; RM far disk bu
 _filetable      filetable_s <>                                  ;
                 ; -----------------------------------------------
 filetabptr      dd      0                                       ;
-_DATA           ends                                            ;
+_bin_header     mkbin_info <MKBIN_SIGN, size mkbin_info, 0, offset bssstart>
+_rmpart_size    dw      0                                       ; own size, rounded up to 4k
+bin32_seg       dw      0                                       ; seg of packed 32-bit part
+DATA16          ends                                            ;
 
-_ABOUT          segment
-                public  _aboutstr                               ;
-_aboutstr       label   near                                    ;
-                include inc/version.inc                         ;
-                db      10,0                                    ;
-_ABOUT          ends   
-
-STARTBSS        segment                                         ;
+BSSINIT         segment                                         ;
                 align 2                                         ;
 bssstart        label   word                                    ;
                 public  _pmdataseg                              ;
                 public  _logbufseg                              ;
                 public  _physmem                                ;
                 public  intrmatrix                              ;
+                public  _DiskBufRM, _DiskBufPM                  ;
 init_print_attr db      ?                                       ;
-                align 2                                         ;
+                align   2                                       ;
 _pmdataseg      dw      ?                                       ; pm data segment
 _logbufseg      dw      ?                                       ; rm log buffer segment
 intrmatrix      db      100h dup(?)                             ; INT redirectors for all INTs
 _physmem        db      100h dup (?)                            ; 32 * 8 (!!)
-STARTBSS        ends                                            ;
+                align   4                                       ;
+_DiskBufRM      dd      ?                                       ;
+_DiskBufPM      dd      ?                                       ;
+BSSINIT         ends                                            ;
 
-_BSS            segment                                         ;
+BSSFINI         segment
+                public  bssend                                  ;
+                align   2                                       ;
+bssend          label word                                      ; end of BSS seg
+BSSFINI         ends
+
+_BSS16          segment                                         ;
                 public  _rm16code                               ;
-                public  _safeMode                               ;
-                public  _BootBPB                                ;
+                public  _safeMode, _int12size                   ;
+                public  _BootBPB, _physmem_entries              ;
 _rm16code       dw      ?                                       ;
+_physmem_entries dw     ?                                       ;
+up_free_len     dw      ?                                       ; free paragraphs AFTER 16-bit part
+up_free_seg     dw      ?                                       ; start seg of this memory
+lo_used_seg     dw      ?                                       ; lowest seg used by micro-FSD/QSINIT
+_int12size      dw      ?                                       ;
 _safeMode       db      ?                                       ;
 _BootBPB        Disk_BPB <>                                     ; BPB
-_BSS            ends                                            ;
+                align  4                                        ;
+                public  _memblocks, _availmem, _phmembase       ;
+                public  _highbase, _highstack, _stacksize       ;
+_memblocks      dd      ?                                       ;
+_availmem       dd      ?                                       ;
+_phmembase      dd      ?                                       ;
+_highbase       dd      ?                                       ;
+_highstack      dd      ?                                       ;
+_stacksize      dd      ?                                       ;
+_BSS16          ends                                            ;
 
 ;
 ; ENTRY
@@ -103,8 +120,9 @@ _BSS            ends                                            ;
 ;    (DL)    = drive number for the boot disk
 ;    (DS:SI) = address of BOOT MEDIA'S bpb
 ;
-INITCODE        segment
-                assume cs:DGROUP,ds:DGROUP,es:nothing,ss:DGROUP
+                public  _aboutstr                               ;
+INITCODE        segment                                         ;
+                assume  cs:G16, ds:G16, es:nothing, ss:G16      ;
 start:
                 mov     word ptr cs:[_dd_bpbseg],ds             ;
                 mov     ax,cs                                   ;
@@ -120,27 +138,53 @@ start:
                 mov     word ptr [_LdrRstCS],cs                 ;
                 mov     word ptr [filetabptr+2],es              ; save filetable/rootdir pointer
                 mov     word ptr [filetabptr],di                ;
+                jmp     @@init_process                          ;
+
+                db      10,10                                   ;
+_aboutstr       label   near                                    ;
+                include inc/version.inc                         ;
+                db      10,0,10                                 ;
+;
+; here we can`t use bss and own stack until packed 32bit part will be moved up
+;
+@@init_process:
+                cli                                             ; who knows - where is
+                mov     dx,offset bssend                        ; our`s stack now? so cli it
+                add     dx,QSM_STACK16                          ;
+                add     dx,PAGESIZE - 1                         ; align to page
+                and     dx,not PAGEMASK                         ;
+                mov     _rmpart_size,dx                         ;
+                mov     cx,dx                                   ;
+                shr     cx,PARASHIFT                            ; move packed 32-bit
+                add     cx,ax                                   ; code to the end of
+                mov     es,cx                                   ; 16-bit stack
+                mov     bin32_seg,cx                            ;
+                mov     cx,word ptr _bin_header.pmPacked        ;
+                mov     di,cx                                   ;
+                dec     di                                      ;
+                mov     si,_bin_header.rmStored                 ;
+                add     si,di                                   ;
+                std                                             ;
+            rep movsb                                           ;
                 mov     es,ax                                   ;
+                cld                                             ;
+                mov     ss,ax                                   ;
+                movzx   esp,dx                                  ; switch stack
+                sti                                             ;
 
                 mov     di,offset bssstart                      ; clear BSS segment
                 mov     cx,offset bssend                        ;
                 sub     cx,di                                   ;
                 shr     cx,1                                    ;
                 xor     ax,ax                                   ;
-                cld                                             ;
             rep stosw                                           ;
                 mov     di,offset intrmatrix                    ; fill int routers
                 mov     cl,80h                                  ;
                 mov     ax,0CCCCh                               ;
             rep stosw                                           ;
-                mov     ax,offset stacktop                      ; length of ldr image
-                add     ax,PAGESIZE - 1                         ; align to page
-                and     ax,not PAGEMASK                         ;
-                mov     _qsinit_size, ax                        ; own segment size (page aligned)
-                mov     cx,cs                                   ;
-                mov     ss,cx                                   ;
-                movzx   esp,ax                                  ; switch stack
-
+;
+; here we are have cleared bss & own stack
+;
                 mov     ax,1003h                                ; blink off
                 xor     bl,bl                                   ;
                 int     10h                                     ;
@@ -149,25 +193,29 @@ start:
                 and     al,2                                    ;
                 setnz   _safeMode                               ;
                 add     byte ptr mhdr_about,al                  ; change color of |LOADING|
-
+ifdef INITDEBUG
+                push    0                                       ; set 80x50
+                push    2                                       ;
+                push    cs                                      ;
+                call    _settextmode                            ;
+endif
                 xor     ax,ax                                   ;
                 mov     dx,ax                                   ; left corner
                 call    init_print                              ; hello world!
 
-ifdef INITDEBUG
-                mov     ax,word ptr _dd_bootdisk
-                dbg16print <10,"bootdisk: %x",10>,<ax>          ;
-endif
                 int     12h                                     ; get int 12 value
+                mov     _int12size,ax                           ;
 ifdef INITDEBUG
-                dbg16print <"lowmem: %d kb",10>,<ax>            ;
+                dbg16print <10,"lowmem: %d kb",10>,<ax>         ;
+                mov     dx,word ptr _dd_bootdisk                ;
+                dbg16print <"bootdisk: %x",10>,<dx>             ;
 endif
                 mov     dx,ax                                   ; check for sufficient
                 mov     ax,3                                    ; place to to put self
                 cmp     dx,512                                  ; in the top of low memory
                 jc      panic_initpm                            ; <512kb -> error
                 shl     dx,10-PARASHIFT                         ; kb->paragraphs
-                mov     ax,_qsinit_size                         ;
+                mov     ax,_rmpart_size                         ;
                 shr     ax,PARASHIFT                            ; use 9100:0 by default,
                 sub     dx,ax                                   ; else try to calculate
                 mov     cx,QSINIT_SEGREAL                       ;
@@ -179,12 +227,15 @@ endif
 ifdef INITDEBUG
                 dbg16print <"new cs: %x",10>,<cx>               ;
 endif
-                mov     _rm16code, cx                           ;
+                mov     _rm16code,cx                            ;
+                sub     dx,cx                                   ; free paragraphs
+                mov     up_free_len,dx                          ; at 9100 segment
+                add     ax,cx                                   ; 
+                mov     up_free_seg,ax                          ; at its seg
 
                 call    _pm_info                                ; check cpu type
                 jc      panic_initpm                            ; exit on error
                 ;dbg16print <"Need %x paragraphs",10>,bx         ;
-                neg     bx                                      ;
                 mov     _pmdataseg,bx                           ;
                 cmp     cl, 4                                   ;
                 mov     ax, 1                                   ; if 486?
@@ -207,7 +258,9 @@ endif
                 mov     cx,(size filetable_s) shr 1             ;
             rep movsw                                           ; copying filetable
                 mov     ds,bx                                   ; restore
-
+ifdef INITDEBUG
+                call    ftab_print                              ;
+endif
 ; checking file table ...
                 mov     al,5                                    ; message code
                 mov     cx,[_filetable.ft_loaderseg]            ; check micro-fsd report
@@ -220,7 +273,6 @@ endif
                 cmp     dh,BF_MICROFSD                          ; check flags
                 jnz     panic_initpm                            ;
 
-                mov     bx,_rm16code                            ; our's next location
                 xor     si,si                                   ; zero
                 cmp     si,word ptr [_filetable.ft_loaderlen+2] ; loader > 64k
                 jnz     panic_initpm                            ;
@@ -234,14 +286,19 @@ endif
                 or      cx,cx                                   ;
                 jz      panic_initpm                            ;
                 shr     cx,PARASHIFT                            ;
-                add     cx,[_filetable.ft_museg]                ; microfsd use memory
-                sub     cx,bx                                   ; above 9100:0 or
-                jnc     panic_initpm                            ; below 8100:0?
-                add     cx,_64KB SHR PARASHIFT                  ;
-                jnc     panic_initpm                            ;
+                mov     dx,_filetable.ft_museg                  ;
+                add     cx,dx                                   ; microfsd use memory
+                mov     bx,_int12size                           ;
+                shl     bx,10-PARASHIFT                         ;
+                sub     bx,_64KB SHR PARASHIFT                  ;
+                cmp     cx,bx                                   ; end above lowmem - 64k?
+                jg      panic_initpm                            ;
+                sub     bx,_64KB SHR PARASHIFT                  ;
+                cmp     dx,bx                                   ; start below lowmem - 128k?
+                jc      panic_initpm                            ;
 
-                mov     cx,[_filetable.ft_museg]                ; segment for pm_init data
-                add     _pmdataseg,cx                           ;
+                mov     cx,[_filetable.ft_museg]                ; lowest used mem 
+                mov     lo_used_seg,cx                          ; on FSD boot
 
                 mov     cx,[_filetable.ft_cfiles]               ; check ft_cfiles
                 cmp     cx,8                                    ;
@@ -285,16 +342,16 @@ endif
                 cmp     si,OS2LDR_SEGREAL                       ;
                 ja      panic_initpm                            ;
 @@init_nomini_2:
-                clc                                             ; skip _pmdataseg FAT boot setup
+                clc                                             ; skip used mem FAT boot setup
 @@init_noft:
                 mov     bx,_rm16code                            ; our's next location
                 jnc     @@init_nofsd_pm                         ;
-                add     _pmdataseg,bx                           ; _pmdataseg in FAT boot
+                mov     lo_used_seg,bx                          ; lowest used mem in FAT boot
 @@init_nofsd_pm:
 ; migrating to the top of low memory ...
                 mov     es,bx                                   ; copy self to 9100:0
                 xor     di,di                                   ;
-                mov     cx,_qsinit_size                         ;
+                mov     cx,_rmpart_size                         ;
                 mov     si,di                                   ;
                 shr     cx,2                                    ;
             rep movsd                                           ;
@@ -306,11 +363,23 @@ endif
                 mov     ss,bx                                   ; home, sweet home ;)
                 mov     ds,bx                                   ;
 
-                mov     cx,_pmdataseg                           ; DMPI data (GDT, etc)
-                and     cx,NOT ((PAGESIZE SHR PARASHIFT) - 1)   ; round it to page
-                mov     _pmdataseg,cx                           ; and allocate 4k log buffer
-                sub     cx,LOGBUF_SIZE SHR PARASHIFT            ; for logging debug output
-                mov     _logbufseg,cx                           ; in RM callbacks
+                mov     cx,_pmdataseg                           ;
+                add     cx,PAGEMASK shr PARASHIFT               ; align DMPI data size
+                and     cx,not (PAGEMASK shr PARASHIFT)         ; to page
+                call    init_alloc_rm                           ;
+                mov     _pmdataseg,cx                           ; DMPI data (GDT, etc)
+
+                mov     cx,LOGBUF_SIZE SHR PARASHIFT            ;
+                call    init_alloc_rm                           ; 4k buffer for logging
+                mov     _logbufseg,cx                           ; debug output in RM callbacks
+
+                mov     cx,DISKBUF_SIZE SHR PARASHIFT           ;
+                call    init_alloc_rm                           ;
+                mov     _DiskBufRM_Seg,cx                       ; 32k disk i/o buffer
+                mov     word ptr _DiskBufRM+2,cx                ;
+                movzx   ecx,cx                                  ;
+                shl     ecx,PARASHIFT                           ;
+                mov     _DiskBufPM,ecx                          ;
 
                 test    ah,BF_NOMFSHVOLIO                       ; BPB available?
                 jnz     @@init_noBPB                            ;
@@ -318,25 +387,13 @@ endif
                 mov     di,offset _BootBPB                      ;
                 mov     ds,word ptr _dd_bpbseg                  ;
                 mov     cx,size Disk_BPB                        ;
-            rep movsb
+            rep movsb                                           ;
                 mov     ds,bx                                   ; restore ds
-                jmp     @@init_copyMFSD
+                jmp     @@init_funclist                         ;
 @@init_noBPB:
                 mov     byte ptr _dd_bootdisk, 0FFh             ; guarantee invalid disk
                 mov     byte ptr minifsd_flags, 0FFh            ; number
-@@init_copyMFSD:
-                test    ah,BF_MINIFSD                           ; mini-fsd exists?
-                jz      @@init_nominifsd                        ;
-                mov     es,dx                                   ; copy mini-fsd to
-                xor     di,di                                   ; our`s old place to prevent
-                mov     cx,word ptr [_filetable.ft_mfsdlen]     ; cleaning it by disk i/o
-                xor     si,si                                   ;
-                mov     ds,[_filetable.ft_mfsdseg]              ;
-            rep movsb                                           ;
-                mov     ds,bx                                   ;
-                mov     word ptr _minifsd_ptr + 2,dx            ;
-                mov     es,bx                                   ;
-@@init_nominifsd:
+@@init_funclist:
                 call    int13check                              ; check int 13h
                 push    cs                                      ;
                 call    _calibrate_delay                        ; calibrate io delay
@@ -344,16 +401,46 @@ endif
                 call    remap_pic                               ; remap PIC1 to int 50h
                 call    settimerirq                             ; set own irq0 handler
 
-                xor     di,di                                   ; fill all of space
-                mov     cx,offset @@init_nominifsd              ; above with int 3
-                mov     es,_rm16code                            ; to catch goto 0 :)
-                mov     al,0CCh                                 ; 
-            rep stosb                                           ;
+                push    ds                                      ;
+                pop     es                                      ;
+                call    _init16                                 ; msg code in ax
+ifdef INITDEBUG
+                dbg16print <"init16 rc: %x",10>,<ax>            ;
+endif
+                or      ax,ax                                   ;
+                jz      @@init_init16ok                         ;
+                jmp     panic_initpm                            ;
+@@init_init16ok:
+ifdef INITDEBUG
+                mov     ax,_pmdataseg                           ;
+                mov     cx,_logbufseg                           ;
+                mov     edx,_DiskBufPM                          ;
+                dbg16print <"pmdata:%x, log:%x, iobuf:%lx",10>,<edx,cx,ax> ;
+
+                mov     eax, _highbase
+                mov     ecx, _highstack
+                mov     edx, _minifsd_ptr
+                dbg16print <"hibase:%lx, histack:%lx, fsd:%lx",10>,<edx,ecx,eax> ;
+endif
 ; protected mode ...
                 mov     es,_pmdataseg                           ;
                 call    _pm_init                                ; init
                 jc      panic_initpm                            ;
-                call    pm16set                                 ; go to 16 bit pm code
+
+                mov     edi,_minifsd_ptr                        ; copy mini-FSD
+                or      edi,edi                                 ; to buffer in
+                jz      @@init_noMFSDcopy                       ; upper memory
+                push    ds                                      ;
+                movzx   esi,_filetable.ft_mfsdseg               ;
+                shl     esi,PARASHIFT                           ;
+                mov     ecx,_filetable.ft_mfsdlen               ;
+                cld                                             ;
+                push    es                                      ;
+                pop     ds                                      ;
+            rep movs    byte ptr es:[edi],byte ptr ds:[esi]     ;
+                pop     ds                                      ;
+@@init_noMFSDcopy:
+                jmp     pm16set                                 ; go to 16 bit pm code
 
                 public  panic_initpm                            ;
                 public  panic_initpm_np                         ;
@@ -365,6 +452,21 @@ halt_sys:
                 sti                                             ; allow C-A-D
                 hlt                                             ; and loop forever
                 jmp     short halt_sys                          ;
+
+; ===============================================================
+; IN : cx = number of paragraphs (page aligned)
+; OUT: cx = segment (page aligned)
+init_alloc_rm   label   near                                    ;
+                cmp     up_free_len,cx                          ; trying to put in 9100
+                jc      @@initmem_nohigh                        ;
+                sub     up_free_len,cx                          ;
+                xadd    up_free_seg,cx                          ;
+                retn
+@@initmem_nohigh:
+                sub     lo_used_seg,cx                          ;
+                mov     cx,lo_used_seg                          ;
+                retn                                            ;
+
 ; ===============================================================
 ; initial (real mode) message print.
 ; IN: al = message number
@@ -428,16 +530,32 @@ init_print      proc  near                                      ;
                 ret                                             ;
 init_print      endp                                            ;
 
+ifdef INITDEBUG
+ftab_print      proc    near                                    ;
+                dbg16print <10,"Micro-FSD file table (%lx):",10>,<filetabptr>
+                dbg16print <"cfiles: %d, loader seg %x, len %lx",10>,<_filetable.ft_loaderlen,_filetable.ft_loaderseg,_filetable.ft_cfiles>
+                dbg16print <"micro seg %x, len %lx",10>,<_filetable.ft_mulen,_filetable.ft_museg>
+                dbg16print <"mini  seg %x, len %lx",10>,<_filetable.ft_mfsdlen,_filetable.ft_mfsdseg>
+                dbg16print <"ripl  seg %x, len %lx",10>,<_filetable.ft_ripllen,_filetable.ft_riplseg>
+                dbg16print <"opn: %lx, read %lx, clse %lx, term, %lx",10>,<_filetable.ft_muTerminate,_filetable.ft_muClose,_filetable.ft_muRead,_filetable.ft_muOpen>
+                cmp     _filetable.ft_cfiles,5                  ;
+                jc      @@ftbp_exit                             ;
+                dbg16print <"res addr: %lx, len %lx",10>,<_filetable.ft_resofs,_filetable.ft_reslen>
+@@ftbp_exit:
+                ret                                             ;
+ftab_print      endp                                            ;
+endif
+
 INITCODE        ends
 
                 include misc/ldrrst.inc
                 include misc/meminit.inc
                 include misc/mappic.inc
 
-_DATA           segment
+DATA16          segment
 embedded_errs   dw      offset msg_loading, offset msg_no486, offset msg_notrm,
                         offset msg_memlow, offset msg_a20, offset msg_filetab,
-                        offset msg_dpmierr, offset msg_int13chs, offset msg_no32mb,
+                        offset msg_dpmierr, offset msg_unperr, offset msg_no32mb,
                         offset msg_nothing, offset msg_mcberr, offset msg_faterr,
                         offset msg_diskerr, offset msg_noextdta, offset msg_runextdta,
                         offset msg_disknomem
@@ -452,7 +570,7 @@ msg_memlow      db      1,'invalid low memory size.',0             ; 03
 msg_a20         db      0,0                                        ; 04
 msg_filetab     db      1,'invalid microfsd data.',0               ; 05
 msg_dpmierr     db      1,'protected mode interface error.',0      ; 06
-msg_int13chs    db      1,0                                        ; 07
+msg_unperr      db      1,'loader binary is damaged.',0            ; 07
 msg_no32mb      db      1,'at least 24Mb required.',0              ; 08
 msg_nothing     db      0,'nothing to do.',0                       ; 09
 msg_mcberr      db      1,'memory allocation error.',0             ; 10
@@ -461,9 +579,5 @@ msg_diskerr     db      1,'disk read error.',0                     ; 12
 msg_noextdta    db      1,'QSINIT.LDI is missing or invalid.',0    ; 13
 msg_runextdta   db      1,'unable to unpack secondary code.',0     ; 14
 msg_disknomem   db      1,'no memory for virtual disk.',0          ; 15
-                align 4
-                public  _qsinit_size
-_qsinit_size    dw      0                                       ; own size, rounded up to 4k
-
-_DATA           ends
+DATA16          ends
                 end start

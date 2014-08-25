@@ -9,18 +9,17 @@
                 include inc/cmos.inc
                 include inc/debug.inc
 
-_BSS            segment
+_BSS16          segment
                 public  _IODelay
                 public  _OrgInt50h
                 public  _NextBeepEnd
-                extrn   _ZeroAddress:dword                      ; phys 0 address
 _IODelay        dw      ?                                       ; i/o delay value
 _OrgInt50h      dd      ?                                       ; old irq0 vector
 _NextBeepEnd    dd      ?                                       ; next end of beep, ticks
-_BSS            ends
+_BSS16          ends
 
-_TEXT           segment
-                assume  cs:DGROUP,ds:DGROUP,es:nothing,ss:DGROUP
+TEXT16          segment
+                assume  cs:G16, ds:G16, es:nothing, ss:G16
 ;
 ; note: this routine is a copy of original IBM code. The reason for this is
 ;       a high sensitivity of several network cards (Intel basically) to the
@@ -161,8 +160,8 @@ settimerirq     proc    near                                    ;
                 xor     eax,eax                                 ;
                 mov     cs:_NextBeepEnd,eax                     ; zero it again ;)
                 mov     es,ax                                   ;
-                mov     edi,PIC1_IRQ_NEW shl 2                  ; get int 50h
-                mov     eax,es:[edi]                            ;
+                mov     di,PIC1_IRQ_NEW shl 2                   ; get int 50h
+                mov     eax,es:[di]                             ;
                 mov     cs:_OrgInt50h,eax                       ;
                 mov     ax,cs                                   ; and set own
                 shl     eax,16                                  ;
@@ -172,23 +171,17 @@ settimerirq     proc    near                                    ;
                 ret                                             ;
 settimerirq     endp
 
-_TEXT           ends
-
-
-CODE32          segment
-                assume  cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP
 ;----------------------------------------------------------------
 ; remove irq0_handler
                 public  _rmvtimerirq                            ;
-_rmvtimerirq    proc    near                                    ;
+_rmvtimerirq    proc    far                                     ;
                 pushf                                           ;
                 cli                                             ;
-                mov     ecx,PIC1_IRQ_NEW shl 2                  ;
-                add     ecx,_ZeroAddress                        ; restore org
-                mov     eax,_OrgInt50h                          ; int 8 ptr
-                mov     [ecx],eax                               ;
                 xor     eax,eax                                 ;
-                xchg    _NextBeepEnd,eax                        ;
+                mov     es,ax                                   ;
+                mov     ecx,cs:_OrgInt50h                       ; restore org
+                mov     es:[PIC1_IRQ_NEW shl 2],ecx             ; int 8 ptr
+                xchg    cs:_NextBeepEnd,eax                     ;
                 or      eax,eax                                 ;
                 jz      @@rmvti_nosound                         ;
                 in      al,SPEAKER_PORT                         ; turn off speaker
@@ -199,5 +192,5 @@ _rmvtimerirq    proc    near                                    ;
                 ret                                             ;
 _rmvtimerirq    endp                                            ;
 
-CODE32          ends
+TEXT16          ends
                 end

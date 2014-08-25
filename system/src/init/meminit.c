@@ -2,17 +2,18 @@
 // QSINIT
 // fill memory info
 // ----------------------------------------------------------------
+// this is 16-bit RM code!
+// ----------------------------------------------------------------
 // only general process is here: parse of 1st 10 E820 entries or old
 // int15 88/E8 output, sort it and write to initial physmem array.
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "qstypes.h"
 #include "qsint.h"
-#include "qsutil.h"
-#include "clib.h"
-#include "qsstor.h"
+#include "qsinit.h"
+#include "filetab.h"
+#include "qsbinfmt.h"
+
+void* __stdcall memmove16(void *dst, const void *src, u16t length);
 
 // int 15h E820h function memory table
 #define ACPIMEM_TABLE_SIZE  10
@@ -23,7 +24,24 @@ extern AcpiMemInfo AcpiInfoBuf[ACPIMEM_TABLE_SIZE];   // memory: int 15h ax=E820
 extern u16t         AcpiMemCnt;
 extern u32t          DiskBufPM;
 extern physmem_block   physmem[PHYSMEM_TABLE_SIZE];
-u16t           physmem_entries;
+extern u16t    physmem_entries;
+extern u16t          logbufseg;     // real mode 4k log buffer
+extern u32t          DiskBufPM,     // flat disk buffer address
+                     DiskBufRM;     // RM far disk buffer address
+extern u16t      DiskBufRM_Seg;     // and segment (exported)
+extern u16t          int12size;     // int 12 value
+extern 
+struct filetable_s   filetable;
+extern MKBIN_HEADER bin_header;
+extern u32t          memblocks;     // number of 64k blocks
+extern u32t           availmem;     // total avail memory (above 16M, including those arrays)
+extern u32t          phmembase;     // physical address of used memory (16Mb or larger on PXE)
+extern u32t           highbase,     // base of 32bit object
+                     highstack;     // end of 32bit object stack (initial esp)
+extern u8t        dd_bootflags;     // boot flags
+extern u32t        minifsd_ptr;     // buffer for mini-FSD
+extern u32t          unpbuffer;
+extern u32t          stacksize;
 
 typedef struct {
    u32t              startaddr;     // start address of physical memory block
@@ -35,19 +53,19 @@ typedef struct {
    u8t                   start;     // start or end address
 } SortInfo;
 
-void _std hlp_basemem(void) {
-   u32t  fcount, scount, scnew, ccount, ii, jj;
-   u8t     tmpf;
-   // use disk buffer as array space to save stack and code size
-   BlockInfo *ma = (BlockInfo*)DiskBufPM;
-   SortInfo  *sa = (SortInfo*)(DiskBufPM + FINDERARRAY_CNT*sizeof(BlockInfo));
+void hlp_basemem(void) {
+   u32t   fcount, scount, scnew, ccount, ii, jj;
+   u8t      tmpf;
+   // used stack size ~2400!!
+   BlockInfo  ma[FINDERARRAY_CNT];
+   SortInfo   sa[FINDERARRAY_CNT * 2];
    physmem_block  *ppm = physmem;
 
    physmem_entries = 0;       // zero counter
    // 640KB
    fcount = 0;
    ma[fcount].startaddr = 0;
-   ma[fcount].endaddr = ((u32t)int12mem()<<10) - 1;
+   ma[fcount].endaddr = ((u32t)int12size<<10) - 1;
    // parse ACPI memory table
    if (AcpiMemCnt) {
       for (ii=0; ii<AcpiMemCnt; ii++) {
@@ -175,7 +193,7 @@ void _std hlp_basemem(void) {
       ii=0;
       while (ii<ccount)
          if (ppm[ii].blocklen>_16MB && ppm[ii].startaddr<_16MB) {
-            memmove(ppm+ii+1,ppm+ii,(ccount-ii)*sizeof(physmem_block));
+            memmove16(ppm+ii+1,ppm+ii,(ccount-ii)*sizeof(physmem_block));
             ppm[ii+1].startaddr=_16MB;
             ppm[ii].blocklen   =_16MB-1;
             ccount++;
@@ -189,13 +207,49 @@ void _std hlp_basemem(void) {
       ii++;
    }
    physmem_entries = ccount;
-   // save storage key with array`s pointer and size
-   sto_save(STOKEY_PHYSMEM,&physmem,physmem_entries * sizeof(physmem_block),0);
 }
 
-void getfullSMAP(void);
+int init16(void) {
+   u32t  ii, mpos, fsdlen = 0, obj32size;
 
-AcpiMemInfo* _std int15mem(void) {
-   rmcall(getfullSMAP,0);
-   return (AcpiMemInfo*)DiskBufPM;
+   hlp_basemem();
+   // use 16Mb as low own memory border
+   mpos = _16MB;
+   // and PXE cache can grow above it :(
+   if (filetable.ft_cfiles==5) {
+      u32t resend = filetable.ft_reslen + filetable.ft_resofs;
+      if (resend > mpos) mpos = Round64k(resend);
+   }
+   // searching for whole 8Mb
+   for (ii=0; ii<physmem_entries; ii++) {
+      register physmem_block *pmb = physmem + ii;
+      if (pmb->startaddr>=_16MB && pmb->startaddr+pmb->blocklen>mpos) {
+         if (pmb->startaddr>mpos) mpos = pmb->startaddr;
+         availmem = pmb->startaddr + pmb->blocklen - mpos;
+         if (availmem>=_16MB/2) break;
+      }
+   }
+   // no - error!
+   if (ii>=physmem_entries) return 8; // QERR_NOMEMORY
+
+   if (dd_bootflags&BF_MINIFSD) fsdlen = filetable.ft_mfsdlen;
+   /* get memory for 32-bit part & mini-FSD buffer.
+      Space for code/data, BSS, fixups, unpacker, stack and FSD buffer.
+      Stack, actually, will be much larger (by fixups, unpacker buffer memory
+      and page rounding. */
+   stacksize = Round4k(unpbuffer);
+   if (stacksize<QSM_STACK32) stacksize = QSM_STACK32;
+
+   obj32size = Round4k(bin_header.pmSize + (bin_header.pmTotal - bin_header.pmStored));
+   ii        = Round64k(obj32size + stacksize + fsdlen);
+   stacksize = ii - obj32size - fsdlen & ~0xF;
+   highbase  = mpos;
+   unpbuffer = mpos + obj32size;
+   highstack = unpbuffer + stacksize;
+   if (fsdlen) minifsd_ptr = highstack;
+   phmembase = mpos + ii;
+   // truncate to nearest 64k
+   availmem  = availmem - ii & 0xFFFF0000;
+   memblocks = availmem>>16;
+   return 0;
 }

@@ -1,6 +1,3 @@
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #define LOG_INTERNAL
 #define MODULE_INTERNAL
 #define STORAGE_INTERNAL
@@ -29,17 +26,23 @@ static int           in_exit_call = 0;
 volatile exit_callback  *exitlist;
 u32t             FileCreationTime; // custom file creation time (for unzip)
 
+// real mode far functions!
+void setbaudrate(void);
+void earlyserinit(void);
 void rmvtimerirq(void);
 void poweroffpc(void);
+
+// some externals
 int  _std _snprint(char *buf, u32t count, const char *fmt, long *argp);
 void _std cache_ctrl(u32t action, u8t vol);
+
 /// put message to real mode log delay buffer
 void log_buffer(int level, const char* msg);
 
 void _std exit_prepare(void) {
    u32t ii;
    // remove real mode irq0 handler, used for speaker sound
-   rmvtimerirq();
+   rmcall(rmvtimerirq,0);
    cache_ctrl(CC_FLUSH, DISK_LDR);
    // process exit list
    if (in_exit_call||!exitlist) return;
@@ -67,9 +70,6 @@ void _std exit_handler(exit_callback func, u32t add) {
 // ******************************************************************
 
 static u16t check_rate[10] = {150,300,600,1200,2400,4800,9600,19200,38400,57600};
-// real mode far functions
-void setbaudrate(void);
-void earlyserinit(void);
 
 int _std hlp_seroutset(u16t port, u32t baudrate) {
    if (baudrate)
@@ -151,6 +151,7 @@ void _std log_flush(void) {
          u32t len;
          if (!lvl) break;
          len = strlen(lp);
+
          (*mod_secondary->log_push)(lvl,lp);
          lp+=len+1;
       }

@@ -23,11 +23,11 @@ Build:
 
 Source tree:
 
-   system\src\hc                   - common include
+   system\src\hc                 - common include
    system\src\init                 - QSINIT module (OS2LDR file)
    system\src\init\hc              - QSINIT include (exports)
 
-   system\src\ldrapps              - common QSINIT modules
+   system\src\ldrapps            - common QSINIT modules
    system\src\ldrapps\hc           - headers (exports) of all common modules
    system\src\ldrapps\runtime      - app/dll startup code and def/lib files
    system\src\ldrapps\bootmenu     - boot menu
@@ -43,6 +43,15 @@ Source tree:
    system\src\ldrapps\vdisk        - PAE ram disk support module
    system\src\ldrapps\vmtrr        - Write Combining MTRR setup
 
-   system\src\usrapps              - additional apps
+   system\src\usrapps            - additional apps
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
    system\src\usrapps\mptable      - mp table dump app (from bsd)
+
+   system\src\tools\src          - various build tools source code
+   system\src\tools\src\bin2h      - binary data to .h simple converter
+   system\src\tools\src\bootset    - volume boot sector setup for OS/2 & Windows
+   system\src\tools\src\def2lbc    - .ref file converter to various files
+   system\src\tools\src\hd4disk    - OS/2 basedev driver for PAE RAM disk
+   system\src\tools\src\mkbin      - tool for making QSINIT binary file
+   system\src\tools\src\tinc2h     - .inc to .h simple converter
+   system\src\tools\src\vpcfcopy   - write files to FAT disk image

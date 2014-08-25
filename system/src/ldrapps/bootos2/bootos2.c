@@ -209,7 +209,7 @@ void load_kernel(module  *mi) {
    isdbgkrnl = lowobjcnt > 6;
 
    log_printf("laddrdelta=%08X\n",laddrdelta);
-   log_printf("ob    flags    oi-flags     paddr/sel    fladdr      msz/vsz      qsaddr\n");
+   log_printf("ob    flags    oi-flags     paddr/sel    fladdr      msz/vsz\n");
 
    // for multiple MVDM data segments (where we can find such kernel? ;))
    rvdm_lin = MVDM_INST_DATA_ADDR;
@@ -236,9 +236,9 @@ void load_kernel(module  *mi) {
          }
       }
       // print object info dump
-      log_printf("%2x  %s  %08X  %08X/%04X  %08X  %06X/%06X  %08X\n", ii+1,
+      log_printf("%2x  %s  %08X  %08X/%04X  %08X  %06X/%06X\n", ii+1,
          getfprn(fl), fl, mi->obj[ii].resd1, mi->obj[ii].sel, mi->obj[ii].fixaddr,
-            PAGEROUND(mi->obj[ii].size), mi->obj[ii].size, mi->obj[ii].address);
+            PAGEROUND(mi->obj[ii].size), mi->obj[ii].size);
 
       if ((mi->flags&MOD_NOFIXUPS)!=0 && mi->obj[ii].orgbase)
          if (mi->obj[ii].orgbase!=mi->obj[ii].fixaddr) {
@@ -1160,8 +1160,9 @@ void main(int argc,char *argv[]) {
    // test mode?
    if (key_present("TEST")) testmode = 1;
    if (key_present("VIEWMEM")) memview = 1;
-   // PXE boot? call mfs_term
-   if (boot_info.filetab.ft_cfiles==6 && !testmode) hlp_fdone();
+   /* PXE boot? call mfs_term, but only if this is not test & we`re not
+      planning to call SYSVIEW later */
+   if (boot_info.filetab.ft_cfiles==6 && !testmode && !memview) hlp_fdone();
    // read 1Mb memory size
    efd->LowMem = int12mem();
    // setup flags

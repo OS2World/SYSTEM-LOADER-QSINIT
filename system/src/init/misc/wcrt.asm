@@ -7,8 +7,8 @@
 
                 include inc/segdef.inc
 
-CODE32          segment
-                assume  cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP
+_TEXT           segment
+                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
                 public  __I8D
 __I8D           proc    near
@@ -224,5 +224,5 @@ __I8M           label   near
                 ret
 __U8M           endp
 
-CODE32          ends
+_TEXT           ends
                 end

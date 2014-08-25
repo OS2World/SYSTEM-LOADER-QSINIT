@@ -14,7 +14,7 @@ extern "C" {
 /** snprintf function.
     there is no floating point support.
     @code
-    %b added to default syntax:
+    %b modified in default syntax:
        %12Lb  - print 12 qwords from specified address
        %12lb  - print 12 dwords from specified address
        %12hb  - print 12 shorts from specified address

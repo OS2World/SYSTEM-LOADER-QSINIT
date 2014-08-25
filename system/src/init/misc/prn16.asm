@@ -27,7 +27,7 @@ print_char macro                                                ;
                 call    DHSerOut                                ;
 endm
 else ; -----------------------------
-HICODE          segment
+TEXT16          segment
                 extrn   _seroutchar_w:near
 print_char macro                                                ;
                 push    ax                                      ;
@@ -35,7 +35,7 @@ print_char macro                                                ;
 endm
 endif
 ; ----------------------------------
-                assume  cs:nothing,ds:nothing,es:nothing,ss:nothing
+                assume  cs:nothing, ds:nothing, es:nothing, ss:nothing
 
                 public  _printf16
 _printf16       proc    far                                     ;
@@ -262,6 +262,6 @@ _printf16       endp
 ifdef DOSHLP_BUILD
 DOSHLP_CODE     ends
 else
-HICODE          ends
+TEXT16          ends
 endif
                 end

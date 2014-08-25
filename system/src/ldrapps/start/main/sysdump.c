@@ -3,8 +3,6 @@
 #include "seldesc.h"
 #include "stdlib.h"
 
-extern u32t ZeroAddress;
-
 void get_gdt(struct lidt_s *gdt);
 void get_idt(struct lidt_s *idt);
 #ifdef __WATCOMC__
@@ -19,7 +17,7 @@ void _std sys_gdtdump(void) {
    struct desctab_s *gd;
    get_gdt(&gdt);
 
-   gd   = (struct desctab_s *)(gdt.lidt_base + ZeroAddress);
+   gd   = (struct desctab_s *)gdt.lidt_base;
    sels = (gdt.lidt_limit & 0xFFFF) >> 3;
    
    log_it(2,"== GDT contents ==\n");
@@ -88,7 +86,7 @@ void _std sys_idtdump(void) {
    struct gate_s  *id;
    get_idt(&idt);
 
-   id   = (struct gate_s *)(idt.lidt_base + ZeroAddress);
+   id   = (struct gate_s *)idt.lidt_base;
    irqs = (idt.lidt_limit & 0xFFFF) >> 3;
    
    log_it(2,"== IDT contents ==\n");

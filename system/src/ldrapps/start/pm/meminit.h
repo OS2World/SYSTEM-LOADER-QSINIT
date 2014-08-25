@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+#define PHMAP_FORCE  0x0001    ///< pag_physmap() unoff: force mapping of low address
+
 #define MEM_DIRECT   0x0002    ///< memory block is used by non-paged QSINIT
 #define MEM_PHYSEND  0x0004    ///< last block of pc memory
 #define MEM_MAPPED   0x0008    ///< mapped physical memory entry

@@ -3,9 +3,6 @@
 // zlib crc32 code, modified to use dynamically allocated and created table
 // note: do not using modern (and faster) variant to save code size (~1 kb)
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 /* crc32.c -- compute the CRC-32 of a data stream
  * Copyright (C) 1995-1998 Mark Adler
  * For conditions of distribution and use, see copyright notice in zlib.h

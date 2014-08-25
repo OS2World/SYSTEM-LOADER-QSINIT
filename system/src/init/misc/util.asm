@@ -12,32 +12,19 @@
                 include inc/vbedata.inc
                 include inc/cpudef.inc
 
-_DATA           segment                                         ;
-                extrn _DiskBufRM_Seg:word                       ;
-cpuid_supported db      0                                       ;
-msr_supported   db      2                                       ; bit 2 = init me
-_DATA           ends                                            ;
-
-_STACK          segment                                         ;
-                extrn bssend:word                               ;
-_STACK          ends                                            ;
-
-_BSS            segment                                         ;
-                extrn   SELDATA32:word                          ;
                 extrn   _syscr3  :dword                         ;
                 extrn   _syscr4  :dword                         ;
                 extrn   _systr   :word                          ;
                 extrn   _IODelay :word                          ;
-                extrn   _ZeroAddress:dword                      ; phys 0 address
                 extrn   _pinfo_gs:word                          ; process context
-                extrn   desc32:desctab_s                        ; descriptor data
-                public  save32_esp                              ;
-save32_esp      dd      ?                                       ;
-_BSS            ends                                            ;
 
-CODE32          segment
-                assume  cs:CODE32,ds:DGROUP,es:DGROUP,ss:DGROUP
+_DATA           segment                                         ;
+cpuid_supported db      0                                       ;
+msr_supported   db      2                                       ; bit 2 = init me
+_DATA           ends                                            ;
 
+_TEXT           segment
+                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
                 .686p
 
 ;----------------------------------------------------------------
@@ -217,7 +204,7 @@ _strncmp        proc near
                 mov     ecx, edi                                ;
                 mov     edi, [esp+8+@@str2]                     ;
            repe cmpsb                                           ;
-                jz      short @@rcok                            ;
+                jz      @@rcok                                  ;
                 sbb     eax, eax                                ;
                 sbb     eax, 0FFFFFFFFh                         ;
 @@rcok:
@@ -256,7 +243,7 @@ _strnicmp       proc near
                 cmp     ah, al                                  ;
                 loope   @@nic_cmp_loop                          ;
                 mov     eax, 0                                  ;
-                jz      short @@nic_rcok                        ;
+                jz      @@nic_rcok                              ;
                 sbb     eax, eax                                ;
                 sbb     eax, 0FFFFFFFFh                         ;
 @@nic_rcok:
@@ -521,7 +508,7 @@ _hlp_selfree    proc    near
                 push    ebx                                     ;
                 mov     ebx,[esp+4+@@selector]                  ;
                 xor     eax,eax                                 ;
-                cmp     bx,SELDATA32                            ; check for system
+                cmp     bx,SEL32DATA                            ; check for system
                 jbe     @@selfree_ok                            ; selector
                 inc     eax                                     ;
                 int     31h                                     ; free it
@@ -542,18 +529,20 @@ _hlp_selsetup   proc    near
 @@limit         = 12                                            ;
 @@type          = 16                                            ;
                 push    edi                                     ;
-                push    ebx
-                mov     ebx,[esp+8+@@selector]                  ;
+                push    ebx                                     ;
+                lea     edi,[esp-8]                             ; descriptor buffer
+                mov     esp,edi                                 ; in edi
+                mov     ebx,[esp+16+@@selector]                 ;
                 xor     eax,eax                                 ;
-                cmp     bx,SELDATA32                            ; check for system
+                cmp     bx,SEL32DATA                            ; check for system
                 jbe     @@selsetup_ok                           ; selector
-                mov     edx,[esp+8+@@type]                      ;
+                mov     edx,[esp+16+@@type]                     ;
                 shr     edx,1                                   ; code selector?
                 jc      @@selsetup_code                         ;
-                mov     [desc32.d_access],D_DATA0               ;
+                mov     [edi].d_access,D_DATA0                  ;
                 jmp     short @@selsetup_02                     ;
 @@selsetup_code:
-                mov     [desc32.d_access],D_CODE0               ;
+                mov     [edi].d_access,D_CODE0                  ;
 @@selsetup_02:
                 xor     cl,cl                                   ;
                 shr     edx,1                                   ; 16 bit?
@@ -564,28 +553,26 @@ _hlp_selsetup   proc    near
                 jc      @@selsetup_04                           ;
                 or      cl,D_GRAN4K                             ;
 @@selsetup_04:
-                mov     eax,[esp+8+@@base]                      ;
+                mov     eax,[esp+16+@@base]                     ;
                 shr     edx,1                                   ; base is physical?
                 jnc     @@selsetup_05                           ;
-                sub     eax,_ZeroAddress                        ;
+;                sub     eax,_ZeroAddress                        ;
 @@selsetup_05:
                 shr     edx,1                                   ;
                 jnc     @@selsetup_06                           ; R3 segment
-                add     [desc32.d_access],D_DPL3                ;
+                add     [edi].d_access,D_DPL3                   ;
 @@selsetup_06:
-                mov     [desc32.d_loaddr],ax                    ;
+                mov     [edi].d_loaddr,ax                       ;
                 bswap   eax                                     ;
-                mov     [desc32.d_extaddr],al                   ;
-                mov     [desc32.d_hiaddr],ah                    ;
-                mov     eax,[esp+8+@@limit]                     ;
-                mov     [desc32.d_limit],ax                     ;
+                mov     [edi].d_extaddr,al                      ;
+                mov     [edi].d_hiaddr,ah                       ;
+                mov     eax,[esp+16+@@limit]                    ;
+                mov     [edi].d_limit,ax                        ;
                 shr     eax,16                                  ; setup limit
                 and     al,0Fh                                  ;
                 or      al,cl                                   ;
-                mov     [desc32.d_attr],al                      ;
-                mov     ax,0Ch                                  ;
-                mov     edi,offset desc32                       ; set code selector desc
-
+                mov     [edi].d_attr,al                         ;
+                mov     ax,0Ch                                  ; set code selector desc
 ;                push    eax                                     ; debug print
 ;                push    edx                                     ;
 ;                mov     eax,[edi]                               ;
@@ -593,13 +580,13 @@ _hlp_selsetup   proc    near
 ;                dbg32print <2>,<"sel %4X desc: %08X %08X",10>,<eax,edx,ebx>
 ;                pop     edx                                     ;
 ;                pop     eax                                     ;
-
                 push    ds                                      ;
                 pop     es                                      ;
                 int     31h                                     ;
                 setnc   al                                      ;
                 movzx   eax,al                                  ;
 @@selsetup_ok:
+                add     esp,8                                   ;
                 pop     ebx                                     ;
                 pop     edi                                     ;
                 ret     16                                      ;
@@ -652,12 +639,12 @@ _launch32       proc    near
 @@md            =  4                                            ;
 @@env           =  8                                            ;
 @@cmdline       = 12                                            ;
-                push    ds
-                pop     es
-                push    ebx
-                push    esi
-                push    edi
-                push    ebp
+                push    ds                                      ;
+                pop     es                                      ;
+                push    ebx                                     ;
+                push    esi                                     ;
+                push    edi                                     ;
+                push    ebp                                     ;
 
                 mov     esi,[esp+16+@@md]                       ;
                 mov     ecx,[esp+16+@@env]                      ;
@@ -667,15 +654,6 @@ _launch32       proc    near
                 xor     ebx,ebx                                 ;
                 xor     edi,edi                                 ;
 
-                test    esp,0FFFF0000h                          ;
-                jnz     @@lnch32_nested                         ; save init segment esp
-                mov     save32_esp,esp                          ; at the first launch
-
-                mov     ebp,esp                                 ; print size of default
-                sub     ebp,offset bssend                       ; stack used by RM call
-                sub     ebp,100h                                ; thunk
-                dbg32print <2>,<"stack for rm calls: %d bytes",10>,<ebp>
-@@lnch32_nested:
                 mov     ebp,esp                                 ; switching to the
                 mov     esp,[esi+12]                            ; app stack
                 push    ebp                                     ;
@@ -697,20 +675,20 @@ _launch32       proc    near
                 call    [esp+16]                                ; exec module
                 add     esp,20                                  ;
                 pop     esp                                     ; cleanup after exit
-                mov     ds,cs:SELDATA32                         ;
-                push    ds                                      ;
-                pop     es                                      ;
+                push    SEL32DATA                               ;
+                mov     es,[esp]                                ;
+                pop     ds                                      ;
                 cld                                             ;
                 sti                                             ;
                 xor     cx,cx                                   ;
                 mov     fs,cx                                   ;
                 mov     gs,_pinfo_gs                            ;
 
-                pop     ebp
-                pop     edi
-                pop     esi
-                pop     ebx
-                ret     12
+                pop     ebp                                     ;
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     12                                      ;
 _launch32       endp
 
 ;----------------------------------------------------------------
@@ -744,9 +722,9 @@ _dll32init      proc    near
 
                 call    [esp+8]                                 ; exec module
                 add     esp,12                                  ;
-                mov     ds,cs:SELDATA32                         ;
-                push    ds                                      ;
-                pop     es                                      ;
+                push    SEL32DATA                               ;
+                mov     es,[esp]                                ;
+                pop     ds                                      ;
                 cld                                             ;
                 sti                                             ;
                 xor     cx,cx                                   ;
@@ -797,7 +775,7 @@ _mod_context    proc    near                                    ;
                 cmp     ecx,3                                   ; limit <3?
                 jc      @@mdqctx_error                          ;
                 inc     ecx                                     ;
-                add     eax,_ZeroAddress                        ;
+;                add     eax,_ZeroAddress                        ;
                 cmp     ecx,[eax]                               ; limit must be equal
                 jnz     @@mdqctx_error                          ; to size field
                 ret                                             ;
@@ -1042,7 +1020,6 @@ _cpuhlt         proc    near                                    ;
                 ret                                             ;
 _cpuhlt         endp
 
-
 ;----------------------------------------------------------------
 ; void _std sys_setcr3(u32t syscr3, u32t syscr4);
                 public  _sys_setcr3
@@ -1076,261 +1053,5 @@ _sys_settr      proc    near                                    ;
                 ret     4                                       ;
 _sys_settr      endp
 
-CODE32          ends
-
-;================================================================
-;================================================================
-;================================================================
-;
-; warning! all functions below does not save registers because
-;          called from protected mode only!
-
-_TEXT           segment
-                assume  cs:_TEXT,ds:DGROUP,es:nothing,ss:DGROUP
-
-                public  _getkeyflags
-_getkeyflags    proc    far                                     ;
-                mov     ah,02h                                  ; read keyboard status
-                int     16h                                     ;
-                push    ax                                      ;
-                mov     ah,12h                                  ;
-                int     16h                                     ;
-                pop     cx                                      ;
-                mov     al,cl                                   ;
-                ret                                             ;
-_getkeyflags    endp
-
-; set keyboard rate and delay
-;----------------------------------------------------------------
-                public  _setkeymode                             ;
-_setkeymode     proc    far                                     ;
-                mov     bp,sp                                   ;
-                mov     ax,0305h                                ;
-                mov     bx,[bp+4]                               ;
-                int     16h                                     ;
-                ret     4                                       ;
-_setkeymode     endp                                            ;
-
-; set 80x25, 80x43 or 80x50 text mode
-;----------------------------------------------------------------
-                public  _settextmode                            ;
-_settextmode    proc    far                                     ;
-                mov     bp,sp                                   ;
-                mov     ah,12h                                  ;
-                mov     al,[bp+4]                               ;
-                mov     bl,30h                                  ; 350/400 lines
-                int     10h                                     ;
-                mov     ax,0003h                                ;
-                int     10h                                     ;
-                mov     ax,1112h                                ; font height
-                add     al,[bp+5]                               ;
-                xor     bl,bl                                   ;
-                int     10h                                     ;
-                mov     ax,1003h                                ; blink off
-                xor     bl,bl                                   ;
-                int     10h                                     ;
-                ret     4                                       ;
-_settextmode    endp                                            ;
-
-; is screen in text mode? (common or vesa)
-;----------------------------------------------------------------
-                public  _istextmode                             ;
-                assume  cs:_TEXT,ds:DGROUP,es:nothing,ss:DGROUP;
-_istextmode     proc    far                                     ;
-                mov     ax,4F03h                                ;
-                int     10h                                     ;
-                or      ah,ah                                   ;
-                jnz     @@ismode_old                            ;
-                and     bx,1FFFh                                ; zero flags
-                cmp     bx,100h                                 ;
-                jc      @@ismode_old                            ;
-                mov     cx,bx                                   ;
-                mov     es,_DiskBufRM_Seg                       ;
-                xor     di,di                                   ;
-                mov     ax,4F01h                                ; check vesa mode
-                int     10h                                     ;
-                cmp     ax,004Fh                                ;
-                jnz     @@ismode_old                            ;
-                mov     ax,es:[di].ModeAttributes               ;
-                and     ax,VSMI_BIOSSUPP or VSMI_GRAPHMODE      ;
-                cmp     ax,VSMI_BIOSSUPP                        ;
-                setz    al                                      ;
-                ret                                             ;
-@@ismode_old:
-                mov     ah,0Fh                                  ;
-                int     10h                                     ;
-                cmp     al,4                                    ; <=3?
-                setc    al                                      ;
-                ret                                             ;
-_istextmode     endp                                            ;
-
-; reset mode to 80x25 or clear screen if mode was not changed.
-; this check used to prevent screen blinking on unnessesary mode switch
-;----------------------------------------------------------------
-                public  _checkresetmode                         ;
-                assume  cs:_TEXT,ds:nothing,es:nothing,ss:DGROUP;
-_checkresetmode proc    far                                     ;
-                push    fs                                      ; warning! arg usage below!
-                mov     ax,4F03h                                ;
-                int     10h                                     ;
-                or      ah,ah                                   ;
-                jnz     @@crmode_old                            ;
-                cmp     bx,100h                                 ;
-                jnc     @@crmode_reset                          ;
-@@crmode_old:
-                mov     ah,0Fh                                  ;
-                int     10h                                     ;
-                cmp     al,3                                    ;
-                jnz     @@crmode_reset                          ;
-
-                xor     ax,ax                                   ;
-                mov     fs,ax                                   ;
-                mov     al,fs:[484h]                            ;
-                cmp     al,24                                   ;
-                jnz     @@crmode_reset                          ; 25 lines?
-                mov     ax,fs:[44Ah]                            ;
-                cmp     ax,80                                   ; 80 cols?
-                jz      @@crmode_ok                             ;
-@@crmode_reset:
-                mov     ax,1202h                                ;
-                mov     bl,30h                                  ;
-                int     10h                                     ;
-                mov     ax,0003h                                ;
-                int     10h                                     ;
-                xor     bl,bl                                   ;
-                mov     ax,1114h                                ; reset font after
-                int     10h                                     ; EGA/VGA text mode
-                jmp     @@crmode_exit                           ;
-@@crmode_ok:
-                mov     bp,sp                                   ; need clear?
-                mov     ax,[bp+6]                               ;
-                or      ax,ax                                   ;
-                jz      @@crmode_exit                           ;
-                mov     ax,40h                                  ; clear screen
-                mov     es,ax                                   ;
-                mov     dh,es:[84h]                             ;
-                mov     dl,es:[4Ah]                             ;
-                dec     dl                                      ;
-                xor     cx,cx                                   ;
-                mov     ax,0600h                                ;
-                mov     bh,07h                                  ;
-                int     10h                                     ;
-@@crmode_exit:
-                mov     ax,1003h                                ; set intensity
-                xor     bl,bl                                   ; (EGA BIOS)
-                int     10h                                     ;
-                pop     fs                                      ;
-                ret     4                                       ;
-_checkresetmode endp                                            ;
-
-; test something
-;----------------------------------------------------------------
-; in : [sp+4] = function index
-; out: dx:ax  = -1 - invalid index, else function result
-                public  _biostest
-_biostest       proc    far
-                mov     bp,sp                                   ;
-                mov     bx,[bp+4]                               ;
-                cmp     bx,biostestsize                         ;
-                jnc     @@bt_err                                ;
-                shl     bx,1                                    ;
-                jmp     word ptr @@bt_offsets[bx]               ;
-@@bt_err:
-                mov     ax,-1                                   ;
-                mov     dx,ax                                   ;
-                ret                                             ;
-@@bt_apm:
-                mov     ax,5300h                                ; APM presence
-                xor     bx,bx                                   ;
-                int     15h                                     ; ret
-                setc    dl                                      ; 0x100xx on err
-                jnc     @@bt_apm_1                              ;
-                mov     al,ah                                   ;
-                xor     ah,ah                                   ;
-@@bt_apm_1:
-                xor     dh,dh                                   ; 0x00ver on ok
-                ret                                             ;
-@@bt_pci:
-                mov     ax,0B101h                               ; PCI presence
-                xor     edi,edi                                 ;
-                int     1Ah                                     ;
-                jc      @@bt_pci_fail                           ;
-                cmp     edx,020494350h                          ;
-                jnz     @@bt_pci_fail                           ;
-                mov     ah,cl                                   ;
-                mov     dx,bx                                   ;
-                ret                                             ;
-@@bt_pci_fail:
-                xor     ax,ax                                   ;
-                xor     dx,dx                                   ;
-                ret                                             ;
-@@bt_offsets:
-                dw      offset  @@bt_apm
-                dw      offset  @@bt_pci
-@@bt_tabend:
-biostestsize    equ     (offset @@bt_tabend - offset @@bt_offsets) shr 1
-_biostest       endp
-
-; apm poweroff/suspend
-;----------------------------------------------------------------
-; in : [sp+4] = 02 - suspend, 03 - power off
-; out: exit
-                public  _poweroffpc 
-_poweroffpc     proc    far
-                mov     bp,sp                                   ;
-                mov     ax,5300h                                ;
-                xor     bx,bx                                   ;
-                int     15h                                     ;
-                dbg16print <"5300: %x %x %x",10>,<cx,bx,ax>
-                jc      @@hlt_loop                              ;
-                push    ax                                      ;
-
-                mov     ax,5301h                                ;
-                xor     bx,bx                                   ;
-                int     15h                                     ;
-                jnc     @@hlt_connected                         ;
-                cmp     ah,2                                    ; connected?
-                jnz     @@hlt_loop                              ;
-@@hlt_connected:
-                pop     cx                                      ;
-                cmp     cx,100h                                 ;
-                mov     bx,-1                                   ; FFFF for APM 1.0
-                jz      @@hlt_ver100                            ;
-                mov     ax,530Eh                                ; set org version
-                xor     bx,bx                                   ;
-                int     15h                                     ;
-                dbg16print <"530E: %x",10>,<ax>
-                mov     bx,1                                    ;
-@@hlt_ver100:
-                mov     ax,5308h                                ; enable APM
-                mov     cx,1                                    ;
-                int     15h                                     ;
-                dbg16print <"5308: %x",10>,<ax>
-                mov     ax,530Fh                                ; engage APM
-                mov     bx,1                                    ;
-                mov     cx,bx                                   ;
-                int     15h                                     ;
-                dbg16print <"530F: %x",10>,<ax>
-                mov     ax,530Dh                                ; enable device APM
-                mov     bx,1                                    ;
-                mov     cx,bx                                   ;
-                int     15h                                     ;
-                dbg16print <"530D: %x",10>,<ax>
-
-                mov     ax,5307h                                ;
-                mov     cx,[bp+4]                               ;
-                mov     bx,1                                    ;
-                int     15h                                     ;
-                dbg16print <"5307: %x",10>,<ax>
-
-                mov     ax,5304h                                ; disconnect
-                xor     bx,bx                                   ;
-                int     15                                      ;
-@@hlt_loop:
-                mov     sp,bp                                   ;
-                ret                                             ;
-_poweroffpc     endp
-
 _TEXT           ends
-
                 end

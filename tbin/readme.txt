@@ -346,17 +346,8 @@ ago).
    6. Documented bugs (aka features).
   -----------------------------------------------------------------------
 
- * QSINIT is partially incompatible with later ACPI.PSD. The source of problem
-   is uncknown now.
-   On many PCs new versions still can be used with /VW key (PSD=ACPI.PSD /VW).
-   Older ACPI (3.16, 3.18) - works fine.
-
-   Note - you can use QSINIT kernel menu for "legacy boot" by adding IBM`s
-   OS2LDR to it (i.e. QSINIT will start original eCS boot) - BUT in this
-   mode all of kernel parameters are void!
-
- * FAT/FAT32 do not support national language letters at all. I.e. you can
-   not access files with russian (and so on) letters in name.
+ * FAT/FAT32 have no support of national language letters at all. I.e. you
+   can not access files with russian (and so on) letters in name.
 
  * loading of binary files into SysView text editor can cause panic (because
    of reaching 16k characters per line limit). This is limitation of 
@@ -403,7 +394,7 @@ ago).
 
    Common MBR code have no differences with other ones. It loads active
    partition and run in.
-   In additional - it have support for launching Boot Manager.
+   In addition - it have special Boot Manager support (as OS/2 MBR).
 
    MBR code for GPT disks searches for 1st partition with "BIOS Bootable"
    attribute ON (google UEFI Wiki about it) and start sector below 2TB
@@ -481,7 +472,7 @@ Z: LVM drive letter to it.
    Read more in ramdisk\paedisk.txt.
 
   =======================================================================
-  10. Additions in kernel loading and OS2LDR.INI 
+  10. Additions in kernel loading and OS2LDR.INI
       in comparision with OS/4 loader.
   -----------------------------------------------------------------------
 

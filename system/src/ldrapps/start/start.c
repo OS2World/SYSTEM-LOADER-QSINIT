@@ -10,8 +10,6 @@
 #include "qsshell.h"
 #include "vio.h"
 
-u32t ZeroAddress;
-
 void setup_exceptions(int stage);
 void setup_loader(void);
 void setup_shell(void);
@@ -24,7 +22,6 @@ int  get_ini_parms(void);
 void done_ini(void);
 
 void main(int argc, char *argv[]) {
-   ZeroAddress = hlp_segtoflat(0);
    // init global exception handler
    setup_exceptions(0);
    // init memory manager

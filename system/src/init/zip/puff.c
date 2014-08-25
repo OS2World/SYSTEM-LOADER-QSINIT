@@ -2,9 +2,6 @@
 // QSINIT
 // inflate code from zlib
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 /*
  * puff.c
  * Copyright (C) 2002-2010 Mark Adler

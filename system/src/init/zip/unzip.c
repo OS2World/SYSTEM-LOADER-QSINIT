@@ -2,9 +2,6 @@
 // QSINIT
 // unzip code
 //
-#pragma code_seg ( CODE32, CODE )
-#pragma data_seg ( DATA32, DATA )
-
 #include "clib.h"
 #include "qsutil.h"
 #include "unzip.h"
