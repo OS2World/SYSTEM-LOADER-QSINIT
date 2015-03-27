@@ -310,9 +310,9 @@ int13check      proc    near
 int13check      endp
 
 int13           proc    near                                    ; save registers
-                SaveReg <si,di,ds,es>                           ; bios can destroy ANYTHING ;)
+                SaveReg <bp,si,di,ds,es>                        ; bios can destroy ANYTHING ;)
                 int     13h                                     ;
-                RestReg <es,ds,di,si>                           ;
+                RestReg <es,ds,di,si,bp>                        ;
                 sti                                             ;
                 cld                                             ;
                 ret                                             ;
@@ -331,6 +331,14 @@ int13read       proc    near
                 push    es                                      ;
                 push    edx                                     ; save high part of edx
                 pusha                                           ; (does anyone need it?)
+
+                mov     si, di                                  ; move offset
+                shr     si, PARASHIFT                           ; to segment
+                mov     bp, es                                  ;
+                add     si, bp                                  ; i.e. 64k-16 of
+                mov     es, si                                  ; direct access
+                and     di, PARAMASK                            ; guaranteed
+
                 cmp     bx,_BootBPB.BPB_BytesPerSec             ;
                 jnz     @@i13r_partial                          ;
                 xor     bl,bl                                   ;
@@ -756,9 +764,9 @@ int13_rwext     proc    near
                 ;dbg16print <"int13ext: %x %lx %x %x:%x",10>,<bx,di,cx,edx,ax>
                 mov     dl,_dd_bootdisk                         ;
                 push    bx                                      ; save registers
-                push    cx                                      ; to prevent bios damage
+                push    ecx                                     ; to prevent bios damage
                 call    int13                                   ; make it!
-                pop     cx                                      ;
+                pop     ecx                                     ;
                 pop     bx                                      ;
                 pop     edx                                     ;
 
@@ -807,6 +815,8 @@ DHReadSectors   proc    far                                     ;
                 ;dbg16print <"DHReadSectors es:di=%x:%x, dx:ax=%x:%x cx=%x bx=%x",10>,<bx,cx,ax,dx,di,es>
                 call    int13read                               ; read
                 setc    al                                      ;
+                ;cbw                                             ;
+                ;dbg16print <"DHReadSectors done %x",10>,<ax>
                 popf                                            ;
                 rcr     al,1                                    ; save all flags except OF ;)
                 pop     ax                                      ;

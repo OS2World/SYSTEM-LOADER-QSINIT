@@ -119,7 +119,7 @@ static void *try_alloc_disk(u32t size)  {
 #ifdef INITDEBUG
    log_printf("dsk1 %d kb\n",size>>10);
 #endif
-   rc = hlp_memalloc(size,QSMA_RETERR);
+   rc = hlp_memallocsig(size, "disk", QSMA_RETERR);
    if (rc) Disk1Size = size;
    return rc;
 }
@@ -138,7 +138,7 @@ void make_disk1(void) {
    if (!unpsize) exit_pm32(QERR_NOEXTDATA);
    // +4k for every file + reserved 384k
    files   = unpsize + (files<<12) + _256KB + _128KB;
-   if (files<_1MB) files = _1MB;
+   if (files<_1MB+_256KB) files = _1MB+_256KB;
    // trying to allocate size from ini first
    if (Disk1Size) disk = try_alloc_disk(Disk1Size + files);
    // and required size if requested was failed

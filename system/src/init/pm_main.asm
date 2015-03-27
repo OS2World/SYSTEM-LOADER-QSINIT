@@ -15,7 +15,6 @@ _BSS16          segment                                         ;
                 public  _pminitres                              ;
 _pminitres      db      ?                                       ;
                 extrn   _rm16code:word                          ;
-                extrn   _highbase:dword                         ;
 _BSS16          ends                                            ;
 ; ---------------------------------------------------------------
 LOADER          segment                                         ;

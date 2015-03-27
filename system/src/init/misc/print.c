@@ -12,7 +12,11 @@ u32t  _std strlen(const char *str);
 u32t  _std wcslen(const u16t *str);
 u16t ff_convert(u16t chr, unsigned int dir);
 
-extern const char alphabet[]; // = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+#ifdef EFI_BUILD
+const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+#else
+extern const char alphabet[];
+#endif
 
 #ifdef __WATCOMC__
 unsigned _udiv_(unsigned, unsigned*);

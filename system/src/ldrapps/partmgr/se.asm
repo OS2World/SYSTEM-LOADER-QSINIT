@@ -33,6 +33,8 @@
 ; 4. partition table code for GPT disk: _gptsect
 ;    * move self to 0:0600
 ;    * panic if no i13x (CHS makes me ill, sorry)
+;    * detects sector size via int 13h ah=48h call (to calc number of GPT
+;      records per sector)
 ;    * assume 32bit sector number for 1st GPT copy
 ;    * get FIRST founded UEFI in MBR as GPT main header
 ;    * searching in GPT records for "BIOS Bootable" attribute bit, gets first
@@ -856,7 +858,9 @@ endif
 ; partition table code for GPT disks
 ;================================================================
                 public  _gptsect
+
 @@pt_g_disknum  = byte ptr [bp- 2]                              ; disk number from DL
+@@pt_g_rps      = word ptr [bp- 4]                              ; # gpt recs per sector
 
 _gptsect:
                 and     ax,5351h                                ; %QS% string,
@@ -893,6 +897,25 @@ _gptsect:
                 and     cl,1                                    ;
                 jz      @@pt_g_noi13x                           ;
 
+                mov     ah,48h                                  ; get sector size
+                mov     dl,@@pt_g_disknum                       ;
+                mov     si,bp                                   ;
+                mov     dword ptr [si],1Eh                      ; zero flags
+                int     13h                                     ;
+                jc      @@pt_g_noinfo                           ;
+                mov     ax,[si+18h]                             ;
+                bsr     cx,ax                                   ; sector size
+                bsf     cx,ax                                   ; must have only
+                jnz     @@pt_g_noinfo                           ; ONE bit
+                sub     cl,7                                    ;
+                jc      @@pt_g_noinfo                           ; <128?
+                mov     ax,1                                    ;
+                shl     ax,cl                                   ;
+                push    ax                                      ;
+                jmp     @@pt_g_gptread                          ;
+@@pt_g_noinfo:
+                push    4                                       ; @@pt_g_rps
+@@pt_g_gptread:
                 mov     eax,[di].PTE_LBAStart                   ;
                 call    @@pt_g_read                             ;
                 cmp     dword ptr [bp],GPT_SIGNDDLO             ;
@@ -900,13 +923,15 @@ _gptsect:
                 cmp     word ptr [bp].GPT_PtEntrySize, GPT_RECSIZE
                 jnz     @@pt_m_badpt                            ;
 
+                bsf     cx,@@pt_g_rps                           ;
                 mov     dx,word ptr [bp].GPT_PtCout             ;
-                shr     dx,2                                    ; assume 512b sector
+                shr     dx,cl                                   ; # of sectors to read
                 jz      @@pt_m_badpt                            ;
                 mov     eax,dword ptr [bp].GPT_PtInfo           ;
 @@pt_g_ptloop:
                 call    @@pt_g_read                             ;
-                mov     cx,4                                    ; assume 512b sector
+
+                mov     cx,@@pt_g_rps                           ; recs per sector
                 mov     di,bp                                   ;
 @@pt_g_checkloop:
                 xor     ebx,ebx                                 ;

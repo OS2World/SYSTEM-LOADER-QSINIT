@@ -259,7 +259,7 @@ int zip_nextfile(ZIP *zip, char** filename, u32t *filesize) {
 }
 
 void *zip_readfile(ZIP *zip) {
-   void *rc = hlp_memalloc(zip->uncompressed,0);
+   void *rc = hlp_memallocsig(zip->uncompressed, "zip", 0);
    zip->crc = crc32(0,0,0); 
 
    if (!zip->method) { // no compression

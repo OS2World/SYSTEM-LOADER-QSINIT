@@ -95,6 +95,8 @@ u32t  _std mod_query(const char *name, u32t flags);
 #define MODNAME_DMGR     "PARTMGR"
 /// name of console management system module
 #define MODNAME_CONSOLE  "CONSOLE"
+/// name of codepage management module
+#define MODNAME_CPLIB    "CPLIB"
 
 /** get pointer to module function (by index).
  *
@@ -120,62 +122,65 @@ void  _std mod_free(u32t module);
 #define MAX_EXPSTART  512          // max. number of exports in "start" module
 
 typedef struct {
-   void      *address;
-   u32t          size;
-   u32t         flags;
-   u32t       orgbase;
-   u16t           sel;             ///< selector or 0
-   u16t          resw;
-   u32t       fixaddr;             ///< used only with MODUNP_ALT_FIXADDR (below)
-   u32t         resd1;
-   u32t         resd2;
+   void           *address;
+   u32t               size;
+   u32t              flags;
+   u32t            orgbase;
+   u16t                sel;    ///< selector or 0
+   u16t               resw;
+   u32t            fixaddr;    ///< used only with MODUNP_ALT_FIXADDR (below)
+   u32t              resd1;
+   u32t              resd2;
 } mod_object;
 
-#define EXPORT_THUNK     (16)                ///< export thunks size
+#define EXPORT_THUNK   (16)    ///< export thunks size
 
 typedef struct {
-   u32t       address;    ///< address for caller: 16 byte buffer with thunk
-   u32t        direct;    ///< actual address in module
-   u32t       ordinal;    ///< ordinal
-   u32t          is16;    ///< export is 16 bit
-   u16t           sel;    ///< selector field for address
-   u16t       forward;    ///< unresolved forwarder entry (mod ord in address)
+   u32t            address;    ///< address for caller: 16 byte buffer with thunk
+   u32t             direct;    ///< actual address in module
+   u32t            ordinal;    ///< ordinal
+   u32t               is16;    ///< export is 16 bit
+   u16t                sel;    ///< selector field for address
+   u16t            forward;    ///< unresolved forwarder entry (mod ord in address)
 } mod_export;
 
 /// loaded module internal ref
 typedef struct _module {
-   u32t          sign;
-   u32t         flags;    ///< next 3 fields accessed by offset from asm launcher
-   u32t     start_ptr;    ///< 16/32 bit module start pointer
-   u32t     stack_ptr;    ///< 16/32 bit module start pointer
+   u32t               sign;
+   u32t              flags;    ///< next 3 fields accessed by offset from asm launcher
+   u32t          start_ptr;    ///< 16/32 bit module start pointer
+   u32t          stack_ptr;    ///< 16/32 bit module start pointer
 
-   u32t         usage;    ///< usage counter
-   u32t       objects;    ///< number of objects
+   u32t              usage;    ///< usage counter
+   u32t            objects;    ///< number of objects
 
-   void     *baseaddr;    ///< base address
-   char     *mod_path;    ///< module full path
+   void          *baseaddr;    ///< base address
+   char          *mod_path;    ///< module full path
 
-   struct _module *prev, *next;          ///< module list
-   struct _module *impmod[MAX_IMPMOD+1]; ///< zero-term. list of used modules
-   mod_export   *exps;    ///< exported functions
-   u32t       exports;    ///< number of exports
-   u8t        *thunks;    ///< array for thunks, allocated by exports build code
+   struct _module    *prev, 
+                     *next;    ///< module list
+   struct _module  *impmod[MAX_IMPMOD+1]; ///< zero-term. list of used modules
+   mod_export        *exps;    ///< exported functions
+   u32t            exports;    ///< number of exports
+   u8t             *thunks;    ///< array for thunks, allocated by exports build code
 
-   char name[E32MODNAME+1];              ///< 127 bytes (LX format limit)
-   mod_object  obj[1];
+   char name[E32MODNAME+1];    ///< 127 bytes (LX format limit)
+   mod_object       obj[1];
 } module;
 
-/** process context data.
-    process can access this struct in GS:[0] */
-typedef struct {
-   u32t          size;    ///< size of this struct (must be at 0 pos)
-   u32t           pid;    ///< process id
-   char       *envptr;    ///< env. ptr (can be updated)
-   module       *self;    ///< current module info
-   module     *parent;    ///< parent module info
-   u32t         flags;    ///< internal flags
-   u32t      rtbuf[8];    ///< data buffer for runtime data
-   u32t    userbuf[4];    ///< data buffer for user data
+/** process context data. */
+typedef struct _process_context {
+   u32t               size;   ///< size of this struct (must be at 0 pos)
+   u32t                pid;   ///< process id
+   char            *envptr;   ///< env. ptr (can be updated)
+   module            *self;   ///< current module
+   module          *parent;   ///< parent module
+   u32t              flags;   ///< internal flags
+   struct 
+   _process_context  *pctx;   ///< parent process context
+
+   u32t          rtbuf[16];   ///< data buffer for runtime data
+   u32t        userbuf[16];   ///< data buffer for user data
 } process_context;
 
 /// @name process_context.rtbuf indexes (internal)
@@ -187,6 +192,7 @@ typedef struct {
 #define RTBUF_STDAUX    4  ///< stdaux file handle
 #define RTBUF_STCLOCK   5  ///< process start tm_counter()
 #define RTBUF_PUSHDST   6  ///< PUSHD shell command stack
+#define RTBUF_ANSIBUF   7  ///< ANSI command state buffer
 //@}
 
 #define PCTX_BIGMEM      0x0001  ///< envptr was hlp_memalloc-ed
@@ -245,12 +251,10 @@ typedef struct {
        called when module was exited, can change result code */
    s32t    _std (*exit_cb)(process_context *pq, s32t rc);
    /// hlp_memprint() call, moved to start due lack of space
-   void    _std (*memprint)(void *,void *,u32t);
+   void    _std (*memprint)(void *,void *,u8t *,u32t *,u32t);
    /** memcpy with catched exceptions.
        @return 0 if exception occured. */
-   void*   _std (*memcpysafe)(void *dst, const void *src, u32t length, int page0);
-   /// get date/time in dos format
-   u32t    _std (*getdate)(void);
+   u32t    _std (*memcpysafe)(void *dst, const void *src, u32t length, int page0);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()

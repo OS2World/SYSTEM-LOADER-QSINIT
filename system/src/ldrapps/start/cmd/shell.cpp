@@ -18,6 +18,7 @@
 #include "qssys.h"
 #include "qsstor.h"
 #include "qspage.h"
+#include "qsmodext.h"
 
 #define SESS_SIGN     0x53534553
 #define MODE_ECHOOFF      0x0001
@@ -70,7 +71,7 @@ cmd_state _std cmd_init(const char *cmds,const char *args) {
    return (void*)si;
 }
 
-static cmd_state cmd_init2(TStrings &file, TStrings &args) {
+cmd_state cmd_init2(TStrings &file, TStrings &args) {
    session_info *si = new session_info;
    si->sign = SESS_SIGN;
    si->mode = 0;
@@ -581,6 +582,10 @@ int _std log_hotkey(u16t key) {
    //log_printf("key %04X state: %08X\n", key, key_status());
    if ((key_status()&(KEY_CTRL|KEY_ALT))==(KEY_CTRL|KEY_ALT)) {
       switch (kh) {
+         // Ctrl-Alt-F4: opened files
+         case 0x3E: case 0x61: case 0x6B: log_ftdump(); return 1;
+         // Ctrl-Alt-F5: process tree
+         case 0x3F: case 0x62: case 0x6C: mod_dumptree(); return 1;
          // Ctrl-Alt-F6: gdt dump
          case 0x40: case 0x63: case 0x6D: sys_gdtdump(); return 1;
          // Ctrl-Alt-F7: idt dump

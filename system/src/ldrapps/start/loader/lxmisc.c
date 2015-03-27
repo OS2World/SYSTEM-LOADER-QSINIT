@@ -24,12 +24,13 @@
 extern u16t  _std IODelay;
 extern u32t  M3BufferSize;
 static u8t  *M3Buffer = 0;
+extern FILE     **pstdout;
 
 // decompression routines
 u32t _std DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
 u32t _std DecompressM3(u32t DataLen, u8t* Src, u8t *Dst, u8t *Buffer);
 int  _std log_push(int level, const char *str);
-void _std log_memtable(void*,void*,u32t);
+void _std log_memtable(void*, void*, u8t*, u32t*, u32t);
 /// reset ini file cache
 void  reset_ini_cache(void);
 /// call trace on parocess start
@@ -234,7 +235,8 @@ u32t _std mod_unpack2(u32t datalen, u8t* src, u8t *dst) {
 }
 
 u32t _std mod_unpack3(u32t datalen, u8t* src, u8t *dst) {
-   if (!M3Buffer) return 0;
+   if (!M3Buffer)
+      M3Buffer = (u8t*)hlp_memallocsig(M3BufferSize, "M3", QSMA_READONLY);
    return DecompressM3(datalen,src,dst,M3Buffer);
 }
 
@@ -316,13 +318,18 @@ int _std mod_startcb(process_context *pq) {
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    fcloseall();
    if (pq->rtbuf[RTBUF_PUSHDST]) {
-      pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]); 
+      pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
       pq->rtbuf[RTBUF_PUSHDST] = 0;
    }
+   if (pq->rtbuf[RTBUF_ANSIBUF]) {
+      free((void*)pq->rtbuf[RTBUF_ANSIBUF]);
+      pq->rtbuf[RTBUF_ANSIBUF] = 0;
+   }
+
    if (!memCheckMgr()) {
       vio_clearscr();
       vio_setcolor(VIO_COLOR_LRED);
-      printf(" Application %s unrecoverably damage\n"
+      printf("\n Application %s made unrecoverably damage in\n"
              " system heap manager structures...\n", pq->self->name);
       printf(" This will produce trap or deadlock in nearest time.\n"
              " Reboot or press any key to continue...\n");
@@ -338,15 +345,12 @@ mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
    &mod_buildexps, &mod_searchload, &mod_unpack1, &mod_unpack2, &mod_unpack3,
    &mod_freeexps, &memAlloc, &memRealloc, &memFree, &freadfull, &log_push,
    &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
-   &hlp_memcpy, &tm_getdate};
+   &hlp_memcpy};
 
 extern module*_std _Module;
 
 void setup_loader(void) {
    process_context *pq;
-   if (M3Buffer) return;
-
-   M3Buffer=(u8t*)hlp_memalloc(M3BufferSize,QSMA_READONLY);
    // export function table
    mod_secondary=&table;
    // flush log first time
@@ -366,6 +370,7 @@ void setup_loader(void) {
 
       me = mod_findexport(_Module, ORD_START_stdout);
       me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDOUT];
+      pstdout = (FILE**)me->direct;
 
       me = mod_findexport(_Module, ORD_START_stderr);
       me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDERR];

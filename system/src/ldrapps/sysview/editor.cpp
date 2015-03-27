@@ -6,6 +6,7 @@
 #define Uses_TFileDialog
 #include <tv.h>
 #include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <time.h>
 #include "diskedit.h"
@@ -188,7 +189,7 @@ void TSysApp::CloseAll() {
    TView *fm;
    do {
       fm = deskTop->firstMatch(sfVisible, ofSelectable);
-      if (fm) { 
+      if (fm) {
          if (fm==clipWindow) clipWindow->hide(); else {
             if (fm->valid(cmClose)) {
                int ii;
@@ -219,11 +220,11 @@ void TSysApp::SaveLog(Boolean TimeMark) {
       fdOKButton,101),namebuf)!=cmCancel)
    {
       char  *log = opts_getlog(TimeMark,True);
-      int   llen = strlen(log), 
+      int   llen = strlen(log),
              err = 0;
       FILE *fout = fopen(namebuf,"wb");
       if (!fout) doEditDialog(edCreateError,namebuf); else {
-         if (fwrite(log,1,llen,fout)!=llen) 
+         if (fwrite(log,1,llen,fout)!=llen)
             doEditDialog(edWriteError,namebuf);
          fclose(fout);
       }

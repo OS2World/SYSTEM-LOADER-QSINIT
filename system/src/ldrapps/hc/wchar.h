@@ -23,6 +23,10 @@ wchar_t *_std wcscpy(wchar_t *dst, const wchar_t *src);
 
 wchar_t *_std wcsncpy(wchar_t *dst, const wchar_t *src, u32t n);
 
+wchar_t  _std towlower(wchar_t chr);
+
+wchar_t  _std towupper(wchar_t chr);
+
 #ifdef __cplusplus
 }
 #endif

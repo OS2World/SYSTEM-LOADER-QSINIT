@@ -7,6 +7,7 @@
 
 ; eax = 1, ecx bits
 CPUID_FI1_SSE3        = 00000001h        ;/< Streaming SIMD Extensions 3 (SSE3)
+CPUID_FI1_PCLMULQDQ   = 00000002h        ;/< PCLMULQDQ Available
 CPUID_FI1_DTES64      = 00000004h        ;/< 64-bit DS Area
 CPUID_FI1_MONITOR     = 00000008h        ;/< MONITOR/MWAIT
 CPUID_FI1_DSCPL       = 00000010h        ;/< CPL Qualified Debug Store
@@ -16,17 +17,24 @@ CPUID_FI1_EST         = 00000080h        ;/< SpeedStepR technology
 CPUID_FI1_TM2         = 00000100h        ;/< Thermal Monitor 2
 CPUID_FI1_SSSE3       = 00000200h        ;/< Supplemental SSE3
 CPUID_FI1_CNXTID      = 00000400h        ;/< L1 Context ID
+CPUID_FI1_FMA         = 00001000h        ;/< FMA Extensions
 CPUID_FI1_CMPXCHG16B  = 00002000h        ;/< CMPXCHG16B Available
 CPUID_FI1_xTPRUpdate  = 00004000h        ;/< xTPR Update Control
 CPUID_FI1_PDCM        = 00008000h        ;/< Perfmon and Debug Capability
+CPUID_FI1_PCID        = 00020000h        ;/< Process-Context Indentifiers
 CPUID_FI1_DCA         = 00040000h        ;/< Memory mapped device prefetch
 CPUID_FI1_SSE41       = 00080000h        ;/< Support of SSE4.1
 CPUID_FI1_SSE42       = 00100000h        ;/< Support of SSE4.2
 CPUID_FI1_x2APIC      = 00200000h        ;/< Support of x2APIC
 CPUID_FI1_MOVBE       = 00400000h        ;/< MOVBE Available
 CPUID_FI1_POPCNT      = 00800000h        ;/< POPCNT Available
+CPUID_FI1_TSC_D       = 01000000h        ;/< One-shot ops available in APIC timer
+CPUID_FI1_AESNI       = 02000000h        ;/< AESNI instructions
 CPUID_FI1_XSAVE       = 04000000h        ;/< XSAVE/XRSTOR, XSETBV/XGETBV Available
 CPUID_FI1_OSXSAVE     = 08000000h        ;/< Enabled XSETBV/XGETBV
+CPUID_FI1_AVX         = 10000000h        ;/< AVX instructions
+CPUID_FI1_F16C        = 20000000h        ;/< 16-bit FP conversion instructions
+CPUID_FI1_RDRAND      = 40000000h        ;/< RDRAND Available
 
 ; eax = 1, edx bits
 CPUID_FI2_FPU         = 00000001h        ;/< Floating Point Unit On-Chip
@@ -121,5 +129,30 @@ CPU_CR4_OSXMMEXCPT    = 00000400h        ;/< SIMD exception support flag
 CPU_CR4_VMXE          = 00002000h        ;/< VMX enabling flag
 CPU_CR4_SMXE          = 00004000h        ;/< SMX enabling flag
 CPU_CR4_OSXSAVE       = 00040000h        ;/< another one extended states flag
+
+; common MSRs
+MSR_IA32_PAT          = 00000277h        ;/< PAT attributes
+MSR_IA32_EFER         = 0C0000080h       ;/< extended feature enables
+MSR_IA32_STAR         = 0C0000081h       ;/< system call target address
+MSR_IA32_LSTAR        = 0C0000082h       ;/< x64 system call target address
+MSR_IA32_FMASK        = 0C0000084h       ;/< system call flag mask
+MSR_IA32_FS_BASE      = 0C0000100h       ;/< x64 FS base address
+MSR_IA32_GS_BASE      = 0C0000101h       ;/< x64 GS base address
+MSR_IA32_R0_GS_BASE   = 0C0000102h       ;/< x64 GS base address
+MSR_IA32_TSC_AUX      = 0C0000103h       ;/< CPU AUX value to RDTSCP
+
+;MSR_IA32_EFER
+MSR_EFER_SYSCALL      = 00000001h        ;/< syscall enable
+MSR_EFER_IA32E        = 00000100h        ;/< 64-bit mode enable
+MSR_EFER_IA32E_ON     = 00000400h        ;/< 64-bit mode on
+MSR_EFER_XD           = 00000800h        ;/< eXecute Disable enable
+
+;MSR_IA32_PAT
+MSR_PAT_UC            = 000h             ;
+MSR_PAT_WC            = 001h             ;
+MSR_PAT_WT            = 004h             ;
+MSR_PAT_WP            = 005h             ;
+MSR_PAT_WB            = 006h             ;
+MSR_PAT_UCSTRONG      = 007h             ;
 
 ;cc #endif // QS_BASE_CPUIDINFO

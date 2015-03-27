@@ -4,6 +4,12 @@
 // -------------------------------------
 //
 // todo! some things still not fixed after porting! ;)
+//
+// this memmgr was written in 1997 for own unfinished pascal compiler ;)
+// then it was ported to C and used on some real jobs (for 4 bln. users)
+// here used simplified version, with 16 bytes block header
+// alloc/free pair speed is ~ the same as in ICC/GCC runtime.
+//
 
 #include "clib.h"
 #include "qsutil.h"
@@ -146,8 +152,7 @@ static QSMCC*      SmallPool[MaxPool+ExtPool];  // small pools
 static QSMCC*         LargePool[MaxLargePool];  // large pools
 
 static void* mget(u32t Size) {
-   void *rc=0;
-   rc=hlp_memalloc(Size,QSMA_RETERR);
+   void *rc = hlp_memallocsig(Size, "heap", QSMA_RETERR);
    return rc;
 }
 static inline void mfree(void *PP) { hlp_memfree(PP); }
@@ -949,6 +954,8 @@ static void DumpNewReport(QSMCC*P,u32t idx) {
    }
 }
 
+#define LOG_PRN_BUFLEN    80
+
 static void _memDumpLog(const char *TitleString,int DumpAll) {
    if (!MMInited) return;
    long ii,nbb;
@@ -957,7 +964,13 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
    log_printf("%s\n",TitleString);
    // if (MultiThread) MutexGrab(SynchroL);
    for (ii=0;ii<FirstFree;ii++) {
-      log_printf("**** Small Pool %d\n* Address %#8.8x\n",ii,SmallPool[ii]);
+      /* some assumes used here:
+         QSINIT always return memory aligned to 64k from own alloc. So if we
+         have 64k aligned block - this is a common 256k pool, else - a part of
+         64k block from r/o allocation */
+      log_printf("**** Small Pool %d (0x%08X,%d)\n",ii,SmallPool[ii],
+         (u32t)SmallPool[ii]&0xFFFF?_64KB-((u32t)SmallPool[ii]&0xFFFF):_256KB);
+
       P=SmallPool[ii]; nbb=0; prev=0;
       while (true) {
          if (P->Signature!=QSMCC_SIGN) {
@@ -999,8 +1012,11 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
          for (ii=jj==0?3:0;ii<TinySize16;ii++) {
             QSMCC*bbl=Cache[jj][ii];
             if (bbl) {
-               log_printf("%4d->",ii<<(jj?SZSHL_L:SZSHL_S));
                static const char *badtype[]={"","(!!!)","<-!!","->!!","(pos!:"};
+               char linebuf[LOG_PRN_BUFLEN], bstr[48];
+               int   slen = LOG_PRN_BUFLEN;
+
+               slen-=snprintf(linebuf, slen, "%4d->", ii<<(jj?SZSHL_L:SZSHL_S));
               
                while (bbl) {
                   int err=0;
@@ -1009,14 +1025,25 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
                     if (LC(bbl)->CNext->Signature!=QSMCC_SIGN) err=3;
                   if (err&&LC(bbl)->CPrev)
                     if (LC(bbl)->CPrev->Signature!=QSMCC_SIGN) err=2;
-                 
-                  log_printf("%d.%d%s",LC(bbl)->PoolIdx,LC(bbl)->PoolPos,badtype[err]);
-                  if (err==4) log_printf("%#8.8x)",bbl);
-                  log_printf("%c",LC(bbl)->CNext?',':' ');
-                 
+                
+                  int len = snprintf(bstr, 48, "%d.%d%s",LC(bbl)->PoolIdx,
+                                     LC(bbl)->PoolPos, badtype[err]);
+                  if (err==4) len+=snprintf(bstr+len, 48-len, "%#8.8x)", bbl);
+
+                  bstr[len++] = LC(bbl)->CNext?',':' ';
+                  bstr[len++] = 0;
+                  if (slen<len) {
+                     log_printf("%s\n",linebuf);
+                     linebuf[0] = 0;
+                     slen = LOG_PRN_BUFLEN;
+                  } else {
+                     // do not use strcat() to prevent stdlib.h include
+                     memcpy(linebuf+strlen(linebuf), bstr, len);
+                     slen-=len;
+                  }
                   bbl=LC(bbl)->CNext;
                }
-               log_printf("\n");
+               if (linebuf[0]) log_printf("%s\n",linebuf);
             }
          }
       // if (MultiThread) MutexRelease(SynchroL);
@@ -1053,7 +1080,7 @@ void DefMemError(u32t ErrType,const char *FromHere,u32t Caller,void *Pointer) {
 
    module *mi=mod_by_eip(Caller,&object,&offset,0);
    if (mi) len+=snprintf(msg+len, 256-len, "\"%s\" %d:%8.8X.",mi->name,object+1,offset);
-      else len+=snprintf(msg+len, 256-len, "uncknown.");
+      else len+=snprintf(msg+len, 256-len, "unknown.");
 
    if (ErrType==RET_INVALIDPTR||ErrType==RET_MCBDESTROYD)
       snprintf(msg+len, 256-len, " Location %8.8X.", Pointer);

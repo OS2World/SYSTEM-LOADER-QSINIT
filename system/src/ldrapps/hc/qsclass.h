@@ -52,8 +52,9 @@ u32t    _std exi_classid(void *instance);
     Constructor (if present) called at the end of exi_create call.
     Destructor (if present) called in the start of exi_free call.
 
+    @param  instance   Pointer to instance.
     @param  userdata   Pointer to user data. */
-typedef void _std (*exi_pinitdone)(void *userdata);
+typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
 
 /** Register new interface.
     Actually instance data looks in the following way:
@@ -73,6 +74,7 @@ typedef void _std (*exi_pinitdone)(void *userdata);
     -------------------------------------
     @endcode
     Instance user data will be zeroed after create function.
+    All "methods" _must_ use stdcall calling convension!
 
     @param  classname   Class name.
     @param  funcs       Pointer to list of funcions.

@@ -5,7 +5,7 @@ name=qsinit
 ; 0.02 - stable kernel boot
 ; 0.03 - FAT switched to LFN
 ; 0.04 - rev 100, 1 year of svn, storage/log added
-; 0.05 - rev 128, trace added
+; 0.05 - rev 128, exceptions & trace added
 ; 0.06 - rev 150, mtrr, pci, vmtrr.exe, fat32 boot
 ; 0.07 - rev 168, 3 years ;), primary creation, fat32 format, lvm
 ; 0.08 - rev 200, cache, disk editor, wlink for binary files
@@ -13,14 +13,17 @@ name=qsinit
 ; 0.10 - rev 256, bootable PAE ram disk
 ; 0.11 - rev 277, 4 years, GPT support, huge disk i/o, memory view
 ; 0.12 - rev 282, zero-based FLAT mode, new linking of QSINIT binary 
-version=0x0012
+; 0.13 - rev 300, console extensions, EFI build :)
+; 0.14 - rev 320, 3 years of svn, exceptions in EFI, ANSI output
+version=0x0014
 
 ;
 ; some notes about current crazy linking + WASM:
 ; * all assumes in 32-bit objects except unpack.asm must be FLAT.
 ; * all variables/offsets in 16-bit segments must be defined NOT in
 ;   the same file with 32-bit code, which use it and exported to
-;   this files as 32-bit.
+;   this files as 32-bit (i.e. 16 & 32 bit ASM code must be splitted in
+;   order to generate correct fixups).
 ;
 
 [config]
@@ -60,7 +63,7 @@ aflags=-d1 -mt -zq -6p -i=%(QS_BASE)\hc -fo=
 cflags=-4s -ecd %(QS_CFLAGS) -zld -s -mf -os -Ihc -i=hc -i=fat -i=zip \
        -i=$(outdir) -fo=
 
-ccflags=-ecd -fp3 -fpi87 -q -zl -zfp -zgp -5 -zp1 -i=hc -i=$(outdir) -s -os \
+ccflags=-ecd -fp3 -fpi87 -q -zl -5 -zp1 -i=hc -i=$(outdir) -s -os \
         -nc=LCODE -nt=TEXT16 -bt%(QS_NAME) -fo=
 
 ld=@wlink
@@ -69,25 +72,24 @@ cinc=
 ccinc=$(cinc)
 ainc=
 outdir=bld\$(config)
+&watlnk=$(outdir)\qsinit.lnk
 
 [vars.*.0]
 cinc=-DDEBUG -DVERBOSE_LOG
 ainc=-dDEBUG
-&watlnk=$(outdir)\qsinit.lnk
 
 [vars.*.1]
 cinc=-ox
-&watlnk=$(outdir)\qsinit.lnk
 
 [vars.*.2]
 cinc=-DDEBUG -DINITDEBUG -DVERBOSE_LOG
 ainc=-dDEBUG -dINITDEBUG
-&watlnk=$(outdir)\qsinit.lnk
 
 [files]
 bld.dir $(outdir).dir clean.cln
 ..\hc\inc\ioint13.inc ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc 
 ..\hc\inc\filetab.inc inc\qsinit.inc inc\dskinfo.inc inc\qsbinfmt.inc
+..\hc\inc\parttab.inc
 start.asm pm_open.asm pm_main.asm meminit.cc misc\timer.asm init32.c
 disk1.c misc\logmgr.c misc\iniparm.c misc\unpack.asm misc\util16.asm
 misc\text.asm misc\util.asm misc\viofunc.c misc\disk.asm misc\wcrt.asm

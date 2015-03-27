@@ -1,7 +1,7 @@
 
                 .486p
                 include inc\vbedata.inc
-                include graphdef.inc
+                include inc\graphdef.inc
 
 _TEXT           segment para public USE32 'CODE'
                 public  _con_setvgapal

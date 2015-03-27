@@ -8,7 +8,7 @@
 #include "errno.h"
 #include "qsutil.h"
 #include "direct.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "qsshell.h"
 #include "internal.h"
 #include "limits.h"
@@ -256,11 +256,6 @@ int __cdecl sprintf(char *buf, const char *format, ...) {
    return sz;
 }
 
-int __stdcall puts(const char *buf) {
-   int rc = printf(buf);
-   return rc + printf("\n");
-}
-
 void __stdcall perror(const char *prefix) {
    printf(prefix);
    printf(": ");
@@ -297,17 +292,16 @@ void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
          mcnt = count&7;
          if (mcnt) {
             auto u8t mask = 0xFF << 8-mcnt;
-            if (flags&SBIT_ON) *ptr++ |= mask;
-               else *ptr++ &= ~mask;
+            if (flags&SBIT_ON) *ptr++|=mask; else *ptr++&=~mask;
          }
       } else {                 // dword stream bits array
          u32t *ptr = (u32t*)dst + (pos>>5);
          auto u32t mcnt = pos&0x1F;
 
          if (mcnt) {
-            auto u32t mask = count<31 ? FFFF << 32-count : FFFF;
-            if (flags&SBIT_ON) *ptr++ |= mask >> mcnt;
-               else *ptr++ &= ~(mask >> mcnt);
+            auto u32t mask = count<31 ? FFFF >> 32-count : FFFF;
+            if (flags&SBIT_ON) *ptr++ |= mask << mcnt;
+               else *ptr++ &= ~(mask << mcnt);
             if (count<32-mcnt) count=0; else count-=32-mcnt;
          }
          mcnt = count>>5;
@@ -315,9 +309,8 @@ void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
          ptr += mcnt;
          mcnt = count&0x1F;
          if (mcnt) {
-            auto u32t mask = FFFF << 32-mcnt;
-            if (flags&SBIT_ON) *ptr++ |= mask;
-               else *ptr++ &= ~mask;
+            auto u32t mask = FFFF >> 32-mcnt;
+            if (flags&SBIT_ON) *ptr++|=mask; else *ptr++&=~mask;
          }
       }
    }
@@ -506,10 +499,12 @@ dir_t* __stdcall START_EXPORT(readdir)(dir_t *fp) {
       set_errno2(err);
       return 0;
    }
-   fp->d_size = fid.fsize;
-   fp->d_date = fid.fdate;
-   fp->d_time = fid.ftime;
-   fp->d_attr = fid.fattrib;
+   fp->d_size   = fid.fsize;
+   fp->d_date   = fid.fdate;
+   fp->d_time   = fid.ftime;
+   fp->d_crdate = fid.cdate;
+   fp->d_crtime = fid.ctime;
+   fp->d_attr   = fid.fattrib;
    if (*fid.lfname) strncpy(fp->d_name,fid.lfname,NAME_MAX+1);
       else strncpy(fp->d_name,fid.fname,13);
    errno = EZERO;
@@ -548,13 +543,15 @@ u16t __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
       }
       _splitpath(namebuf,0,0,fp->d_name,extbuf);
       strcat(fp->d_name,extbuf);
-      fp->d_attr = _A_SUBDIR;
+      fp->d_attr   = _A_SUBDIR;
       f_closedir(&dt);
    } else {
-      fp->d_size = fi.fsize;
-      fp->d_date = fi.fdate;
-      fp->d_time = fi.ftime;
-      fp->d_attr = fi.fattrib;
+      fp->d_size   = fi.fsize;
+      fp->d_date   = fi.fdate;
+      fp->d_time   = fi.ftime;
+      fp->d_crdate = fi.cdate;
+      fp->d_crtime = fi.ctime;
+      fp->d_attr   = fi.fattrib;
 
       if (*fi.lfname) {
          strncpy(fp->d_name,fi.lfname,NAME_MAX+1);
@@ -757,10 +754,12 @@ u16t __stdcall START_EXPORT(_dos_findnext)(dir_t *fp) {
       }
       // filter by subdir flag only
       if (((si->attrs&_A_SUBDIR)==0||(fi.fattrib&AM_DIR)!=0) && _matchpattern(si->mask,nameptr)) {
-         fp->d_size = fi.fsize;
-         fp->d_date = fi.fdate;
-         fp->d_time = fi.ftime;
-         fp->d_attr = fi.fattrib;
+         fp->d_size   = fi.fsize;
+         fp->d_date   = fi.fdate;
+         fp->d_time   = fi.ftime;
+         fp->d_crdate = fi.cdate;
+         fp->d_crtime = fi.ctime;
+         fp->d_attr   = fi.fattrib;
 
          if (*fi.lfname) {
             strncpy(fp->d_name,fi.lfname,NAME_MAX+1);
@@ -788,7 +787,7 @@ u32t  __stdcall _dos_getdiskfree(unsigned drive, diskfree_t *dspc) {
    path[0] = '0'+drive;
    if (f_getfree(path,&nclst,&pfat)!=FR_OK) { errno=EINVAL; return 1; }
 
-   dspc->total_clusters      = hlp_disksize(QDSK_VIRTUAL|drive,0,0)/pfat->csize;
+   dspc->total_clusters      = hlp_disksize(QDSK_VOLUME|drive,0,0)/pfat->csize;
    dspc->avail_clusters      = nclst;
    dspc->sectors_per_cluster = pfat->csize;
    dspc->bytes_per_sector    = pfat->ssize;
@@ -1098,26 +1097,36 @@ u16t __stdcall START_EXPORT(_dos_getfileattr)(const char *path, unsigned *attrib
    return errno;
 }
 
-u16t __stdcall START_EXPORT(_dos_setfiletime)(const char *path, u32t dostime) {
+u16t __stdcall START_EXPORT(_dos_setfiletime)(const char *path, u32t dostime, int type) {
    char namebuf[_MAX_PATH];
-   FRESULT err;
-   FILINFO fi;
-   if (!path) return errno=EINVAL;
+   FRESULT  err;
+   FILINFO   fi;
+   dir_t     fd;
+   if (!path||!type||(type&~(_DT_MODIFY|_DT_CREATE))) return errno=EINVAL;
+   // one of types is zero? read old value
+   if ((type^(_DT_MODIFY|_DT_CREATE)))
+      if (_dos_stat(path,&fd)) return errno;
+
    pathcvt(path,namebuf);
-   fi.fdate = dostime>>16;
-   fi.ftime = (WORD)dostime;
+   fi.fdate = type&_DT_MODIFY ? dostime>>16   :fd.d_date;
+   fi.ftime = type&_DT_MODIFY ? (WORD)dostime :fd.d_time;
+   fi.cdate = type&_DT_CREATE ? dostime>>16   :fd.d_crdate;
+   fi.ctime = type&_DT_CREATE ? (WORD)dostime :fd.d_crtime;
+
    err = f_utime(namebuf,&fi);
    if (err==FR_OK) { errno=EZERO; return 0; }
    set_errno2(err);
    return errno;
 }
 
-u16t __stdcall START_EXPORT(_dos_getfiletime)(const char *path, u32t *dostime) {
+u16t __stdcall START_EXPORT(_dos_getfiletime)(const char *path, u32t *dostime, int type) {
    dir_t  fd;
-   if (!path||!dostime) return errno=EINVAL;
+   if (!path||!dostime||!type||(type&~(_DT_MODIFY|_DT_CREATE))) 
+      return errno=EINVAL;
    if (!_dos_stat(path,&fd)) {
       errno=EZERO;
-      return ((u32t)fd.d_date)<<16|fd.d_time;
+      return type&_DT_CREATE ? ((u32t)fd.d_crdate)<<16|fd.d_crtime :
+         ((u32t)fd.d_date)<<16|fd.d_time;
    }
    if (!errno) errno=ENOENT;
    return errno;

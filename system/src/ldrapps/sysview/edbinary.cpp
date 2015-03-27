@@ -1,4 +1,11 @@
 
+#ifdef __QSINIT__
+extern "C" {
+extern char aboutstr[];
+#pragma aux aboutstr "_*";
+}
+#endif
+
 TDialog* makeAboutDlg(void) {
    TView *control;
    
@@ -16,9 +23,17 @@ TDialog* makeAboutDlg(void) {
    dlg->insert(control);
    control = new TColoredText(TRect(2, 6, 17, 7), "  °±±²   °±±²  ", 0x9f);
    dlg->insert(control);
-   control = new TColoredText(TRect(27, 2, 40, 3), "QS Loader 1.0", 0x7f);
+   // version string
+   char verstr[96], *cp=0;
+   strcpy(verstr,"QS Loader ");
+#ifdef __QSINIT__
+   cp = strchr(aboutstr,' ');
+#endif
+   strncat(verstr, cp?cp+1:"1.00", 4);
+
+   control = new TColoredText(TRect(26, 2, 40, 3), verstr, 0x7f);
    dlg->insert(control);
-   control = new TColoredText(TRect(23, 4, 40, 5), "Freeware, 2010-14", 0x7f);
+   control = new TColoredText(TRect(23, 4, 40, 5), "Freeware, 2010-15", 0x7f);
    dlg->insert(control);
    control = new TButton(TRect(30, 6, 40, 8), "O~K~", cmOK, bfDefault);
    dlg->insert(control);

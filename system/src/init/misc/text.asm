@@ -11,6 +11,8 @@ _B8000          equ     0B8000h
 
 _DATA           segment
                 public  _text_col, _max_x, _max_y, _page0_fptr  ;
+                public  _vio_ttylines                           ;
+_vio_ttylines   dd      0                                       ;
 _pagesize       dw      0                                       ;
 _max_x          dw      80                                      ;
 _max_y          dw      25                                      ;
@@ -134,6 +136,7 @@ vio_charout     proc    near                                    ;
                 call    setpos                                  ;
                 pop     eax                                     ;
                 pop     edx                                     ;
+                add     _vio_ttylines, eax                      ;
                 ret                                             ;
 @@vcr_tab:
                 mov     eax, offset tabstr                      ; print 4 spaces
@@ -268,8 +271,12 @@ _vio_setpos     label   near                                    ;
                 mov     ah, [esp+4]                             ;
                 add     esp, 8                                  ; fix stack ptr
 vio_setpos      proc    near                                    ;
-                mov     byte ptr cursor_y, ah                   ;
                 mov     byte ptr cursor_x, al                   ;
+                mov     al,ah                                   ;
+                xchg    byte ptr cursor_y, ah                   ;
+                sub     al,ah                                   ; update output line
+                movsx   eax,al                                  ; counter
+                add     _vio_ttylines,eax                       ;
                 call    setpos                                  ;
                 ret                                             ;
 vio_setpos      endp                                            ;

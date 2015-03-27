@@ -4,7 +4,7 @@
 #include "stdlib.h"
 #include "errno.h"
 #include "qsvdisk.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "ioint13.h"
 #include "qsstor.h"
 #include "qsint.h"
@@ -15,10 +15,6 @@
 #define PAGE_SIZE                 (_2MB)
 // read size, that MUST fit into mapped MAP_SIZE area, aligned to PAGE_SIZE
 #define READ_IN_TIME              ((MAP_SIZE-PAGE_SIZE)/512 - 8)
-#define BIOS_MAX_CYLINDERS         1024
-#define BIOS_MAX_NUMHEADS           255
-#define BIOS_MAX_SECTORSPERTRACK     63
-
 
 static HD4_Header   *cdh = 0;   ///< active disk header
 static u64t      cdhphys = 0;   ///< disk header physical address
@@ -31,12 +27,12 @@ static char     *maparea = 0;
 static u64t     mapstart = 0;
 static u32t     endofram = 0;
 
-static u32t io(u32t disk, u32t sector, u32t count, void *data, int write) {
+static u32t io(u32t disk, u64t sector, u32t count, void *data, int write) {
    u32t ii, svcount;
    if (!cdh) return 0;
    // overflow check
-   if (sector+count<sector || sector>=cdhsize) return 0;
-   if (sector+count>cdhsize) count = cdhsize-sector;
+   if (sector>=(u64t)cdhsize) return 0;
+   if (sector+count>(u64t)cdhsize) count = cdhsize-sector;
 
    if (!endofram) endofram = sys_endofram();
 
@@ -57,7 +53,7 @@ static u32t io(u32t disk, u32t sector, u32t count, void *data, int write) {
 
             char *ptr =  0;
 
-            /* do not unmap areas below end of ram at all (because it not
+            /* do not unmap areas below end of ram at all (because it was not
                mapped actually), for any other (must be only above 4Gb areas)
                use 8Mb map space */
             if (eaddr<=(u64t)endofram) 
@@ -97,18 +93,16 @@ static u32t io(u32t disk, u32t sector, u32t count, void *data, int write) {
    return svcount;
 }
 
-static u32t _std _read(u32t disk, u32t sector, u32t count, void *data) {
+static u32t _std _read(u32t disk, u64t sector, u32t count, void *data) {
    return io(disk, sector, count, data, 0);
 }
 
-static u32t _std _write(u32t disk, u32t sector, u32t count, void *data) {
+static u32t _std _write(u32t disk, u64t sector, u32t count, void *data) {
    return io(disk, sector, count, data, 1);
 }
 
 static void fill_header(u32t pages) {
    if (cdh) {
-      u8t   vspt = BIOS_MAX_SECTORSPERTRACK,
-          vheads = BIOS_MAX_NUMHEADS;
       cdhsize = pages<<PAGESHIFT-9;
 
       memset(cdh, 0, PAGESIZE);
@@ -141,7 +135,7 @@ static void fill_header(u32t pages) {
 
 static void wipe_fat32bs(u8t vol) {
    disk_volume_data vi;
-   if (hlp_volinfo(vol, &vi)==FST_FAT32) dsk_emptysector(vi.Disk, vi.StartSector);
+   if (hlp_volinfo(vol, &vi)==FST_FAT32) dsk_emptysector(vi.Disk, vi.StartSector, 1);
 }
 
 static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
@@ -151,7 +145,7 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
       u8t    vol = 0;
       u32t usize = 0;
       // mount & format
-      rc = dsk_mountvol(&vol, chdd, index);
+      rc = vol_mount(&vol, chdd, index);
       // "always-FAT32"
       if (!rc && (flags&VFDF_FAT32)!=0) {
          disk_volume_data vi;
@@ -165,7 +159,8 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
                usize = csize;
          }
       }
-      if (!rc) rc = dsk_format(vol, DFMT_ONEFAT|DFMT_QUICK, usize, 0);
+      if (!rc) rc = vol_formatfs(vol, flags&VFDF_HPFS?"HPFS":"FAT", 
+          DFMT_ONEFAT|DFMT_QUICK, usize, 0);
       // un-format FAT32 formatted partition
       if (!rc && (flags&VFDF_NOFAT32)!=0) wipe_fat32bs(vol);
       
@@ -192,10 +187,13 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
    if ((flags&(VFDF_NOHIGH|VFDF_NOLOW))==(VFDF_NOHIGH|VFDF_NOLOW) ||
        (flags&(VFDF_EMPTY|VFDF_SPLIT))==(VFDF_EMPTY|VFDF_SPLIT) ||
        (flags&(VFDF_FAT32|VFDF_NOFAT32))==(VFDF_FAT32|VFDF_NOFAT32) ||
+       (flags&(VFDF_FAT32|VFDF_HPFS))==(VFDF_FAT32|VFDF_HPFS) ||
        (flags&VFDF_SPLIT)!=0 && !divpos ||
        (flags&VFDF_EMPTY)!=0 && divpos ||
        (flags&VFDF_PERCENT)!=0 && divpos>=100 ||
           maxsize && minsize>maxsize) return EINVAL;
+   // allow NOFAT32 with HPFS but clears it to not confuse later code
+   if (flags&VFDF_HPFS) flags&=~VFDF_NOFAT32;
 
    me = sys_getpcmem(0);
    if (!me) return ENOMEM;
@@ -414,7 +412,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          // wipe mbr sector
          dsk_newmbr(chdd, DSKBR_CLEARALL);
          // wipe LVM sector (to prevent of using previous disk data after "ramdisk delete")
-         dsk_emptysector(chdd, cdh->h4_spt-1);
+         dsk_emptysector(chdd, cdh->h4_spt-1, 1);
          // init mbr & first lvm dlat
          d_rc = dsk_ptinit(chdd, 1);
          // create partition(s) and format it
@@ -472,7 +470,7 @@ u32t _std sys_vdiskfree(void) {
          disk with other size */
       dsk_newmbr(chdd,DSKBR_CLEARALL|DSKBR_LVMINFO);
       // unmount all volumes
-      dsk_unmountall(chdd);
+      hlp_unmountall(chdd);
       // remove disk
       if (!hlp_diskremove(chdd)) rc = 0;
       chdd = 0;

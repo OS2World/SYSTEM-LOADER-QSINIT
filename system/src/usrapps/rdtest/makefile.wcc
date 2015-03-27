@@ -2,11 +2,13 @@
 # wmake makefile
 #
 
-PRJNAME = rdtest
-EXENAME = $(PRJNAME).exe
-OUTROOT = out
-CC      = @wcc386
-CFLAGS  = -4s -s -mf -oxs -zq -bt=os2
+PRJNAME1 = rdtest
+EXENAME1 = $(PRJNAME1).exe
+PRJNAME2 = rdtofile
+EXENAME2 = $(PRJNAME2).exe
+OUTROOT  = out
+CC       = @wcc386
+CFLAGS   = -4s -s -mf -oxs -zq -bt=os2
 
 !ifeq CFG 0
 OUTDIR  = $(OUTROOT)\Debug.wcc
@@ -15,12 +17,13 @@ CFLAGS  = $(CFLAGS) -d2 -hw -of
 OUTDIR  = $(OUTROOT)\Release.wcc
 !endif
 
-LNK     = $(OUTDIR)\$(PRJNAME).lnk
+LNK1    = $(OUTDIR)\$(PRJNAME1).lnk
+LNK2    = $(OUTDIR)\$(PRJNAME2).lnk
 OUT     = $(OUTDIR)/
 
-BUILDFILES = $(OUT)rdtest.obj $(OUT)hmio.obj
+BUILDFILES = $(OUT)rdtest.obj $(OUT)hmio.obj $(OUT)rdtofile.obj
 
-result : $(OUTDIR) $(EXENAME)
+result : $(OUTDIR) $(EXENAME1) $(EXENAME2)
 
 clean  : .SYMBOLIC
       @echo Cleaning ...
@@ -31,23 +34,41 @@ $(OUTDIR) : .SYMBOLIC
       @if not exist $(OUTROOT) mkdir $(OUTROOT)
       @if not exist $(OUTDIR) mkdir $(OUTDIR)
 
-$(EXENAME) : $(LNK) $(BUILDFILES)
-      @wlink @$(LNK)
+$(EXENAME1) : $(LNK1) $(BUILDFILES)
+      @wlink @$(LNK1)
+
+$(EXENAME2) : $(LNK2) $(BUILDFILES)
+      @wlink @$(LNK2)
 
 $(OUT)rdtest.obj: rdtest.c hmio.h
       $(CC) $(CFLAGS) -fo=$@ rdtest.c
 
+$(OUT)rdtofile.obj: rdtofile.c hmio.h
+      $(CC) $(CFLAGS) -fo=$@ rdtofile.c
+
 $(OUT)hmio.obj: hmio.c hmio.h
       $(CC) $(CFLAGS) -fo=$@ hmio.c
 
-$(LNK) : makefile.wcc
-      @echo sys os2v2             >$@
-      @echo name $(PRJNAME)       >>$@
+$(LNK1) : makefile.wcc
+      @echo sys os2v2               >$@
+      @echo name $(PRJNAME1)        >>$@
 !ifeq CFG 0
-      @echo debug watcom all      >>$@
+      @echo debug watcom all        >>$@
 !endif
-      @echo file $(OUT)rdtest.obj >>$@
-      @echo file $(OUT)hmio.obj   >>$@
-      @echo op quiet              >>$@
-      @echo op el                 >>$@
-      @echo op st=32768           >>$@
+      @echo file $(OUT)rdtest.obj   >>$@
+      @echo file $(OUT)hmio.obj     >>$@
+      @echo op quiet                >>$@
+      @echo op el                   >>$@
+      @echo op st=32768             >>$@
+
+$(LNK2) : makefile.wcc
+      @echo sys os2v2               >$@
+      @echo name $(PRJNAME2)        >>$@
+!ifeq CFG 0
+      @echo debug watcom all        >>$@
+!endif
+      @echo file $(OUT)rdtofile.obj >>$@
+      @echo file $(OUT)hmio.obj     >>$@
+      @echo op quiet                >>$@
+      @echo op el                   >>$@
+      @echo op st=32768             >>$@

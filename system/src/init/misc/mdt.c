@@ -11,7 +11,8 @@
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
 module          *mod_ilist = 0; // currently loading modules list
-module           *mod_self = 0; // QSINIT module reference
+module           *mod_self = 0, // QSINIT module reference
+                *mod_start = 0; // START module reference
 process_context    *ctxmem = 0; // current process context (const pointer)
 u8t              *page_buf = 0; // 4k buffer for various needs
 u32t           lastusedpid = 1; // unique pid for processes
@@ -24,9 +25,8 @@ u8t              mod_delay = 1; // exe delayed unpack
 static char     qsinit_str[] = MODNAME_QSINIT;
 extern u32t  exptable_data[];
 extern u16t    qsinit_size;
-extern u16t       pinfo_gs;     // selector for process context access
-extern 
-MKBIN_HEADER    bin_header;
+extern
+MKBIN_HEADER  *pbin_header;
 extern u32t       highbase;     // base of 32bit object
 
 
@@ -152,21 +152,22 @@ u32t mod_query(const char *name, u32t searchtype) {
    if (!mod_self) {
       // adding QSINIT
       u32t   sz16 = Round16(sizeof(module) + 255*sizeof(mod_export));
-      module *slf = hlp_memalloc(sz16 + EXPORT_THUNK*256, QSMA_READONLY);
+      module *slf = hlp_memallocsig(sz16 + EXPORT_THUNK*256, "MODq", QSMA_READONLY);
       u32t   *exp = exptable_data, ord=0;
       u8t   noffs = 0;
       slf->baseaddr = slf;
       slf->usage    = slf->objects = 1;
       slf->sign     = MOD_SIGN;
       strcpy(slf->name,qsinit_str);
+      slf->mod_path = slf->name;
       slf->exps     = (mod_export*)((u8t*)slf + sizeof(module));
       slf->thunks   = (u8t*)slf + sz16;
       memset(slf->thunks, 0xCC, EXPORT_THUNK*256);
 
       slf->obj[0].address = (void*)highbase;
-      slf->obj[0].size    = bin_header.pmSize;
+      slf->obj[0].size    = pbin_header->pmSize;
       slf->obj[0].flags   = OBJBIGDEF|OBJREAD|OBJWRITE|OBJEXEC;
-      slf->obj[0].sel     = SEL32CODE;
+      slf->obj[0].sel     = get_flatcs();
       // setting up export table
       while (*exp!=0xFFFF0000) {
          if (*exp>>16==0xFFFF) {
@@ -217,8 +218,8 @@ u32t mod_query(const char *name, u32t searchtype) {
 u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
    if (error) *error=0;
    if (!path) return 0; else {
-      char   *buf = (char*)hlp_memalloc(_64KB,0);   // init temp data from
-      u32t    len = strlen(path);                   // one 64k block
+      char   *buf = (char*)hlp_memallocsig(_64KB,"MODb",0);
+      u32t    len = strlen(path);
       FIL     *fl = (FIL*)(buf+len+4);
       u32t     rc, size,
              used = len+4+sizeof(FIL)+4;            // +4 bytes for unpack code
@@ -324,7 +325,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          // allocate physical storage for all loadable objects
          ii = sizeof(module)+sizeof(mod_object)*(eh->e32_objcnt-1);
          rc = mod_secondary?0:(EXPORT_THUNK+sizeof(mod_export))*MAX_EXPSTART;
-         mod = hlp_memalloc(vsize+ii+rc+MAX_PATH+2,0);
+         mod = hlp_memallocsig(vsize+ii+rc+MAX_PATH+2,"MODl",0);
 
          // fill module handle data (note: memory zeroed in malloc)
          md  = (module*)((char*)mod + rc + vsize);
@@ -363,7 +364,10 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
                if ((md->flags&MOD_LIBRARY)==0 && ii+1==eh->e32_stackobj)
                   rc = MODERR_STACK16;
             } else
-            if (oflags&OBJBIGDEF) objsel = oflags&OBJEXEC ? SEL32CODE : SEL32DATA;
+            if (oflags&OBJBIGDEF) {
+               objsel = get_flatcs();
+               if ((oflags&OBJEXEC)==0) objsel += 8;
+            }
 
             md->obj[ii].sel   = objsel;
             md->obj[ii].flags = oflags;
@@ -405,15 +409,15 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          // unpack objects
          for (ii=0;ii<eh->e32_objcnt;ii++)
             if (ot[ii].o32_reserved!=2) {
-               u16t objsel;
+               u16t objsel, flatcs = get_flatcs();
                rc = mod_unpackobj(md, eh, ot, ii, (u32t)md->obj[ii].address, 0);
                if (rc) break;
                md->obj[ii].size    = ot[ii].o32_size;
                md->obj[ii].orgbase = ot[ii].o32_base;
-               /* setup object selector (but do not setup FLAT selectors, assigned to
-                  big objects ;) */
+               /* setup object selector (but do not touch FLAT selectors, assigned
+                  to the big objects ;) */
                objsel = md->obj[ii].sel;
-               if (objsel && objsel>SEL32DATA) {
+               if (objsel && (objsel<flatcs || objsel>flatcs+8)) {
                   u32t  size = ot[ii].o32_size;
                   int  bytes = size<_64KB;
                   hlp_selsetup(objsel, (u32t)md->obj[ii].address,
@@ -740,6 +744,8 @@ static u32t env_length(const char *env) {
    return total+1;
 }
 
+process_context* _std mod_context(void) { return ctxmem; }
+
 /* run module. return -1 if failed (invalid handle, etc)
    env\0
    env\0\0
@@ -760,8 +766,6 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
 
    if (md->sign!=MOD_SIGN) return -1;
    if (md->flags&MOD_LIBRARY) return -1;
-   if (!pinfo_gs)
-      if ((pinfo_gs=hlp_selalloc(1))==0) return -1;
 
    envlen  = env?env_length(env):0;
    parmlen = params?strlen(params)+1:0;
@@ -771,12 +775,9 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    envseg_sz = envlen+2+parmlen+2+pathlen*2;
 
    if (!ctxmem) {
-      cmdline = envseg = hlp_memalloc(Round4k(envseg_sz)+sizeof(process_context),
-         QSMA_READONLY);
+      cmdline = envseg = hlp_memallocsig(Round4k(envseg_sz)+sizeof(process_context),
+         "MCtx", QSMA_READONLY);
       _ctxmem = ctxmem = (process_context*)(cmdline+Round4k(envseg_sz));
-      // process context selector for GS register
-      hlp_selsetup(pinfo_gs,(u32t)_ctxmem,sizeof(process_context)-1,
-         QSEL_BYTES|QSEL_LINEAR);
    } else {
       cmdline = envseg = mod_secondary?mod_secondary->memAlloc(1,mh,envseg_sz):
          hlp_memalloc(envseg_sz,0);
@@ -790,8 +791,9 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    _ctxmem->pid    = lastusedpid++;
    _ctxmem->envptr = envseg;
    _ctxmem->self   = md;
-   _ctxmem->parent = svctx?svctx->self:mod_self;
+   _ctxmem->parent = svctx?svctx->self:0;
    _ctxmem->flags  = mod_secondary?0:PCTX_BIGMEM;
+   _ctxmem->pctx   = svctx;
 
    // copying env/cmdline data
    if (envlen) memcpy(cmdline,env,envlen); else envlen=2;
@@ -802,19 +804,28 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    if (parmlen) memcpy(cmdline+pathlen,params,parmlen);
 
    rc = 0;
-   // callback
-   if (!rc && mod_secondary) rc = mod_secondary->start_cb(_ctxmem);
-
-   if (!rc) {
-      log_it(LOG_HIGH,"exec %s\n",md->mod_path);
-      rc = launch32(md,(u32t)envseg,(u32t)cmdline);
-   }
-   if (mod_secondary) rc = mod_secondary->exit_cb(_ctxmem, rc);
-   // this is NOT a first launched module?
    if (svctx) {
-      // free originall env. segment
+      // callback
+      if (mod_secondary) rc = mod_secondary->start_cb(_ctxmem);
+      // launch if this was not denied by callback
+      if (!rc) {
+         log_it(LOG_HIGH,"exec %s\n",md->mod_path);
+         rc = launch32(md,(u32t)envseg,(u32t)cmdline);
+         
+         if (mod_secondary) rc = mod_secondary->exit_cb(_ctxmem, rc);
+      }
+   } else {
+      /* START module launching.
+         This is, actually, NOT DLL init (it already called by mod_load),
+         but ptr to START.189 - main function in START.
+         Called via dll32init() to use its simple save/restore features. */
+      dll32init(md,0);
+   }
+   // is this NOT a first launched module?
+   if (svctx) {
+      // free original env. segment
       if (mod_secondary) mod_secondary->memFree(envseg); else hlp_memfree(envseg);
-      // free reallocated by user app env. data
+      // free reallocated env. data
       if (_ctxmem->flags&PCTX_ENVCHANGED)
          if (_ctxmem->envptr!=envseg)
             if (_ctxmem->flags&PCTX_BIGMEM) hlp_memfree(_ctxmem->envptr); else
@@ -829,12 +840,15 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
 
 // free and unload module (decrement usage)
 void mod_free(u32t mh) {
-   process_context *pq=mod_context();
-   module   *md=(module*)mh;
-   u32t     oi;
+   process_context *pq = mod_context();
+   module          *md = (module*)mh;
+   u32t             oi;
+
    if (md->sign!=MOD_SIGN) return;
-   // do not allow to free self while running (this also prevent START from freeing)
-   if (pq&&pq->self == md) return;
+   // do not allow to free self while running
+   if (pq && pq->self == md) return;
+   // block main modules final free
+   if ((md==mod_start || md==mod_self) && md->usage==1) return;
    // dec usage
    if (--md->usage>0) return;
    log_printf("unload %s\n",md->mod_path);
@@ -892,5 +906,26 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
       ee=(lx_exp_b*)((u8t*)ee+bsize);
    }
    mh->exports = cnt;
+   return 0;
+}
+
+int start_it() {
+   mod_export *stmain;
+   u32t           err;
+   // loading START module (this is DLL now, not EXE like it was until rev.287)
+   mod_start = (module*)mod_load(MODNAME_START, 0, &err, 0);
+   if (!mod_start) return err;
+   // delete START module from ramdisk to save space
+   f_unlink(MODNAME_START);
+   // query "main" address
+   stmain    = mod_findexport(mod_start, 189);
+   if (!stmain) return MODERR_NOORDINAL;
+   // make sure mod_self is ready
+   if (!mod_self) mod_query(MODNAME_QSINIT, 0);
+   // REPLACE init function to use it in mod_exec()
+   mod_self->start_ptr = stmain->direct;
+   /* some kind of hack - simulate "QSINIT" launch to create 1st process
+      context (mod_exec() knows what to do in this case) */
+   mod_exec((u32t)mod_self, 0, 0);
    return 0;
 }

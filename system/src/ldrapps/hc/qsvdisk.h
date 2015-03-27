@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #include "qstypes.h"
+#include "qsutil.h"
 
 /// @name sys_vdiskinit() flags
 //@{
@@ -21,19 +22,43 @@ extern "C" {
 #define VFDF_EMPTY      0x00020       ///< make disk with empty partition table
 #define VFDF_NOFAT32    0x00040       ///< leave large disks unformatted (do not use FAT32)
 #define VFDF_FAT32      0x00080       ///< try to use FAT32 for any possible disk size (i.e.>=32Mb)
+#define VFDF_HPFS       0x00100       ///< format partition(s) to HPFS
 //@}
 
 /** create ram disk.
     Only one disk at time allowed.
-
     @param  [out]  disk      Disk handle for i/o functions
 
-    @return 0 on success, EEXIST if disk already exist, ENODEV - no PAE 
-            on this CPU, ENOMEM - not enough memory, EINVAL - invalid
-            arguments. */
+    @retval 0         on success
+    @retval EEXIST    disk already exist
+    @retval ENODEV    no PAE on this CPU
+    @retval ENOMEM    not enough memory
+    @retval EINVAL    invalid arguments */
 u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                         u32t divpos, char letter1, char letter2,
                         u32t *disk);
+
+/** load ram disk from disk image file.
+    Only one disk at time allowed.
+    Disk image file - is a plain image or "fixed size" VHD.
+    @param  path             File path (can be QSINIT path or file in the
+                             root of boot volume).
+    @param  flags            Flags (VFDF_NOHIGH and VFDF_NOLOW only)
+    @param  [out]  disk      Disk handle for i/o functions
+    @param  cbprint          Callback for file loading process (can be 0)
+
+    @retval 0         on success
+    @retval EEXIST    disk already exist
+    @retval ENODEV    no PAE on this CPU
+    @retval ENOMEM    not enough memory
+    @retval ENOENT    no such file
+    @retval ENOTBLK   this is dinamic VHD (not "fixed size") or file size is
+                      not sector aligned
+    @retval EFBIG     file too small or too large
+    @retval EIO       file read error
+    @retval EINVAL    invalid arguments */
+u32t _std sys_vdiskload(const char *path, u32t flags, u32t *disk,
+                        read_callback cbprint);
 
 /** delete active ram disk.
     Function unmap ram disk from QSINIT and free memory, used by it.

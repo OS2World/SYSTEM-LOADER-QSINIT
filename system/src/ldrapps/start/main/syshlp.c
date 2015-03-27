@@ -13,6 +13,10 @@
 #include "qsstor.h"
 #include "qsint.h"
 #include "qsinit.h"
+#include "qssys.h"
+#include "qspage.h"
+#include "efnlist.h"
+#include "qecall.h"
 
 #define MSR_IA32_MTRRCAP             0x00FE
 #define MSR_IA32_EXT_CONFIG          0x00EE
@@ -126,7 +130,7 @@ u32t _std hlp_getcputemp(void) {
 
       _try_ {
          // a long way of reading TMax, taken from BSD 8.0 code
-         // it hang on 1156 socket i5 at least ;)
+         // it hangs on 1156 socket i5 at least ;)
          if (model==15&&stepping>=2||model==14) {
             hlp_readmsr(MSR_IA32_EXT_CONFIG,data+0,data+1);
             if (data[0] & 0x40000000) TMax = 85;
@@ -264,7 +268,7 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state) {
    return 0;
 }
 
-/** read variable range mtrr register.
+/** read fixed range mtrr register.
     Function merge neighboring fixed blocks with the same cache types
     and return list in readable format.
     @param [out] start     array of [MTRR_FIXEDMAX] start adresses
@@ -454,10 +458,10 @@ u32t _std START_EXPORT(hlp_mtrrfset)(u32t addr, u32t length, u32t state) {
                if (!hlp_getmsrsafe(fixedmtrregs[ii],(u32t*)&bits,(u32t*)&bits+1))
                   rc=0;
                else {
-                  int ps=0, pe=7;
+                  int ps=0, pe=8;
                   if (allow==1) ps=(addr-start)/step;
                   if (start+csize>addr+length) pe=(addr+length-start)/step;
-                  while (ps<=pe)
+                  while (ps<pe)
                      ((u8t*)&bits)[ps++] = state&7;
                }
             } else
@@ -539,50 +543,176 @@ u32t _std hlp_mtrrbatch(void *buffer) {
 }
 
 /** memcpy with SS segment as source & destination.
-    I.e., function have access to 1st page in non-paging mode. */
+    I.e., function have access to 1st page in non-paging mode. 
+    Actually this memmove, not memcpy. */
 void* _std memcpy0(void *dst, const void *src, u32t length);
 // 48-bit ptr to page 0, but we use only offset here
 extern u32t _std page0_fptr;
 
-static void* hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
+static u32t hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
    _try_ {
-      /* page0 flag here affect SOURCE access in paging mode and 
+      /* page0 flag here affect SOURCE access in paging mode and
          SOURCE+DST access in non-paging */
-      if (page0) memcpy0(dst,src,length); else memcpy(dst,src,length);
-      _ret_in_try_(dst);
+      if (page0) memcpy0(dst,src,length); else memmove(dst,src,length);
+      _ret_in_try_(1);
    }
    _catch_(xcpt_all) {
+      log_it(2,"Exception in memcpy(%08X, %08X, %d, %d)\n", dst, src, length, page0);
    }
    _endcatch_
    return 0;
 }
 
-void* _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
+u32t _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
    if (page0 && in_pagemode) {
       u32t  dstv = (u32t)dst;
       char *srcv = (char*)src;
       // wrap around 0?
       if (dstv+length < dstv) {
          u32t upto0 = FFFF-dstv+1;
-         void   *rc = hlp_memcpy_int(dst, srcv, upto0, 1);
-         if (!rc) return 0;
+         if (!hlp_memcpy_int(dst, srcv, upto0, 1)) return 0;
          dst = 0; dstv = 0;
          srcv   += upto0;
          length -= upto0;
       }
-      if (!length) return dst;
+      if (!length) return 1;
       // 1st page copying
       if (dstv < PAGESIZE) {
          u32t upto4 = dstv+length > PAGESIZE ? PAGESIZE-dstv : length;
-         void   *rc = hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1);
-         if (!rc) return 0;
-         dstv   += upto4; dst = (void*)dstv; 
+
+         if (!hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1)) 
+            return 0;
+         dstv   += upto4; dst = (void*)dstv;
          srcv   += upto4;
          length -= upto4;
       }
-      if (!length) return dst;
+      if (!length) return 1;
       // above 1st page - normal copying
       return hlp_memcpy_int(dst, srcv, length, 1);
    } else
    return hlp_memcpy_int(dst, src, length, page0);
+}
+
+/** query some CPU features in more easy way.
+    @param  flags   SFEA_* flags combination
+    @return actually supported subset of flags parameter */
+u32t _std sys_isavail(u32t flags) {
+   static u32t sflags = FFFF;
+
+   if (sflags!=FFFF) return flags&sflags; else {
+      u32t   idbuf[4];
+      hlp_getcpuid(1,idbuf);
+      sflags = 0;
+      if ((idbuf[3]&CPUID_FI2_PAE))  sflags|=SFEA_PAE;
+      if ((idbuf[3]&CPUID_FI2_PGE))  sflags|=SFEA_PGE;
+      if ((idbuf[3]&CPUID_FI2_PAT))  sflags|=SFEA_PAT;
+      if ((idbuf[3]&CPUID_FI2_CMOV)) sflags|=SFEA_CMOV;
+      if ((idbuf[3]&CPUID_FI2_MTRR)) sflags|=SFEA_MTRR;
+      if ((idbuf[3]&CPUID_FI2_MSR))  sflags|=SFEA_MSR;
+
+      hlp_getcpuid(0x80000000,idbuf);
+      if (idbuf[0]>=0x80000001) {
+         hlp_getcpuid(0x80000001,idbuf);
+         if ((idbuf[3]&CPUID_FI4_IA64)) sflags|=SFEA_X64;
+      }
+      return sflags;
+   }
+}
+
+int _std sys_is64mode(void) {
+   u32t  cr0v = getcr0(),
+         cr4v = getcr4();
+   if ((cr0v&CPU_CR0_PG)==0) return 0;
+   if ((cr4v&CPU_CR4_PAE)==0) return 0;
+
+   if (sys_isavail(SFEA_X64)) {
+      u32t  ld=0, hd;
+      hlp_getmsrsafe(MSR_IA32_EFER,&ld,&hd);
+      // 64-bit paging?
+      if ((ld&(MSR_EFER_IA32E|MSR_EFER_IA32E_ON))==(MSR_EFER_IA32E|MSR_EFER_IA32E_ON))
+         return 1;
+   }
+   return 0;
+}
+
+
+#define MAP_SIZE                  (_8MB)
+#define MAP_MASK       (~(u64t)(_8MB-1))
+
+// function is not reenterable because of static map arrays in PAE handling
+u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
+   // negative size
+   if ((s64t)length<=0) return 0;
+   // 4Gb border
+   if (src<_4GBLL && src+length>_4GBLL) return 0;
+   if (dst<_4GBLL && dst+length>_4GBLL) return 0;
+   // overflow check
+   if (src+length<src) return 0;
+   if (dst+length<dst) return 0;
+   // 1st page
+   if (src<_4KB || dst<_4KB) return 0;
+
+   if (hlp_hosttype()==QSHT_EFI) {
+      _try_ {
+         call64(EFN_MEMMOVE, 7, 3, dst, src, length);
+      }
+      _catch_(xcpt_all) {
+         log_it(2,"Exception in sys_memhicopy(%09LX, %09LX, %Ld)\n", dst, src, length);
+      }
+      _endcatch_
+   } else {
+      static void *map[2] = { 0, 0 };
+      static u64t madr[2] = { 0, 0 };
+      u64t         adr[2];
+      int           hi[2];
+
+      if (src<_4GBLL && dst<_4GBLL) 
+         return hlp_memcpy((void*)(u32t)dst, (void*)(u32t)src, length, 0) ? 1 : 0;
+      if (!in_pagemode) 
+         if (!pag_enable()) return 0;
+
+      hi[0] = (adr[0]=src)>=_4GBLL;
+      hi[1] = (adr[1]=dst)>=_4GBLL;
+      while (length) {
+         void *tptr[2];
+         u32t   cpi = MAP_SIZE, ii;
+
+         // bytes until the end of 8Mb borders
+         for (ii=0; ii<2; ii++)
+           if (hi[ii]) {
+              u32t cpl = MAP_SIZE - ((u32t)adr[ii] & MAP_SIZE-1);
+              if (cpl<cpi) cpi = cpl;
+           }
+         if ((u64t)cpi > length) cpi = length;
+         // map 8Mb blocks
+         for (ii=0; ii<2; ii++)
+            if (!hi[ii]) tptr[ii] = 0; else
+            if ((adr[ii]&MAP_MASK)==madr[ii]) tptr[ii] = 0; else {
+               tptr[ii] = map[ii];
+               madr[ii] = adr[ii]&MAP_MASK;
+               map[ii]  = pag_physmap(madr[ii], MAP_SIZE, 0);
+
+               if (!map[ii]) return 0;
+            }
+         for (ii=0; ii<2; ii++) {
+            // unmap AFTER map to use inc/dec usage counter properly
+            if (tptr[ii]) pag_physunmap(tptr[ii]);
+            // src/dst address
+            tptr[ii] = hi[ii]?(u8t*)map[ii]+((u32t)adr[ii]&_8MB-1):(u8t*)(u32t)adr[ii];
+         }
+         // copying...
+         _try_ {
+            memmove(tptr[1], tptr[0], cpi);
+         }
+         _catch_(xcpt_all) {
+            log_it(2,"Exception in sys_memhicopy(%09LX, %09LX, %Ld)\n", dst, src, length);
+         }
+         _endcatch_
+
+         adr[0] += cpi;
+         adr[1] += cpi;
+         length -= cpi;
+      }
+   }
+   return 1;
 }

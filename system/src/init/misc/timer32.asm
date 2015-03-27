@@ -253,7 +253,7 @@ _tm_setdate     endp
 ; u32t _std tm_counter(void);
 ;
                 public  _tm_counter
-_tm_counter     proc near
+_tm_counter     proc    near
                 mov     eax, dword ptr ss:[BIOS_TICS]
                 ret
 _tm_counter     endp

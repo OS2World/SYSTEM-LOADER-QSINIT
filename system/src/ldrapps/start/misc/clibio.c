@@ -8,7 +8,7 @@
 #include "errno.h"
 #include "qsutil.h"
 #include "qsint.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "internal.h"
 #include "limits.h"
 #include "qsmodext.h"
@@ -16,7 +16,7 @@
 
 #define FILE_SIGN     (0x454C4946)
 #define FP_IOBUF_LEN   64
-FILE    *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0;
+FILE    *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0, **pstdout = 0;
 
 typedef struct {
    u32t     sign;
@@ -25,6 +25,7 @@ typedef struct {
    int       fno;              ///< fileno, used to check std handles only
    char     *inp;              ///< stdin input buffer
    FIL        fi;              ///< file struct
+   char     path[_MAX_PATH+1]; ///< file path
 } FileInfo;
 
 static ptr_list opened_files = 0;
@@ -41,6 +42,10 @@ static void set_errno1(int x, FileInfo *fs) {
 
 void set_errno2(int x) {
    set_errno((x)>=0&&(x)<=FR_INVALID_PARAMETER?ffErrToErrno[x]:EIO);
+}
+
+FILE* get_stdout(void) {
+   return *pstdout;
 }
 
 static int check_pid(FileInfo *fs) {
@@ -85,12 +90,14 @@ FILE* __stdcall fdopen(int handle, const char *mode) {
    pid = mod_getpid();
    if (!pid) { set_errno(EFAULT); return 0; }
    fout = (FileInfo*)malloc(sizeof(FileInfo));
+   memZero(fout);
 
    fout->sign    = FILE_SIGN;
    fout->lasterr = 0;
    fout->pid     = pid;
    fout->fno     = handle;
    fout->inp     = 0;
+   fout->path[0] = 0;
    // update global file list
    add_new_file(fout);
    return (FILE*)fout;
@@ -107,7 +114,8 @@ void init_stdio(process_context *pq) {
 void setup_fileio(void) {
    process_context* pq = mod_context();
    // init START process handles
-   init_stdio(pq);
+   if (pq) init_stdio(pq); else 
+      log_printf("warning! zero process context!\n");
 }
 
 FILE* __stdcall START_EXPORT(fopen)(const char *filename, const char *mode) {
@@ -122,16 +130,17 @@ FILE* __stdcall START_EXPORT(fopen)(const char *filename, const char *mode) {
 
    if (!pid) { set_errno(EFAULT); return 0; }
    if (mc!='R'&&mc!='W'&&mc!='A'||type!='B') { set_errno(EINVAL); return 0; }
-   ff=(FileInfo*)malloc(sizeof(FileInfo));
+   ff = (FileInfo*)malloc(sizeof(FileInfo));
+   memZero(ff);
    switch (mc) {
       case 'A': flags|=FA_OPEN_ALWAYS|FA_WRITE|(upd?FA_READ:0);   break;
       case 'R': flags|=FA_OPEN_EXISTING|FA_READ|(upd?FA_WRITE:0); break;
       case 'W': flags|=FA_CREATE_ALWAYS|FA_WRITE|(upd?FA_READ:0); break;
    }
    // recode A:-Z: path to 0:-3:
-   pathcvt(filename,namebuf);
+   pathcvt(filename, namebuf);
    // open file
-   rc=f_open(&ff->fi,namebuf,flags);
+   rc=f_open(&ff->fi, namebuf, flags);
    set_errno1(rc,ff);
    if (rc!=FR_OK) {
       //log_it(3,"fopen(%s,%s), rc=%d\n",namebuf,mode,rc);
@@ -143,6 +152,8 @@ FILE* __stdcall START_EXPORT(fopen)(const char *filename, const char *mode) {
    ff->pid  = pid;
    ff->inp  = 0;
    ff->fno  = fileno_idx++;
+   // save full path for stat/dump funcs
+   _fullpath(ff->path, namebuf, _MAX_PATH+1);
    // this list will be used until reboot
    add_new_file(ff);
    return (FILE*)ff;
@@ -231,14 +242,17 @@ size_t __stdcall START_EXPORT(fread)(void *buf, size_t elsize, size_t nelem, FIL
 size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nelem, FILE *fp) {
    FRESULT   rc;
    UINT   saved;
+   int     stdh;
    checkret_err(0);
-   if (!check_pid(ff)) return 0;
+   stdh = ff->fno>=0 && ff->fno<=STDAUX_FILENO;
+   // do not check pid on every printf char
+   if (!stdh && !check_pid(ff)) return 0;
 
    if (elsize==0) { set_errno(EINVAL); return 0; }
    if (elsize*nelem==0) { set_errno(EZERO); return 0; }
    saved = 0;
 
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (stdh) {
       if (ff->fno==STDIN_FILENO) { set_errno(EACCES); return 0; } else {
          char *cpb = (char*)buf;
          u32t  len = elsize * nelem;
@@ -261,11 +275,12 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
                      else hlp_seroutchar(ch);
                }
             } else {
-               char  pbuf[64];
-               cpy = len>63?63:len;
+               char  pbuf[FP_IOBUF_LEN+1];
+               cpy = len>FP_IOBUF_LEN?FP_IOBUF_LEN:len;
                memcpy(pbuf, cpb, cpy);
-               pbuf[len] = 0;
-               vio_strout(pbuf);
+               pbuf[cpy] = 0;
+               //vio_strout(pbuf);
+               ansi_strout(pbuf);
             }
             len   -= cpy;
             cpb   += cpy;
@@ -282,7 +297,7 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
 
 int __stdcall ferror(FILE *fp) {
    checkret_err(1);
-   if (!check_pid(ff)) return 1;
+   //if (!check_pid(ff)) return 1;
    return ff->lasterr!=EZERO?1:0;
 }
 
@@ -354,6 +369,12 @@ long __stdcall filelength(int fp) {
    return ff->fi.fsize;
 }
 
+int  __stdcall isatty(int fp) {
+   checkret_err(0);
+   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) return 1;
+   return 0;
+}
+
 int  __stdcall fdetach(FILE *fp) {
    checkret_err(1);
    if (!check_pid(ff)) return 1;
@@ -382,6 +403,31 @@ int  __stdcall fcloseall(void) {
       return rc;
    }
    return 0;
+}
+
+void _std log_ftdump(void) {
+   log_it(2,"== Opened files ==\n");
+   if (opened_files) {
+      u32t ii=0;
+      if (opened_files->count())
+         log_it(2, "     file name          |   fno   | pid |    size   |    pos    | err\n");
+      for (ii=0; ii<opened_files->count(); ii++) {
+         char buf[128];
+         FileInfo *fp = (FileInfo*)opened_files->value(ii);
+         int      pos = sprintf(buf, "%3d. %-18s |%8i |", ii+1, fp->path, fp->fno);
+
+         if (fp->pid) pos+=sprintf(buf+pos, "%4u ", fp->pid); else
+            pos+=sprintf(buf+pos, " --- ");
+
+         if (fp->fi.fs)
+            pos+=sprintf(buf+pos, "|%10u |%10u |%3d", fp->fi.fsize, fp->fi.fptr, fp->fi.err);
+         else
+            pos+=sprintf(buf+pos, "|           |           |");
+         buf[pos++] = '\n';
+         buf[pos] = 0;
+         log_it(2, buf);
+      }
+   }
 }
 
 int __stdcall START_EXPORT(_chsize)(int fp, u32t size) {
@@ -425,7 +471,7 @@ void* __stdcall freadfull(const char *name, unsigned long *bufsize) {
 
    if (fi.fsize) {
       UINT  readed;
-      res=hlp_memalloc(fi.fsize,QSMA_RETERR);
+      res = hlp_memallocsig(fi.fsize,"file",QSMA_RETERR);
       if (!res) {
          f_close(&fi);
          set_errno(ENOMEM);
@@ -462,19 +508,67 @@ static void _std fileprn(int ch, void *stream) {
    }
 }
 
-int __cdecl START_EXPORT(fprintf)(FILE *fp, const char *fmt, long args) {
+int __cdecl START_EXPORT(vfprintf)(FILE *fp, const char *fmt, long *args) {
    fprninfo  fpi;
    fpi.fp    = fp;
    fpi.len   = 0;
    fpi.bpos  = 0;
    fpi.flush = 0;
    fpi.errno = 0;
-   _prt_common(&fpi, fmt, &args, fileprn);
-   if (!fpi.errno) {
+   _prt_common(&fpi, fmt, args, fileprn);
+   if (!fpi.errno && fpi.bpos) {
      fpi.flush = 1;
      fileprn(0, &fpi);
    }
    return fpi.errno?-1:fpi.len;
+}
+
+int __cdecl START_EXPORT(fprintf)(FILE *fp, const char *fmt, long args) {
+   return START_EXPORT(vfprintf)(fp, fmt, &args);
+}
+
+static void _std vioprn(int ch, void *stream) {
+   vio_charout(ch);
+}
+
+int __cdecl START_EXPORT(printf)(const char *fmt, long args) {
+   if (pstdout)
+      return START_EXPORT(vfprintf)(*pstdout, fmt, &args);
+   else
+      return _prt_common(0, fmt, &args, vioprn);
+}
+
+int _stdcall START_EXPORT(vprintf)(const char *fmt, long *argp) {
+   if (pstdout)
+      return START_EXPORT(vfprintf)(*pstdout, fmt, argp);
+   else
+      return _prt_common(0, fmt, argp, vioprn);
+}
+
+int __stdcall fputs(const char *buf, FILE *fp) {
+   if (!buf || !*buf) return 0; else {
+      u32t   len = strlen(buf);
+      size_t wrc = fwrite(buf, 1, len, fp);
+      return !wrc?EOF:len;
+   }
+}
+
+int __stdcall puts(const char *buf) {
+   if (pstdout) {
+      int rc = fputs(buf, *pstdout);
+      if (rc==EOF) return EOF; else
+         if (fputc('\n', *pstdout)==EOF) return EOF;
+      return rc+1;
+   } else {
+      int len = strlen(buf)+1;
+      vio_strout(buf);
+      vio_charout('\n');
+      return len;
+   }
+}
+
+int __stdcall fputc(int c, FILE *fp) {
+   return fwrite(&c,1,1,fp)?c:EOF;
 }
 
 int getc(FILE *fp) {
@@ -491,18 +585,6 @@ int getchar(void) {
    process_context* pq = mod_context();
    if (pq) return getc((FILE*)pq->rtbuf[RTBUF_STDIN]);
    return EOF;
-}
-
-static void _std vioprn(int ch, void *stream) {
-   vio_charout(ch);
-}
-
-int __cdecl START_EXPORT(printf)(const char *fmt, long args) {
-   return _prt_common(0, fmt, &args, vioprn);
-}
-
-int _stdcall START_EXPORT(vprintf)(const char *fmt, long *argp) {
-   return _prt_common(0, fmt, argp, vioprn);
 }
 
 static int gettempname(char *prefix, char *dir, char *buffer) {
@@ -572,4 +654,11 @@ char* __stdcall tmpnam(char *buffer) {
    if (buffer) strcpy(buffer, name);
 
    return buffer?buffer:name;
+}
+
+u32t __stdcall hlp_isdir(const char *dir) {
+   dir_t fd;
+   if (!_dos_stat(dir,&fd))
+      if (fd.d_attr&_A_SUBDIR) return 1;
+   return 0;
 }

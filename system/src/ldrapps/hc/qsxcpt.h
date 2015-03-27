@@ -47,6 +47,7 @@ typedef enum {
            xcpt_align   = 17,               ///< alignment exception
            xcpt_machine = 18,               ///< machine check exception
            xcpt_simd    = 19,               ///< SSEx exception
+           xcpt_interr  = 0xFFFC,           ///< exit called in start module (int.error)
            xcpt_hookerr = 0xFFFD,           ///< ebp changed in chained call
            xcpt_invalid = 0xFFFE,           ///< invalid call to _currentexception_
            xcpt_all     = 0xFFFF

@@ -21,6 +21,8 @@ PD4M_MASK       equ     003FFFFFh
 
 PD2M_ADDRSHL    equ     21
 PD2M_MASK       equ     001FFFFFh
+PD1G_ADDRSHL    equ     30
+PD1G_MASK       equ     3FFFFFFFh
 
 PDPAE_XDSHL     equ     63          ; execute-disable bit shift
 
@@ -34,11 +36,15 @@ PT_PWT          equ     00000008h
 PT_CDIS         equ     00000010h
 PT_ACCESSED     equ     00000020h
 PT_DIRTY        equ     00000040h
-PT_PAT          equ     00000080h
+PT_PAT4K        equ     00000080h
+PT_BIGPAGE      equ     PT_PAT4K
 PT_GLOBAL       equ     00000100h
+PT_PATBIG       equ     00001000h
 
 PT_ADDRMASK     equ    0FFFFF000h
 PT_ADDRSHL      equ     12
 PT_ADDRINCR     equ     (1 shl PT_ADDRSHL)
+
+PT64_MAXADDR    equ     52          ; x64 address limit bit
 
 ;cc #endif // QS_BASE_PAGEDESC

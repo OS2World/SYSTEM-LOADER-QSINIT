@@ -66,12 +66,19 @@ str_list* _std str_keylist(const char *IniName, const char *Section, str_list**v
 /// return list of sections in IniName
 str_list* _std str_seclist(const char *IniName);
 
+/// @name str_getsec flags
+//@{
+#define GETSEC_NOEMPTY        1  ///< do not return empty and commented lines (";" at 1st pos)
+#define GETSEC_NOEKEY         2  ///< do not return lines with empty key
+#define GETSEC_NOEVALUE       4  ///< do not return lines with empty value
+//@}
+
 /** return entire Section of IniName.
     @param IniName  name of ini file
     @param Section  name of section
-    @param noempty  flag, do not return empty and commented lines (with ";" at 1st pos)
+    @param flags    options to ignore empty values (GETSEC_*)
     @return string list */
-str_list* _std str_getsec(const char *IniName,const char *Section, int noempty);
+str_list* _std str_getsec(const char *IniName, const char *Section, u32t flags);
 
 /// split string by command line parsing rules (with "" support)
 str_list* _std str_splitargs(const char *str);
@@ -221,6 +228,11 @@ int       _std cmd_shellhelp(const char *topic, u8t color);
     @param topic    message name
     @return message (need to be free() -ed) or 0 */
 char*     _std cmd_shellgetmsg(const char *topic);
+
+/** set/replace message in msg.ini.
+    @param topic    message name
+    @param topic    mesage text */
+void      _std cmd_shellsetmsg(const char *topic, const char *text);
 
 /** get list of topics in msg.ini.
     @param [out] values   list of text messages for returning topics (can be 0)
@@ -376,6 +388,18 @@ u32t      _std shl_pushd  (const char *cmd, str_list *args);
 
 /// POPD command.
 u32t      _std shl_popd   (const char *cmd, str_list *args);
+
+/// ANSI command.
+u32t      _std shl_ansi   (const char *cmd, str_list *args);
+
+/// MOVE command.
+u32t      _std shl_move   (const char *cmd, str_list *args);
+
+/// REBOOT command.
+u32t      _std shl_reboot (const char *cmd, str_list *args);
+
+/// CHCP command.
+u32t      _std shl_chcp   (const char *cmd, str_list *args);
 
 #ifdef __cplusplus
 }

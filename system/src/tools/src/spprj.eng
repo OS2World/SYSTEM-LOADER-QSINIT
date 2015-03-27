@@ -1,0 +1,176 @@
+; initially, this project compiler was written as "2-hours quick tool", so
+; it a) crazy b) strange c) bad designed :)
+
+; - comments (";") - at the start of line only!
+; here in doc file it used everywhere and this is wrong :)
+
+[project]
+name=Test project         ; project name
+version=0x0090            ; version, used as string without hex->dec conversion
+build=1                   ; build, converted to decimal value on use
+                          ; changed automatically on every build (if present :)
+                          ; (with -b - only on success build)
+
+[config]
+0=Static (single thread)  ; configurations
+1=Static (multi thread)
+2=DLL (multi thread)
+3=Static (runtime)
+
+;predefined variables:
+;$(name)     - project name
+;$(verstr)   - version string with build number (0.90.0001)
+;$(vershort) - short version string (0.90)
+;$(verint)   - version int (0x00900001) (hex version, decimal build!)
+;$(verishort)- short version int (0x0090)
+;$(config)   - config name
+;$(timestr)  - build time
+;$(buildnum) - build number
+;$(build_os) - Win32, OS/2, Linux, DOS (DOS - only with -od key, no native DOS app).
+;$(build_osc)- one char OS: w, o, l, d
+;$(svnrev)   - svn rev, readed from 4th line of .svn\entries in bld. dir
+;
+;file variables:
+;in all [vars] sections:
+;*cpp        - default processing for all files with "cpp" extension
+;*cur_name   - current name
+;*cur_pref   - current name without ext
+;*cur_file   - current name without path
+;*cur_fp     - current name without path & ext
+;in [config] sections:
+;*all        - all of output files until current
+;*0, *1,...  - every one of it
+;**cpp       - list of .obj-s for this extension (separated with space)
+
+[vars]                    ; global vars for all configurations
+link=ilink
+
+[vars.os/2]               ; vars only for selected OS (win32, OS/2, linux)
+*asm=$(out)$(*cur_pref).obj|$(i)$(*cur_name)| $(aa) $(aflags) $(i)$(*cur_name), $*
+*c=$(out)$(*cur_pref).obj|$(i)$(*cur_name)| $(cc) $(cflags) /Fo$* $(i)$(*cur_name)
+*cpp=$(out)$(*cur_pref).obj|$(i)$(*cur_name)| $(cc) $(cflags) /Fo$* $(i)$(*cur_name)
+cc=icc
+cpp=icc
+lib=ilib
+aa=tasm32
+aflags=/oi /mx
+cflags=-Q+ -Ti- -Gl+ -qtune=pentium2 -qarch=486 -O+ -c -DSP_OS2 -Ih
+[vars.win32]
+[vars.linux]
+[vars.*.3]                ; vars for all OSes - configuration #3
+[vars.os/2.2]             ; vars for selected OS/configuration
+    ; substition made in following order:
+    ; vars -> vars.os -> vars.*.cfg -> vars.os.cfg
+[vars.os/2.3]
+cflags=$(cflags) -Rn -D__IBMCPP_RN_ON__ -DNO_SP_ACCERTS
+out=lib\os2\
+i=base\
+; creation of custom text files:
+; prefix & before variable name, section with such name must exist in file
+&rsp1=tool\splib.rsp
+; reading of environment variable
+objdir=%(SPOBJDRIVE)
+; conditional: ?[[ str1 ! str2 ! str3 ]]. 
+; If str is not empty, then str2 used, else str3
+objdir=?[[%(SPOBJDRIVE)!%(SPOBJDRIVE)!m:]]
+
+[make_header]
+# section inserts to the start of makefile
+[make_footer]
+# section appends to the end of makefile
+
+[&rsp1]
+##file    ; just import of "file". Only inside of "custom file" section
+#@section ; import of other section of this file (.prj)
+
+; split string to lines (in "custom file" section, at the end of line):
+; [[max.length|word delim|text to insert to the end of splitted lines]]
+split very long line for link.exe to 128 chars with + at the end [[128| |+]]
+$(*all)
+
+; substr replacement /[[str!str1!str2]]. All str1 will be replaced to str2
+file /[[$(**c)! !,]]
+
+; files for all configurations - like vars, but:
+; - only file names allowed inside sections...
+; - file adding order is:
+;    files, then files.os, files.*.cfg and files.os.cfg
+;   in every next section in this order file can be removed by using -- prefix,
+;   entire list can be cleared by ---
+[files]
+ctlfile.cpp flib.cpp     sp_cmdline.c sp_defs.cpp  
+sp_fileio.c sp_filemap.c sp_image.cpp sp_ini.cpp   sp_log.c 
+sp_misc.c   sp_msg.cpp   sp_reg.cpp   sp_scf.cpp   sp_scs.cpp
+sp_str.cpp  sp_system.c  thrdwork.cpp bmpbl386.asm 
+bmpblock.c  bmpwork.c    gifwork.c    grfwork.cpp  grhwork.c
+grlwork.c   hrcpack.cpp  iffres.c     ifftwork.cpp imgread.c
+imgwork.c   internal.c   lzw14.c      pcxwork.c
+quantize.c  rlepack.c    
+sp_execcon.c  sp_sound.c pngwork.c jpgwork.c 
+
+[files.os/2.0]
+defs.h defs.cpp
+--ddd.cpp          ; << remove it
+
+; text file/section import is working here too
+##tool\sprtlsm.lst 
+#@section
+
+[config.0] ; compilation parameters for every file in form:
+           ; out file | dependencies | command1 [| command2 ...
+           ; *out - single "main" file, last in order
+defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
+
+[config.1]
+[config.2]
+[config.3]
+*out=lib\os2\sp_libr.lib | $(*all) | $(lib) /Out:$* $**
+
+; string @@wait can be used in the list of dependencies.
+; with -b key (self-made build) it acts like "barrier" (waiting for all
+; compilation threads until continue).
+
+; everywhere (or nearly) \ at the end of line means concatenation with next
+; line (as in makefiles)
+
+;Usage : spprj <prj> <config> <output makefile> [<var=value>...]
+;           produce single makefile for the current platform    
+;   - conversion of .prj to simplest makefile. For this task it was
+;     written initially
+;
+;        spprj -l <prj>
+;           list avalable targets in project file
+;   - decorative
+;
+;        spprj -b <prj> <config> make_target [<var=value>...]
+;           execute complete build
+;   - the same as conversion above, but target makefile processed by
+;     internal primitive parser (it allows only $* $@ $< macroses, but
+;     launch build in parallel - to the number of CPUs in system)
+;
+; Q: what the ... is it? :)
+; It was made for own big project, which used IBM VAC for OS/2 & Windows.
+; 8 build configurations for 2 platforms finally made me ill and this primitive
+; converter was written. From simple .prj file to different makefiles for
+; every configuration.
+;
+; Since ages, make files processing became internal, with SMP support.
+; The same thing can be done by GNU "make -j", but makefiles for 8 build
+; configurations still makes me ill :)
+;
+; Env. var SPPRJ_CPUS can limit number of build threads on SMP
+; (by default it equal to # of CPUs in system, actualy even Hyper Threading
+;  speed up build in comparition with single CPU).
+;
+; Options:
+;  -w  - b/w output ;) (in colored output every thread use own color)
+;  -bt - print total build time at the end
+;  -nb - do not touch "build" field in .prj
+;  -es - warn about errors in ( [&file] ) writings
+;  -bc - send commands to cmd.exe not via &, but via separate .CMD file in
+;        temp dir
+;  -bl - the same, but only if command line length > 120 char.
+;  -nq - do NOT be quiet (print build commans)
+;  -ns - non-SMP build
+;  -o? - build for other OS, where ? - w,l,o,d (win/lin/os2/dos).
+;

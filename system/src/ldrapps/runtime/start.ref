@@ -6,10 +6,10 @@
 # the special "start" module feature is importing of some functions from self,
 # it used to catch internal calls by trace code.
 # (all functions with expname parameter are exported by this name and
-# imported by name without _ ).
+# imported by default name).
 #
 
-type = exe
+type = dll
 name = "START"
 
 exports = {
@@ -151,11 +151,11 @@ exports = {
    _bsr64            = { index = 70  group = "clib"    format = "iq"    }
    _hlp_copytoflat   = { index = 71  group = "clib"    format = "up@u@hu" }
    __dos_setfiletime = {
-                         index = 72  group = "clib"    format = "hs@u"
+                         index = 72  group = "clib"    format = "hs@uu"
                          expname = "___dos_setfiletime"
                        }
    __dos_getfiletime = {
-                         index = 73  group = "clib"    format = "hs&*@u"
+                         index = 73  group = "clib"    format = "hs&*@uu"
                          expname = "___dos_getfiletime"
                        }
 
@@ -230,6 +230,18 @@ exports = {
    _wcsncpy          = { index =422  group = "clib"    format = "p&SSu" }
    _getchar          = { index =423  group = "clib"    format = "@iv"   }
    _getc             = { index =424  group = "clib"    format = "@ip"   }
+   _memrchrq         = { index =425  group = "clib"    format = "pp@qu" }
+   _memrchrnq        = { index =426  group = "clib"    format = "pp@qu" }
+
+   _vfprintf         = { 
+                         index =427  group = "clib"    format = "ipsp"
+                         expname = "__vfprintf"
+                       }
+   _log_ftdump       = { index =428 }
+   _fputs            = { index =429  group = "clib"    format = "isp"   }
+   _fputc            = { index =430  group = "clib"    format = "iip"   }
+   _isatty           = { index =431  group = "clib"    format = "ip"    }
+   _hlp_isdir        = { index =432  group = "clib"    format = "us"    }
 
    # memory manager
 
@@ -268,7 +280,7 @@ exports = {
    _str_splitargs    = { index =142  group = "strlist" format = "ps"    }
    _str_getenv       = { index =143  group = "strlist" format = "pv"    }
    _str_seclist      = { index =144  group = "strlist" format = "ps"    }
-   _str_getsec       = { index =145  group = "strlist" format = "pssi"  }
+   _str_getsec       = { index =145  group = "strlist" format = "pss@u" }
    _log_printlist    = { index =146  group = "strlist" format = "vsp"   }
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
@@ -307,8 +319,11 @@ exports = {
    _mod_appname      = { index =175  group = "module"  format = "u&si"  }
    _mod_getname      = { index =176  group = "module"  format = "s@up"  }
    _mod_searchload   = { index =177  group = "module"  format = "us&*u" }
+   _mod_dumptree     = { index =179  }
 
    _env_istrue       = { index =180  group = "shell"   format = "is"    }
+
+   _mod_main         = { index =189 }  # do not call THIS! :)
 
    # exception handling
 
@@ -359,6 +374,9 @@ exports = {
    _shl_attrib       = { index =344  group = "shell"   format = "usp"   }
    _shl_pushd        = { index =345  group = "shell"   format = "usp"   }
    _shl_popd         = { index =346  group = "shell"   format = "usp"   }
+   _shl_ansi         = { index =347  group = "shell"   format = "usp"   }
+   _shl_move         = { index =348  group = "shell"   format = "usp"   }
+   _shl_reboot       = { index =349  group = "shell"   format = "usp"   }
 
    # log support
 
@@ -372,17 +390,10 @@ exports = {
    # additional vio funcs
 
    _key_getstr       = { index =250  group = "vio"     format = "sp"    }
-   _vio_writebuf     = { # exported for replacement by graphic console
-                         index =251  group = "vio"     format = "vuuuupu" 
-                         expname = "__vio_writebuf"
-                       }
-   _vio_readbuf      = { 
-                         index =252  group = "vio"     format = "vuuuupu" 
-                         expname = "__vio_readbuf"
-                       }
+   # ordinals 251-252 reserved (moved to QSINIT)
    _vio_msgbox       = { index =253  group = "vio"     format = "uss@u" }
    _key_getstrex     = { index =254  group = "vio"     format = "spiiis" }
-   _vio_setmodeex    = { index =255  group = "vio"     format = "iuu"   }
+   _vio_setansi      = { index =255  group = "vio"     format = "ui"    }
 
    # storage
 
@@ -430,7 +441,7 @@ exports = {
                          expname = "__hlp_pcigetnext"
                        }
    _hlp_pciexist     = { index =370  group = "system"  format = "i*@u"  }
-   _hlp_memcpy       = { index =371  group = "system"  format = "pppui" }
+   _hlp_memcpy       = { index =371  group = "system"  format = "uppui" }
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
    _hlp_setupmem     = { index =373  group = "system"  format = "@uu*up@u" }
    _hlp_memcprint    = { index =374  group = "system"  format = "vv"    }
@@ -440,6 +451,7 @@ exports = {
    _cmd_printseq     = { index =290  group = "shell"   format = "usib." }
    _cmd_printtext    = { index =291  group = "shell"   format = "usiib" }
    _cmd_mergeopts    = { index =292  group = "shell"   format = "isss"  }
+   _cmd_shellsetmsg  = { index =293  group = "shell"   format = "ss"    }
 
    # paging mode support
 
@@ -448,32 +460,32 @@ exports = {
    _pag_enable       = { index =302  group = "system"  format = "iv"    }
    _pag_printall     = { index =303  group = "system"  format = "vv"    }
 
-   # volume functions
+   # disk/volume functions
 
-   _hlp_mountvol     = { index =330  group = "disk"    format="u@c@u@qq" } # mount/unmount FAT/FAT32
-   _hlp_unmountvol   = { index =331  group = "disk"    format="u@c"     }
-   _hlp_volinfo      = { index =332  group = "disk"    format="u@cp"    } # mounted volume info
+   # ordinals 330-332 reserved (moved back to QSINIT)
    _hlp_vollabel     = { index =333  group = "disk"    format="u@cs"    }
    _dsk_strtodisk    = { index =334  group = "disk"    format="@us"     }
-   _hlp_disksize64   = { index =335  group = "disk"    format="q@u&*u"  }
+   # ordinal 335 reserved (moved to QSINIT)
+   _dsk_disktostr    = { index =336  group = "disk"    format="s@up"    }
+   _dsk_formatsize   = { index =337  group = "disk"    format="su@qip"  }
+   _hlp_unmountall   = { index =338  group = "disk"    format = "u@u"   }
 
    # system functions
-
-   _sys_getint       = { index =360  group = "system"  format = "vb&@*q" }
-   _sys_setint       = { index =361  group = "system"  format = "ib@*q" }
-   _sys_intstate     = { index =362  group = "system"  format = "ii"    }
+   # ordinals 360-362 reserved (moved to QSINIT)
    _sys_pagemode     = { index =363  group = "system"  format = "iv"    }
    _sys_getpcmem     = { index =364  group = "system"  format = "pi"    }
    _sys_endofram     = { index =365  group = "system"  format = "uv"    }
    _sys_markmem      = { index =366  group = "system"  format = "u@qu@u" }
    _sys_unmarkmem    = { index =367  group = "system"  format = "u@qu"  }
+   _sys_memhicopy    = { index =368  group = "system"  format = "u@q@qq" }
 
    _sys_tssalloc     = { index =380  group = "system"  format = "@hph"  }
    _sys_tssfree      = { index =381  group = "system"  format = "i@h"   }
-   _sys_intgate      = { index =382  group = "system"  format = "ib@h"  }
-   _sys_seldesc      = { index =383  group = "system"  format = "i@h@*q" }
+   # ordinals 382-383 reserved (moved to QSINIT)
    _sys_gdtdump      = { index =384  group = "system"  format = "vv"    }
    _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
+   _sys_is64mode     = { index =386  group = "system"  format = "iv"    }
+   _sys_isavail      = { index =387  group = "system"  format = "@u@u"  }
 
    # time functions (390..393 was moved back to QSINIT)
    _clock            = { index =394  group = "time"    format = "qv"    }

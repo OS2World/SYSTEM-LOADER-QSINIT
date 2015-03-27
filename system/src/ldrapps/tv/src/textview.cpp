@@ -60,9 +60,11 @@ TTerminal::TTerminal(const TRect &bounds,
    showCursor();
 }
 
-
-TTerminal::~TTerminal() {
+void TTerminal::shutDown() {
    delete buffer;
+   bufSize = 0;
+   buffer  = 0;
+   TTextDevice::shutDown();
 }
 
 void TTerminal::bufDec(size_t &val) {

@@ -7,20 +7,17 @@
                 include inc/qstypes.inc
                 include inc/basemac.inc
                 include inc/serial.inc
-                include inc/debug.inc
                 include inc/qsinit.inc
 
                 .486
 
-;DATA16          segment                                         ;
                 extrn   _ComPortAddr:word                       ;
                 extrn   _BaudRate:dword                         ;
                 extrn   _logrmbuf:dword                         ;
                 extrn   _logrmpos:word                          ;
-;DATA16          ends                                            ;
 
                 extrn   _strlen:near                            ;
-                extrn   vio_charout:near                        ;
+                extrn   _vio_charout:near                       ;
 
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
@@ -42,10 +39,7 @@ _hlp_seroutchar proc    near                                    ;
 ifdef INITDEBUG
                 ret     4                                       ;
 @@outch_exit:                                                   ;
-                pop     edx                                     ;
-                pop     eax                                     ;
-                push    edx                                     ;
-                jmp     vio_charout                             ;
+                jmp     _vio_charout                            ;
 else
 @@outch_exit:
                 ret     4                                       ;
@@ -85,16 +79,70 @@ _hlp_seroutstr  endp                                            ;
                 public  _hlp_seroutinfo                         ;
 _hlp_seroutinfo proc    near                                    ;
 @@baudrate      =  4                                            ;
-                movzx   eax,_ComPortAddr                        ;
-                or      eax,eax                                 ;
-                jz      @@serinfo_nobaud                        ;
-                mov     ecx,[esp+@@baudrate]                    ;
-                jecxz   @@serinfo_nobaud                        ;
-                mov     edx,_BaudRate                           ;
+                movzx   eax,_ComPortAddr                        ; return current baud
+                mov     ecx,[esp+@@baudrate]                    ; rate in any case
+                jecxz   @@serinfo_nobaud                        ; (required for
+                mov     edx,_BaudRate                           ;  DBCARD command)
                 mov     [ecx],edx                               ;
 @@serinfo_nobaud:
                 ret     4                                       ;
 _hlp_seroutinfo endp                                            ;
+
+; set debug port baud rate (from BaudRate variable)
+;----------------------------------------------------------------
+; void setbaudrate(void);
+                public  _setbaudrate
+_setbaudrate    proc    near                                    ;
+                push    ebx                                     ;
+                mov     ecx,_BaudRate                           ; ECX = new baud rate
+                mov     ax,CLOCK_RATEL                          ;
+                shl     eax,16                                  ;
+                mov     ax,CLOCK_RATEH                          ;
+                xor     edx,edx                                 ; EDX:EAX = clock rate
+                div     ecx                                     ;
+                mov     bx,ax                                   ; BX = clock rate / baud rate
+
+                mov     dx,_ComPortAddr                         ;
+                or      dx,dx                                   ; IF port not found
+                jz      @@setbr_exit                            ; THEN exit
+                add     dx,COM_LCR                              ; DX -> LCR
+                in      al,dx                                   ; AL = current value of LCR
+                or      al,LC_DLAB                              ; Turn on DLAB
+                out     dx,al                                   ;
+
+                add     dx,COM_DLM-COM_LCR                      ; DX -> MSB of baud latch
+                mov     al,bh                                   ; AL = divisor latch MSB
+                out     dx,al                                   ;
+                dec     dx                                      ; DX -> LSB of baud latch
+                mov     al,bl                                   ; AL = divisor latch LSB
+                out     dx,al                                   ; Set LSB of baud latch
+
+                add     dx,COM_LCR-COM_DLL                      ; DX -> LCR
+                mov     al,3                                    ; AL = same mode as in main
+                out     dx,al                                   ;
+@@setbr_exit:
+                pop     ebx                                     ;
+                ret                                             ;
+_setbaudrate    endp                                            ;
+
+; init debug com port
+;----------------------------------------------------------------
+; void earlyserinit(void);
+                public  _earlyserinit                           ;
+_earlyserinit   proc    near                                    ;
+                mov     dx,_ComPortAddr                         ;
+                or      dx,dx                                   ;
+                jz      @@esi_exit                              ;
+                push    edx                                     ;
+                call    _setbaudrate                            ;
+                pop     edx                                     ;
+                add     dx,COM_MCR                              ;
+                in      al,dx                                   ;
+                or      al,3                                    ; RTS/DSR set
+                out     dx,al                                   ;
+@@esi_exit:
+                ret                                             ;
+_earlyserinit   endp                                            ;
 
 ;----------------------------------------------------------------
 ; void log_buffer(int level, const char* msg);

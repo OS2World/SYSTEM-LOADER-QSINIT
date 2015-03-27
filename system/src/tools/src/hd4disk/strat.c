@@ -204,11 +204,11 @@ void init(InitPacket far *pkt) {
    if (*os4ldr==OS4MAGIC) {
       ldri = (struct LoaderInfoData far *)++os4ldr;
       // check OS/4 loader info struct size
-      if (ldri->StructSize>=sizeof(struct LoaderInfoData)) {
+      if (ldri->StructSize>=FIELDOFFSET(struct LoaderInfoData,ConfigExt)) {
          SELECTOROF(PrintLog) = DOSHLP_CODESEL;
          OFFSETOF  (PrintLog) = ldri->PrintFOffset;
          // is this QSINIT?
-         expd = (struct ExportFixupData far *)(ldri + 1);
+         expd = (struct ExportFixupData far*)((u8t far*)ldri + ldri->StructSize);
          /* there is no signature in QS prior to hd4disk, but we use it only
             for query our`s ram info, so no difference */
          if (expd->InfoSign==EXPDATA_SIGN) {

@@ -70,7 +70,40 @@ int _std lvm_partinfo(u32t disk, u32t index, lvm_partition_data *info) {
    return 1;
 }
 
-int lvm_dlatpos(u32t disk, u32t index, u32t *recidx, u32t *dlatidx) {
+u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count) {
+   hdd_info  *hi = get_by_disk(disk);
+   u32t  disklen, sectsz, sper32k, bufsize, rc;
+   u8t     *zbuf = 0;
+   if (!hi || !count || !sector) return 0;
+
+   disklen = hi->info.TotalSectors;
+   sectsz  = hi->info.SectorSize;
+   sper32k = _32KB/sectsz;
+
+   if (sector>=disklen) return 0;
+   if (sector+count>disklen) count = disklen - sector;
+   bufsize = count<sper32k ? count : sper32k;
+   // allocate buffer
+   zbuf = (u8t*)malloc(bufsize * sectsz);
+   rc   = 0;
+   // read by 32k
+   while (count) {
+      u32t toread = count<sper32k ? count : sper32k, ii;
+      if (hlp_diskread(disk,sector,toread,zbuf) != toread) break;
+      // scan sectors
+      for (ii=0; ii<toread; ii++) {
+         DLA_Table_Sector *dla = (DLA_Table_Sector*)(zbuf+ii*sectsz);
+         if (dla->DLA_Signature1==DLA_TABLE_SIGNATURE1 &&
+             dla->DLA_Signature2==DLA_TABLE_SIGNATURE2) { rc = sector+ii; break; }
+      }
+      count -= toread;
+      sector+= toread;
+   }
+   free(zbuf);
+   return rc;
+}
+
+int  _std lvm_dlatpos(u32t disk, u32t index, u32t *recidx, u32t *dlatidx) {
    hdd_info *hi = get_by_disk(disk);
    u32t   start, size, ii, *pidx, ridx, didx = FFFF;
    if (recidx)  *recidx  = 0;
@@ -500,6 +533,15 @@ int _std lvm_wipeall(u32t disk) {
       rc = lvm_flushdlat(disk,ii>>2);
       if (rc) return rc;
    }
+   // wipe ALL missing DLATs in first 255 sectors
+   ii = 0;
+   do {
+      ii = lvm_finddlat(disk, ii+1, 256-ii);
+      if (ii) dsk_emptysector(disk, ii, 1);
+   } while (ii && ii<256);
+   /* force scan on next use (we can`t call it here because this is
+      low level function */
+   hi->inited = 0;
    return 0;
 }
 
@@ -565,4 +607,22 @@ u32t _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index)
          }
       return LVME_PTNAME;
    }
+}
+
+u32t _std lvm_present(int physonly) {
+   u32t dsk=FFFF, rc=0;
+
+   while (true) {
+      hdd_info *hi = get_by_disk(++dsk);
+      if (!hi) break;
+
+      if (physonly && (hlp_diskmode(dsk,HDM_QUERY)&HDM_EMULATED)!=0) continue;
+
+      dsk_ptrescan(dsk,0);
+      if (hi->scan_rc==DPTE_FLOPPY || hi->scan_rc==DPTE_EMPTY) continue;
+      if (hi->gpt_present || hi->non_lvm || !hi->lvm_snum) continue;
+      // accept any major LVM error if we have serial number after scan code
+      if (dsk>=31) { rc|=0x80000000; break; } else rc|=1<<dsk;
+   }
+   return rc;
 }

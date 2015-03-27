@@ -47,6 +47,9 @@ int   _std  log_push(int level, const char *str);
 /// dump MDT table
 void  _std  log_mdtdump(void);
 
+/// dump opened files
+void  _std  log_ftdump(void);
+
 /// @name flags for log_gettext
 //@{
 #define LOGTF_LEVELMASK 0x0003 ///< mask for max level value

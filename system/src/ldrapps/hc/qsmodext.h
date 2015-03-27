@@ -137,6 +137,9 @@ u32t  _std mod_appname(char *name, u32t parent);
             string!) */
 char *_std mod_getname(u32t module, char *buffer);
 
+/// dump process tree to log
+void  _std mod_dumptree(void);
+
 #ifdef __cplusplus
 }
 #endif

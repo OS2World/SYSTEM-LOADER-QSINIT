@@ -205,7 +205,7 @@ static int NoMenuWait(char *rcline) {
 }
 
 int MenuKernel(char *rcline, int errors) {
-   str_list* kl = str_getsec(ininame,"kernel",1);
+   str_list* kl = str_getsec(ininame,"kernel",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
    int   defcfg = ini_getint("config", "DEFAULT", 1, ininame),
         timeout = ini_getint("config", "TIMEOUT",-1, ininame),
         usebeep = ini_getint("config", "USEBEEP", 0, ininame),
@@ -213,7 +213,8 @@ int MenuKernel(char *rcline, int errors) {
          goedit = 0,
          tmwmax = timeout;
    u32t   lines = 25;
-   char *initln = rcline;
+   char *initln = rcline,
+      *cmdstart = 0;
    MenuPalette.pl = ini_getint("config", palette_key, 0x0F070F01, ininame);
    // fix wrong number
    if (defcfg<=0 || defcfg>kl->count) defcfg=1;
@@ -355,7 +356,8 @@ int MenuKernel(char *rcline, int errors) {
    }
 
    if (goedit) strcpy(rcline,"cmd /e "); else rcline[0] = 0;
-   strcat(rcline,optmenu?"sysview.exe /boot ":"bootos2.exe ");
+   cmdstart = rcline+strlen(rcline);
+   strcpy(cmdstart, optmenu?"sysview.exe /boot ":"bootos2.exe ");
    rcline+=strlen(rcline);
 
    if (defcfg<=0) strcpy(rcline,"OS2KRNL "); else
@@ -388,6 +390,11 @@ int MenuKernel(char *rcline, int errors) {
          if (optmenu) {
             // change to "sysview.exe /rest "
             memcpy(modname-5,"rest",4);
+         } else 
+         if (goedit) {
+            strcpy(cmdstart, "restart \"");
+            strcat(cmdstart, modname);
+            strcat(cmdstart, "\"");
          } else {
             char buf[256];
             log_printf("[%s]\n",modname);
@@ -487,7 +494,7 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
 }
 
 int MenuPtBoot(char *rcline) {
-   str_list* kl = str_getsec(ininame,"partition",1);
+   str_list* kl = str_getsec(ininame,"partition",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
    int   defcfg = ini_getint("config", "default_partition", 1, ininame),
         timeout = ini_getint("config", "TIMEOUT",-1, ininame),
         usebeep = ini_getint("config", "USEBEEP", 0, ininame),
@@ -641,7 +648,7 @@ int MenuPtBoot(char *rcline) {
          if (disk==FFFF) {
             snprintf(errtext, 256, "Invalid disk name: \"%s\"!",dskt);
          } else 
-         if (disk&QDSK_VIRTUAL) {
+         if (disk&QDSK_VOLUME) {
             snprintf(errtext, 256, "Invalid disk type: \"%s\"!",dskt);
          }
    

@@ -108,7 +108,7 @@ u32t _std hlp_mtrrvset(u32t reg, u64t start, u64t length, u32t state);
 /** read fixed range mtrr register.
     Function merge neighboring fixed blocks with the same cache types
     and return list in readable format.
-    All of array addresses are required by call, else 0 will return.
+    All of array addresses are required by call, else function will fail.
     @param [out] start     array of [MTRR_FIXEDMAX] start adresses
     @param [out] length    array of [MTRR_FIXEDMAX] block lengths
     @param [out] state     array of [MTRR_FIXEDMAX] cache types
@@ -116,9 +116,9 @@ u32t _std hlp_mtrrvset(u32t reg, u64t start, u64t length, u32t state);
 u32t _std hlp_mtrrfread(u32t *start, u32t *length, u32t *state);
 
 /** setup fixed range mtrr registers.
-    Function split addr and length to miltiple fixed length registers.
-    If addr/addr+length does not aligned to fixed MTRR boundaries - function
-    will fail and return 0.
+    Function split addr and length to multiple fixed length registers.
+    If addr/addr+length not aligned to fixed MTRR boundaries - function
+    will fail.
     @param start      start adresses
     @param length     block length
     @param state      cache type

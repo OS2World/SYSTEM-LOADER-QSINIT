@@ -6,7 +6,11 @@
 ;cc #ifndef QSINIT_DISKINFO
 ;cc #define QSINIT_DISKINFO
 
-;cc typedef u32t (_std *diskio_func)(u32t disk, u32t sector, u32t count, void *data);
+;cc #ifdef EFIX64
+;cc typedef u32t diskio_func;
+;cc #else
+;cc typedef u32t (_std *diskio_func)(u32t disk, u64t sector, u32t count, void *data);
+;cc #endif
 
 qs_diskinfo     struc
 qd_sectors      dq      ?

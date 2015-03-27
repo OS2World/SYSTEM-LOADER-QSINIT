@@ -215,7 +215,7 @@ public:
   /// special CSV multiline support. \r act as soft-CR and ignored, \n\r only used as CR.
   void SetCSVText(const char*,l len=0);
 
-  spstr MergeBackSlash(l FromPos=0,l *LastPos=0,char *separator=0) const;
+  spstr MergeBackSlash(l FromPos=0,l *LastPos=0,const char *separator=0) const;
   l Compact(const char *FirstChar=";",Bool Empty=true);
 
   friend Strings<L>& operator<< (Strings<L>&LL,const spstr Value) {
@@ -931,7 +931,7 @@ spstr Strings<L>::Value(l idx) {
 }
 
 template <class L>
-spstr Strings<L>::MergeBackSlash(l FromPos,l *LastPos,char *separator) const {
+spstr Strings<L>::MergeBackSlash(l FromPos,l *LastPos,const char *separator) const {
   if (FromPos>Str.Max()) return spstr();
   l len=0,ii=FromPos,ok=0,
     seplen=separator?strlen(separator):0;

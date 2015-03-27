@@ -59,7 +59,7 @@ Bool ParseVar(pchar&pos,spstr&var,spstr&value,PTreeList&lst) {
       if (*pos=='}') return true;
    } else
    if (*pos!='{') {
-      ErrorExit(spstr().sprintf("Uncknown character: %#x in string: %s",*pos,spstr(pos-10,20)()));
+      ErrorExit(spstr().sprintf("Unknown character: %#x in string: %s",*pos,spstr(pos-10,20)()));
       return false;
    }
    if (*pos=='{') {
@@ -389,10 +389,11 @@ int main(int argc, char *argv[]) {
                TTreeList *edat = (TTreeList*)exl->Objects(ii);
                Bool  is_offset = IsValueOn(*edat, "offset");
                int       index = edat->IntValue("index");
-               spstr     group = edat->Value("group").trim().unquote();
+               spstr     group = edat->Value("group").trim().unquote(),
+                        format = edat->Value("format").trim().unquote();
                int         idx = groups.IndexOfName(group);
 
-               if (index<=0 || is_offset || !group) continue;
+               if (index<=0 || is_offset || !group || !format) continue;
                if (idx<0) {
                   TList *memb = new TList;
                   idx = groups.AddObject(group,memb);

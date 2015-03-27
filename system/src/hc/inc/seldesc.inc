@@ -113,12 +113,27 @@ gate_s          ends
 
 g_lowoffset     equ     word ptr g_handler
 g_sel           equ     word ptr g_handler + 2
+
+gate64_s        struc
+g64_ofs0        dw      ?
+g64_sel         dw      ?
+g64_parms       db      ?
+g64_access      db      ?
+g64_ofs16       dw      ?
+g64_ofs32       dd      ?
+g64_reserved    dd      ?
+gate64_s        ends
 ; --------------------------------------------------------------
 
 lidt_s          struc
 lidt_limit      dw      ?
 lidt_base       dd      ?
 lidt_s          ends
+
+lidt64_s        struc
+lidt64_limit    dw      ?
+lidt64_base     dq      ?
+lidt64_s        ends
 ; --------------------------------------------------------------
 tss_s           struc
 tss_backlink    dw      ?
@@ -160,6 +175,24 @@ tss_reservdldt  dw      ?
 tss_tflags      dw      ?
 tss_iomap       dw      ?
 tss_s           ends
+
+tss64_s         struc
+tss64_reservd1  dd      ?
+tss64_rsp0      dq      ?
+tss64_rsp1      dq      ?
+tss64_rsp2      dq      ?
+tss64_reservd2  dq      ?
+tss64_ist1      dq      ?
+tss64_ist2      dq      ?
+tss64_ist3      dq      ?
+tss64_ist4      dq      ?
+tss64_ist5      dq      ?
+tss64_ist6      dq      ?
+tss64_ist7      dq      ?
+tss64_reservd3  dq      ?
+tss64_reservd4  dw      ?
+tss64_iomap     dw      ?
+tss64_s         ends
 
 ; --------------------------------------------------------------
 CR0_PE          equ     00000001h

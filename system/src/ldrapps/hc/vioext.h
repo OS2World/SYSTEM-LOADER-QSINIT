@@ -62,6 +62,11 @@ typedef int _std (*vio_mboxcb)(u16t key);
 u32t  _std vio_msgbox(const char *header, const char *text, u32t flags,
                       vio_mboxcb *cbfunc);
 
+/** query/set ANSI state.
+    @param newstate   0/1 - set state, -1 - return current only
+    @return previous ANSI state */
+u32t  _std vio_setansi(int newstate);
+
 /// key_getstr() internal data for callback function
 typedef struct {
    u32t        line;     ///< screen line
@@ -72,7 +77,7 @@ typedef struct {
    long        clen;     ///< current string length
    long       bsize;     ///< string buffer length (malloc)
    char      *rcstr;     ///< current string
-   u16t    defshape;     ///< original curtor shape
+   u16t    defshape;     ///< original cursor shape
    u32t    userdata;     ///< userdata for callback, initialized with 0
 } key_strcbinfo;
 

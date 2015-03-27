@@ -12,10 +12,11 @@
 // known options
 static const char *keys[] = { "ALTE", "ALTF1", "ALTF2", "ALTF3", "ALTF4",
    "ALTF5", "CTRLC", "PRELOAD", "MEMLIMIT", "NODBCS", "LOGSIZE", "NOREV",
-   "NOLOGO", "CFGEXT", "SYM", "RESTART", "DBPORT" };
+   "NOLOGO", "CFGEXT", "SYM", "RESTART", "DBPORT", "CALL", "VALIMIT" };
 
 enum _keys { kAltE, kAltFX, kAltFXe=5, kCtrlC, kPreload, kLimit, kDbcs,
-   kLogSize, kNoRev, kNoLogo, kCfgExt, kSymName, kRestart, kDbPort, kEnd };
+   kLogSize, kNoRev, kNoLogo, kCfgExt, kSymName, kRestart, kDbPort, kCall,
+   kVAlimit, kEnd };
 
 // options to remove from result line
 static const char *emptylist[] = { "DEFAULT", "TIMEOUT", "DISKSIZE", "UNZALL",
@@ -34,7 +35,7 @@ int _stdcall cmd_mergeopts(char *line, char *args, char *ininame) {
    argsl.TrimAllLines();
 
    // query list keys in "config" section
-   str_list* sl=str_getsec(ininame,"config",1);
+   str_list* sl = str_getsec(ininame,"config",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
    if (sl) {
       //log_printlist("config entries", sl);
       str_getstrs(sl, comkeys);
@@ -66,7 +67,7 @@ int _stdcall cmd_mergeopts(char *line, char *args, char *ininame) {
             }
          }
       }
-      // merge all uncknown options to command line string
+      // merge all unknown options to command line string
       opts.AddStrings(opts.Count(),src);
    }
    // delete dbport key if negative value specified

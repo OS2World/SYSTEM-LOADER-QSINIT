@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0012
+version=0x0014
 
 [config]
 0=Common
@@ -35,7 +35,7 @@ aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init -fo=
 
 cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -DNO_ERRNO \
        -fi=%(appinit_lib)\initdef.h -i=$(outdir) -i=. -i=..\hc\rt \
-       -i=%(QS_BASE)\init -fo=
+       -i=%(QS_BASE)\init -i=%(QS_BASE)\ldrefi\hc -fo=
 
 ;-ecd 
 msgdir=MSG
@@ -56,7 +56,7 @@ $(bld_dir).dir $(outdir).dir clean.cln
 ..\..\hc\inc\seldesc.inc ..\..\hc\inc\qsconst.inc
 ..\..\hc\inc\cpudef.inc  ..\..\init\inc\qsinit.inc
 ..\..\hc\inc\pci.inc     ..\..\hc\inc\pagedesc.inc
-..\hc\inc\qschain.inc
+..\..\ldrefi\inc\efnlist.inc  ..\hc\inc\qschain.inc
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
 loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
 main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
@@ -65,6 +65,7 @@ cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
 misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
 main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp
+pm\ptdump.c misc\trapset.c misc\bitmap.c
 
 [make_footer]
 MAKEDIRS : $(bld_dir).dir $(outdir).dir
@@ -78,13 +79,13 @@ cmd\extcmd.cpp : cmd\zz.cpp cmd\mtrr.cpp cmd\shpci.cpp
 @#QS:$(vershort).$(svnrev)#@  QSinit loader
 
 [&lnk]
-sys os2v2
+sys os2v2_dll
 name $(outname)
 op redefsok
 file /[[$(**c)! !,]]
 file /[[$(**cpp)! !,]]
 file /[[$(**asm)! !,]]
-file %(appinit_lib)\bld\Common\init.obj
+file %(appinit_lib)\bld\Common\initdll.obj
 #lib %(appinit_lib)\runtime.lib
 lib %(appinit_lib)\imp_st.lib
 lib %(WATCOM)\lib386\plib3s.lib
@@ -93,7 +94,6 @@ sort global
 op quiet
 op el
 op vfr
-op internalrelocs
 op togglerelocs
 op nod
 op statics

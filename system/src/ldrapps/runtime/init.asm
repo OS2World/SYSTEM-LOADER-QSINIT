@@ -66,6 +66,11 @@ args_error:
                 push    -1                                      ; of linking START
                 call    __exit                                  ; module to all apps.
 ;----------------------------------------------------------------
+                public  _call64l
+                extrn   _call64:near
+_call64l:
+                jmp     _call64
+;----------------------------------------------------------------
 next_random:
                 mov     eax,8088405h
                 mul     __RandSeed
@@ -87,13 +92,12 @@ _DATA           segment dword public USE32 'DATA'
                 public  __Module
                 public  __CmdLine
                 public  __CmdArgs
-; this module* struct, referenced in qsmod.h. DO NOT modify contents, this is
-; a system data actually ;)
+; this is module* struct, referenced in qsmod.h. DO NOT modify contents, this
+; is a system data actually ;)
 __Module        dd      0
 ; Original envptr, we do not modify this value.
 ; Runtime environment & exec functions use and modify process_context->envptr
-; pointer instead of it and process must not alter GS register with it.
-; This value remain unchanged until process exit.
+; pointer instead of it. This value remain unchanged until process exit.
 __EnvPtr        dd      0
 ; command line and arguments, located in _EnvPtr memory block
 __CmdLine       dd      0

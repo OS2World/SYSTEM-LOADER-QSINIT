@@ -2,215 +2,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-/*
-   There is no reason to implement any i/o except QSINIT self.
+/* There is no reason to implement any i/o except QSINIT`s.
    Volume i/o for Windows & OS/2 implemented in src\tools\src\bootset\volio.c,
-   but not used here...
-*/
-
-// ************************************************************************
-// emulated i/o
-// ************************************************************************
-#ifdef EMU_IO
-#include <sp_defs.h>  // memchrn?, fsize
-#include <io.h>
-
-#define DISKETTE_SIZE   2880                 // floppy 1.44
-#define HDD_SIZE        (160*1000*1000*2)    // hdd    160Gb
-#define SLICE_SIZE      (1024*1024)          // must be < floppy
-#define SLICE_SECTORS   (1024*1024>>9)
-
-ul dsk_count(ul *floppies,ul *vdisks) {
-   if (vdisks) *vdisks = 0;
-   if (floppies) *floppies = 1;
-   return 1;
-}
-static FILE  *edsk = 0;
-static ul   *index = 0,
-            slices = 0;
-
-void ed_close(void) {
-   if (!edsk) return;
-   fclose(edsk);
-   edsk = 0;
-}
-
-void ed_open(void) {
-   if (edsk) return;
-   atexit(ed_close);
-   edsk=fopen("emudisk.bin","w+b");
-   if (edsk) {
-      ul    sz = fsize(edsk),
-        flsize = DISKETTE_SIZE*512;
-      // initialize disk data
-      if (sz<flsize) {
-         // writing empty floppy disk
-         void *floppy = malloc(flsize);
-         slices = 1;
-         index = (ul*)malloc(SLICE_SECTORS*4);
-         memset(index,0xFF,SLICE_SECTORS*4);
-         memset(floppy,0,flsize);
-         fwrite(floppy,1,flsize,edsk);
-         // empty 1st claster
-         fwrite(floppy,1,SLICE_SIZE,edsk);
-         fwrite(index,1,SLICE_SECTORS*4,edsk);
-         free(floppy);
-      } else {
-         ul ii, step = SLICE_SIZE+SLICE_SECTORS*4;
-         slices = (sz-flsize)/step;
-         index = (ul*)malloc(slices*SLICE_SECTORS*4);
-         for (ii=0;ii<slices;ii++) {
-            fseek(edsk,flsize+ii*step-SLICE_SECTORS*4,SEEK_SET);
-            fread(index+SLICE_SECTORS*ii,1,SLICE_SECTORS*4,edsk);
-         }
-      }
-   }
-}
-
-ul ed_sectofs(ul sector) {
-   if (!edsk||!index||!slices) return 0; else {
-      ul *ofs = memchrd(index,sector,slices*SLICE_SECTORS), pos;
-      if (!ofs) return 0;
-      pos = ofs-index;
-      return (SLICE_SECTORS + (SLICE_SECTORS*4>>9)) * (pos/SLICE_SECTORS) +
-             pos%SLICE_SECTORS + DISKETTE_SIZE;
-   }
-}
-
-static void flush_slices(void) {
-   u32 rsize, ii;
-   if (!edsk) return;
-   rsize = (DISKETTE_SIZE<<9) + (SLICE_SIZE+SLICE_SECTORS*4)*slices;
-   CHSIZE(_fileno(edsk),rsize);
-   rsize = SLICE_SIZE+SLICE_SECTORS*4;
-   for (ii=0;ii<slices;ii++) {
-      fseek(edsk,(DISKETTE_SIZE<<9)+ii*rsize-SLICE_SECTORS*4,SEEK_SET);
-      fwrite(index+SLICE_SECTORS*ii,1,SLICE_SECTORS*4,edsk);
-   }
-}
-
-// allocate space for new sectors
-int extend_disk(ul sector, ul count) {
-   if (!edsk||!index||!slices) return 0; else {
-      while (count--) {
-         if (!ed_sectofs(sector)) {
-            ul *fp = memchrd(index,FFFF,slices*SLICE_SECTORS);
-            if (!fp) { // alloc new slice
-               index = (ul*)realloc(index,SLICE_SECTORS*4*(slices+1));
-               fp    = index+SLICE_SECTORS*slices++;
-               memset(fp,0xFF,SLICE_SECTORS*4);
-            }
-            *fp = sector;
-         }
-         sector++;
-      }
-      flush_slices();
-      return 1;
-   }
-}
-
-// free disk data (sectors will be assumed as zeroed)
-void shrink_disk(ul sector, ul count) {
-   if (!edsk||!index||!slices) return; else {
-      while (count--) {
-         ul *ofs = memchrd(index,sector++,slices*SLICE_SECTORS);
-         if (ofs) *ofs = FFFF;
-      }
-      // truncate empty slices at the end of file
-      while (slices>1) {
-         ul *ofs = memchrnd(index+(slices-1)*SLICE_SECTORS,FFFF,SLICE_SECTORS);
-         if (ofs) break; else slices--;
-      }
-      flush_slices();
-   }
-}
-
-ul dsk_size(ul disk, ul *sectsize, dsk_geo_data *geo) {
-   if (sectsize) *sectsize = 512;
-   if (disk==DSK_FLOPPY) {
-      if (geo) {
-         geo->Heads        = 2;
-         geo->SectOnTrack  = 18;
-         geo->Cylinders    = DISKETTE_SIZE/(geo->SectOnTrack*geo->Heads);
-         geo->SectorSize   = 512;
-         geo->TotalSectors = DISKETTE_SIZE;
-      }
-      return DISKETTE_SIZE;
-   }
-   if (disk==0) {
-      if (geo) {
-         geo->Heads        = 255;
-         geo->SectOnTrack  = 63;
-         geo->Cylinders    = HDD_SIZE/(geo->SectOnTrack*geo->Heads);
-         geo->SectorSize   = 512;
-         geo->TotalSectors = HDD_SIZE;
-      }
-      return HDD_SIZE;
-   }
-   return 0;
-}
-
-ul dsk_floppy(ul disk, ul sector, ul count, void *data, int wr) {
-   if (disk==DSK_FLOPPY) {
-      if (sector>=DISKETTE_SIZE) return 0;
-      if (sector+count>DISKETTE_SIZE) count=DISKETTE_SIZE-sector;
-      fseek(edsk,sector*512,SEEK_SET);
-      if (!wr) fread(data,1,512*count,edsk); else
-              fwrite(data,1,512*count,edsk);
-      return count;
-   }
-   return 0;
-}
-
-ul dsk_read(ul disk, ul sector, ul count, void *data) {
-   if (!edsk) ed_open();
-   if (!edsk) return 0;
-   if (disk==DSK_FLOPPY) return dsk_floppy(disk,sector,count,data,0); else
-   if (disk==0) {
-      ul ii;
-      if (sector>=HDD_SIZE) return 0;
-      if (sector+count>HDD_SIZE) count=HDD_SIZE-sector;
-      for (ii=0;ii<count;ii++) {
-         ul ofs = ed_sectofs(ii+sector);
-         // sector available?
-         if (!ofs) memset((char*)data+512*ii,0,512); else {
-            fseek(edsk,ofs*512,SEEK_SET);
-            fread((char*)data+512*ii,1,512,edsk);
-         }
-      }
-      return count;
-   }
-   return 0;
-}
-
-ul dsk_write(ul disk, ul sector, ul count, void *data) {
-   if (!edsk) ed_open();
-   if (!edsk) return 0;
-   if (disk==DSK_FLOPPY) return dsk_floppy(disk,sector,count,data,1); else
-   if (disk==0) {
-      // is all data zeroed?
-      int zerodata = memchrnb(data,0,count*512)?0:1;
-      ul ii;
-      if (sector>=HDD_SIZE) return 0;
-      if (sector+count>HDD_SIZE) count=HDD_SIZE-sector;
-
-      if (zerodata) { shrink_disk(sector,count); return count; }
-      // check/allocate space
-      if (!extend_disk(sector,count)) return 0;
-      for (ii=0;ii<count;ii++) {
-         ul ofs = ed_sectofs(ii+sector);
-         fseek(edsk,ofs*512,SEEK_SET);
-         fwrite((char*)data+512*ii,1,512,edsk);
-      }
-      return count;
-   }
-   return 0;
-}
+   but not used here... */
 
 // ************************************************************************
 // Win32 i/o
 // ************************************************************************
-#elif defined(__NT__)
+#if defined(__NT__)
 #include <windows.h>
 #include <winioctl.h>
 
@@ -471,7 +270,7 @@ static ul dsk_action(ul disk, ul action, ul sector, ul count, void *data) {
 }
 
 ul dsk_read(ul disk, uq sector, ul count, void *data) {
-   if (sector+count>FFFF) return 0;
+   if (sector+count>0xFFFFFFFFLL) return 0;
    return dsk_action(disk, PDSK_READPHYSTRACK, sector, count, data);
 }
 

@@ -46,9 +46,11 @@ typedef unsigned long ptrdiff_t;
 #define   _8MB       (  8UL* _1MB)       // 8 mb
 #define  _15MB       ( 15UL* _1MB)       // 15 mb
 #define  _16MB       ( 16UL* _1MB)       // 16 mb
+#define  _32MB       ( 32UL* _1MB)       // 32 mb
 #define  _64MB       ( 64UL* _1MB)       // 64 mb
 #define _512MB       (512UL* _1MB)       // 512 mb
 #define   _1GB       ( 16UL*_64MB)       // 1 gb
+#define   _2GB       ( 32UL*_64MB)       // 2 gb
 #define   _4GB       (  0UL)             // 4 gb (32 bit)
 
 #define FFFF         (0xFFFFFFFF)
@@ -94,6 +96,7 @@ typedef unsigned long ptrdiff_t;
 #define MAKEFAR16(seg,ofs) ((u32t)(seg)<<16|(ofs))
 #define MAKEFAR32(sel,ofs) ((u64t)(sel)<<32|(ofs))
 #define MAKEID4(c1,c2,c3,c4)  ((u32t)((s8t)(c4))<<24|(u32t)((s8t)(c3))<<16|(u32t)((s8t)(c2))<<8|((s8t)(c1)))
+#define FIELDOFFSET(type,field) ((u32t)&(((type*)0)->field))
 #define Xor(v1,v2)    (((v1)?1:0)^((v2)?1:0))
 
 #endif // QS_BASE_TYPES

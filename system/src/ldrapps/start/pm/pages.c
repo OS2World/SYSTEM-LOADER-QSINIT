@@ -18,6 +18,7 @@
 #include "qssys.h"
 #include "errno.h"
 #include "vio.h"
+#include "internal.h"
 
 // used memory size in pdmem block
 #define PDMEMSIZE    (4*PAGESIZE)
@@ -62,11 +63,6 @@ extern u64t _std page0_fptr;     // 48-bit pointer to page 0 in QSINIT
 void _std sys_setcr3(u32t syscr3, u32t syscr4);
 void      sys_tsscr3(u32t cr3);
 
-u32t getcr4(void);
-#ifdef __WATCOMC__
-#pragma aux getcr4 = "mov eax,cr4";
-#endif
-
 int _std sys_pagemode(void) {
    return in_pagemode;
 }
@@ -96,7 +92,7 @@ static void ptset(u32t ptaidx, u32t start, u32t len, u64t phys, u32t flags) {
          u64t  *pde = pdmem + (ptaidx*PTAPAGES + start>>PD2M_ADDRSHL-PAGESHIFT);
 
          len -= leave;
-         if (!pta[ptaidx]) pta[ptaidx] = hlp_memalloc(_64KB,0);
+         if (!pta[ptaidx]) pta[ptaidx] = hlp_memallocsig(_64KB, "ptab", 0);
          // update page directory
          pdi   = start/PTEINPAGE;
          pdcnt = (leave + (start&PTEINPAGE-1) + PTEINPAGE-1) / PTEINPAGE;
@@ -192,22 +188,25 @@ int pag_unmappages(u32t virt, u32t len) {
 }
 
 int _std pag_enable(void) {
-   u32t  ii, idbuf[4], map0,
-      diff0 = hlp_segtoflat(0);
+   u32t   map0, ii,
+         diff0 = hlp_segtoflat(0);
+   u16t flatds = get_flatcs() + 8;
 
+   if (hlp_hosttype()==QSHT_EFI) return ENOSYS;
    if (pdptf) return EEXIST;
-   hlp_getcpuid(1,idbuf);
+
+   ii = sys_isavail(SFEA_PAE|SFEA_PGE);
    // no PAE?
-   if ((idbuf[3]&CPUID_FI2_PAE)==0) return ENODEV;
+   if ((ii&SFEA_PAE)==0) return ENODEV;
    // add global flag if PGE supported
-   if (idbuf[3]&CPUID_FI2_PGE) global = PT_GLOBAL;
+   if ((ii&SFEA_PGE)) global = PT_GLOBAL;
 
    // malloc always return memory aligned to 16 bytes
    pdpt = pdptf = (u64t*)malloc(8*4+16);
    // align PDPT to 32 bytes
    if ((u32t)pdpt&0x10) pdpt+=2;
    // no 64k? then trap!
-   pdmem = (u64t*)hlp_memalloc(PDMEMSIZE,QSMA_READONLY);
+   pdmem = (u64t*)hlp_memallocsig(PDMEMSIZE, "pdir", QSMA_READONLY);
    // zero page table pointers
    memset(&pta, 0, sizeof(pta));
    // fill 4 PDPTEs
@@ -233,7 +232,19 @@ int _std pag_enable(void) {
       sd.d_attr    = D_DBIG|D_GRAN4K|D_AVAIL|0x0F;
       sd.d_extaddr = fbase>>24;
 
-      sys_seldesc(SEL32DATA, &sd);
+      sys_seldesc(flatds, &sd);
+   }
+   // make sure - PAT:0 have WB cache type
+   if (sys_isavail(SFEA_PAT)) {
+      u32t  patlo, pathi;
+      hlp_readmsr(MSR_IA32_PAT, &patlo, &pathi);
+
+      if ((patlo&7)!=MSR_PAT_WB) {
+         log_it(2, "Warning! PAT:0 type was %d\n", patlo&7);
+
+         patlo = patlo&~7|MSR_PAT_WB;
+         hlp_writemsr(MSR_IA32_PAT, patlo, pathi);
+      }
    }
    // calc cr3 & cr4 values
    vcr3 = (u32t)pdpt;
@@ -244,7 +255,7 @@ int _std pag_enable(void) {
    sys_tsscr3(vcr3);
    sys_setcr3(vcr3, vcr4);
    /* First interrupt or RM call in key_status() will switch us to PAE 
-      on return from RM.
+      while returning from RM.
       Page 0 is r/w here - until the end of this function. */
 #if 0
    __asm {
@@ -260,7 +271,7 @@ int _std pag_enable(void) {
    log_it(0, "Hello, PAE world!\n");
    // replace FLAT:0 access pointer in QSINIT
    map0       = (u32t)pag_physmap(0, _4KB, PHMAP_FORCE);
-   page0_fptr = MAKEFAR32(SEL32DATA, map0);
+   page0_fptr = MAKEFAR32(flatds, map0);
    // remap first page as read-only
    pag_mappages(0, _4KB, 0, MEM_DIRECT|MEM_READONLY);
 
@@ -272,52 +283,4 @@ int _std pag_enable(void) {
       nop
    }
    return 0;
-}
-
-#define FILLastr(value)                  \
-   astr[0] = (value)&PT_WRITE ?'W':'R';  \
-   astr[1] = (value)&PT_GLOBAL ?'G':0;   \
-   astr[2] = 0;
-
-void _std pag_printall(void) {
-   u32t ii, pi;
-   log_it(2,"<====== Page table ======>\n");
-   if (!pdptf) return;
-
-   for (ii=0; ii<4; ii++) {
-      u32t lnp = 0;
-      log_it(2, "PDPTE[%d]: %010LX\n", ii, pdpt[ii]);
-
-      for (pi=0; pi<512; pi++) {
-         u64t *pde = (u64t*)(pdpt[ii]&~(u64t)PAGEMASK) + pi,
-                pv = *pde;
-         u32t addr = pi*2*_1MB + ii*_1GB;
-         char astr[8];
-
-         if (pv&PT_PRESENT) {
-            FILLastr(pv)
-
-            if (pv&PD_BIGPAGE) {
-               log_it(2, "%08X: big page (%010LX) %s\n", addr, pv&~(u64t)((1<<PD2M_ADDRSHL)-1),
-                  astr);
-            } else {
-               u32t pti;
-               u64t *pt = (u64t*)(pv&~(u64t)PAGEMASK);
-               log_it(2, "%08X: page tab (%010LX) %s\n", addr, pv&~(u64t)PAGEMASK, astr);
-               for (pti=0; pti<512; pti++) {
-                  u64t ptv = pt[pti];
-                  if (ptv&PT_PRESENT) {
-                     FILLastr(ptv)
-
-                     log_it(2, "%08X:          (%010LX) %s\n", addr+pti*PAGESIZE, 
-                        ptv&~(u64t)PAGEMASK, astr);
-                  } else
-                     log_it(2, "%08X: np\n", addr+pti*PAGESIZE);
-               }
-            }
-            lnp = 0;
-         } else
-         if (!lnp) { log_it(2, "%08X: not present\n", addr); lnp = 1; }
-      }
-   }
 }

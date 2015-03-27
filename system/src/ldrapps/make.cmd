@@ -30,6 +30,7 @@ call make.cmd partmgr  %bldparm%
 call make.cmd vmtrr    %bldparm%
 call make.cmd cache    %bldparm%
 call make.cmd vdisk    %bldparm%
+call make.cmd cplib    %bldparm%
 
 goto quit
 :single_build

@@ -233,8 +233,8 @@ int main(int argc,char *argv[]) {
    }
    if ((state&MTRRS_MTRRON)!=0) hlp_mtrrstate(state|MTRRS_NOCALBRT);
 
-   // do not print success result if called from start.cmd ("start" module parent)
-   if (mod_appname(modname,1) && strcmp(modname, MODNAME_START)!=0) {
+   // do not print success result if called from start.cmd ("QSINIT" module parent)
+   if (mod_appname(modname,1) && stricmp(modname, MODNAME_QSINIT)!=0) {
       printf("WC enabled for range %010LX..%010LX", wc_addr, wc_addr+wc_len-1);
       if (method) {
          printf(" (%04X:%04X on %d.%d.%d)\n", vcard.vendorid, vcard.deviceid,

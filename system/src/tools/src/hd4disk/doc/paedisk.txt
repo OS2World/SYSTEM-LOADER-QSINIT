@@ -24,7 +24,7 @@
   FAT32 (depends on size). This can be altered by RAMDISK command keys or
   manual partition creation by DMGR command.
 
-  You can put swap file to this disk`s FAT partition :)
+  You can put swap file to this disk`s partition :)
 
   ADD driver works fine on Warp 3 (at least, with FP43).
 
@@ -37,6 +37,10 @@
 
      On typical PC with 4GB - 500-700Mb always moved above 4Gb border, so
      disk will have such size.
+
+        ramdisk z: hpfs
+
+     will make the same, but apply HPFS format instead of FAT.
 
   2. use all memory above 4Gb, but can use 100Mb of memory below 4Gb to create
      guaranteed disk size of 100Mb. If disk size if greater 100Mb - is will be
@@ -67,6 +71,27 @@
         exit
         :err
         echo error!
+
+  5. Create disk with minimum size of 200Mb with 100Mb 1st FAT partition 
+     and second logical partition formatted to HPFS (437 codepage).
+
+        ramdisk /q nopt min=200
+        if errorlevel 1 exit
+        rem --> create partitions
+        dmgr pm %ramdisk% create 0 p 100
+        dmgr pm %ramdisk% create 0 l 100%
+        rem --> 100mb partition
+        mount f: %ramdisk% 0
+        rem --> second partition
+        mount g: %ramdisk% 1
+        rem --> format/LVM v: first
+        format f: /quick /q /f:1
+        lvm assign %ramdisk% 0 v: force
+        rem --> format/LVM w: second
+        chcp 437
+        format g: /quick /q /fs:hpfs
+        lvm assign %ramdisk% 1 w: force
+
 
   Parameters accepted by HD4DISK.ADD:
       /v - print at least something ;)

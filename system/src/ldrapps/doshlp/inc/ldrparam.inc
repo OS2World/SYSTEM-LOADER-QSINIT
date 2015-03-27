@@ -23,6 +23,7 @@ VesaInfoOffset    dw    ?             ; vesa info offset
 PrintFOffset      dw    ?             ; offset of DHPrintf function in DOSHLP segment
 ConfigExt         dd    ?             ; config file .Ext instead of .SYS
 VMemGDTSel        dw    ?             ; set by loader OR by OS/4 kernel after going to PM
+VALimit           dw    ?             ; later OS/4 VALIMIT value
 LoaderInfoData  ends
 
 ; BootFlags values

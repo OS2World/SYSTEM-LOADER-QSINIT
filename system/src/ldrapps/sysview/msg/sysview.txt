@@ -215,7 +215,7 @@ Available keys:
 
 * Ctrl-End  - go to last sector
 
-* Ctrl-S - {go to sector:SectGoto}
+* F11 - {go to sector:SectGoto}
 
 * Ctrl-F/Ctrl-A - {find data:SectFind}/{find next:SectFindNext}
 

@@ -104,7 +104,12 @@ const char *Hints[121]= {
   "Enter partition type GUID string manually here",
   "Press arrow down to select available OS/2 drive letter",
   "Press arrow down to select available QSINIT drive letter",
-  "","","","","","","","","","","","","",""
+  "Edit binary file in hex mode",
+  "Press arrow down to select file system type",
+  "Quick format",
+  "Long format, with checking for bad sectors",
+  "Wipe format, clearing disk space",
+  "","","","","","","","",""
   };
 
 const char *EmptyStr="";

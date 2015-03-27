@@ -138,6 +138,8 @@ _strm_open      label   near                                    ;
 ;u32t __cdecl mfs_read(u32t offset, u32t buf, u32t readsize);
                 public  _mfs_read                               ;
 _mfs_read       label   near                                    ;
+                shl     dword ptr [esp+8],16 - PARASHIFT        ; make it 16:16
+                mov     word ptr [esp+8],0                      ;
                 mov     ecx,6                                   ; number of dw to copy
                 mov     edx,_filetable.ft_muRead                ; function ptr
                 jmp     rmcall32                                ;
@@ -145,6 +147,8 @@ _mfs_read       label   near                                    ;
 ;u16t __cdecl strm_read(u32t buf, u16t readsize);
                 public  _strm_read                              ;
 _strm_read      label   near                                    ;
+                shl     dword ptr [esp+4],16 - PARASHIFT        ; make it 16:16
+                mov     word ptr [esp+4],0                      ;
                 mov     ecx,3                                   ; number of dw to copy
                 mov     edx,_filetable.ft_reslen                ; function ptr
                 jmp     rmcall32                                ;

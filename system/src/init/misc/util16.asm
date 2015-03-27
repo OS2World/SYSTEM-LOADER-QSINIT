@@ -24,7 +24,7 @@ DATA16          segment                                         ;
                 align   4                                       ;
 _logrmbuf       dd      0                                       ;
 _BaudRate       dd      BD_115200                               ; current dbport baud rate
-_ComPortAddr    dw      0                                       ;
+_ComPortAddr    dw      0                                       ; and address
 _logrmpos       dw      0                                       ;
 
 ifdef INITDEBUG
@@ -37,8 +37,7 @@ _BSS16          segment
                 public  _storage_w                              ;
 _storage_w      db      STO_BUF_LEN * STOINIT_ESIZE dup(?)      ;
 _storage_w_end  label   near                                    ;
-                public  _pinfo_gs, _mfsd_openname, _mfsd_fsize  ;
-_pinfo_gs       dw      ?                                       ; process context
+                public  _mfsd_openname, _mfsd_fsize             ;
 _mfsd_openname  db      MFSD_NAME_LEN dup(?)                    ;
 _mfsd_fsize     dd      ?                                       ;
 _BSS16          ends
@@ -360,72 +359,6 @@ _memmove16      proc    near                                    ;
                 ret     6                                       ;
 _memmove16      endp
 
-
-; set debug port baud rate (from BaudRate variable)
-;----------------------------------------------------------------
-; void setbaudrate(void);
-
-                public  _setbaudrate
-_setbaudrate    proc    near                                    ;
-                mov     ecx,_BaudRate                           ; ECX = new baud rate
-                mov     ax,CLOCK_RATEL                          ;
-                shl     eax,16                                  ;
-                mov     ax,CLOCK_RATEH                          ;
-                xor     edx,edx                                 ; EDX:EAX = clock rate
-                div     ecx                                     ;
-                mov     bx,ax                                   ; BX = clock rate / baud rate
-
-                mov     dx,_ComPortAddr                         ;
-                or      dx,dx                                   ; IF port not found
-                jz      @@setbr_exit                            ; THEN exit
-                add     dx,COM_LCR                              ; DX -> LCR
-                in      al,dx                                   ; AL = current value of LCR
-                or      al,LC_DLAB                              ; Turn on DLAB
-                out     dx,al                                   ;
-
-                add     dx,COM_DLM-COM_LCR                      ; DX -> MSB of baud latch
-                mov     al,bh                                   ; AL = divisor latch MSB
-                out     dx,al                                   ;
-                dec     dx                                      ; DX -> LSB of baud latch
-                mov     al,bl                                   ; AL = divisor latch LSB
-                out     dx,al                                   ; Set LSB of baud latch
-
-                add     dx,COM_LCR-COM_DLL                      ; DX -> LCR
-                mov     al,3                                    ; AL = same mode as in main
-                out     dx,al                                   ;
-
-;                add     dx,COM_FCR                              ;
-;                xor     al,al                                   ;
-;                out     dx,al                                   ; disable FIFO
-@@setbr_exit:
-                retf                                            ;
-_setbaudrate    endp                                            ;
-
-; init debug com port
-;----------------------------------------------------------------
-; void earlyserinit(void);
-
-                public  _earlyserinit                           ;
-_earlyserinit   proc    far                                     ;
-                mov     dx,_ComPortAddr                         ;
-                or      dx,dx                                   ;
-                jz      @@esi_exit                              ;
-;                inc     dx                                      ; disable all interrupts
-;                xor     al,al                                   ;
-;                out     dx,al                                   ;
-;                dec     dx                                      ;
-                                                                ;
-                push    dx                                      ;
-                push    cs                                      ;
-                call    _setbaudrate                            ;
-                pop     dx                                      ;
-                add     dx,COM_MCR                              ;
-                in      al,dx                                   ;
-                or      al,3                                    ; RTS/DSR set
-                out     dx,al                                   ;
-@@esi_exit:
-                ret                                             ;
-_earlyserinit   endp                                            ;
 ;
 ; char appending to last line in realmode log buffer
 ; zero assumed at _logbufseg pos (end of string char)

@@ -60,7 +60,6 @@ typedef u32t vm_offset_t;
 
 #define fprintf(x,...)      cmd_printf(__VA_ARGS__)
 #define printf(...)         cmd_printf(__VA_ARGS__)
-#define fflush(x)
 #define system(x)
 #define stderr 0
 #define stdout 0
@@ -279,7 +278,7 @@ static ssize_t memRead(HMemFile hmf, void *buf, size_t nbyte)
           memcpy(buf, addr, nbyte);
           pag_physunmap(addr);
        } else {
-          memcpy(buf, (u8t*)hlp_segtoflat(hmf->pos>>4) + (hmf->pos&0xF), nbyte);
+          hlp_memcpy(buf, (u8t*)hlp_segtoflat(hmf->pos>>4) + (hmf->pos&0xF), nbyte, 1);
        }
        hmf->pos+=nbyte;
     }

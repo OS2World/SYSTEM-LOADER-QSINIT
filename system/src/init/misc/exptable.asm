@@ -9,7 +9,6 @@
 
                 extrn   _exit_pm32      :near
                 extrn   _exit_pm32s     :near
-                extrn   rmcall32        :near
                 extrn   _hlp_seroutchar :near
                 extrn   _hlp_seroutstr  :near
                 extrn   _log_printf     :near
@@ -71,8 +70,6 @@
                 extrn   _zip_isok       :near
                 extrn   _zip_unpacked   :near
                 extrn   _unpack_zip     :near
-                extrn   _physmem        :word
-                extrn   _physmem_entries:word
                 extrn   _BootBPB        :byte
                 extrn   _hlp_selalloc   :near
                 extrn   _hlp_selfree    :near
@@ -183,7 +180,29 @@
                 extrn   _vio_beepactive :near
                 extrn   _tm_setdate     :near
                 extrn   _vio_beep       :near
-
+                extrn   _sys_intstate   :near
+                extrn   _sys_getint     :near
+                extrn   _sys_setint     :near
+                extrn   _sys_intgate    :near
+                extrn   _sys_seldesc    :near
+                extrn   _hlp_hosttype   :near
+                extrn   _call64         :near
+                extrn   _vio_setmodeex  :near
+                extrn   _vio_writebuf   :near
+                extrn   _vio_readbuf    :near
+                extrn   _memsetq        :near
+                extrn   _memchrq        :near
+                extrn   _memchrnq       :near
+                extrn   _vio_ttylines   :near
+                extrn   _hlp_memallocsig:near
+                extrn   _exit_reboot    :near
+                extrn   _hlp_mountvol   :near
+                extrn   _hlp_unmountvol :near
+                extrn   _hlp_volinfo    :near
+                extrn   _hlp_disksize64 :near
+                extrn   _sys_setxcpt64  :near
+                extrn   _sys_selquery   :near
+                extrn   _hlp_setcpinfo  :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -203,7 +222,7 @@ _DATA           segment
 _exptable_data:
                 nextord <1>                                     ;
                 dd      offset _exit_pm32                       ;
-                dd      offset rmcall32                         ;
+                dd      0                                       ; rmcall32 was here
                 dd      offset _hlp_rmcall                      ;
                 dd      offset _int12mem                        ;
                 next_is_offset                                  ;
@@ -234,9 +253,10 @@ _exptable_data:
                 dd      offset _hlp_memprint                    ;
                 dd      offset _hlp_memgetsize                  ;
                 dd      offset _hlp_memreserve                  ;
+                dd      offset _hlp_memallocsig                 ; #29
 ;----------------------------------------------------------------
-                nextord <30>                                    ;
-                dd      offset _hlp_finit                       ;
+;                nextord <30>                                    ;
+                dd      offset _hlp_finit                       ; #30
                 dd      offset _hlp_fopen                       ;
                 dd      offset _hlp_fread                       ;
                 dd      offset _hlp_fclose                      ;
@@ -268,10 +288,11 @@ _exptable_data:
                 dd      offset _hlp_curdir                      ;
                 dd      offset _f_getlabel                      ;
                 dd      offset _f_setlabel                      ;
+                dd      offset _hlp_setcpinfo                   ;
 ;----------------------------------------------------------------
                 nextord <70>                                    ;
                 dd      offset _snprintf                        ;
-                dd      0                                       ;
+                dd      0                                       ; printf was here
                 dd      offset _memset                          ;
                 dd      offset _strncmp                         ;
                 dd      offset _strnicmp                        ;
@@ -326,12 +347,12 @@ _exptable_data:
                 nextord <120>                                   ;
                 dd      offset _int15mem                        ;
                 dd      offset _exit_poweroff                   ;
-                dd      offset _physmem                         ;
-                dd      offset _physmem_entries                 ;
+                dd      0                                       ;
+                dd      0                                       ;
                 next_is_offset                                  ;
                 dd      offset _BootBPB                         ;
                 dd      offset _hlp_runcache                    ;
-                dd      0                                       ;
+                dd      offset _exit_reboot                     ;
                 dd      offset _exit_restart                    ;
                 next_is_offset                                  ;
                 dd      offset _minifsd_ptr                     ;
@@ -345,14 +366,23 @@ _exptable_data:
                 dd      offset _hlp_getcpuid                    ;
                 dd      offset _hlp_readmsr                     ;
                 dd      offset _hlp_writemsr                    ;
+                dd      offset _sys_intstate                    ;
+                dd      offset _hlp_hosttype                    ;
+                dd      offset _call64                          ; #139
 ;----------------------------------------------------------------
-                nextord <140>                                   ;
-                dd      offset _hlp_selalloc                    ;
+;                nextord <140>                                   ;
+                dd      offset _hlp_selalloc                    ; #140
                 dd      offset _hlp_selfree                     ;
                 dd      offset _hlp_selsetup                    ;
                 dd      offset _hlp_selbase                     ;
                 dd      0                                       ;
                 dd      offset _hlp_segtoflat                   ;
+                dd      offset _sys_getint                      ;
+                dd      offset _sys_setint                      ;
+                dd      offset _sys_intgate                     ;
+                dd      offset _sys_seldesc                     ;
+                dd      offset _sys_selquery                    ;
+                dd      offset _sys_setxcpt64                   ;
 ;----------------------------------------------------------------
                 nextord <160>                                   ;
                 dd      offset _mod_load                        ;
@@ -399,6 +429,11 @@ _exptable_data:
                 dd      offset _vio_getmodefast                 ;
                 dd      offset _vio_defshape                    ;
                 dd      offset _vio_intensity                   ;
+                dd      offset _vio_setmodeex                   ;
+                dd      offset _vio_writebuf                    ;
+                dd      offset _vio_readbuf                     ;
+                next_is_offset                                  ;
+                dd      offset _vio_ttylines                    ;
 ;----------------------------------------------------------------
                 nextord <210>                                   ;
                 dd      offset _hlp_diskcount                   ;
@@ -409,6 +444,10 @@ _exptable_data:
                 dd      offset _hlp_fddline                     ;
                 dd      offset _hlp_diskadd                     ;
                 dd      offset _hlp_diskremove                  ;
+                dd      offset _hlp_mountvol                    ;
+                dd      offset _hlp_unmountvol                  ;
+                dd      offset _hlp_volinfo                     ;
+                dd      offset _hlp_disksize64                  ;
 ;----------------------------------------------------------------
                 nextord <230>                                   ;
                 dd      offset __U8D                            ;
@@ -421,6 +460,9 @@ _exptable_data:
                 dd      offset __I8M                            ;
                 dd      offset __prt_common                     ;
                 dd      offset _wcslen                          ;
+                dd      offset _memsetq                         ;
+                dd      offset _memchrq                         ;
+                dd      offset _memchrnq                        ;
 ;----------------------------------------------------------------
                 nextord <0>                                     ;
 _DATA           ends                                            ;

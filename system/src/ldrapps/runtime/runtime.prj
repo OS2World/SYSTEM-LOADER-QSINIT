@@ -73,6 +73,7 @@ outname=$(name).lib
 [files]
 $(bld_dir).dir $(outdir).dir clean.cln
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
+cplib.ref
 start.trace qsinit.trace partmgr.trace
 init.asm initdll.asm cpproute.asm
 rtcode.c defdll.c cpplib.cpp watcinit.c common.c
@@ -99,7 +100,7 @@ $(**c) $(**ref) $(**cpp) $(outdir)\cpproute.obj
 
 [&rsp2]
 $(**cpp) 
-$(outdir)\__qsinit.obj $(outdir)\init.obj
+$(outdir)\__qsinit.obj $(outdir)\initdll.obj
 $(outdir)\rtcode.obj   $(outdir)\cpproute.obj 
 $(outdir)\watcinit.obj
 $(outdir)\qsinit.lib

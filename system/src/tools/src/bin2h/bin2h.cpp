@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
       if (at=="BYTE"||at=="CHAR") atype=1; else
       if (at=="WORD"||at=="SHORT") atype=2; else
       if (at=="DWORD"||at=="LONG") atype=4; else
-         error("Uncknown type: \"%s\"\n",at());
+         error("Unknown type: \"%s\"\n",at());
       args.Delete(ii); 
    }
    ii=args.IndexOfName("-bebo");

@@ -216,7 +216,7 @@ char *getSizeStr(u32t sectsize, u64t disksize, Boolean trim) {
    return buffer;
 }
 
-static ushort _cmdState[][2] = {{cmGoto,CS_A+1}, {cmSectFind,CS_A+1}, 
+static ushort _cmdState[][2] = {{cmGoto,CS_A+1}, {cmSectFind,CS_A+1},
    {cmSectFindNext,CS_A+1}, {cmSectPtEd,CS_D+1}, {cmSectBpbEd,CS_D+1},
    {cmSectDlatEd,CS_D+1}, {cmSectToFile,CS_D+1}, {cmSectToSect,CS_D+1},
    {cmFileToSect,CS_D+1}, {0,0}};
@@ -246,7 +246,7 @@ int TSysApp::askDlg(int MsgType, u32t arg) {
                                "\3""Do you want to continue?",           // 3
                                "\3""Make this partition active?\n",      // 4
                                "\3""This disk will always be used as secondary?\n", // 5
-                               "\3""This huge disk (>500Gb) is incomatible with LVM.\n"
+                               "\3""This huge disk (>500Gb) is incompatible with LVM.\n"
                                "\3""Continue?\n",                        // 6
                                "\3""Perform quick format?\n",            // 7
                                "\3""Access to this area requires PAE paging mode."
@@ -272,7 +272,7 @@ void TSysApp::infoDlg(int MsgType) {
                                 "\3""Length truncated to disk size!",
                                 "\3""Length truncated to target disk size!",
                                 "\3""Source and destination is the same!",
-                                "\3""LVM information is normal and not outdated!"};
+                                "\3""LVM information is valid and not outdated!"};
    messageBox(infoMsgArray[MsgType], mfInformation+mfOKButton);
 }
 
@@ -290,18 +290,22 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Too long search string!",
                                "\3""Unable to open help file!",
                                "\3""This is not a file!",
-                               "\3""Insufficient disk space to file a file!",
+                               "\3""Insufficient disk space to write a file!",
                                "\3""File size too large for FAT!",
                                "\3""Source and destination interference each other!",
                                "\3""Disk read error!",
                                "\3""Disk write error!",
-                               "\3""Select action from one of action lists and press Enter!",
+                               "\3""Select action from one of the action lists and press Enter!",
                                "\3""Boot sector is empty!",
                                "\3""Action failed!",
                                "\3""Number of sectors must be in range 1..4294967295!",
                                "\3""Not a GPT disk!",
                                "\3""Invalid GUID string format!",
-                               "\3""LVM info query error!"
+                               "\3""LVM info query error!",
+                               "\3""No memory to perform this action!",
+                               "\3""Unable to open selected file!",
+                               "\3""Specified file is empty!",
+                               "\3""Volume mount error!"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
 }
@@ -351,7 +355,7 @@ void TSysApp::handleEvent(TEvent& event) {
             if (dsk!=FFFF) OpenPosDiskWindow(dsk,0);
          }
          break;
-      case cmSectBpbEd : 
+      case cmSectBpbEd :
       case cmSectDlatEd: {
             TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
             win->select();
@@ -763,18 +767,22 @@ void TSysApp::SwitchLogWindow() {
       TWindow   *win = new TAppWindow(rr,"Log view",TWin_Log);
 
       if (win && application->validView(win)) {
+         const int TermBufferSize = 256*1024;
+
          rr = TRect(1, 1, win->size.x-1, win->size.y-1);
          win->options |= ofTileable;
          win->helpCtx  = hcViewLog;
 
          TTerminal *term = new TTerminal(rr,
             win->standardScrollBar(sbHorizontal|sbHandleKeyboard),
-            win->standardScrollBar(sbVertical|sbHandleKeyboard),
-            128*1024);
+            win->standardScrollBar(sbVertical|sbHandleKeyboard), TermBufferSize);
 
          char *log = opts_getlog();
-         int  llen = strlen(log);
-         term->do_sputn(log,llen);
+         int  llen = strlen(log), ii;
+         if (llen<TermBufferSize - 1024) term->do_sputn(log,llen); else {
+            for (ii=0; ii<llen; ii+=TermBufferSize/2)
+               term->do_sputn(log+ii,llen-ii>TermBufferSize/2?TermBufferSize/2:llen-ii);
+         }
          free(log);
          term->getLineColor=loglncolor;
 
@@ -831,5 +839,6 @@ extern "C" int tvMain(int argc,char *argv[]) {
       }
    }
    SysApp.run();
+   SysApp.shutDown();
    return 0;
 }

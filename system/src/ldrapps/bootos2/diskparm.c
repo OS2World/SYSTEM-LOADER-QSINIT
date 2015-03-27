@@ -26,11 +26,11 @@ typedef struct {
 } DHDriveParams;
 
 typedef int  (_std *fplvm_partinfo)(u32t disk, u32t index, lvm_partition_data *info);
-typedef long (_std *fpdsk_volindex)(u8t vol, u32t *disk);
+typedef long (_std *fpvol_index)(u8t vol, u32t *disk);
 
 static u32t   partmgr = 0;
 static fplvm_partinfo plvm_partinfo = 0;
-static fpdsk_volindex pdsk_volindex = 0;
+static fpvol_index    pvol_index    = 0;
 // variables for switch code setup
 u32t         paeppd, swcode;
 u8t              *swcodelin;
@@ -47,16 +47,16 @@ static int dmgr_load(void) {
    }
    if (partmgr) {
       plvm_partinfo = (fplvm_partinfo)mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
-      pdsk_volindex = (fpdsk_volindex)mod_getfuncptr(partmgr,ORD_PARTMGR_dsk_volindex);
+      pvol_index    = (fpvol_index)   mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index);
    }
-   return partmgr && plvm_partinfo && pdsk_volindex?1:0;
+   return partmgr && plvm_partinfo && pvol_index?1:0;
 }
 
 static void dmgr_free(void) {
    if (partmgr) {
       mod_free(partmgr);
       plvm_partinfo = 0;
-      pdsk_volindex = 0;
+      pvol_index = 0;
       partmgr = 0;
    }
 }
@@ -106,7 +106,7 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb) {
    free(br);
    // query LVM drive letter
    if (dmgr_load()) {
-      long vidx = pdsk_volindex(vol, 0);
+      long vidx = pvol_index(vol, 0);
       if (vidx>=0) {
          lvm_partition_data li;
          if (plvm_partinfo(vi.Disk, vidx, &li))

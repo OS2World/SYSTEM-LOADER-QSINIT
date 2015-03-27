@@ -35,5 +35,5 @@ If you don't agree with these statements, please erase this sofware.
 AND
 This application is based on part on:
  * zlib 1.2.5 (c) 1995-2010 Jean-loup Gailly and Mark Adler
- * FatFs - FAT file system module (c) 2013, ChaN.
+ * FatFs - FAT file system module (c) 2014, ChaN.
  * PMODE 3.07 (c) 1994, Tran (a.k.a. Thomas Pytel)

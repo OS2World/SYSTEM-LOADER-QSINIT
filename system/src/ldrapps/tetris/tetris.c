@@ -4,7 +4,7 @@
 
 #define textcolor(x) vio_setcolor(x)
 #define clrscr vio_clearscr
-#define gotoxy(x,y) vio_setpos((y)-1,(x)-1)
+#define gotoxy(x,y) vio_setpos((y)-1+base_y,(x)-1)
 #define timer (tm_counter())
 
 #define SIZE_X     14
@@ -18,9 +18,10 @@ typedef u16t fig[4][4];
 
 u16t glass[SIZE_Y][SIZE_X];
 u8t  gcol [SIZE_Y][SIZE_X];
-int  x,y,rotate,level;
-long score,nextTIME;
-u16t figCUR,figNEXT;
+int       x,y,rotate,level;
+long        score,nextTIME;
+u16t        figCUR,figNEXT;
+u16t                base_y = 0;     ///< offset from top to make it aligned vertically
 
 u8t color[7] = {0x2,0x6,0x9,0xE,0xD,0x7,0x4};
 
@@ -73,7 +74,7 @@ void print() {
       for (jj=1;jj<=SIZE_X;jj++) {
          if (glass[ii-1][jj-1]) {
            textcolor(0x0|gcol[ii-1][jj-1]);
-           vio_strout("±±"); // °±²ß
+           vio_strout("°°"); // °±²ß
          } else {
            textcolor(0x07);
            vio_strout("  ");
@@ -229,8 +230,13 @@ void done() {
 
 void main() {
    u16t oldshape;
-   vio_resetmode();
-   clrscr();
+   u32t     cols, lines;
+   /* reset mode to 80x25 if it too large for us
+      this allow to playing in 80x30 virtual console mode */
+   if (!vio_getmode(&cols, &lines) || cols!=80 || lines>30) vio_resetmode(); else {
+      base_y = (lines - 25) / 2;
+      clrscr();
+   }
    // save old shape & hide cursor
    oldshape = vio_getshape();
    vio_setshape(0x20,0);

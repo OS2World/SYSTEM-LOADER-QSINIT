@@ -7,6 +7,7 @@ exports = {
    _con_setmode            = { index =  4 }            # set current mode
    _con_querymode          = { index =  5 }            # query mode list
    _con_currentmode        = { index =  6 }            # query current mode
+   _con_addtextmode        = { index =  7 }            # add new vconsole mode
 
    _con_write              = { index =  10 }           # write to screen
    _con_read               = { index =  11 }           # read from screen
@@ -20,4 +21,5 @@ exports = {
    _shl_mkshot             = { index =  30 }           # mkshot shell command
 
    _con_fontadd            = { index =  35 }           # add/replace font
+   _con_fontavail          = { index =  36 }           # query font presence
 }

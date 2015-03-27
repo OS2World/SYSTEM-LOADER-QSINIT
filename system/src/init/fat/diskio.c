@@ -1,15 +1,15 @@
 #include "diskio.h"
-#include "ioint13.h"
 #include "qsint.h"
 #include "qsinit.h"
 #include "qsutil.h"
 #include "clib.h"
 #include "ffconf.h"
 #include "qsconst.h"
-#include "filetab.h"
 #include "dskinfo.h"
-
+#ifndef EFI_BUILD
+#include "ioint13.h"
 extern struct   Disk_BPB BootBPB;
+#endif
 extern void           *Disk1Data;
 extern u32t            Disk1Size;
 extern u32t            DiskBufPM; // flat disk buffer address
@@ -18,8 +18,9 @@ struct qs_diskinfo      qd_array[MAX_QS_DISK];
 extern u8t      qd_fdds, qd_hdds;
 extern int            qd_bootidx; // index of boot disk info in qd_array, -1 if no
 extern u8t           dd_bootdisk,
-                    dd_bootflags;
+                    bootio_avail;
 extern vol_data*          extvol;
+extern u8t*                ExCvt; // FatFs OEM case conversion
 cache_extptr        *cache_eproc;
 // real mode thunk (this thunk pop parameters from stack)
 // disk info parameter must be placed in DGROUP (16-bit offset used in RM)
@@ -54,7 +55,7 @@ DRESULT disk_read(BYTE drv, BYTE *buff, DWORD sector, UINT count) {
          memcpy(buff,(char*)Disk1Data+(sector<<LDR_SSHIFT),count<<LDR_SSHIFT);
          break;
       case 0: 
-         if (dd_bootflags&BF_NOMFSHVOLIO) return RES_NOTRDY;
+         if (!bootio_avail) return RES_NOTRDY;
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
@@ -84,7 +85,7 @@ DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
          if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = Disk1Size>>LDR_SSHIFT;
          return RES_OK;
       case 0:
-         if (dd_bootflags&BF_NOMFSHVOLIO) return RES_NOTRDY;
+         if (!bootio_avail) return RES_NOTRDY;
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
@@ -108,7 +109,7 @@ DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
          memcpy((char*)Disk1Data+(sector<<LDR_SSHIFT),(void*)buff,count<<LDR_SSHIFT);
          break;
       case 0: 
-         if (dd_bootflags&BF_NOMFSHVOLIO) return RES_NOTRDY;
+         if (!bootio_avail) return RES_NOTRDY;
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
@@ -138,7 +139,7 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
    struct qs_diskinfo *qe = 0;
    if (geo) memset(geo, 0, sizeof(disk_geo_data));
 
-   if (disk & QDSK_VIRTUAL) { // virtual disk
+   if (disk & QDSK_VOLUME) { // mounted volume
       if (sectsize||geo) {
          u32t dsize = 0;
          disk_ioctl(idx,GET_SECTOR_SIZE,&dsize);
@@ -162,9 +163,10 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
             result = (u32t)qe->qd_sectors;
             if (geo) {
                geo->TotalSectors = qe->qd_sectors;
-               /* limit disk size to 24Tb now - larger values truncating to
+               /* limit REAL disks to 24Tb now - larger values truncating to
                   low dword (because of older BIOS bugs - garbage in high dword) */
-               if (geo->TotalSectors>_4GBLL * 12) geo->TotalSectors = result;
+               if ((qe->qd_flags&HDDF_HOTSWAP)==0)
+                  if (geo->TotalSectors>_4GBLL * 12) geo->TotalSectors = result;
             }
          }
       }
@@ -179,6 +181,12 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
       }
    }
    return result;
+}
+
+u64t _std hlp_disksize64(u32t disk, u32t *sectsize) {
+   disk_geo_data geo;
+   hlp_disksize(disk, sectsize, &geo);
+   return geo.TotalSectors;
 }
 
 static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
@@ -243,14 +251,14 @@ static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
 }
 
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data) {
-   if (disk & QDSK_VIRTUAL)
+   if (disk & QDSK_VOLUME)
       return disk_read(disk&QDSK_DISKMASK,data,sector,count)==RES_OK?count:0;
    else
       return action(0,disk,sector,count,data);
 }
 
 u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
-   if (disk & QDSK_VIRTUAL)
+   if (disk & QDSK_VOLUME)
       return disk_write(disk&QDSK_DISKMASK,data,sector,count)==RES_OK?count:0;
    else
       return action(1,disk,sector,count,data);
@@ -306,6 +314,7 @@ int  _std hlp_diskremove(u32t disk) {
    qe = qd_array + disk + MAX_QS_FLOPPY;
 
    if ((qe->qd_flags&(HDDF_PRESENT|HDDF_HOTSWAP))==(HDDF_PRESENT|HDDF_HOTSWAP)) {
+      memset(qe, 0, sizeof(struct qs_diskinfo));
       // drop used flags if next disk is not used
       if (disk+1>=MAX_QS_DISK || (qe[1].qd_flags&HDDF_PRESENT)==0) {
          memset(qe, 0, sizeof(struct qs_diskinfo));
@@ -313,26 +322,18 @@ int  _std hlp_diskremove(u32t disk) {
          qe->qd_sectorsize = 0;
          qe->qd_extwrite   = 0;
          qe->qd_extread    = 0;
+         qe->qd_sectors    = 0;
       }
       return 1;
    }
    return 0;
 }
 
-/* OEM-Unicode bidirectional conversion */
-WCHAR ff_convert (WCHAR src, UINT to_unicode) {
-   return src>=0x80?0:src;
-}
-
-/* Unicode upper-case conversion */
-WCHAR ff_wtoupper (WCHAR src) {
-   return toupper(src);
-}
-
+#ifndef EFI_BUILD
 // setup boot partition i/o
 void bootdisk_setup() {
    // BPB available? Mount it to drive 0:
-   if ((dd_bootflags&BF_NOMFSHVOLIO)==0) {
+   if (bootio_avail) {
       int ii;
       vol_data *vdta   = extvol;
       vdta->length     = BootBPB.BPB_TotalSec;
@@ -341,7 +342,7 @@ void bootdisk_setup() {
       // cannot use BootBPB here - it can be FAT32 and it can contain 0x80
       // from boot sector instead of actual value
       vdta->disk       = dd_bootdisk^QDSK_FLOPPY;
-      vdta->flags      = 
+      vdta->flags      = VDTA_ON;
       vdta->sectorsize = BootBPB.BPB_BytesPerSec;
       // locate boot disk in qd_array for easy access
       for (ii=0; ii<MAX_QS_DISK; ii++) {
@@ -350,5 +351,33 @@ void bootdisk_setup() {
             if (qe->qd_biosdisk==dd_bootdisk) { qd_bootidx=ii; break; }
       }
       // log_printf("volume 0: %02X %08X %08X \n",vdta->disk,vdta->start,vdta->length);
+   }
+}
+#endif // EFI_BUILD
+
+static u16t _std (*ext_convert)(u16t src, int to_unicode) = 0;
+static u16t _std (*ext_wtoupper)(u16t src) = 0;
+
+/* OEM-Unicode bidirectional conversion */
+WCHAR ff_convert (WCHAR src, UINT to_unicode) {
+   if (ext_convert) return ext_convert(src, to_unicode);
+   return src>=0x80?0:src;
+}
+
+/* Unicode upper-case conversion */
+WCHAR ff_wtoupper (WCHAR src) {
+   if (ext_wtoupper) return ext_wtoupper(src);
+   return toupper(src);
+}
+
+/// setup FatFs i/o to specified codepage
+void _std hlp_setcpinfo(codepage_info *info) {
+   if (!info) {
+      ext_convert  = 0;
+      ext_wtoupper = 0;
+   } else {
+      memcpy(ExCvt, info->oemupr, 128);
+      ext_convert  = info->convert;
+      ext_wtoupper = info->wtoupper;
    }
 }

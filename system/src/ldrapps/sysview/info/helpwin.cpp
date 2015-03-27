@@ -3,8 +3,8 @@
 #include <tv.h>
 #include "helpwin.h"
 
-TAppHlpWindow::TAppHlpWindow(THelpFile *hFile, ushort context) : 
-   TAppWindow (SysApp.deskTop->getExtent(), "Help", TWin_Help), 
+TAppHlpWindow::TAppHlpWindow(THelpFile *hFile, ushort context) :
+   TAppWindow (SysApp.deskTop->getExtent(), "Help", TWin_Help),
    TWindowInit(initFrame)
 {
    TRect r(SysApp.deskTop->getExtent());

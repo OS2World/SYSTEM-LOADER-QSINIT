@@ -12,7 +12,7 @@
                 include inc/iopic.inc
 
                 public  _pm_info, _pm_init
-                public  _syscr3, _syscr4, _systr
+                public  _syscr3, _syscr4, _systr, _gdt_lowest
 
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DATA
@@ -87,6 +87,7 @@ _pm_callbacks   db      16                                      ; number of real
 
 _pm_initerr     dw      0                                       ; pm_init error code
 _systr          dw      0                                       ; task register value
+_gdt_lowest     dw      (SYSSELECTORS + 1) * 8                  ; lowest usable selector
 
 picslave        db      PIC2_IRQ_NEW                            ; PIC slave base interrupt
 picmaster       db      PIC1_IRQ_NEW                            ; PIC master base interrupt
@@ -1115,10 +1116,10 @@ int310000:                                                      ; allocate descr
                 mov     bx,cx                                   ; BX = number of selectors to find
 @@int310000l0:
                 test    byte ptr ds:[edx+eax+6],10h             ; is descriptor used?
-                jnz     short @@int310000l0f0
+                jnz     @@int310000l0f0                         ;
 
                 dec     bx                                      ; found free descriptor, dec counter
-                jnz     short @@int310000l0f1                   ; continue if need to find more
+                jnz     @@int310000l0f1                         ; continue if need to find more
 
                 mov     ebx,eax                                 ; found all descriptors requested
 @@int310000l1:
@@ -1150,7 +1151,7 @@ int310001:                                                      ; free descripto
                 lea     ebp,[esp+32]                            ; EBP -> selectors on stack
 @@int310001l0:
                 cmp     word ptr [ebp],bx                       ; selector = BX?
-                jne     short @@int310001l0f0                   ; if no, continue loop
+                jne     @@int310001l0f0                         ; if no, continue loop
 
                 mov     word ptr [ebp],0                        ; zero selector on stack
 

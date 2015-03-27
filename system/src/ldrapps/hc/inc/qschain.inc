@@ -3,7 +3,7 @@
 ;
 ;cc #ifndef QSINIT_CHAININC
 ;cc #define QSINIT_CHAININC
-;cc #include "qslist.h"
+;cc #include "qcl/qslist.h"
 ;cc #include "seldesc.h"
 
 EXIT_STACK_SIZE = 128

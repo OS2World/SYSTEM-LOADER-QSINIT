@@ -367,12 +367,13 @@ void TDisplay::setCursorType(ushort ct) {
 }
 
 #ifdef __WATCOMC__
-static char __far16 *empty_scroll = " \x0F";
+static unsigned char __far16 empty_scroll[] = { ' ', 15, 0 };
+static unsigned char __far16 *pescroll = &empty_scroll[0];
 #endif
 
 void TDisplay::clearScreen(int w, int h) {
 #ifdef __WATCOMC__
-   VioScrollUp(0,0,h,w,h,empty_scroll,NULL);
+   VioScrollUp(0,0,h,w,h,pescroll,NULL);
 #else
    char *cell = " \x0F";
    VioScrollUp(0,0,h,w,h,cell,NULL);
@@ -422,7 +423,7 @@ TScreen::~TScreen() {
    info.cb = sizeof(VIOMODEINFO);
    VioGetMode(&info,0);
 #ifdef __WATCOMC__
-   VioScrollUp(0,0,info.row,info.col,info.row,empty_scroll,NULL);
+   VioScrollUp(0,0,info.row,info.col,info.row,pescroll,NULL);
 #else
    char *cell = " \x0F";
    VioScrollUp(0,0,info.row,info.col,info.row,cell,NULL);
@@ -670,7 +671,7 @@ void TScreen::setCrtData() {
    checksize(screenHeight, screenWidth);
    hiResScreen  = Boolean(screenHeight > 25);
 
-   if (!screenBuffer) screenBuffer = (uchar *) hlp_memalloc(screenWidth * 
+   if (!screenBuffer) screenBuffer = (uchar *) hlp_memalloc(screenWidth *
       screenHeight * sizeof(ushort), QSMA_RETERR);
 
    if (!screenBuffer) {
@@ -691,7 +692,7 @@ void TScreen::resume() {
    //fprintf(stderr, "\nscreenMode %x startupMode %x\n", screenMode, startupMode); getchar();
    if (startupMode==0xFFFF) {
       startupCursor = getCursorType();
-      startupMode = screenMode = getCrtMode(); 
+      startupMode = screenMode = getCrtMode();
    } else {
       startupMode = getCrtMode();
       if (screenMode!=startupMode) setCrtMode(screenMode);

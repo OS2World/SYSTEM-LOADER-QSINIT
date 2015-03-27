@@ -1,4 +1,4 @@
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "qslog.h"
 #include "classes.hpp"
 
@@ -44,14 +44,14 @@ static const char *errmsg = "warning! invalid list ptr: %08X (%d)\n";
    }                                                         
                                                              
 #define lst_create(size)                                     \
-void _std lst##size##_create(void *lst) {                    \
+void _std lst##size##_create(void *inst,void *lst) {         \
    list_type(size) *lp = (list_type(size)*)lst;              \
    lp->sign = LST##size##_SIGN;                              \
    lp->list.Init();                                          \
 }                                                            
                                                              
 #define lst_free(size)                                       \
-void _std lst##size##_free(void *lst) {                      \
+void _std lst##size##_free(void *inst,void *lst) {           \
    makep_checkret_void(lp,size);                             \
    lp->sign = 0;                                             \
    lp->list.Clear();                                         \

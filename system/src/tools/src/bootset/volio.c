@@ -311,5 +311,5 @@ void volume_close(volh handle) {
 }
 
 #else
-#error Uncknown platform!
+#error Unknown platform!
 #endif

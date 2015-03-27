@@ -24,9 +24,10 @@
 #include "qspage.h"
 #include "qshm.h"
 #include "qsdm.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "serial.h"
 #include "dparm.h"
+#include "qsinit.h"
 
 #undef  MAP_A0000                  // make linear address of A0000
 #undef  MAP_LOGADDR                // make linear address of log
@@ -75,6 +76,8 @@ void    *logresv = 0;               // reserved address space for log buffer
 u8t      bootsrc = 0;               // alternative mounted boot partition
 u8t     bootdisk = 0;               // actual used boot disk
 u8t    bootflags = 0;               // actual used boot flags
+char    *cmdcall = 0;               // call external batch on finish
+char    *hiptbuf = 0;               // temp buffer for second part of DOSHLP
 
 char    msgpool[2][MSG_POOL_LIMIT]; // temp buffer for parsed messages
 int     msgsize[2];
@@ -101,6 +104,8 @@ void error_exit(int code, const char *message) {
    if (mfsdsym) { hlp_memfree(mfsdsym); mfsdsym=0; }
    if (logresv) { hlp_memfree(logresv); logresv=0; }
    if (pcidata) { free(pcidata); pcidata=0; }
+   if (cmdcall) { free(cmdcall); cmdcall=0; }
+   if (hiptbuf) { free(hiptbuf); hiptbuf=0; }
    if (kparm)   { free(kparm); kparm=0; }
    // reinit physmem array
    hlp_setupmem(0,0,0,SETM_SPLIT16M);
@@ -113,7 +118,7 @@ void error_exit(int code, const char *message) {
    exit(code);
 }
 
-void patch_kernel(module *mi,int isSMP);
+void patch_kernel(module *mi, int isSMP, int branchAT);
 
 typedef struct {
    u32t    fl;
@@ -155,6 +160,7 @@ void load_kernel(module  *mi) {
         hiblock = 0,                         // block no# for the line above
         selbase = BOOTHLP_DATASEL,           // free selector base
           isSMP = 0,                         //
+       branchAT = 0,                         // AlexT`s kernel with 4k MPDATA
           pdiff = hlp_segtoflat(0),          // FLAT addr of 0 page now
          lonext, hinext,                     //
        rvdm_lin, svdm_lin,                   //
@@ -165,7 +171,13 @@ void load_kernel(module  *mi) {
    for (ii=0;ii<mi->objects;ii++)
       if (mi->obj[ii].flags&OBJEXEC) mi->obj[ii].flags|=OBJSHARED;
    // 1st object in SMP kernel is one page MPDATA seg
-   isSMP = mi->obj[0].size<=PAGESIZE;
+   isSMP    = mi->obj[0].size<=PAGESIZE?1:0;
+   if (!isSMP) {
+      // we have some troUAbles: later OS/4 kernels expands it to 4k
+      branchAT = mi->obj[0].size<=PAGESIZE*4 && (mi->objects==15 || mi->objects==17) ?1:0;
+      if (branchAT) isSMP = 1;
+   }
+
    if (isSMP) lid->BootFlags|=BOOTFLAG_SMP;
    // starting address for low segments
    lopaddr = (DOSHLP_SEG<<PARASHIFT) + respart4k;
@@ -684,7 +696,7 @@ void load_kernel(module  *mi) {
    // actually load kernel ;)
    for (ii=0;ii<mi->objects;ii++) krnl_loadobj(ii);
    // query some data from loaded objects
-   patch_kernel(mi,isSMP);
+   patch_kernel(mi,isSMP,branchAT);
    // we are ready!
    efd->OS2Init = krnl_done();
    log_printf("OS2Init=%04X:%04X\n", efd->OS2Init>>16, efd->OS2Init&0xFFFF);
@@ -859,7 +871,7 @@ void memparm_init(void) {
 // patch IBM kernel binary data
 /************************************************************************/
 
-void patch_kernel(module *mi,int isSMP) {
+void patch_kernel(module *mi, int isSMP, int branchAT) {
    char *symname = key_present("SYM"), sym[12];
    int   dosdata = -1,
           gdtseg = -1;
@@ -918,8 +930,12 @@ void patch_kernel(module *mi,int isSMP) {
                patch_binary(objaddr,objsize,1,"OS2LOGO",0,3,"NONE",4,0);
             // replace .SYM file name to specified one
             if (symname&&sym[0]) {
-               int err = patch_binary(objaddr,objsize,1,"OS2KRNL.SYM",0,0,sym,11,0);
-               if (err) log_printf("sym name patch err: %d\n",err);
+               if (branchAT) {
+                  log_printf("SYM name changing is not supported on later OS/4 kernels\n");
+               } else {
+                  int err = patch_binary(objaddr,objsize,1,"OS2KRNL.SYM",0,0,sym,11,0);
+                  if (err) log_printf("sym name patch err: %d\n",err);
+               }
             }
             break;
          }
@@ -930,9 +946,11 @@ void patch_kernel(module *mi,int isSMP) {
       if ((mi->obj[ii].flags & (OBJWRITE|OBJHIMEM))==OBJWRITE) {
           u8t *objaddr = (u8t*)mi->obj[ii].address;
           u32t  revpos = 0;
-          int err = patch_binary(objaddr,mi->obj[ii].size,1,"Internal re",0,12,0,0,&revpos);
-
-          if (!err) log_printf("Kernel name: %s\n",objaddr+mi->obj[ii].size-revpos-1); else
+          int err = patch_binary(objaddr, mi->obj[ii].size, 1+branchAT,
+                                 "Internal re", 0, 12, 0, 0, &revpos);
+          if (err<1+branchAT)
+             log_printf("Kernel name: %s\n", objaddr+mi->obj[ii].size-revpos-1);
+          else
              log_printf("unable to find revision string (%d)\n",err);
       }
    }
@@ -1022,13 +1040,26 @@ void main(int argc,char *argv[]) {
       cmd_shellhelp("BOOTOS2",CLR_HELP);
       exit(1);
    }
+   if (hlp_hosttype()==QSHT_EFI)
+      error_exit(13,"Boot of OS/2 is not possible on EFI now!\n");
 #if 0
    // check module size field
    if (_Module->own_size!=sizeof(module)+(_Module->objects-1)*sizeof(mod_object))
       error_exit(2,"This bootos2 compiled with different version of qsinit!\n");
 #endif
    // kernel boot parameters
-   kparm = str_split(argc>2?argv[2]:"",",");
+   if (argc<=3) kparm = str_split(argc>2?argv[2]:"",","); else {
+      char *arglist = 0;
+      u32t ii;
+      /* parameters line can be splitted to multiple args by spaces present in it.
+         merge it back to one line and split by commas */
+      for (ii=2; ii<argc; ii++) {
+         arglist = strcat_dyn(arglist, argv[ii]);
+         arglist = strcat_dyn(arglist, " ");
+      }
+      kparm = str_split(arglist,",");
+      free(arglist);
+   }
    log_printf("loading %s,\"%s\"\n",argv[1],argv[2]);
    // default boot disk/flags values
    bootdisk  = boot_info.boot_disk;
@@ -1051,6 +1082,10 @@ void main(int argc,char *argv[]) {
             }
       }
       if (serr) error_exit(10,"Invalid volume in \"SOURCE\" parameter!\n");
+   }
+   if (hlp_hosttype()==QSHT_EFI && bootflags) {
+      // just remembering about missing filetable struct!
+      error_exit(13,"Fix me!\n");
    }
    // mini-fsd present
    if (boot_info.minifsd_ptr) {
@@ -1157,12 +1192,40 @@ void main(int argc,char *argv[]) {
          log_printf("dbport=%04X, flags=%04X\n",lid->DebugPort,lid->DebugTarget);
       }
    }
+   // AlexT`s OS/4 kernel only
+   parmptr = key_present("VALIMIT");
+   if (parmptr) {
+      u32t limit = strtoul(parmptr,0,0);
+      if (limit<1024) limit = 1024; else
+      if (limit>3072) limit = 3072; 
+      lid->VALimit = limit;
+   } else
+      lid->VALimit = 2048;
    // test mode?
    if (key_present("TEST")) testmode = 1;
    if (key_present("VIEWMEM")) memview = 1;
+
+   parmptr = key_present("CALL");
+   if (parmptr && *parmptr) {
+      str_list* args = str_splitargs(parmptr);
+      /* check file presence, but allow spaces. I.e.
+         kernel = TEST, CALL = A:\AA.CMD arg1 arg2, ALTF2 */
+      if (access(args->item[0],R_OK|F_OK)) {
+         char errmsg[256];
+         snprintf(errmsg, 256, "Unable to open batch file \"%s\"!\n", args->item[0]);
+         free(args);
+         error_exit(14,errmsg);
+      } else {
+         free(args);
+         cmdcall = (char*)malloc(16+strlen(parmptr));
+         strcpy(cmdcall, "cmd /c ");
+         strcat(cmdcall, parmptr);
+      }
+   }
    /* PXE boot? call mfs_term, but only if this is not test & we`re not
-      planning to call SYSVIEW later */
-   if (boot_info.filetab.ft_cfiles==6 && !testmode && !memview) hlp_fdone();
+      planning to call SYSVIEW or CMD later */
+   if (boot_info.filetab.ft_cfiles==6 && !testmode && !memview && !cmdcall)
+      hlp_fdone();
    // read 1Mb memory size
    efd->LowMem = int12mem();
    // setup flags
@@ -1205,13 +1268,13 @@ void main(int argc,char *argv[]) {
                   else log_printf("emu disk mismatch: %X %X\n", dsk, btdsk);
             }
             if ((lid->BootFlags&BOOTFLAG_EDISK)==0)
-               error_exit(11,"Uncknown subst disk type!\n");
+               error_exit(11,"Unknown subst disk type!\n");
          } else
          // is CHS access is not specified manually, query it in disk i/o
          if ((lid->BootFlags&BOOTFLAG_CHS)==0 && (mode&HDM_USELBA)==HDM_USECHS)
             lid->BootFlags|=BOOTFLAG_CHS;
       } else
-      if ((btdsk&QDSK_FLOPPY)==0) error_exit(11,"Uncknown disk type!\n");
+      if ((btdsk&QDSK_FLOPPY)==0) error_exit(11,"Unknown disk type!\n");
    }
    // init some memory and log parameters
    memparm_init();
@@ -1341,14 +1404,14 @@ void main(int argc,char *argv[]) {
       lid->DebugTarget = DEBUG_TARGET_COM;
    }
    // target to temporary place discardable part
-   parmptr = (char*)hlp_segtoflat(boot_info.diskbuf_seg);
+   hiptbuf = malloc(DISKBUF_SIZE);
    // copying discardable part to disk buffer (temporary)
-   memcpy(parmptr, doshlp, efd->DosHlpSize);
+   memcpy(hiptbuf, doshlp, efd->DosHlpSize);
    hlp_memfree(doshlp); doshlp=0;
    // copying discardable messages
-   memcpy(parmptr + efd->DisMsgOfs, msgpool[1], msgsize[1]);
+   memcpy(hiptbuf + efd->DisMsgOfs, msgpool[1], msgsize[1]);
    // copying filled arena array
-   memcpy(parmptr + efd->DisPartLen - PAGESIZE, arena, PAGESIZE);
+   memcpy(hiptbuf + efd->DisPartLen - PAGESIZE, arena, PAGESIZE);
    // copying vesa font to doshlp (destroying discardable part)
    if (vfonttgt)
       memcpy(vfonttgt, (char*)hlp_segtoflat(0xA000)+vid->FontAddr, VESAFONTBUFSIZE);
@@ -1399,6 +1462,13 @@ void main(int argc,char *argv[]) {
       log_printf("pkey = %s %04X\n",parmptr,key);
       if (key) key_push(key);
    }
+   // call external batch file
+   if (cmdcall) {
+      cmd_state cst = cmd_init(cmdcall,0);
+      cmd_run(cst,CMDR_ECHOOFF);
+      cmd_close(cst);
+      free(cmdcall); cmdcall = 0;
+   }
    // call sysview /mem for direct memory viewing/editing
    if (memview) {
       cmd_state cst = cmd_init("sysview /mem",0);
@@ -1407,6 +1477,9 @@ void main(int argc,char *argv[]) {
    }
    // loading process is non-destructive until this point
    if (testmode) error_exit(0, "test finished!\n");
+   // copying high part to disk buffer where it will be launched
+   memcpy((char*)hlp_segtoflat(boot_info.diskbuf_seg), hiptbuf, DISKBUF_SIZE);
+   free(hiptbuf); hiptbuf = 0;
    // shutdown QSINIT & micro-FSD
    exit_prepare();
    hlp_fdone();

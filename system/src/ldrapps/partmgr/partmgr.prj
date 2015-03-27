@@ -49,7 +49,8 @@ $(bld_dir).dir $(outdir).dir clean.cln
 ..\..\init\inc\qsinit.inc
 ..\..\hc\inc\qsconst.inc
 partmgr.c mount.c pboot.c pscan.c phlp.c format.c
-se.asm lvm.c ptmgr.c gptmgr.c
+se.asm lvm.c ptmgr.c gptmgr.c hpfs\formatfs.c hpfs\boot.asm
+hpfs\fshelp.c
 
 [make_footer]
 MAKEDIRS : $(bld_dir).dir $(outdir).dir
@@ -88,7 +89,7 @@ cd ..\..
 *out=$(outname) | nolink | \
      @echo Linking ... | \
      @ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
-     $(ld) @$(&lnk) | lxlite $(outname) >nul | \
+     $(ld) @$(&lnk) | lxlite /c:default_noofs16 $(outname) >nul | \
      @mkdir $(dlldir) | copy $(outname) $(dlldir) >nul | \
      @pkzip /add /max /silent /nozipext /dir /rec \
      %(QS_BIN)\%(QS_ARCH) $(dlldir)\*.* | \

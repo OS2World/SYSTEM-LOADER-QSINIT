@@ -6,7 +6,7 @@
 #include "qsint.h"
 #include "qsutil.h"
 #include "vio.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 
 int  MenuKernel(char *rcline, int errors);
 int  MenuCommon(char *menu, char *rcline, u32t pos);

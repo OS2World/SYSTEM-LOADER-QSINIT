@@ -54,14 +54,23 @@ TINIFile::~TINIFile() {
 #endif
 }
 
-TStrings TINIFile::ReadSectionOrgNames() {
-  TStrings lst;
+TStrings TINIFile::ReadSections() { return Sections; }
+
+void TINIFile::ReadSections(TStrings &names) { names = Sections; }
+
+void TINIFile::ReadSectionOrgNames(TStrings &names) {
+  names.Clear();
   for (l ll=0,jj,ps;ll<Sections.Count();ll++) {
-    ps=Sections.Objects(ll);
-    jj=File[ps].cpos(']',1);
-    lst.AddObject(spstr(File[ps],1,jj-1),ps);
+    ps = Sections.Objects(ll);
+    jj = File[ps].cpos(']',1);
+    names.AddObject(spstr(File[ps],1,jj-1),ps);
   }
-  return lst;
+}
+
+TStrings TINIFile::ReadSectionOrgNames() {
+  TStrings result;
+  ReadSectionOrgNames(result);
+  return result;
 }
 
 l TINIFile::ValueIndex(const spstr &Section,const spstr &Key) {
@@ -128,13 +137,18 @@ void TINIFile::WriteArray(const spstr &Section,const spstr &Key,ptr Buf,d Size) 
   WriteString(Section,Key,ss);
 }
 
-TStrings TINIFile::ReadSection(const spstr &Section) {
-  TStrings result;
+void TINIFile::ReadSection(const spstr &Section,TStrings &text) {
   l si=SectionIndex(Section);
+  text.Clear();
   if (si>=0) {
     l cnt=CountSection(Section);
-    for (l jj=Sections.Objects(si)+1,kk=0;kk<cnt-1;kk++,jj++) result.Add(File[jj]);
+    for (l jj=Sections.Objects(si)+1,kk=0;kk<cnt-1;kk++,jj++) text.Add(File[jj]);
   }
+}
+
+TStrings TINIFile::ReadSection(const spstr &Section) {
+  TStrings result;
+  ReadSection(Section,result);
   return result;
 }
 
@@ -167,25 +181,35 @@ void TINIFile::WriteSection(const spstr &Section,const TStrings &Text,Bool Repla
 }
 
 TStrings TINIFile::ReadSectionKeys(const spstr &Section) {
-  TStrings rc;
+  TStrings result;
+  ReadSectionKeys(Section,result);
+  return result;
+}
+
+void TINIFile::ReadSectionKeys(const spstr &Section,TStrings &keys) {
   l si=SectionIndex(Section);
+  keys.Clear();
   if (si>=0) {
     l cnt=CountSection(Section);
     for (l jj=Sections.Objects(si)+1,kk=0;kk<cnt-1;kk++,jj++)
-      if (File[jj][0]!=';'&&File[jj].pos("=")>=0) rc.Add(File.Name(jj));
+      if (File[jj][0]!=';'&&File[jj].pos("=")>=0) keys.Add(File.Name(jj));
   }
-  return rc;
 }
 
 TStrings TINIFile::ReadSectionValues(const spstr &Section) {
   TStrings result;
+  ReadSectionValues(Section,result);
+  return result;
+}
+
+void TINIFile::ReadSectionValues(const spstr &Section,TStrings &values) {
   l si=SectionIndex(Section);
+  values.Clear();
   if (si>=0) {
     l cnt=CountSection(Section);
     for (l jj=Sections.Objects(si)+1,kk=0;kk<cnt-1;kk++,jj++)
-      if (File[jj][0]!=';'&&File[jj].pos("=")>=0) result.Add(File.Value(jj));
+      if (File[jj][0]!=';'&&File[jj].pos("=")>=0) values.Add(File.Value(jj));
   }
-  return result;
 }
 
 void TINIFile::EraseSection(const spstr &Section) {

@@ -9,7 +9,7 @@
 #include "qsdm.h"
 #include "parttab.h"
 #include "qstime.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "pscan.h"
 #include "stdlib.h"
 #include "qsint.h"
@@ -18,7 +18,6 @@
 
 #define MIN_FAT16    4086    // minimum number of clusters for FAT16
 #define MIN_FAT32   65526    // minimum number of clusters for FAT32
-#define FMT_FILL     0xF6    // do not use 0 to catch fake flash drive sectors
 
 #define FORCE_64K      48    // force 64k cluster starting from this number of Gbs
 
@@ -53,7 +52,7 @@ static int check_esc(u32t disk, u64t sector) {
          return DFME_UBREAK;                      \
       }
 
-u32t _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
+u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
    static u16t vst[] = { 1024,  512, 256, 128,  64,   32,  16,   8,   4,   2,  0};
    static u16t cst[] = {32768,16384,8192,4096,2048,16384,8192,4096,2048,1024,512};
    u32t ii, clusters, fatsize, reserved, dirsize, pfcnt, *pf, fmt,
@@ -64,7 +63,7 @@ u32t _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    u64t   loc_dir, loc_data, loc_fat, wsect;
 
    u8t   brdata[MAX_SECTOR_SIZE], media;
-   long  volidx;
+   long  volidx, ptbyte;
    struct Boot_Record    *brw = (struct Boot_Record    *)&brdata;
    struct Boot_RecordF32 *brd = (struct Boot_RecordF32 *)&brdata;
    disk_volume_data di;
@@ -75,7 +74,7 @@ u32t _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
 
    if (!di.TotalSectors) return DFME_NOMOUNT;
-   volidx = dsk_volindex(vol,0);
+   volidx = vol_index(vol,0);
    // allow floppies and big floppies
    if (volidx<0 && di.StartSector) return DFME_VINDEX;
    if (volidx>=0) {
@@ -432,25 +431,35 @@ u32t _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       hlp_diskwrite(di.Disk|QDSK_DIRECT, di.StartSector+1, 1, brdata); // write original (VBR+1)
       hlp_diskwrite(di.Disk|QDSK_DIRECT, di.StartSector+7, 1, brdata); // write backup (VBR+7)
    }
-   // determine and change ID in partition table
+
+   ptbyte = -1;
    if (volidx>=0 && (flags&DFMT_NOPTYPE)==0) {
-      u8t ptbyte;
       switch (fmt) {
          case _FAT12:  ptbyte = 0x01; break;
          case _FAT16:  ptbyte = di.TotalSectors < 0x10000? 0x04 : 0x06; break;
          default:      ptbyte = 0x0C;
       }
-      ii = dsk_setpttype(di.Disk, volidx, ptbyte);
-      log_it(2, "set partition type to %02X, rc %d\n", ptbyte, ii);
+   }
+   // update partition type & mount volume back
+   return format_done(vol, di, ptbyte, volidx, badcnt);
+}
+
+u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t badcnt) {
+   // determine and change ID in partition table
+   if (volidx>=0 && ptbyte>=0) {
+      u32t rc = dsk_setpttype(di.Disk, volidx, (u8t)ptbyte);
+      log_it(2, "set partition type to %02X, rc %d\n", ptbyte, rc);
       // handle error codes
-      switch (ii) {
+      switch (rc) {
          case DPTE_ERRREAD :
          case DPTE_ERRWRITE: return DFME_IOERR;
          case DPTE_PINDEX  : return DFME_VINDEX;
          case DPTE_INVALID : return DFME_PTERR;
-         default: if (ii) return DFME_INTERNAL;
+         default: if (rc) return DFME_INTERNAL;
       }
    }
+   // force rescanning of disk if it (big) floppy
+   if (di.StartSector==0) dsk_ptrescan(di.Disk,1);
    // mount volume back
    if (!hlp_mountvol(vol, di.Disk, di.StartSector, di.TotalSectors))
       return DFME_MOUNT;
@@ -461,9 +470,20 @@ u32t _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
       if (extvol) {
          vol_data *vdta = extvol+vol;
-         if ((vdta->flags&1)!=0) vdta->badclus = badcnt;
+         if ((vdta->flags&VDTA_ON)!=0) vdta->badclus = badcnt;
       }
    }
-   // success
    return 0;
+}
+
+u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize, 
+   read_callback cbprint)
+{
+   if (fsname) {
+      if (stricmp(fsname,"FAT")==0)
+         return vol_format(vol, flags, unitsize, cbprint);
+      if (stricmp(fsname,"HPFS")==0)
+         return hpfs_format(vol, flags, cbprint);
+   }
+   return DFME_UNKFS;
 }

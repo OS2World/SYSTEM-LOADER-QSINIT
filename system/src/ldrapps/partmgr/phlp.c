@@ -10,19 +10,8 @@
 #include "cache_ord.h"
 #include "vioext.h"
 
-char *get_sizestr(u32t sectsize, u64t disksize) {
-   static char buffer[64];
-   static char *suffix[] = { "kb", "mb", "gb", "tb" };
-   u64t size = disksize * (sectsize?sectsize:1);
-   int idx = 0;
-   size>>=10;
-   while (size>=100000) { size>>=10; idx++; }
-   sprintf(buffer, "%8d %s", (u32t)size, suffix[idx]);
-   return buffer;
-}
-
-static void dsk_ptqueryfs(u32t disk, u64t sector, char *filesys) {
-   struct Boot_Record *br = (struct Boot_Record*)malloc(MAX_SECTOR_SIZE);
+u32t _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf) {
+   struct Boot_Record *br = (struct Boot_Record*)(optbuf?optbuf:malloc(MAX_SECTOR_SIZE));
    u32t st = dsk_sectortype(disk, sector, (u8t*)br);
    u32t ii;
 
@@ -47,7 +36,8 @@ static void dsk_ptqueryfs(u32t disk, u64t sector, char *filesys) {
       for (ii=7; ii && filesys[ii]==' '; ii--) filesys[ii]=0;
    else filesys[0]=0;
 
-   free(br);
+   if ((u8t*)br!=optbuf) free(br);
+   return st;
 }
 
 u8t dsk_ptquery(u32t disk, u32t index, u32t *start, u32t *size, char *filesys,
@@ -81,7 +71,7 @@ u8t dsk_ptquery(u32t disk, u32t index, u32t *start, u32t *size, char *filesys,
          if (recidx<4) *flags|=DPTF_PRIMARY;
          if (rec->PTE_Active>=0x80) *flags|=DPTF_ACTIVE;
       }
-      if (filesys) dsk_ptqueryfs(disk, rec->PTE_LBAStart, filesys);
+      if (filesys) dsk_ptqueryfs(disk, rec->PTE_LBAStart, filesys, 0);
 
       return rec->PTE_Type;
    }
@@ -113,8 +103,8 @@ u8t dsk_ptquery64(u32t disk, u32t index, u64t *start, u64t *size,
          struct GPT_Record *pte = hi->ptg + (pos - hi->gpt_index);
          if (start) *start = pte->PTG_FirstSec;
          if (size)  *size  = pte->PTG_LastSec - pte->PTG_FirstSec + 1;
-         if (filesys) dsk_ptqueryfs(disk, pte->PTG_FirstSec, filesys);
-         if (flags) *flags = DPTF_PRIMARY | (pte->PTG_Attrs & (1LL << 
+         if (filesys) dsk_ptqueryfs(disk, pte->PTG_FirstSec, filesys, 0);
+         if (flags) *flags = DPTF_PRIMARY | (pte->PTG_Attrs & (1LL <<
             GPTATTR_BIOSBOOT) ? DPTF_ACTIVE : 0);
       }
    }
@@ -144,7 +134,7 @@ dsk_mapblock* _std dsk_getmap(u32t disk) {
       // number of entries
       cnt = hi->gpt_view + hi->fsp_size;
       if (!cnt) return 0;
-      // scan error? return 0 
+      // scan error? return 0
       if (hi->scan_rc) return 0;
       // alloc buffer
       rc  = (dsk_mapblock*)malloc(sizeof(dsk_mapblock)*cnt);
@@ -231,7 +221,7 @@ u32t _std dsk_getptgeo(u32t disk, disk_geo_data *geo) {
     @param [in]  vol      volume (0..9)
     @param [out] disk     disk number (can be 0)
     @return partition index or -1 */
-long dsk_volindex(u8t vol, u32t *disk) {
+long vol_index(u8t vol, u32t *disk) {
    disk_volume_data  vi;
    u32t mt = hlp_volinfo(vol, &vi);
    if (vi.TotalSectors) {
@@ -258,21 +248,6 @@ long dsk_volindex(u8t vol, u32t *disk) {
    return -1;
 }
 
-/** query disk text name.
-    @param disk     disk number
-    @param buffer   buffer for result, can be 0 for static. At least 8 bytes.
-    @return 0 on error, buffer or static buffer ptr */
-char* dsk_disktostr(u32t disk, char *buffer) {
-   static char buf[8];
-   if (!buffer) buffer = buf;
-   if (disk&QDSK_FLOPPY) snprintf(buffer, 8, "fd%d", disk&QDSK_DISKMASK); else
-   if (disk&QDSK_VIRTUAL) snprintf(buffer, 8, "%c:", '0'+(disk&QDSK_DISKMASK)); else
-   if ((disk&QDSK_DISKMASK)==disk)
-      snprintf(buffer, 8, "hd%d", disk&QDSK_DISKMASK);
-         else return 0;
-   return buffer;
-}
-
 u32t dsk_emptypt(u32t disk, u32t sector, struct MBR_Record *table) {
    hdd_info *hi = get_by_disk(disk);
    if (!hi) return DPTE_INVDISK;
@@ -290,14 +265,49 @@ u32t dsk_emptypt(u32t disk, u32t sector, struct MBR_Record *table) {
    }
 }
 
-u32t _std dsk_emptysector(u32t disk, u64t sector) {
-   hdd_info *hi = get_by_disk(disk);
-   if (!hi) return DPTE_INVDISK;
-   if (!sector || sector>=hi->info.TotalSectors) return DPTE_INVARGS; else {
-      char   buffer[MAX_SECTOR_SIZE];
-      memset(buffer, 0, MAX_SECTOR_SIZE);
-      return hlp_diskwrite(disk, sector, 1, buffer)?0:DPTE_ERRWRITE;
+u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
+   u64t disklen = 0;
+   u32t  sectsz = 0;
+   // accept volume letter as parameter
+   if (disk&QDSK_VOLUME) {
+      disk_volume_data vi;
+      hlp_volinfo(disk&QDSK_DISKMASK, &vi);
+      if (!vi.TotalSectors) return DPTE_INVDISK;
+      disklen = vi.TotalSectors;
+      sectsz  = vi.SectorSize;
+   } else {
+      // accept QDSK_DIRECT flag here
+      hdd_info *hi = get_by_disk(disk&~QDSK_DIRECT);
+      if (!hi) return DPTE_INVDISK;
+      disklen = hi->info.TotalSectors;
+      sectsz  = hi->info.SectorSize;
    }
+   // deny sector 0 & check borders/overflow of sector range
+   if (!sector || sector>=disklen || sector+count>disklen) return DPTE_INVARGS;
+   else {
+      u32t sper32k = _32KB/sectsz;
+      u32t bufsize = count<sper32k ? count : sper32k;
+
+      // allocate buffer for 32k i/o ops
+      u8t *zbuf = (u8t*)malloc(bufsize * sectsz);
+      memset(zbuf, value, bufsize * sectsz);
+
+      while (count) {
+         u32t towr = count<sper32k ? count : sper32k;
+         if (hlp_diskwrite(disk, sector, towr, zbuf)!=towr) {
+            free(zbuf);
+            return DPTE_ERRWRITE;
+         }
+         count -= towr;
+         sector+= towr;
+      }
+      free(zbuf);
+      return 0;
+   }
+}
+
+u32t _std dsk_emptysector(u32t disk, u64t sector, u32t count) {
+   return dsk_fillsector(disk, sector, count, 0);
 }
 
 u32t dsk_isquadempty(hdd_info *info, u32t quadpos, int ign_ext) {
@@ -352,7 +362,7 @@ u32t dsk_wipequad(u32t disk, u32t quadidx, int delsig) {
       if (delsig) mbr->MBR_Signature = 0;
       // and write it back
       rc = hlp_diskwrite(disk, hi->ptspos[quadidx], 1, mbr)?0:DPTE_ERRWRITE;
-      log_it(2,"wipe pt: %X, quad %d, sector %08X, rc %d\n", disk, quadidx, 
+      log_it(2,"wipe pt: %X, quad %d, sector %08X, rc %d\n", disk, quadidx,
          hi->ptspos[quadidx], rc);
       return rc;
    }
@@ -378,14 +388,14 @@ u32t dsk_flushquad(u32t disk, u32t quad) {
                if (IS_EXTENDED(mbr->MBR_Table[ii].PTE_Type)) {
                   if (lba<=hi->extpos || !hi->extpos) return DPTE_EXTENDED;
                   lba-=hi->extpos;
-               } else 
+               } else
                   lba-=hi->ptspos[quad];
-      
+
                mbr->MBR_Table[ii].PTE_LBAStart = lba;
             }
          }
       ii = hlp_diskwrite(disk, hi->ptspos[quad], 1, mbr)?0:DPTE_ERRWRITE;
-      log_it(2,"flush pt: %X, quad %d, sector %08X, rc %d\n", disk, quad, 
+      log_it(2,"flush pt: %X, quad %d, sector %08X, rc %d\n", disk, quad,
          hi->ptspos[quad], ii);
       return ii;
    }
@@ -402,8 +412,8 @@ u32t _std pt_action(u32t action, u32t disk, u32t index, u32t arg) {
    /* function exits here if GPT index specified, but allow
       mixed partition processing */
    if ((action&ACTION_DIRECT)!=0 && hi->pt_size<=index ||
-       (action&ACTION_DIRECT)==0 && hi->pt_view<=index) 
-      return DPTE_PINDEX; 
+       (action&ACTION_DIRECT)==0 && hi->pt_view<=index)
+      return DPTE_PINDEX;
    else {
       struct MBR_Record *rec;
       char        mbr_buffer[MAX_SECTOR_SIZE];
@@ -479,7 +489,7 @@ u32t _std dsk_setpttype(u32t disk, u32t index, u8t type) {
    return pt_action(ACTION_SETTYPE, disk, index, type);
 }
 
-u32t _std dsk_mountvol(u8t *vol, u32t disk, u32t index) {
+u32t _std vol_mount(u8t *vol, u32t disk, u32t index) {
    hdd_info *hi = get_by_disk(disk);
    if (!hi) return DPTE_INVDISK;
    if (!vol || *vol==DISK_LDR || *vol>=DISK_COUNT) return DPTE_INVARGS; else {
@@ -494,7 +504,7 @@ u32t _std dsk_mountvol(u8t *vol, u32t disk, u32t index) {
       if (size>=_4GBLL) return DPTE_LARGE;
       // check - is it mounted already?
       for (ii=0; ii<DISK_COUNT; ii++)
-         if ((u32t)dsk_volindex(ii, &mdsk)==index)
+         if ((u32t)vol_index(ii, &mdsk)==index)
             if (mdsk==disk) {
                *vol = ii;
                return DPTE_MOUNTED;
@@ -521,20 +531,6 @@ long _std dsk_partcnt(u32t disk) {
    dsk_ptrescan(disk,0);
    if (hi->scan_rc) return -1;
    return hi->gpt_view;
-}
-
-u32t _std dsk_unmountall(u32t disk) {
-   hdd_info *hi = get_by_disk(disk);
-   if (!hi) return 0; else {
-      u32t umcnt=0, ii;
-      // unmount volumes
-      for (ii=2; ii<DISK_COUNT; ii++) {
-         disk_volume_data vi;
-         hlp_volinfo(ii,&vi);
-         if (vi.Disk==disk) { hlp_unmountvol(ii); umcnt++; }
-      }
-      return umcnt;
-   }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -571,7 +567,7 @@ int _std dsk_strtoguid(const char *str, void *guid) {
    while (*str==' ' || *str=='\t') str++;
 
    if (strlen(str)<36) return 0; else
-   if (str[8]!='-' || str[13]!='-' || str[18]!='-' || str[23]!='-') return 0; else 
+   if (str[8]!='-' || str[13]!='-' || str[18]!='-' || str[23]!='-') return 0; else
    {
       _guidrec *gi = (_guidrec*)guid;
       char     *ep;
@@ -616,7 +612,7 @@ void _std dsk_makeguid(void *guid) {
     not 2 for it.
 
     @return -1 on invalid disk number/partition index, 0 for MBR disk/partition,
-       1 for GPT, >1 if disk have hybrid partition table (both GPT and MBR) or 
+       1 for GPT, >1 if disk have hybrid partition table (both GPT and MBR) or
        partition is hybrid (located both un MBR and GPT) */
 int   _std dsk_isgpt(u32t disk, long index) {
    hdd_info *hi = get_by_disk(disk);
@@ -660,7 +656,7 @@ u32t  _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
          u32t *pos = memchrd(hi->gpt_index, index, hi->gpt_size);
 
          if (!pos) {
-            memset(pinfo, 0, sizeof(dsk_gptpartinfo)); 
+            memset(pinfo, 0, sizeof(dsk_gptpartinfo));
             return DPTE_PINDEX;
          } else {
             struct GPT_Record  *pte = hi->ptg + (pos - hi->gpt_index);
@@ -671,7 +667,7 @@ u32t  _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
             pinfo->StartSector = pte->PTG_FirstSec;
             pinfo->Length      = pte->PTG_LastSec - pte->PTG_FirstSec + 1;
             pinfo->Attr        = pte->PTG_Attrs;
-         } 
+         }
       }
       return 0;
    }
@@ -684,7 +680,7 @@ u32t  _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
 u32t  _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo) {
    hdd_info *hi = get_by_disk(disk);
 
-   if (!hi) return DPTE_INVDISK; else 
+   if (!hi) return DPTE_INVDISK; else
    if (!dinfo) return DPTE_INVARGS; else {
       // this call scan disk if required
       int type = dsk_isgpt(disk, -1);
@@ -725,6 +721,14 @@ static void cache_load(void) {
    fp_hlp_cacheprio = (t_hlp_cacheprio)mod_getfuncptr(cachedll_mod, ORD_CACHE_hlp_cachepriority);
    fp_hlp_cachesize = (t_hlp_cachesize)mod_getfuncptr(cachedll_mod, ORD_CACHE_hlp_cachesize);
    fp_shl_cache     = (cmd_eproc)      mod_getfuncptr(cachedll_mod, ORD_CACHE_shl_cache);
+}
+
+int cplib_present(void) {
+   if (mod_query(MODNAME_CPLIB, MODQ_LOADED|MODQ_NOINCR)) return 1;
+   // load it by direct shell command
+   cmd_shellcall(shl_loadmod,"/q " MODNAME_CPLIB,0);
+   // query again
+   return mod_query(MODNAME_CPLIB, MODQ_LOADED|MODQ_NOINCR)?1:0;
 }
 
 void cache_unload(void) {

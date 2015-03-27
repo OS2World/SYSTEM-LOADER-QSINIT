@@ -1,0 +1,9 @@
+type = dll
+name = "CPLIB"
+
+exports = {
+   _towupper         = { index =  1   group = "clib"   format="CC"    }
+   _towlower         = { index =  2   group = "clib"   format="CC"    }
+
+   _shl_chcp         = { index = 10   group = "shell"  format="usp"   }
+}

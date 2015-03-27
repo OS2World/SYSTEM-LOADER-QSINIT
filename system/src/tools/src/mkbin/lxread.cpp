@@ -16,6 +16,9 @@
 // times slower on stack segment!).
 // Non-zero based FLAT was a previous QSINIT memory model.
 //
+// Another way to use this binary - creating 32 bit part of mixed 32/64
+// EFI executable (launching 32-bit QSINIT on 64-bit EFI host).
+//
 
 #include "qslxfmt.h"
 #include "qsbinfmt.h"
@@ -220,7 +223,7 @@ void read_object(MKBIN_HEADER &bh, int obj, u32t offset, int savebss, u8t *desta
                }
                case NRSOFF32: 
                   /* apply fixups between 32-bit objects, but save one for
-                     fixup to from 32 to 16 */
+                     fixup from 32 to 16 */
                   if (is16) FIXUP_ERR("relative 32-bit fixup in RM object!"); else {
                      if (fsel==FXSEL16) {
                         relr_info rel;

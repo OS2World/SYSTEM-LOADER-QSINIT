@@ -72,7 +72,7 @@ public:
              TScrollBar *aVScrollBar,
              size_t aBufSize
             );
-   ~TTerminal();
+   virtual void shutDown();
 
    uchar (*getLineColor)(const char *s);
 
@@ -84,7 +84,6 @@ public:
    size_t nextLine(size_t pos);
    size_t TV_CDECL prevLines(size_t pos, int lines);
    Boolean queEmpty();
-
 protected:
 
    size_t bufSize;

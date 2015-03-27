@@ -34,6 +34,7 @@ struct cl_header {
 
 void exi_registerstd(void);
 void register_lists(void);
+extern "C" void register_bitmaps(void);
 
 /*  create struct:
     ------------ private part -----------
@@ -80,7 +81,7 @@ void* _std exi_createid(u32t classid) {
       funcs[ii] = (u32t)thc;
    }
    // constructor
-   if (ref->init) ref->init((void*)dataptr);
+   if (ref->init) ref->init(funcs,(void*)dataptr);
    return funcs;
 }
 
@@ -100,7 +101,7 @@ void _std exi_free(void *instance) {
    ch->sign = 0;
    // call destructor
    cl_ref *ref = refs->Objects(ch->classid-1);
-   if (ref->done) ref->done((u8t*)(instance)+sizeof(void*)*ref->fncount);
+   if (ref->done) ref->done(instance,(u8t*)(instance)+sizeof(void*)*ref->fncount);
    // free object
    free(ch);
 }
@@ -161,6 +162,7 @@ void exi_registerstd(void) {
    if (refs) return;
    refs = new TRefList;
    register_lists();
+   register_bitmaps();
 
    spstr prereg = refs->GetTextToStr(",");
    if (prereg.lastchar()==',') prereg.dellast();

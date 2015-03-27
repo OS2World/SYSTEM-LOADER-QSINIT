@@ -1,7 +1,10 @@
 #include "qstypes.h"
 #include "qsutil.h"
 #include "qsint.h"
+#include "clib.h"
 #include "vio.h"
+
+#define TEXTMEM_SEG  0xB800
 
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
@@ -48,6 +51,15 @@ void _std vio_resetmode(void) {
    vio_defshape(VIO_SHAPE_LINE);
 }
 
+/* this is stub, it will be replaced by CONSOLE.DLL on loading to allow
+   virtual console modes */
+int _std vio_setmodeex(u32t cols, u32t lines) {
+   if (cols!=80) return 0;
+   if (lines!=25 && lines!=43 && lines!=50) return 0;
+   vio_setmode(lines);
+   return 1;
+}
+
 extern u16t max_x,max_y;
 extern u16t IODelay;
 extern u32t NextBeepEnd;
@@ -79,6 +91,26 @@ u8t  _std vio_getmode(u32t *cols, u32t *lines) {
    u8t rc=rmcall(istextmode,0);
    vio_getmodefast(cols,lines);
    return rc;
+}
+
+// jumped here from vio_writebuf/vio_readbuf, so order of args is constant!
+void _std vio_bufcommon(int toscr, u32t col, u32t line, u32t width,
+   u32t height, void *buf, u32t pitch)
+{
+   u32t cols, lines;
+   vio_getmodefast(&cols,&lines);
+   if (line>=lines||col>=cols) return;
+   if (!pitch) pitch = width*2;
+   if (col+width  > cols ) width  = cols - col;
+   if (line+height> lines) height = lines- line;
+   if (width && height) {
+      u8t *bptr = (u8t*)buf,
+          *bscr = (u8t*)hlp_segtoflat(TEXTMEM_SEG) + (line*cols + col)*2;
+      for (;height>0;height--) {
+         memcpy(toscr?bscr:bptr,toscr?bptr:bscr,width*2);
+         bscr+=cols*2; bptr+=pitch;
+      }
+   }
 }
 
 void _std tm_calibrate(void) {

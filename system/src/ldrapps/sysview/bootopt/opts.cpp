@@ -1,6 +1,7 @@
 #define Uses_TProgram
 #define Uses_TApplication
 #include <tv.h>
+#include <errno.h>
 
 #ifdef __QSINIT__
 #include "qsshell.h"
@@ -156,12 +157,9 @@ u32t opts_mtrrquery(u32t *flags, u32t *state, u32t *addrbits) {
 }
 
 static u32t opts_memio(u64t pos, void *data, int write) {
-   char  *map = 0,
-        *addr = (char*)(map?map:(void*)pos) + hlp_segtoflat(0);
    if (pos>=sys_endofram()) {
-      u64t spos = pos&~(u64t)PAGEMASK;
-
-      if (spos>=_4GBLL) {
+      // warn about PAE mode
+      if (pos>=_4GBLL && !sys_is64mode()) {
          if (!sys_pagemode()) {
             static int askonce = 0;
             if (askonce) return 0; else {
@@ -170,16 +168,11 @@ static u32t opts_memio(u64t pos, void *data, int write) {
             }
          }
       }
-   
-      map  = (char*)pag_physmap(spos, PAGESIZE, 0);
-      addr = map + (pos - spos);
-   } else
-      addr = (char*)pos + hlp_segtoflat(0);
-
-   data = hlp_memcpy(write?addr:data, write?data:addr, 256, 1);
-
-   if (map) pag_physunmap(map);
-   return data?1:0;
+      return sys_memhicopy(write?pos:(u32t)data, write?(u32t)data:pos, 256);
+   } else {
+      void *addr = (char*)pos + hlp_segtoflat(0);
+      return hlp_memcpy(write?addr:data, write?data:addr, 256, 1);
+   }
 }
 
 u32t opts_memread(u64t pos, void *data) {
@@ -188,6 +181,20 @@ u32t opts_memread(u64t pos, void *data) {
 
 u32t opts_memwrite(u64t pos, void *data) {
    return opts_memio(pos, data, 1);
+}
+
+void* opts_freadfull(const char *name, unsigned long *bufsize, int *reterr) {
+   void *rc = freadfull(name, bufsize);
+   if (reterr) *reterr = rc?0:errno;
+   return rc;
+}
+
+void* opts_sysalloc(unsigned long size) {
+   return hlp_memallocsig(size, "SYSV", QSMA_RETERR|QSMA_NOCLEAR);
+}
+
+void opts_sysfree(void *ptr) {
+   hlp_memfree(ptr);
 }
 
 #else
@@ -259,7 +266,7 @@ unsigned long __bcmp(const void *s1, const void *s2, unsigned long length) {
    return 0;
 }
 
-#define test_log_len 60000
+#define test_log_len 250000
 
 char *opts_getlog(int time, int dostext) {
    char *log = (char*)malloc(test_log_len);
@@ -329,6 +336,41 @@ unsigned long opts_memread(u64t pos, void *data) {
 
 unsigned long opts_memwrite(u64t pos, void *data) {
    return 1;
+}
+
+void* opts_freadfull(const char *name, unsigned long *bufsize, int *reterr) {
+   if (!bufsize || !name) return 0;
+   FILE *ff = fopen(name, "rb");
+   *bufsize = 0;
+   if (!ff) {
+      if (reterr) *reterr = errno;
+      return 0;
+   } else {
+     unsigned long sz = fsize(ff);
+     void *rc = 0;
+     if (reterr) *reterr = 0;
+     if (sz) {
+        rc = malloc(sz);
+        if (!rc) {
+           if (reterr) *reterr = ENOMEM;
+        } else
+        if (fread(rc,1,sz,ff)!=sz) {
+           free(rc); rc=0;
+           if (reterr) *reterr = EIO;
+        } else
+           *bufsize = sz;
+     }
+     fclose(ff);
+     return rc;
+   }
+}
+
+void* opts_sysalloc(unsigned long size) {
+   return malloc(size);
+}
+
+void opts_sysfree(void *ptr) {
+   free(ptr);
 }
 
 #endif

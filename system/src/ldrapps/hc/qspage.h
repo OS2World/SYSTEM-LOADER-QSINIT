@@ -35,8 +35,10 @@ u32t  _std pag_physunmap(void *address);
 
 /** Turn on PAE paging mode.
     Operation is not reversable. Use sys_pagemode() to query current mode.
-    @return 0 on success, else error code: ENODEV - no PAE on this CPU,
-     EEXIST - mode already on */
+    @retval 0        on success
+    @retval ENODEV   no PAE on this CPU
+    @retval EEXIST   mode already on
+    @retval ENOSYS   this is EFI host and EFI`s 64-bit paging active */
 int   _std pag_enable(void);
 
 /// Print all active page tables to log (VERY long dump).

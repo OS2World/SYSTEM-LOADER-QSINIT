@@ -53,7 +53,7 @@ $(hd4disk)\switch.asm
 ..\doshlp\inc\ldrparam.inc ..\..\hc\inc\ioint13.inc
 ..\..\hc\inc\serial.inc ..\..\hc\inc\qsconst.inc
 ..\..\hc\inc\pagedesc.inc ..\doshlp\inc\vesainfo.inc
-..\..\hc\inc\parttab.inc
+..\..\hc\inc\parttab.inc ..\..\init\inc\qsinit.inc
 
 [make_footer]
 MAKEDIRS : $(bld_dir).dir $(outdir).dir

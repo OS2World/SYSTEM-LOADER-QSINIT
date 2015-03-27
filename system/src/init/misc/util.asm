@@ -7,20 +7,37 @@
                 include inc/seldesc.inc
                 include inc/qstypes.inc
                 include inc/serial.inc
-                include inc/debug.inc
                 include inc/dpmi.inc
                 include inc/vbedata.inc
                 include inc/cpudef.inc
+                include inc/lowports.inc
 
-                extrn   _syscr3  :dword                         ;
-                extrn   _syscr4  :dword                         ;
-                extrn   _systr   :word                          ;
-                extrn   _IODelay :word                          ;
-                extrn   _pinfo_gs:word                          ; process context
+                extrn   _IODelay   :word                        ;
+                extrn   _gdt_lowest:word                        ; lowest usable selector
+                extrn   _page0_fptr:dword                       ;
+ifndef EFI_BUILD
+                extrn   _syscr3    :dword                       ;
+                extrn   _syscr4    :dword                       ;
+                extrn   _systr     :word                        ;
+else
+                extrn   setseldesc :near                        ;
+                extrn   getseldesc :near                        ;
+                extrn   selfree    :near                        ;
+endif
+                extrn   _vio_bufcommon:near                     ;
 
 _DATA           segment                                         ;
 cpuid_supported db      0                                       ;
 msr_supported   db      2                                       ; bit 2 = init me
+ifdef EFI_BUILD
+                public  _syscr3, _syscr4, _systr                ;
+_syscr3         dd      0                                       ;
+_syscr4         dd      0                                       ;
+_systr          dw      0                                       ;
+else
+                public  _pbin_header                            ;
+_pbin_header    dd      0                                       ;
+endif
 _DATA           ends                                            ;
 
 _TEXT           segment
@@ -100,6 +117,37 @@ _memsetd        proc    near                                    ;
 _memsetd        endp
 
 ;----------------------------------------------------------------
+;u64t* __stdcall memsetq (u64t *dst, u64t value, u32t length);
+                public  _memsetq                                ;
+_memsetq        proc    near                                    ;
+@@dst           =  4                                            ;
+@@char          =  8                                            ;
+@@length        = 16                                            ;
+                mov     ecx, [esp+@@length]                     ;
+                push    edi                                     ;
+                jecxz   @@setqq                                 ;
+                mov     edi, [esp+4+@@dst]                      ;
+                mov     eax, [esp+4+@@char]                     ;
+                mov     edx, [esp+4+@@char+4]                   ;
+                cld                                             ;
+                cmp     eax, edx                                ;
+                jz      @@setq1                                 ;
+@@setq0:
+                stosd                                           ;
+                mov     [edi], edx                              ;
+                inc     edi                                     ;
+                loop    @@setq0                                 ;
+                jmp     @@setqq                                 ;
+@@setq1:
+                shl     ecx,1                                   ; # of dq-># of dd
+            rep stosd                                           ;
+@@setqq:
+                pop     edi                                     ;
+                mov     eax, [esp+@@dst]                        ;
+                ret     16                                      ;
+_memsetq        endp
+
+;----------------------------------------------------------------
 ;void* __stdcall memcpy(void *dst, void *src, u32t length);
                 public  _memcpy                                 ;
 _memcpy         proc    near                                    ;
@@ -144,7 +192,10 @@ _memmove        proc    near                                    ;
                 test    ecx,ecx                                 ;
                 jz      @@move0                                 ;
                 cmp     esi,edi                                 ;
-                jae     @@move_forward                          ;
+                jnc     @@move_forward                          ;
+                lea     eax,[esi+ecx]                           ;
+                cmp     edi,eax                                 ;
+                jnc     @@move_forward                          ;
                 std                                             ; move backward
                 add     esi, ecx                                ;
                 add     edi, ecx                                ;
@@ -152,13 +203,13 @@ _memmove        proc    near                                    ;
                 and     ecx, 3                                  ;
                 dec     esi                                     ;
                 dec     edi                                     ;
-                rep     movsb                                   ;
+            rep movsb                                           ;
                 mov     ecx, eax                                ;
                 shr     ecx, 2                                  ;
                 jz      @@move0                                 ;
                 sub     esi, 3                                  ;
                 sub     edi, 3                                  ;
-                rep     movsd                                   ;
+            rep movsd                                           ;
                 jmp     @@move0                                 ;
 @@move_forward:
                 cld                                             ; move forward
@@ -173,9 +224,9 @@ _memmove        proc    near                                    ;
                 mov     eax, ecx                                ;
                 shr     ecx, 2                                  ;
                 and     al, 3                                   ;
-                rep     movsd                                   ;
+            rep movsd                                           ;
                 mov     cl, al                                  ;
-                rep     movsb                                   ;
+            rep movsb                                           ;
 @@move0:
                 pop     edi                                     ;
                 pop     esi                                     ;
@@ -266,13 +317,16 @@ _strnicmp       endp                                            ;
 _strlen         proc near
 @@str         =  4                                              ;
                 push    edi                                     ;
-                mov     edi,dword ptr [esp+4+@@str]             ;
                 xor     ecx,ecx                                 ;
+                xor     edi,edi                                 ; avoid supplied
+                or      edi,dword ptr [esp+4+@@str]             ; NULL (return 0)
+                jz      @@strlen_null                           ;
                 dec     ecx                                     ;
                 xor     al, al                                  ;
           repne scasb                                           ;
                 not     ecx                                     ;
                 dec     ecx                                     ;
+@@strlen_null:
                 mov     eax,ecx                                 ;
                 pop     edi                                     ;
                 ret     4                                       ;
@@ -318,9 +372,9 @@ _strncpy        proc near
                 loopne  @@loop                                  ;
                 xor     eax,eax                                 ;
                 shr     ecx,1                                   ;
-                rep     stosw                                   ;
+            rep stosw                                           ;
                 adc     cx,cx                                   ;
-                rep     stosb                                   ;
+            rep stosb                                           ;
                 pop     edi                                     ;
                 mov     eax, [esp+4+@@str1]                     ;
                 pop     esi                                     ;
@@ -359,7 +413,7 @@ _memchr         proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repne   scasb                                   ;
+          repne scasb                                           ;
                 mov     eax,ecx                                 ;
                 jnz     @@bye0                                  ;
                 lea     eax,[edi-1]                             ;
@@ -379,7 +433,7 @@ _memchrnb       proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repe    scasb                                   ;
+           repe scasb                                           ;
                 mov     eax,ecx                                 ;
                 jz      @@bye1                                  ;
                 lea     eax,[edi-1]                             ;
@@ -399,7 +453,7 @@ _memchrw        proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repne   scasw                                   ;
+          repne scasw                                           ;
                 mov     eax,ecx                                 ;
                 jnz     @@bye2                                  ;
                 lea     eax,[edi-2]                             ;
@@ -419,7 +473,7 @@ _memchrnw       proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repe    scasw                                   ;
+           repe scasw                                           ;
                 mov     eax,ecx                                 ;
                 jz      @@bye3                                  ;
                 lea     eax,[edi-2]                             ;
@@ -439,7 +493,7 @@ _memchrd        proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repne   scasd                                   ;
+          repne scasd                                           ;
                 mov     eax,ecx                                 ;
                 jnz     @@bye4                                  ;
                 lea     eax,[edi-4]                             ;
@@ -459,7 +513,7 @@ _memchrnd       proc    near
                 mov     edi,[esp+4+@@mem]                       ;
                 mov     eax,[esp+4+@@chr]                       ;
                 mov     ecx,[esp+4+@@buflen]                    ;
-                repe    scasd                                   ;
+           repe scasd                                           ;
                 mov     eax,ecx                                 ;
                 jz      @@bye5                                  ;
                 lea     eax,[edi-4]                             ;
@@ -467,6 +521,78 @@ _memchrnd       proc    near
                 pop     edi                                     ;
                 ret     12                                      ;
 _memchrnd       endp                                            ;
+
+;----------------------------------------------------------------
+;u64t* __stdcall memchrq(u64t*mem, u64t chr, u32t buflen);
+                public  _memchrq
+_memchrq        proc    near
+@@mem           =  4                                            ;
+@@chr           =  8                                            ;
+@@buflen        = 16                                            ;
+                push    ebx                                     ;
+                push    esi                                     ;
+                push    edi                                     ;
+                mov     esi,[esp+12+@@mem]                      ;
+                mov     edx,[esp+12+@@chr]                      ;
+                mov     edi,[esp+12+@@chr+4]                    ;
+                mov     ecx,[esp+12+@@buflen]                   ;
+                cld                                             ;
+@@mchq_loop:
+                dec     ecx                                     ;
+                js      @@mchq_notfound                         ;
+                lodsd                                           ;
+                mov     ebx,eax                                 ;
+                lodsd                                           ;
+                cmp     ebx,edx                                 ;
+                jnz     @@mchq_loop                             ;
+                cmp     eax,edi                                 ;
+                jnz     @@mchq_loop                             ;
+                lea     eax,[esi-8]                             ;
+@@mchq_exit:
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     16                                      ;
+@@mchq_notfound:
+                xor     eax,eax                                 ;
+                jmp     @@mchq_exit                             ;
+_memchrq        endp                                            ;
+
+;----------------------------------------------------------------
+;u64t* __stdcall memchrnq(u64t*mem, u64t chr, u32t buflen);
+                public  _memchrnq
+_memchrnq       proc    near
+@@mem           =  4                                            ;
+@@chr           =  8                                            ;
+@@buflen        = 16                                            ;
+                push    ebx                                     ;
+                push    esi                                     ;
+                push    edi                                     ;
+                mov     esi,[esp+12+@@mem]                      ;
+                mov     edx,[esp+12+@@chr]                      ;
+                mov     edi,[esp+12+@@chr+4]                    ;
+                mov     ecx,[esp+12+@@buflen]                   ;
+                cld                                             ;
+@@mchnq_loop:
+                dec     ecx                                     ;
+                js      @@mchnq_notfound                        ;
+                lodsd                                           ;
+                mov     ebx,eax                                 ;
+                lodsd                                           ;
+                cmp     ebx,edx                                 ;
+                jz      @@mchnq_loop                            ;
+                cmp     eax,edi                                 ;
+                jz      @@mchnq_loop                            ;
+                lea     eax,[esi-8]                             ;
+@@mchnq_exit:
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     16                                      ;
+@@mchnq_notfound:
+                xor     eax,eax                                 ;
+                jmp     @@mchnq_exit                            ;
+_memchrnq       endp                                            ;
 
 ;----------------------------------------------------------------
 ;u32t     __stdcall wcslen(const wchar_t *str);
@@ -486,6 +612,8 @@ _wcslen         proc near
                 ret     4                                       ;
 _wcslen         endp                                            ;
 
+ifndef EFI_BUILD
+; allocate selectors
 ;----------------------------------------------------------------
 ;u16t hlp_selalloc(u32t count);
                 public  _hlp_selalloc
@@ -500,6 +628,42 @@ _hlp_selalloc   proc    near
                 ret     4                                       ;
 _hlp_selalloc   endp                                            ;
 
+; get interrupt vector
+;----------------------------------------------------------------
+; void _std sys_getint(u8t vector, u64t *addr);
+                public  _sys_getint
+_sys_getint     proc    near
+                push    ebx                                     ;
+                mov     ax,0204h                                ;
+                mov     bl,[esp+8]                              ;
+                int     31h                                     ; get interrupt
+                mov     ebx,[esp+12]                            ;
+                movzx   ecx,cx                                  ;
+                mov     [ebx],edx                               ;
+                mov     [ebx+4],ecx                             ;
+                pop     ebx                                     ;
+                ret     8                                       ;
+_sys_getint     endp
+
+; set interrupt vector.
+;----------------------------------------------------------------
+; u32t _std sys_setint(u8t vector, u64t *addr);
+                public  _sys_setint
+_sys_setint     proc    near
+                mov     edx,[esp+8]                             ;
+                push    ebx                                     ;
+                mov     ax,0205h                                ;
+                mov     bl,[esp+8]                              ;
+                mov     cx,[edx+4]                              ;
+                mov     edx,[edx]                               ;
+                int     31h                                     ; set interrupt
+                setnc   al                                      ;
+                movzx   eax,al                                  ;
+                pop     ebx                                     ;
+                ret     8                                       ;
+_sys_setint     endp
+endif ; EFI_BUILD
+
 ;----------------------------------------------------------------
 ;u32t hlp_selfree(u32t selector);
                 public  _hlp_selfree
@@ -508,17 +672,20 @@ _hlp_selfree    proc    near
                 push    ebx                                     ;
                 mov     ebx,[esp+4+@@selector]                  ;
                 xor     eax,eax                                 ;
-                cmp     bx,SEL32DATA                            ; check for system
-                jbe     @@selfree_ok                            ; selector
+                cmp     bx,_gdt_lowest                          ; check for system
+                jc      @@selfree_ok                            ; selector
+ifdef EFI_BUILD
+                call    selfree                                 ;
+else
                 inc     eax                                     ;
                 int     31h                                     ; free it
+endif
                 sbb     eax,eax                                 ;
                 inc     eax                                     ; set bool rc
 @@selfree_ok:
                 pop     ebx                                     ;
                 ret     4                                       ;
 _hlp_selfree    endp                                            ;
-
 
 ;----------------------------------------------------------------
 ;u32t  hlp_selsetup(u16t selector, u32t base, u32t limit, u32 type);
@@ -534,8 +701,8 @@ _hlp_selsetup   proc    near
                 mov     esp,edi                                 ; in edi
                 mov     ebx,[esp+16+@@selector]                 ;
                 xor     eax,eax                                 ;
-                cmp     bx,SEL32DATA                            ; check for system
-                jbe     @@selsetup_ok                           ; selector
+                cmp     bx,_gdt_lowest                          ; check for system
+                jc      @@selsetup_ok                           ; selector
                 mov     edx,[esp+16+@@type]                     ;
                 shr     edx,1                                   ; code selector?
                 jc      @@selsetup_code                         ;
@@ -572,7 +739,6 @@ _hlp_selsetup   proc    near
                 and     al,0Fh                                  ;
                 or      al,cl                                   ;
                 mov     [edi].d_attr,al                         ;
-                mov     ax,0Ch                                  ; set code selector desc
 ;                push    eax                                     ; debug print
 ;                push    edx                                     ;
 ;                mov     eax,[edi]                               ;
@@ -580,9 +746,14 @@ _hlp_selsetup   proc    near
 ;                dbg32print <2>,<"sel %4X desc: %08X %08X",10>,<eax,edx,ebx>
 ;                pop     edx                                     ;
 ;                pop     eax                                     ;
+ifdef EFI_BUILD
+                call    setseldesc                              ;
+else
+                mov     ax,0Ch                                  ; set code selector desc
                 push    ds                                      ;
                 pop     es                                      ;
                 int     31h                                     ;
+endif
                 setnc   al                                      ;
                 movzx   eax,al                                  ;
 @@selsetup_ok:
@@ -595,7 +766,7 @@ _hlp_selsetup   endp
 
 ; u32t hlp_selbase(u32t Sel, u32t *Limit);
 ;----------------------------------------------------------------
-; signal error in 'C' flag as bonus (used in mod_context below)
+; signal error in 'C' flag as bonus
 ;
                 public  _hlp_selbase                            ;
 _hlp_selbase    proc    near                                    ;
@@ -609,8 +780,12 @@ _hlp_selbase    proc    near                                    ;
                 sub     esp,8                                   ; buffer for selector
                 mov     edi,esp                                 ; info
                 mov     bx,@@selq_sel                           ;
+ifdef EFI_BUILD
+                call    getseldesc
+else
                 mov     ax,000Bh                                ;
                 int     31h                                     ;
+endif
                 jc      @@selq_exit0                            ;
                 mov     eax,dword ptr [edi+desctab_s.d_loaddr-1]; calculate base address
                 mov     al,[edi+desctab_s.d_extaddr]            ;
@@ -631,6 +806,113 @@ _hlp_selbase    proc    near                                    ;
                 pop     esi                                     ;
                 ret     8                                       ;
 _hlp_selbase    endp                                            ;
+
+; set int state
+;----------------------------------------------------------------
+; int _std sys_intstate(int on);
+                public  _sys_intstate
+_sys_intstate   proc    near                                    ;
+                pushfd                                          ;
+                pop     eax                                     ;
+                shr     eax,9                                   ;
+                and     eax,1                                   ;
+                cmp     dword ptr [esp],0                       ;
+                jz      @@fxints_off                            ;
+                sti                                             ;
+                ret     4                                       ;
+@@fxints_off:
+                cli                                             ;
+                ret     4                                       ;
+_sys_intstate   endp                                            ;
+
+; set selector
+;----------------------------------------------------------------
+; int _std sys_seldesc(u16t sel, struct desctab_s *desc);
+                public  _sys_seldesc
+_sys_seldesc    proc    near                                    ;
+                push    ebx                                     ;
+                push    edi                                     ;
+                mov     ebx,[esp+12]                            ;
+                mov     edi,[esp+16]                            ;
+ifdef EFI_BUILD
+                call    setseldesc                              ;
+else
+                mov     ax,0Ch                                  ; set code selector desc
+                int     31h                                     ;
+endif
+                setnc   al                                      ;
+                movzx   eax,al                                  ;
+                pop     edi                                     ;
+                pop     ebx                                     ;
+                ret     8                                       ;
+_sys_seldesc    endp                                            ;
+
+; get selector
+;----------------------------------------------------------------
+; int _std sys_selquery(u16t sel, struct desctab_s *desc);
+                public  _sys_selquery
+_sys_selquery   proc    near                                    ;
+                push    ebx                                     ;
+                push    edi                                     ;
+                mov     ebx,[esp+12]                            ;
+                mov     edi,[esp+16]                            ;
+                push    esi                                     ;
+                and     ebx,0FFF8h                              ;
+                sub     esp,8                                   ;
+                sgdt    [esp]                                   ;
+                cmp     [esp].lidt_limit,bx                     ;
+                jc      @@selq_err                              ;
+                mov     esi,[esp].lidt_base                     ;
+                add     esi,ebx                                 ;
+                clc                                             ;
+                cld                                             ;
+                movsd                                           ;
+                movsd                                           ;
+@@selq_err:
+                setnc   al                                      ;
+                movzx   eax,al                                  ;
+                add     esp,8                                   ;
+                pop     esi                                     ;
+                pop     edi                                     ;
+                pop     ebx                                     ;
+                ret     8                                       ;
+_sys_selquery   endp
+
+; task gate interrupt
+;----------------------------------------------------------------
+; int _std sys_intgate(u8t vector, u16t sel);
+                public  _sys_intgate                            ;
+_sys_intgate    proc    near                                    ;
+ifdef EFI_BUILD
+                xor     eax,eax                                 ;
+else
+                push    ebx                                     ;
+                push    edi                                     ;
+                pushfd                                          ;
+                cli                                             ;
+
+                movzx   ebx,byte ptr [esp+16]                   ; vector
+                mov     cx,[esp+20]                             ; tss sel
+                shl     ebx,3                                   ;
+                sub     esp,8                                   ;
+                sidt    [esp]                                   ;
+                mov     edi,[esp].lidt_base                     ;
+                add     esp,8                                   ;
+                shl     ecx,16                                  ;
+                mov     [edi+ebx].g_handler,ecx                 ;
+                mov     [edi+ebx].g_access,D_TASK0              ;
+                xor     eax,eax                                 ;
+                mov     [edi+ebx].g_parms,al                    ;
+                mov     [edi+ebx].g_extoffset,ax                ;
+
+                popfd                                           ;
+                pop     edi                                     ;
+                pop     ebx                                     ;
+                inc     eax                                     ;
+endif
+                ret     8                                       ;
+_sys_intgate    endp
+
 
 ;----------------------------------------------------------------
 ;u32t launch32(module *md,u32t env,u32t cmdline);
@@ -669,20 +951,21 @@ _launch32       proc    near
                 xor     ebp,ebp                                 ;
                 xor     ecx,ecx                                 ;
                 xor     edx,edx                                 ;
-
-                mov     gs,_pinfo_gs                            ; process context
+                mov     fs,cx                                   ;
+                mov     gs,cx                                   ;
 
                 call    [esp+16]                                ; exec module
                 add     esp,20                                  ;
                 pop     esp                                     ; cleanup after exit
-                push    SEL32DATA                               ;
-                mov     es,[esp]                                ;
-                pop     ds                                      ;
+                mov     cx,cs                                   ;
+                add     cx,SEL_INCR                             ; restore ds/es
+                mov     es,cx                                   ;
+                mov     ds,cx                                   ;
                 cld                                             ;
                 sti                                             ;
-                xor     cx,cx                                   ;
+                xor     cx,cx                                   ; reset fs/gs
                 mov     fs,cx                                   ;
-                mov     gs,_pinfo_gs                            ;
+                mov     gs,cx                                   ;
 
                 pop     ebp                                     ;
                 pop     edi                                     ;
@@ -690,6 +973,7 @@ _launch32       proc    near
                 pop     ebx                                     ;
                 ret     12                                      ;
 _launch32       endp
+
 
 ;----------------------------------------------------------------
 ;u32t dll32init(module *md, u32t term);
@@ -717,19 +1001,20 @@ _dll32init      proc    near
                 xor     ebp,ebp                                 ;
                 xor     esi,esi                                 ;
                 xor     edx,edx                                 ;
-
-                mov     gs,_pinfo_gs                            ;
+                mov     fs,cx                                   ;
+                mov     gs,cx                                   ;
 
                 call    [esp+8]                                 ; exec module
                 add     esp,12                                  ;
-                push    SEL32DATA                               ;
-                mov     es,[esp]                                ;
-                pop     ds                                      ;
+                mov     cx,cs                                   ;
+                add     cx,SEL_INCR                             ; restore ds/es
+                mov     es,cx                                   ;
+                mov     ds,cx                                   ;
                 cld                                             ;
                 sti                                             ;
-                xor     cx,cx                                   ;
+                xor     cx,cx                                   ; reset fs/gs
                 mov     fs,cx                                   ;
-                mov     gs,_pinfo_gs                            ;
+                mov     gs,cx                                   ;
 
                 pop     ebp
                 pop     edi
@@ -761,28 +1046,6 @@ _usleep         proc    near
                 pop     edx                                     ;
                 ret     4                                       ;
 _usleep         endp
-
-;----------------------------------------------------------------
-; process_context* _std mod_context(void);
-                public  _mod_context                            ;
-_mod_context    proc    near                                    ;
-                sub     esp,4                                   ; limit buffer
-                push    esp                                     ;
-                push    gs                                      ;
-                call    _hlp_selbase                            ;
-                pop     ecx                                     ;
-                jc      @@mdqctx_error                          ; no selector
-                cmp     ecx,3                                   ; limit <3?
-                jc      @@mdqctx_error                          ;
-                inc     ecx                                     ;
-;                add     eax,_ZeroAddress                        ;
-                cmp     ecx,[eax]                               ; limit must be equal
-                jnz     @@mdqctx_error                          ; to size field
-                ret                                             ;
-@@mdqctx_error:
-                xor     eax,eax                                 ;
-                ret                                             ;
-_mod_context    endp
 
 ;----------------------------------------------------------------
 ; int __stdcall _setjmp(jmp_buf env);
@@ -1052,6 +1315,90 @@ _sys_settr      proc    near                                    ;
                 popfd                                           ;
                 ret     4                                       ;
 _sys_settr      endp
+
+;----------------------------------------------------------------
+;u32t _std hlp_hosttype(void);
+                public  _hlp_hosttype
+_hlp_hosttype   proc    near                                    ;
+                xor     eax,eax                                 ;
+ifdef EFI_BUILD
+                inc     eax                                     ;
+endif
+                ret                                             ;
+_hlp_hosttype   endp                                            ;
+
+;----------------------------------------------------------------
+; call64() stub for BIOS build
+; return -1LL (as wrong index in real EFi call)
+ifndef EFI_BUILD
+                public  _call64
+_call64         proc    near                                    ;
+                xor     eax,eax                                 ;
+                dec     eax                                     ;
+                mov     edx,eax                                 ;
+                ret                                             ;
+_call64         endp                                            ;
+
+                public  _sys_setxcpt64                          ;
+_sys_setxcpt64  proc    near                                    ;
+                xor     eax,eax                                 ;
+                ret                                             ;
+_sys_setxcpt64  endp                                            ;
+endif
+
+;----------------------------------------------------------------
+;void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
+                public  _vio_writebuf
+_vio_writebuf   proc    near                                    ;
+                pop     eax                                     ;
+                push    1                                       ;
+                push    eax                                     ;
+                jmp     _vio_bufcommon                          ;
+_vio_writebuf   endp                                            ;
+
+;----------------------------------------------------------------
+;void _std vio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
+                public  _vio_readbuf
+_vio_readbuf    proc    near                                    ;
+                pop     eax                                     ;
+                push    0                                       ;
+                push    eax                                     ;
+                jmp     _vio_bufcommon                          ;
+_vio_readbuf    endp                                            ;
+
+;----------------------------------------------------------------
+ifndef EFI_BUILD
+                public  _make_reboot
+_make_reboot    proc    near                                    ;
+@@reboot_warm   =  4                                            ;
+                cli                                             ;
+                xor     eax,eax                                 ;
+                or      eax,[esp+@@reboot_warm]                 ;
+                jz      @@reboot_cold                           ;
+                mov     ax,1234h                                ;
+@@reboot_cold:
+                lgs     ecx,_page0_fptr                         ; magic value for reboot...
+                mov     word ptr gs:[ecx+472h],ax               ;
+@@reboot_start:
+                mov     al,0FEh                                 ;
+                out     KBD_STATUS_PORT,al                      ; clear reboot bit in kbd
+                mov     ecx,5000h                               ; wait a bit
+@@reboot_delay:
+                loop    @@reboot_delay                          ;
+                xor     eax,eax                                 ;
+                mov     ecx,20*size gate_s                      ;
+                sub     esp,8                                   ;
+                sidt    [esp]                                   ;
+                mov     edi,[esp].lidt_base                     ;
+                add     esp,8                                   ; invalidate exception handlers
+                cld                                             ;
+            rep stosb                                           ;
+                mov     ds,ax                                   ; produce triple exception ;)
+                mov     [edi],al                                ;
+                hlt                                             ; hlt and try again ;)
+                jmp     @@reboot_start                          ;
+_make_reboot    endp
+endif
 
 _TEXT           ends
                 end

@@ -9,7 +9,7 @@ set m7 = Type \"help\" in shell to help on commands.
 set m8 =
 set m9 =
 set errorlevel = %lines%
-if not errorlevel 26 goto m80x25
+if not errorlevel 28 goto m80x25
 set m8 = ^^Press Backspace or ESC to go back through menus.^^
 set m9 = Press Up/Down in shell to select command from history.
 :m80x25

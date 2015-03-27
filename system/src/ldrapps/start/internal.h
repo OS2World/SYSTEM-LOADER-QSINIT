@@ -5,10 +5,12 @@
 #ifndef QSINIT_STINTERNAL
 #define QSINIT_STINTERNAL
 
+#include "stdlib.h"
 #define MODULE_INTERNAL
 #include "qsmod.h"
 #include "qs_rt.h"
 #include "direct.h"
+#include "vioext.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +43,14 @@ void  set_errno(int errno);
 int   get_errno(void);
 // set errno from FatFs lib error code
 void  set_errno2(int ffliberr);
+// direct using of std* handles in START is not supported too
+FILE* get_stdout(void);
+
+/** global printed lines counter.
+    Used for pause message calculation, updated by common vio functions and
+    CONSOLE (in virtual modes) */
+extern u32t vio_ttylines;
+#pragma aux vio_ttylines "_*";
 
 // free pushd stack
 void  pushd_free(void* ptr); 
@@ -80,14 +90,23 @@ extern u8t  in_pagemode;
 /// disable task gate usage for exceptions
 extern u32t   no_tgates;
 
-/// address of phys 0
-extern u32t ZeroAddress;
-
 /// init new process std i/o handles
-void init_stdio(process_context *pq);
+void  init_stdio(process_context *pq);
 
 /// push len bytes from str to log
-int  log_pushb(int level, const char *str, int len);
+int   log_pushb(int level, const char *str, int len);
+
+/// vio_strout with ansi filtering
+void  ansi_strout(char *str);
+
+u32t  getcr0(void);
+u32t  getcr3(void);
+u32t  getcr4(void);
+#ifdef __WATCOMC__
+#pragma aux getcr0 = "mov eax,cr0";
+#pragma aux getcr3 = "mov eax,cr3";
+#pragma aux getcr4 = "mov eax,cr4";
+#endif
 
 #ifdef __cplusplus
 }
@@ -96,6 +115,11 @@ u32t  shl_extcall(spstr &cmd, TStrings &plist);
 
 /// change file ext
 spstr changeext(const spstr &src, const spstr &newext);
+
+/** make full path.
+    @param path         Path to expand.
+    @return success flag */
+int   fullpath(spstr &path);
 
 /** split file name to dir & name.
     @param [in]  fname  File name to split
@@ -116,8 +140,8 @@ void  splittext(const char *text, u32t width, TStrings &lst);
 int   ask_yn(int allow_all=0);
 
 /** search and load module.
-    @param [in]  name    Module path (name will be uppercased by function)
-    @param [out] error   Error code
+    @param [in]  name   Module path (name will be uppercased by function)
+    @param [out] error  Error code
     @return module handle or 0 on error */
 module* load_module(spstr &name, u32t *error);
 
@@ -127,9 +151,31 @@ module* load_module(spstr &name, u32t *error);
     @return string */
 spstr ecmd_readstr(const char *section, const char *key);
 
+/** read section from extcmd.ini.
+    @param       section   Section name
+    @param [out] lst       Section text
+    @return success flag (1/0), i.e. existence flag. */
+int   ecmd_readsec(spstr &section, TStrings &lst);
+
 /// get command list from extcmd.ini
 void  ecmd_commands(TStrings &rc);
 
+/// cpp version of cmd_initbatch() call
+cmd_state cmd_init2(TStrings &file, TStrings &args);
+
+/** DBCARD INI option parsing and execution.
+    @param setup        Setup string from INI or MODE CON command.
+    @param pfn          Printf function for messages (log_printf() or printf()). 
+    @return success flag (1/0) */
+int   shl_dbcard(const spstr &setup, int __cdecl (*pfn)(const char *fmt, ...));
+
+/// ansi state push/pop for cpp functions
+class ansi_push_set {
+   u32t state;
+public:
+   ansi_push_set(int newstate) { state = vio_setansi(newstate); }
+   ~ansi_push_set() { vio_setansi(state); }
+};
+
 #endif // __cplusplus
 #endif // QSINIT_STINTERNAL
-

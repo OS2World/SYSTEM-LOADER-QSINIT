@@ -439,6 +439,83 @@ _memrchrnd      proc    near
 _memrchrnd      endp                                            ;
 
 ;----------------------------------------------------------------
+;u64t* __stdcall memrchrq(u64t*mem, u64t chr, u32t buflen);
+                public  _memrchrq
+_memrchrq       proc    near
+@@mem           =  4                                            ;
+@@chr           =  8                                            ;
+@@buflen        = 16                                            ;
+                push    ebx                                     ;
+                push    esi                                     ;
+                push    edi                                     ;
+                mov     esi,[esp+12+@@mem]                      ;
+                mov     edx,[esp+12+@@chr]                      ;
+                mov     edi,[esp+12+@@chr+4]                    ;
+                mov     ecx,[esp+12+@@buflen]                   ;
+                pushf                                           ;
+                std                                             ;
+                lea     esi,[esi+ecx*8-4]                       ;
+@@mchq_loop:
+                dec     ecx                                     ;
+                js      @@mchq_notfound                         ;
+                lodsd                                           ;
+                mov     ebx,eax                                 ;
+                lodsd                                           ;
+                cmp     ebx,edi                                 ;
+                jnz     @@mchq_loop                             ;
+                cmp     eax,edx                                 ;
+                jnz     @@mchq_loop                             ;
+                lea     eax,[esi+8]                             ;
+@@mchq_exit:
+                popf                                            ;
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     16                                      ;
+@@mchq_notfound:
+                xor     eax,eax                                 ;
+                jmp     @@mchq_exit                             ;
+_memrchrq       endp                                            ;
+
+;----------------------------------------------------------------
+;u64t* __stdcall memrchrnq(u64t*mem, u64t chr, u32t buflen);
+                public  _memrchrnq
+_memrchrnq      proc    near
+@@mem           =  4                                            ;
+@@chr           =  8                                            ;
+@@buflen        = 16                                            ;
+                push    ebx                                     ;
+                push    esi                                     ;
+                push    edi                                     ;
+                mov     esi,[esp+12+@@mem]                      ;
+                mov     edx,[esp+12+@@chr]                      ;
+                mov     edi,[esp+12+@@chr+4]                    ;
+                mov     ecx,[esp+12+@@buflen]                   ;
+                pushf                                           ;
+                std                                             ;
+                lea     esi,[esi+ecx*8-4]                       ;
+@@mchnq_loop:
+                dec     ecx                                     ;
+                js      @@mchnq_notfound                        ;
+                lodsd                                           ;
+                mov     ebx,eax                                 ;
+                lodsd                                           ;
+                cmp     ebx,edi                                 ;
+                jz      @@mchnq_loop                            ;
+                cmp     eax,edx                                 ;
+                jz      @@mchnq_loop                            ;
+                lea     eax,[esi+8]                             ;
+@@mchnq_exit:
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     16                                      ;
+@@mchnq_notfound:
+                xor     eax,eax                                 ;
+                jmp     @@mchnq_exit                            ;
+_memrchrnq      endp                                            ;
+
+;----------------------------------------------------------------
 ;void   __stdcall memxchg(void *m1, void *m2, u32t length);
                 public  _memxchg                                ;
 _memxchg        proc    near                                    ;
@@ -565,31 +642,61 @@ _memcpy0        proc    near                                    ;
 @@dst           =  4                                            ;
 @@src           =  8                                            ;
 @@length        = 12                                            ;
-                mov     ecx, [esp+@@length]                     ;
-                jecxz   @@cpy0                                  ;
-                push    edi                                     ;
-                mov     edi, [esp+4+@@dst]                      ;
                 push    esi                                     ;
-                mov     esi, [esp+8+@@src]                      ;
-                cld                                             ;
+                mov     esi, [esp+4+@@src]                      ;
+                push    edi                                     ;
+                mov     edi, [esp+8+@@dst]                      ;
+                mov     ecx, [esp+8+@@length]                   ;
                 push    es                                      ;
-                push    ecx                                     ;
-                mov     ax,ss                                   ;
-                mov     es,ax                                   ;
-                shr     ecx,2                                   ;
-                jz      @@cpyb                                  ;
-            rep movs    dword ptr es:[esi], dword ptr ss:[esi]  ;
-@@cpyb:
-                pop     ecx                                     ;
-                and     ecx,3                                   ;
+                mov     ax,ss                                   ; ss is pure FLAT
+                mov     es,ax                                   ; in any mode
+                test    ecx,ecx                                 ;
+                jz      @@move0                                 ;
+                cmp     esi,edi                                 ;
+                jnc     @@move_forward                          ;
+                lea     eax,[esi+ecx]                           ;
+                cmp     edi,eax                                 ;
+                jnc     @@move_forward                          ;
+                std                                             ; move backward
+                add     esi, ecx                                ;
+                add     edi, ecx                                ;
+                mov     eax, ecx                                ;
+                and     ecx, 3                                  ;
+                dec     esi                                     ;
+                dec     edi                                     ;
             rep movs    byte ptr es:[esi], byte ptr ss:[esi]    ;
+                mov     ecx, eax                                ;
+                shr     ecx, 2                                  ;
+                jz      @@move0                                 ;
+                sub     esi, 3                                  ;
+                sub     edi, 3                                  ;
+            rep movs    dword ptr es:[esi], dword ptr ss:[esi]  ;
+                jmp     @@move0                                 ;
+@@move_forward:
+                cld                                             ; move forward
+@@move_align:
+                test    edi, 3                                  ; make sure data is aligned
+                jz      @@move_aligned                          ;
+                movs    byte ptr es:[esi], byte ptr ss:[esi]    ;
+                dec     ecx                                     ;
+                jz      @@move0                                 ;
+                jmp     @@move_align                            ;
+@@move_aligned:
+                mov     eax, ecx                                ;
+                shr     ecx, 2                                  ;
+                and     al, 3                                   ;
+            rep movs    dword ptr es:[esi], dword ptr ss:[esi]  ;
+                mov     cl, al                                  ;
+            rep movs    byte ptr es:[esi], byte ptr ss:[esi]    ;
+@@move0:
                 pop     es                                      ;
-                pop     esi                                     ;
                 pop     edi                                     ;
-@@cpy0:                                                         ;
+                pop     esi                                     ;
+                cld                                             ;
                 mov     eax, [esp+@@dst]                        ;
                 ret     12                                      ;
 _memcpy0        endp
+
 
 CODE32          ends
 

@@ -1,6 +1,8 @@
 #include "opt.h"
 #include "stdlib.h"
+#include "qslog.h"
 
+#define _64MbLL   ((u64t)_1MB*64)
 #define _128MbLL  ((u64t)_1MB*128)
 #define _256MbLL  ((u64t)_1MB*256)
 #define _512MbLL  ((u64t)_1MB*512)
@@ -176,10 +178,16 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
       for (ii=0; ii<regs; ii++)
          if (mtrr[ii].on)
             if (mtrr[ii].cache==MTRRF_WB) clearreg(ii);
+
+      int regsfree = regsavail() - sv4idx - 1;
+      log_it(2, "regs free: %i \n", regsfree);
+      // force 3 registers (some memory above 4Gb can be lost)
+      if (regsfree<3) regsfree = 3;
+
       // split memory to list
       u64t nextpos = 0;
       ii = 0;
-      for (u64t size=_2GbLL; size>=_128MbLL; size>>=1) {
+      for (u64t size=_2GbLL; size>=_64MbLL; size>>=1) {
          if (ucstart>=size) {
             if (!is_regavail(&reg)) return OPTERR_NOREG;
             mtrr[reg].start = nextpos;
@@ -188,7 +196,7 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
             mtrr[reg].on    = 1;
             ucstart -= size;
             // use only 3 mtrr regs
-            if (++ii==3) break;
+            if (++ii==regsfree) break;
          }
       }
       // save memlimit value

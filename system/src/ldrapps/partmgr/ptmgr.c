@@ -11,6 +11,8 @@
 // use 0F for extended
 #define EXT_TYPE  PTE_05_EXTENDED
 
+static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads);
+
 void lba2chs(u32t heads, u32t spt, u32t start, u8t *phead, u16t *pcs) {
    u32t spercyl = heads * spt,
             cyl = start / spercyl;
@@ -58,8 +60,8 @@ u32t _std dsk_ptinit(u32t disk, int lvmmode) {
          hi->dlat[0].DLA_Signature2 = 0;
          lvm_flushdlat(disk,0);
       } else {
-         dsk_emptysector(disk, hi->lvm_spt-1);
-         if (hi->lvm_spt>63) dsk_emptysector(disk, 62);
+         dsk_emptysector(disk, hi->lvm_spt-1, 1);
+         if (hi->lvm_spt>63) dsk_emptysector(disk, 62, 1);
       }
    }
    // get current geometry, but without DLAT assistance
@@ -241,6 +243,51 @@ u32t dsk_extmerge(u32t disk) {
       heads = 255;
       spt   = 63;
    }
+   /* Some quads can contain partition, which do not fill free space entirely.
+      At least "Partition Manager" can make such table.
+      Just add empty record for all of it and then merge by code below */
+   for (pti=1; pti<hi->pt_size>>2; pti++) {
+      int lrec = dsk_findlogrec(hi, pti);
+      if (lrec>=0) {
+         struct MBR_Record *rec = hi->pts + lrec + pti * 4;
+         u32t   ptend = rec->PTE_LBAStart + rec->PTE_LBASize,
+                start = hi->ptspos[pti],
+                csize = ((pti==(hi->pt_size>>2)-1 ? hi->extpos+hi->extlen :
+                        hi->ptspos[pti+1])) - start, // current slice size
+              cylsize = heads*spt;
+         // overflow check
+         if (ptend + cylsize > ptend) {
+            // align to cylinder
+            ii = ptend % cylsize;
+            if (ii) ptend += cylsize - ii;
+            // at least cylinder of lost space is present?
+            if (ptend <= start + csize - cylsize) {
+               u32t rc = dsk_shrinkslice(hi, pti, ptend-start, heads);
+               if (rc) return rc;
+               // recurse because data was changed
+               return dsk_extmerge(disk);
+            }
+         }
+      } else
+      if (pti>1 && pti==(hi->pt_size>>2)-1) {
+         /* another one funny thing - empty last slice, which not covers entire
+            space until the end of extended */
+         int prev_erec = dsk_findextrec(hi, pti-1);
+         if (prev_erec<0) return DPTE_EXTERR; else {
+            struct MBR_Record *rec = hi->pts + prev_erec + (pti-1) * 4;
+            u32t             ptend = rec->PTE_LBAStart + rec->PTE_LBASize;
+
+            if (ptend<hi->extpos+hi->extlen) {
+               rec->PTE_LBASize = hi->extpos+hi->extlen-rec->PTE_LBAStart;
+               dsk_flushquad(hi->disk, pti-1);
+               // recurse self after rescan
+               dsk_ptrescan(disk,1);
+               return dsk_extmerge(disk);
+            }
+         }
+      }
+   }
+   // merge neighbouring free slices
    ucnt = (u32t*)malloc(sizeof(u32t) * (hi->pt_size>>2));
    ucnt[0] = FFFF;
 
@@ -298,55 +345,6 @@ u32t dsk_extmerge(u32t disk) {
          return dsk_extmerge(disk);
       }
    }
-   /* Last quad can contain partition, which do not fill free space entirely.
-      At least "Partition Manager" can make such table.
-      Just add empty record to make dsk_extresize() happy */
-   pti = (hi->pt_size>>2)-1;
-   if (!dsk_isquadempty(hi, pti, 0)) {
-      int lrec = dsk_findlogrec(hi, pti);
-      if (lrec>=0) {
-         u32t previdx = pti > 1 ? (ucnt[pti-1]>>8) + (pti-1) * 4 : 0;
-         struct MBR_Record *rec = hi->pts + lrec + pti * 4;
-         u32t    npos = rec->PTE_LBAStart + rec->PTE_LBASize, rc;
-         // overflow check
-         if (npos + heads*spt > npos) {
-            // align to cylinder
-            ii = npos%(heads*spt);
-            if (ii) npos += heads*spt - ii;
-            // at least cylinder of lost space is present?
-            if (npos <= hi->extpos + hi->extlen - heads*spt) {
-               u32t lvmstate = lvm_checkinfo(disk);
-               // truncate size of last slice to size of it`s partition
-               if (previdx) {
-                  struct MBR_Record *prec = hi->pts + previdx;
-                  if (prec->PTE_LBAStart + prec->PTE_LBASize > npos) {
-                     prec->PTE_LBASize = npos - prec->PTE_LBAStart;
-                     rc = dsk_flushquad(disk, pti-1);
-                     if (rc) return rc;
-                  }
-               }
-               // create new quad
-               rc = dsk_emptypt(disk, npos, 0);
-               if (rc) return rc;
-               rec = hi->pts + (lrec?0:1) + pti * 4;
-               rec->PTE_Type     = EXT_TYPE;
-               rec->PTE_LBAStart = npos;
-               rec->PTE_LBASize  = hi->extpos + hi->extlen - npos;
-               rec->PTE_Active   = 0;
-               lba2chs(heads, spt, npos, &rec->PTE_HStart, &rec->PTE_CSStart);
-               lba2chs(heads, spt, hi->extpos+hi->extlen-1, &rec->PTE_HEnd, &rec->PTE_CSEnd);
-               rc = dsk_flushquad(disk, pti);
-               if (rc) return rc;
-               // LVM will force rescan or we made it self ;)
-               if (lvmstate!=LVME_NOINFO) lvm_initdisk(disk,0,-1);
-                  else dsk_ptrescan(disk, 1);
-               // return rescan error code
-               return hi->scan_rc;
-            }
-         }
-      }
-   }
-
    free(ucnt);
    return 0;
 }
@@ -584,7 +582,7 @@ static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads) {
    int       lrec, erec;
    u32t  cylsize, csize, npsize, rc = 0, lvmstate;
 
-   if (!hi || !size || quad >= hi->pt_size>>2) return DPTE_INVARGS;
+   if (!hi || !size || !quad || quad >= hi->pt_size>>2) return DPTE_INVARGS;
    lrec = dsk_findlogrec(hi, quad);
    erec = dsk_findextrec(hi, quad);
    // last slice?
@@ -605,8 +603,8 @@ static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads) {
    // cylinder size
    cylsize = heads*hi->lvm_spt;
    // current slice size
-   csize   = (quad==(hi->pt_size>>2)-1 ? hi->extpos+hi->extlen :
-     hi->ptspos[quad+1]) - hi->ptspos[quad];
+   csize   = ((quad==(hi->pt_size>>2)-1 ? hi->extpos+hi->extlen : hi->ptspos[quad+1])) -
+             hi->ptspos[quad];
    // check size change
    if (csize <= size) {
       log_it(2, "shrink args: size %08X, asked %08X\n", csize, size);
@@ -777,6 +775,8 @@ u32t dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type) {
                return DPTE_INVARGS;
          warn = 0;
       }
+      // normalizing it on first entry, else we can get wrong free space index
+      if ((flags&DFBA_LOGICAL)!=0) dsk_extmerge(disk);
    }
    if (hi->scan_rc) return hi->scan_rc;
 
@@ -789,7 +789,7 @@ u32t dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type) {
              PrCrossL,    // free block cross left border of extended partition
              PtBoundInL,  // free block on the left border of extended partition
              PtIn,        // free block in the deep of extended partition
-             PtInclude,   // free block cover extended partition (and space around it)
+             PtInclude,   // free block covers extended partition (and space around it)
              PtBoundInR,  // free block on the right border of extended partition
              PrCrossR,    // free block cross right border of extended partition
              PtBoundR }   // free block right-bounded to extended partition

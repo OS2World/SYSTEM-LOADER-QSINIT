@@ -6,38 +6,30 @@
 #define CONDLL_INTERNAL
 
 #include "qstypes.h"
-#include "vbedata.h"
-#include "dpmi.h"
 #include "console.h"
 #include "graphdef.h"
+#include "qcl/qslist.h"
 
 #define PREDEFINED_MODES    3   // number of predefined text modes
 #define TEXTEMU_MODES       2   // maximum number of emulated text modes
-#define MAXVESA_MODES     256
-
-#define TEXTMEM_SEG    0xB800
+#define MAXVESA_MODES     128
+#define MAXEMU_MODES       64
 
 #define BytesBP(bits) ((bits) + 7 >> 3)
 #define BytesPerFont(pix) (pix<=9?1:(pix>16?4:2))
 
+///< internal portion of mode info
 typedef struct {
-   int          vesaref;
-   u32t         modenum;
-} modeinfo;
+   int          vesaref;        //< internal host data index
+   u32t         modenum;        //< host mode number
+   int         realmode;        //< real mode for emulated modes (graphic console)
+} con_intinfo;
 
-u32t int10h(struct rmcallregs_s *regs);
-#ifdef __WATCOMC__
-#pragma aux int10h = \
-   "mov   ax,300h"   \
-   "mov   bx,10h"    \
-   "xor   ecx,ecx"   \
-   "int   31h"       \
-   "setnc al"        \
-   "movzx eax,al"    \
-   parm  [edi]       \
-   value [eax]       \
-   modify [ebx ecx];
-#endif // __WATCOMC__
+typedef struct {
+   int     x;
+   int     y;
+   u8t   bin[];
+} fontbits;
 
 #define MoveBlock(Sour,Dest,d_X,d_Y,LineLen_S,LineLen_D) {  \
   u8t *dest=(u8t*)(Dest), *sour=(u8t*)(Sour);               \
@@ -47,38 +39,86 @@ u32t int10h(struct rmcallregs_s *regs);
   }                                                         \
 }
 
-/** query all available vesa modes
-    @param         vinfo    array for modes (256 entries)
-    @param         minfo    mode info array for mode numbers
-    @param         mmask    bitmask for color modes: bit 0 = 8 bit, 
-                            bit 1 = 15 bit, bit 2 = 16 bit, bit 3 = 24 bit,
-                            bit 4 = 32 bit, bit 5 = 1 bit,  bit 6 = 4 bit.
-                            By default 0x5F is used.
-    @param   [out] memsize  Total video memory size, can be 0
-    @return  number of supported modes (<=256) */
-u32t  vesadetect(VBEModeInfo *vinfo, modeinfo *minfo, u32t mmask, u32t *memsize);
-
-/// call mode info for single mode
-u32t  vesamodeinfo(VBEModeInfo *vinfo, u16t mode);
-
 /// set mode
-u32t  vesasetmode(VBEModeInfo *vinfo, u16t mode, u32t flags);
+typedef u32t _std (*platform_setmode)  (u32t x, u32t y, u32t flags);
+/// leave current mode callback
+typedef void _std (*platform_leavemode)(void);
+/// blit memory<->video
+typedef u32t _std (*platform_copy)     (u32t mode, u32t x, u32t y, u32t dx, 
+                                        u32t dy, void *buf, u32t pitch, int write);
+/// scroll screen lines
+typedef u32t _std (*platform_scroll)   (u32t mode, u32t ys, u32t yd, u32t lines);
+/// clear screen lines
+typedef u32t _std (*platform_clear)    (u32t mode, u32t ypos, u32t lines, u32t color);
+/// flush shadow buffer to screenm (if available)
+typedef u32t _std (*platform_flush)    (u32t mode, u32t x, u32t y, u32t dx, u32t dy);
+/// install native fonts (actually, only BIOS fonts now);
+typedef void _std (*platform_addfonts) (void);
+/// fill mode list array
+typedef void _std (*platform_setup)    (void);
+/// release resourses on module unloading
+typedef void _std (*platform_close)    (void);
 
-/** write read pixel data.
-    @attention warning! this function does not check coordinates!
-    @param   vinfo     current mode info
-    @param   buf       buffer with in/out data
-    @param   pitch     buffer line length, required
-    @param   write     action: 1 = write to screen, 0 - read from screen
-    @return true if success */
-u32t  vesamemcpy(con_modeinfo *mi, VBEModeInfo *vinfo, u32t x, u32t y, 
-                 u32t dx, u32t dy, void *buf, u32t pitch, int write);
+extern platform_setmode      pl_setmode;
+extern platform_leavemode  pl_leavemode;
+extern platform_copy            pl_copy;
+extern platform_flush          pl_flush;
+extern platform_scroll        pl_scroll;
+extern platform_clear          pl_clear;
+extern platform_addfonts     pl_addfont;
+extern platform_setup          pl_setup;
+extern platform_close          pl_close;
 
-/// scroll vesa screen by "lines" lines
-u32t  vesascroll(con_modeinfo *mi, u32t ys, u32t yd, u32t lines);
+/// current mode index in mode info
+extern int                 current_mode;
+/// current REAL mode index in mode info
+extern int                    real_mode;
+/// public mode info array
+extern con_modeinfo              *modes;
+/// internal mode info array
+extern con_intinfo                *mref;
+/// number of modes available
+extern u32t                    mode_cnt;
+/// install text modes only ("VESA = NO" environment key present)
+extern int                     textonly;
+/// highest allowed resolutions (limited by "VESA" environment key too)
+extern u32t    modelimit_x, modelimit_y;
+/** bit mask of enabled color resolutions.
+    bit 0 = 8 bit, bit 1 = 15, bit 2 = 16, bit 3 = 24, bit 4 = 32,
+    bit 5 = 1 bit, bit 6 = 4.
+    By default 0x5F is used. */
+extern u32t            enabled_modemask;
+/** size of modeinfo array.
+    ptr to modeinfo assumed as const and returned to user as array,
+    so max number of modes limited by this preallocated value */
+extern u32t                  mode_limit;
+/// mode was changed by lib, at least once.
+extern int                 mode_changed;
+/// current mode flags
+extern u32t               current_flags;
+/// list of font arrays
+extern ptr_list                  sysfnt;
+/// usage of "physmap" enabled (EFI only)
+extern u32t              fbaddr_enabled;
 
-/// fill number of screen lines by color value
-u32t  vesaclear(con_modeinfo *mi, u32t ypos, u32t lines, u32t color);
+
+/// init VESA output function
+int   plinit_vesa(void);
+
+/// init EFI output function
+int   plinit_efi(void);
+
+/// allocate shadow buffer for specified mode
+void *alloc_shadow(con_modeinfo *cmi, int noclear);
+
+/// search mode number
+int   search_mode(u32t x, u32t y, u32t flags);
+
+/// free all assigned to current mode arrays
+void  con_unsetmode();
+
+/// get bit for "enabled_modemask" from Bits_Per_Pixel value.
+int   bpp2bit(u32t bpp);
 
 /// query 8x8, 8x14, 9x14, 8x16, 9x16 bios font data
 void  con_queryfonts(void);
@@ -106,18 +146,28 @@ void _std evio_writebuf(u32t col, u32t line, u32t width, u32t height,
 void _std evio_readbuf (u32t col, u32t line, u32t width, u32t height, 
                         void *buf, u32t pitch);
 
-/// vio emulation mode was set
-void _std evio_newmode();
-
-/// close emulation
-void _std evio_shutdown();
-
-// select bank
-void _std con_selectbank(int window, unsigned long winpos);
-
 // low level text output call.
 void _std con_drawchar(con_drawinfo *cdi, u32t color, u32t bgcolor, u32t *chdata,
                        u8t* mempos, u32t pitch, int cursor);
+
+/// vio emulation mode was set
+void evio_newmode();
+
+/// close emulation
+void evio_shutdown();
+
+/// common copy to shadow and/or frame buffer if available at least one of them
+u32t common_copy (u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf,
+                       u32t pitch, int write);
+
+/// common clear of shadow and/or frame buffer
+u32t common_clear(u32t mode, u32t ypos, u32t lines, u32t color);
+
+/// common scroll screen lines (in shadow and/or frame buffer)
+u32t common_scroll(u32t mode, u32t ys, u32t yd, u32t lines);
+
+/// common shadow buffer flush (if both shadow & frame exists)
+u32t common_flush(u32t mode, u32t x, u32t y, u32t dx, u32t dy);
 
 /** fill video memory.
     @param   Dest       start address

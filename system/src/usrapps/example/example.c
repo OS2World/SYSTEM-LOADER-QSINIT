@@ -60,11 +60,6 @@ int _std hook_proc(mod_chaininfo *mc) {
    return 1;
 }
 
-void _std clearscr(void) {
-   printf("cls must be here :)\n");
-   memsetw((void*)hlp_segtoflat(0xB800), 0xEA20, 80*25*2);
-}
-
 // sorted disk map
 void printDisk(u32t disk) {
    dsk_mapblock *dm = dsk_getmap(disk);
@@ -82,16 +77,35 @@ void printDisk(u32t disk) {
 }
 
 int main(int argc,char *argv[]) {
-   u32t  ii, modes;
+   u32t  ii, modes, mh;
    time_t      now;
    dir_t        di;
    con_modeinfo *mi = con_querymode(&modes);
 
    if (argc>1) {
+      if (stricmp(argv[1],"fps")==0) {
+         u32t start = tm_counter(),
+                cnt = 0;
+         do {
+            vio_clearscr();
+            cnt++;
+         } while (tm_counter()-start < 182);
+         printf("%d.%d frames per second\n", cnt/10,cnt%10);
+         return 0;
+      } else
       if (stricmp(argv[1],"r")==0 && argc==4) {
          u64t addr = strtoull(argv[2],0,16),
                len = strtoull(argv[3],0,16);
          sys_markmem(addr, len>>PAGESHIFT, PCMEM_HIDE|PCMEM_USERAPP);
+      } else
+      if (stricmp(argv[1],"u")==0 && argc==2) {
+        __asm { int 1 }
+      } else
+      if (stricmp(argv[1],"s")==0 && argc==3) {
+         u8t sd[8];
+         u16t  sel = strtoul(argv[2],0,16);
+         if (sys_selquery(sel,&sd)) printf("%04X: %8b\n", sel, &sd);
+            else printf("no sel %04X\n", sel);
       } else {
          u64t addr = strtoull(argv[1],0,16);
          u8t*  mem = pag_physmap(addr, 4096, 0);
@@ -175,14 +189,12 @@ int main(int argc,char *argv[]) {
 
    key_wait(3);
 #if 1
-   ii = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
-   if (ii) {
-      mod_apichain(ii,102,APICN_ONENTRY,hook_proc);
-      mod_apichain(ii,102,APICN_ONEXIT,hook_proc);
-      mod_apichain(ii,102,APICN_REPLACE,clearscr);
-      
+   mh = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
+   if (mh) {
+      mod_apichain(mh,102,APICN_ONENTRY,hook_proc);
+      mod_apichain(mh,102,APICN_ONEXIT,hook_proc);
       vio_clearscr();
-      ii = mod_apiunchain(ii,102,0,0);
+      ii  = mod_apiunchain(mh,102,0,hook_proc);
       log_it(2,"%d hooks removed\n",ii);
    }
 #else

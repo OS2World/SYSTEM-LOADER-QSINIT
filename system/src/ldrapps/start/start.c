@@ -8,8 +8,10 @@
 #include "internal.h"
 #include "malloc.h"
 #include "qsshell.h"
+#include "qsxcpt.h"
 #include "vio.h"
 
+unsigned __stdcall _wc_static_init();
 void setup_exceptions(int stage);
 void setup_loader(void);
 void setup_shell(void);
@@ -21,7 +23,9 @@ void setup_storage(void);
 int  get_ini_parms(void);
 void done_ini(void);
 
-void main(int argc, char *argv[]) {
+void _std mod_main(void) {
+   // init static classes and variables
+   _wc_static_init();
    // init global exception handler
    setup_exceptions(0);
    // init memory manager
@@ -33,8 +37,6 @@ void main(int argc, char *argv[]) {
    setup_loader();
    // setup std file i/o 
    setup_fileio();
-   // delete self from ramdisk to save space
-   unlink(argv[0]);
    // get some parameters from ini and copy ini file to 1:
    get_ini_parms();
    // advanced setup of system memory
@@ -43,20 +45,34 @@ void main(int argc, char *argv[]) {
    setup_cache();
    // install shell commands
    setup_shell();
-   // check left shift state
+   // left shift was pressed (safe mode)
    if (hlp_insafemode()) {
       cmd_state cst;
       log_printf("skipping start.cmd\n");
       key_waithlt(0);
       cmd_exec("1:\\safemode.cmd",0);
    } else {
-      setup_exceptions(1);
+      if (hlp_hosttype()==QSHT_BIOS) setup_exceptions(1);
       key_speed(0,0);
       cmd_exec("1:\\start.cmd",0);
    }
    // clearing ini file cache
    done_ini();
-   /* WARNING! start module does not freed by QSINIT, so exported code CAN be
-      called after this point! */
+   /* WARNING! START module is never released by QSINIT, so exported code
+      CAN be called after this point! */
    log_printf("exiting start\n");
+}
+
+/* some of C++ code wants exit(), but we have no it in DLL code, so add one
+   with going to trap screen */
+void _std exit(int errorcode) {
+   log_printf("exit called with code (%d)\n", errorcode);
+   _throw_(xcpt_interr);
+}
+
+/* empty LibMain, because it called too early to init START things.
+   _wc_static_init called from mod_main() for us, 
+   _wc_static_fini is never called */
+unsigned __stdcall LibMain(unsigned hmod, unsigned termination) {
+   return 1;
 }

@@ -138,7 +138,7 @@ void get_ini_parm(void) {
    } else {
 #ifdef INITDEBUG
       ComPortAddr=0x2F8;
-      rmcall(earlyserinit,0);
+      earlyserinit();
 #endif
    }
    log_printf("hi!\n");

@@ -14,122 +14,22 @@
 #include "seldesc.h"
 #include "qsmodext.h"
 
-static cache_extptr *cache_eproc = 0;
-
-static int _std catch_cacheptr(mod_chaininfo *info) {
-   cache_extptr *fptr = *(cache_extptr **)(info->mc_regs->pa_esp+4);
-   if (fptr && fptr->entries!=3) {
-      log_it(2, "Invalid runcache() parameter (%08X)\n", fptr);
-      return 1;
-   }
-   log_it(2, "hlp_runcache(%08X)\n", fptr);
-   cache_eproc = fptr;
+static int _std catch_diskremove(mod_chaininfo *info) {
+   u32t disk = *(u32t*)(info->mc_regs->pa_esp+4);
+   log_it(2, "hlp_diskremove(%02X)\n", disk);
+   // is disk present and emulated? then unmount all
+   if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0)
+      hlp_unmountall(disk);
    return 1;
 }
 
-// catch hlp_runcache() call to get pointer to new cache_extptr
+/* catch hlp_diskremove() to call hlp_unmountall() before it */
 void setup_cache(void) {
    u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
    if (qsinit)
-      if (mod_apichain(qsinit, ORD_QSINIT_hlp_runcache, APICN_ONENTRY, 
-         catch_cacheptr)) return;
-   log_it(2, "failed to catch runcache!\n");
-}
-
-static void _std cache_ioctl(u8t vol, u32t action) {
-   if (cache_eproc) (*cache_eproc->cache_ioctl)(vol,action);
-}
-
-u32t _std hlp_mountvol(u8t drive, u32t disk, u64t sector, u64t count) {
-   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
-   FATFS   **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
-   // no curcular refences allowed!!! ;)
-   if (disk==QDSK_VIRTUAL+(u32t)drive) return 0;
-   // no 2Tb partitions!
-   if (count>=_4GBLL) return 0;
-   // mount it
-   if (extvol && drive>DISK_LDR && drive<_VOLUMES) {
-      u32t     sectsz;
-      u64t        tsz = hlp_disksize64(disk, &sectsz);
-      vol_data  *vdta = extvol+drive;
-      char      dp[8];
-      FRESULT    mres;
-      // check for init, size and sector count overflow
-      if (!tsz||sector>=tsz||sector+count>tsz||sector+count<sector) return 0;
-      // unmount current
-      hlp_unmountvol(drive);
-      // disk parameters for fatfs i/o
-      vdta->disk         = disk;
-      vdta->start        = sector;
-      vdta->length       = count;
-      vdta->sectorsize   = sectsz;
-      vdta->serial       = 0;
-      vdta->badclus      = 0;
-      sprintf(dp,"%d:\\",drive);
-      // mark as mounted else disk i/o deny disk access
-      vdta->flags = 1;
-      // trying to mount
-      mres = f_mount(extdrv[drive],dp,1);
-      // allow ok and no-filesystem error codes
-      if (mres==FR_OK || mres==FR_NO_FILESYSTEM) {
-         /* prior to FatFs R0.10 this call was needed to force FatFs call 
-            to chk_mounted, now this can be done by f_mount parameter.
-            In addition, function update current drive in QSINIT module. */
-         if (mres==FR_OK) hlp_chdir(dp);
-         cache_ioctl(drive,CC_MOUNT);
-         return 1;
-      }
-      // clear state
-      vdta->flags = 0;
-   }
-   return 0;
-}
-
-u32t _std hlp_unmountvol(u8t drive) {
-   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
-   char       dp[8];
-   if (!extvol || drive<=DISK_LDR || drive>=_VOLUMES) return 0;
-   if ((extvol[drive].flags&1)==0) return 0;
-   cache_ioctl(drive,CC_UMOUNT);
-   extvol[drive].flags = 0;
-   sprintf(dp,"%d:",drive);
-   f_mount(0,dp,0);
-   return 1;
-}
-
-u32t _std hlp_volinfo(u8t drive, disk_volume_data *info) {
-   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
-   FATFS   **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
-
-   if (extvol && drive<_VOLUMES) {
-      vol_data  *vdta = extvol+drive;
-      FATFS     *fdta = extdrv[drive];
-      // mounted?
-      if (drive<=DISK_LDR || (vdta->flags&1)!=0) {
-         if (info) {
-            info->StartSector  = vdta->start;
-            info->TotalSectors = vdta->length;
-            info->Disk         = vdta->disk;
-            info->ClSize       = fdta->csize;
-            info->RootDirSize  = fdta->n_rootdir;
-            info->SectorSize   = vdta->sectorsize;
-            info->FatCopies    = fdta->n_fats;
-            info->DataSector   = fdta->database;
-            info->BadClusters  = vdta->badclus;
-
-            if (!vdta->serial) {
-                char cp[3];
-                cp[0]='0'+drive; cp[1]=':'; cp[2]=0;
-                f_getlabel(cp,vdta->label,&vdta->serial);
-            }
-            info->SerialNum    = vdta->serial;
-            strcpy(info->Label,vdta->label);
-         }
-         return fdta->fs_type;
-      }
-   }
-   if (info) memset(info,0,sizeof(disk_volume_data));
-   return FST_NOTMOUNTED;
+      if (mod_apichain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove))
+         return;
+   log_it(2, "failed to catch!\n");
 }
 
 u32t _std hlp_vollabel(u8t drive, const char *label) {
@@ -139,8 +39,8 @@ u32t _std hlp_vollabel(u8t drive, const char *label) {
    if (extvol && drive<_VOLUMES) {
       vol_data  *vdta = extvol+drive;
       FATFS     *fdta = extdrv[drive];
-      // mounted?
-      if (drive<=DISK_LDR || (vdta->flags&1)!=0) {
+      // mounted & FAT?
+      if (drive<=DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
          char lb[14];
          lb[0] = drive+'0';
          lb[1] = ':';
@@ -157,6 +57,21 @@ u32t _std hlp_vollabel(u8t drive, const char *label) {
       }
    }
    return 0;
+}
+
+/** query disk text name.
+    @param disk     disk number
+    @param buffer   buffer for result, can be 0 for static. At least 8 bytes.
+    @return 0 on error, buffer or static buffer ptr */
+char* _std dsk_disktostr(u32t disk, char *buffer) {
+   static char buf[8];
+   if (!buffer) buffer = buf;
+   if (disk&QDSK_FLOPPY) snprintf(buffer, 8, "fd%d", disk&QDSK_DISKMASK); else
+   if (disk&QDSK_VOLUME) snprintf(buffer, 8, "%c:", '0'+(disk&QDSK_DISKMASK)); else
+   if ((disk&QDSK_DISKMASK)==disk)
+      snprintf(buffer, 8, "hd%d", disk&QDSK_DISKMASK);
+         else { *buffer=0; return 0; }
+   return buffer;
 }
 
 u32t _std dsk_strtodisk(const char *str) {
@@ -181,7 +96,7 @@ u32t _std dsk_strtodisk(const char *str) {
             if (isalpha(c1)) c1 = c1-'A'+'0';
             disk = c1-'0';
             if (disk>=DISK_COUNT) break;
-            disk|=QDSK_VIRTUAL;
+            disk|=QDSK_VOLUME;
          } else break;
       
          return disk;
@@ -190,8 +105,31 @@ u32t _std dsk_strtodisk(const char *str) {
    return FFFF;
 }
 
-u64t _std hlp_disksize64(u32t disk, u32t *sectsize) {
-   disk_geo_data geo;
-   hlp_disksize(disk, sectsize, &geo);
-   return geo.TotalSectors;
+char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf) {
+   static char buffer[64];
+   static char *suffix[] = { "kb", "mb", "gb", "tb", "pb", "eb", "zb" }; // ;)
+   char fmt[16];
+   u64t size = disksize * (sectsize?sectsize:1);
+   int idx = 0;
+   size>>=10;
+   while (size>=100000) { size>>=10; idx++; }
+   if (width>4) sprintf(fmt, "%%%dd %%s", width-3);
+   if (!buf) buf = buffer;
+   sprintf(buf, width>4?fmt:"%d %s", (u32t)size, suffix[idx]);
+   return buf;
+}
+
+u32t _std hlp_unmountall(u32t disk) {
+   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
+   if (extvol) {
+      u32t umcnt=0, ii;
+      for (ii=2; ii<DISK_COUNT; ii++) {
+         vol_data *vdta = extvol+ii;
+         // mounted?
+         if ((vdta->flags&VDTA_ON)!=0)
+            if (vdta->disk==disk) { hlp_unmountvol(ii); umcnt++; }
+      }
+      return umcnt;
+   }
+   return 0;
 }

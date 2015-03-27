@@ -182,7 +182,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                               nopause?-1:0)) { rc = EINTR; break; }
 
                         if (errprev==errors)
-                           _dos_setfiletime(cname(),zip.dostime);
+                           _dos_setfiletime(cname(),zip.dostime,_DT_MODIFY|_DT_CREATE);
                         else
                            unlink(cname());
                      }

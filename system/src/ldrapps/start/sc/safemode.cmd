@@ -22,6 +22,13 @@ echo . type "help" for shell commands list    .
 echo ******************************************
 :dbg
 cmd
-echo Unable to exit from last copy of cmd.exe!
+if %hosttype%=="EFI" goto efiexit
+echo Unable to exit from the last copy of cmd.exe!
 pause Press any key ...
 goto cmdloop
+
+:efiexit
+msgbox "QSINIT" "Exit back to UEFI?^Do you want to continue?" YESNO
+rem filter YES errorlevel value
+if errorlevel 3 goto cmdloop
+if not errorlevel 2 goto cmdloop

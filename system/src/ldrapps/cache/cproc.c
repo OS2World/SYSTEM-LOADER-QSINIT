@@ -14,7 +14,7 @@
 #define PRIO_ARRAY_STEP  _256KB   // 2Mb per one 2Tb HDD in addition to cache
 #define MAX_CACHE_SIZE   _1GB     // up tp 2Gb (limited by u16t indexes)
 
-#define checkbit(array,pos)  (array[pos>>5] & 0x80000000>>(pos&0x1F))
+#define checkbit(array,pos)  (array[pos>>5] & 1<<(pos&0x1F))
 
 typedef struct {
    u64t       sectors;
@@ -121,7 +121,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
    // prio   - 1Mb / 2Tb
    // bitmap - 1Mb / 2Tb (256k step)
    di->sysalloc = bsize >= 48 * 1024;
-   di->prio     = di->sysalloc?(u32t*)hlp_memalloc(bsize, QSMA_RETERR): malloc(bsize);
+   di->prio     = di->sysalloc?(u32t*)hlp_memallocsig(bsize, "ioch", QSMA_RETERR): malloc(bsize);
    if (!di->prio) return 0;
    if (!di->sysalloc) memZero(di->prio);
    di->bitmap   = (u32t*)((u8t*)di->prio + bsize/2);
@@ -282,7 +282,7 @@ void _std hlp_cachesize(u32t size_mb) {
       if (size_mb > MAX_CACHE_SIZE>>16) size_mb = MAX_CACHE_SIZE>>16;
 
       if (!cdi) alloc_structs();
-      cache = (u8t*)hlp_memalloc(size_mb<<16, QSMA_RETERR|QSMA_NOCLEAR);
+      cache = (u8t*)hlp_memallocsig(size_mb<<16, "ioch", QSMA_RETERR|QSMA_NOCLEAR);
       // memory avail?
       if (cache) {
          u32t  ii;

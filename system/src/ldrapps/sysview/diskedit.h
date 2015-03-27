@@ -18,6 +18,7 @@
 #include "longedit.h"
 #include "binedit.h"
 #include "diskdlg.h"
+#include "direct.h"   // NAME_MAX
 
 void SwitchRegDialogCmd(int on);
 
@@ -36,7 +37,7 @@ void  setstrn(TInputLine *ln, const char *str, int maxlen);
     @param [in,out] txt           Pointer to control
     @param [in]     str           New text to set
     @param [in]     const_bounds  Adjust control size to text if 0, else
-                                  do not change control size at all 
+                                  do not change control size at all
     @param [in]     color         Color for text (0 for previous value) */
 void  replace_coltxt(TColoredText **txt, const char *str, int const_bounds = 0, ushort color = 0);
 void  replace_statictxt(TStaticText **txt, const char *str, int const_bounds = 0);
@@ -69,11 +70,16 @@ u32t  opts_memwrite(u64t pos, void *data);
 /** returns free space on disk, in bytes.
     @param drive: 0 for A:, 1 for B: and so on. */
 u64t  opts_freespace(unsigned drive);
+void* opts_sysalloc(u32t size);
+void  opts_sysfree(void *ptr);
+void* opts_freadfull(const char *name, u32t *bufsize, int *reterr);
+
 
 enum TSysWindows { TWin_Log, TWin_SectEdit, TWin_Help, TWin_Calc, TWin_MemEdit,
                    TWin_Count };
 
 class TAppWindow;
+class THexEditWindow;
 
 /// main app class
 class TSysApp : public TApplication {
@@ -93,7 +99,7 @@ public:
   TDiskCopyDialog                *copyDlg;
   TDiskBootDialog                *bootDlg;
   THexEditorData               searchData;
-  TDiskSearchDialog::stopReason 
+  TDiskSearchDialog::stopReason
                            lastSearchStop;
   Boolean                  lastSearchMode;  // True - disk, False - memory
   TAppWindow                     *windows[TWin_Count];
@@ -131,12 +137,14 @@ public:
   void   OpenPosMemWindow(uq position);
 
   // return 0 if disk window active, 1 is mem, -1 if no both windows
-  int    IsMemAction();     
+  int    IsMemAction();
 
   TEditWindow* OpenEditor(int NewFile, int hide=False);
   void   CloseEditor();
   void   ToggleEditorCommands(int on);
   void   SaveLog(Boolean TimeMark);
+
+  THexEditWindow* OpenHexEditor(int NewFile);
 
   void   ExecCpuInfoDlg();
   void   BootmgrMenu();
@@ -236,6 +244,10 @@ public:
 #define MSGE_NOTGPT       (22)
 #define MSGE_GUIDFMT      (23)
 #define MSGE_LVMQUERY     (24)
+#define MSGE_NOMEMORY     (25)
+#define MSGE_FILEOPENERR  (26)
+#define MSGE_FILEEMPTY    (27)
+#define MSGE_MOUNTERROR   (28)
 
 extern TSysApp SysApp;
 

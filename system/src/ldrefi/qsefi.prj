@@ -1,0 +1,114 @@
+[project]
+; this is 32-bit part of test 64-bit EFI executable, still not finished and
+; experimental.
+name=qsefi
+version=0x0014
+
+[config]
+0=Debug
+1=Release
+2=Verbose
+
+[vars]
+aa=wasm
+cc=wcc386
+out=$(outdir)/
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*cln=clean|.SYMBOLIC|@$(&clean)
+
+&ver=$(outdir)\version.inc
+&clean=$(outdir)\cleanall.cmd
+
+aflags=-d1 -dEFI_BUILD -mt -zq -6p -i=%(QS_BASE)\hc -i=$(outdir) -fo=
+
+cflags=-4s -ecd %(QS_CFLAGS) -DEFI_BUILD -zld -s -mf -os -i=hc -i=$(ldrsrc)\hc \
+       -i=$(ldrsrc)\fat -i=$(ldrsrc)\zip -i=$(outdir) -fo=
+
+ld=@wlink
+ldrsrc=..\init
+
+cinc=
+ccinc=$(cinc)
+ainc=
+outdir=bld\$(config)
+&watlnk=$(outdir)\qsefi.lnk
+
+[vars.*.0]
+cinc=-DDEBUG -DVERBOSE_LOG
+ainc=-dDEBUG
+
+[vars.*.1]
+cinc=-ox
+
+[vars.*.2]
+cinc=-DDEBUG -DINITDEBUG -DVERBOSE_LOG
+ainc=-dDEBUG -dINITDEBUG
+
+[files]
+bld.dir $(outdir).dir clean.cln
+..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc $(ldrsrc)\inc\qsinit.inc
+..\hc\inc\ioint13.inc inc\efnlist.inc ..\hc\inc\parttab.inc
+$(ldrsrc)\inc\dskinfo.inc $(ldrsrc)\inc\qsbinfmt.inc
+swcode.asm evio.c edisk.c estub.c emem.c etime.c qsexp.asm selmgr.asm
+rtmisc.asm
+$(ldrsrc)\misc\iniparm.c $(ldrsrc)\misc\fileio.c $(ldrsrc)\misc\util.asm
+$(ldrsrc)\zip\puff.c $(ldrsrc)\zip\crc32.c $(ldrsrc)\zip\unzip.c
+$(ldrsrc)\fat\ff.c $(ldrsrc)\misc\mdt.c $(ldrsrc)\misc\membase.c
+$(ldrsrc)\misc\exptable.asm $(ldrsrc)\misc\print.c $(ldrsrc)\misc\logmgr.c
+$(ldrsrc)\misc\wcrt.asm $(ldrsrc)\misc\log.asm
+$(ldrsrc)\fat\diskio.c $(ldrsrc)\disk1.c $(ldrsrc)\init32.c
+
+[make_footer]
+MAKEDIRS : bld.dir $(outdir).dir
+    @echo Building ...
+
+start.asm : $(outdir)\version.inc
+
+nolink : $(**dir) $(**inc) @@wait $(**asm) $(**c)
+
+[&ver]
+db 'QSinit $(vershort), rev $(svnrev), $(config) build at $(timestr)',0
+
+[&watlnk]
+sys os2v2_dll
+name $(outdir)\QSEFI.DLL
+file /[[$(**asm)! !,]]
+file /[[$(**c)! !,]]
+order clname CODE
+      clname DATA
+      clname BSS
+op start=exp64_tab
+op statics
+op map=QSEFI.MAP
+sort global
+op nod
+op quiet
+op togglerelocs
+
+[&clean]
+@echo off
+echo Cleaning ...
+cd $(outdir)
+if exist *.h @del *.h
+if exist *.obj @del *.obj
+if exist *.lst @del *.lst
+if exist QSEFI.* @del QSEFI.*
+cd ..\..
+
+[config.0,1,2]
+*out=qsefi | nolink | \
+     @echo Linking ... | \
+     $(ld) @$(&watlnk) | \
+     mkbin -pack $(outdir)\QSEFI.DLL QSEFI | \
+     bin2h -an=qs32_data -cn=qs32_len QSEFI qsefi32.h

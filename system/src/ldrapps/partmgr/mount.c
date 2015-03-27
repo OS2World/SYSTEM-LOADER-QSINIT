@@ -93,28 +93,40 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
       str_parseargs(args, argstr, argval, &list, &verbose);
 
       if (list) {
-         static char *fattype[4] = { "uncknown", "  FAT12 ", "  FAT16 ", "  FAT32 " };
+         static char *fattype[4] = { "unknown ", "  FAT12 ", "  FAT16 ", "  FAT32 " };
 
          cmd_printseq(0,1,0);
 
          for (ii=0; ii<DISK_COUNT; ii++)
             if (vi[ii].TotalSectors) {
-               char  str[128];
+               char  str[128], lvmi[32];
                u32t  dsk = FFFF;
-               long  idx = dsk_volindex(ii,&dsk);
-               str[0] = 0; 
+               long  idx = vol_index(ii,&dsk);
+               str [0] = 0;
+               lvmi[0] = 0;
+
+               if (idx>=0) {
+                  int   lvm = lvm_checkinfo(dsk);
+                  // LVM is ok or, at least, without fatal errors
+                  if (!lvm || lvm==LVME_NOBLOCK || lvm==LVME_NOPART) {
+                     lvm_partition_data pti;
+                     if (lvm_partinfo(dsk, idx, &pti))
+                        if (pti.Letter) sprintf(lvmi, "(LVM:%c)", pti.Letter);
+                  }
+               }
 
                if (verbose) {
-                  char *dn = dsk_disktostr(vi[ii].Disk,0), idxstr[8];
-                  itoa(idx, idxstr, 10);
-
-                  snprintf(str, 128, "(%08X) %-4s at %09LX, partition %s",
-                     vi[ii].TotalSectors, dn, vi[ii].StartSector,
-                        idx<0 ? "not matched" : idxstr);
+                  char *dn = dsk_disktostr(vi[ii].Disk,0), typestr[48];
+                  if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else {
+                     if (idx>=0) snprintf(typestr, 48, "partition %d %s", idx, lvmi);
+                        else snprintf(typestr, 48, "partition not matched (%09LX)", 
+                           vi[ii].StartSector);
+                  }
+                  snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dn, typestr);
                } else {
                   if (idx>=0) {
                      char *dn = dsk_disktostr(dsk,0);
-                     if (dn) sprintf(str," at %s.%d ",dn,idx);
+                     if (dn) sprintf(str,"  %s.%d  %s",dn,idx,lvmi);
                   }
                }
                if (shellprn(" %c:/%c: %s %s %s",'0'+ii,'A'+ii, fattype[vt[ii]],
@@ -136,15 +148,15 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
             printf("Invalid partition index!\n");
             return EINVAL;
          }
-         if ((long)vol<0 || (vol&QDSK_VIRTUAL)==0) {
+         if ((long)vol<0 || (vol&QDSK_VOLUME)==0) {
             printf("Invalid volume name specified!\n");
             return EINVAL;
          } else
-         if (vol<=QDSK_VIRTUAL+DISK_LDR) {
+         if (vol<=QDSK_VOLUME+DISK_LDR) {
             printf("Unable to re-mount 0: and 1: volumes!\n");
             return EINVAL;
          }
-         if ((long)disk<0 || (disk&QDSK_VIRTUAL)!=0) {
+         if ((long)disk<0 || (disk&QDSK_VOLUME)!=0) {
             printf("Invalid disk name specified!\n");
             return EINVAL;
          }
@@ -229,11 +241,11 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
          ii = 0;
          while (ii<args->count) {
             u32t  vol = get_disk_number(args->item[ii]);
-            if ((long)vol<0 || (vol&QDSK_VIRTUAL)==0) {
+            if ((long)vol<0 || (vol&QDSK_VOLUME)==0) {
                printf("Invalid volume name specified!\n");
                return EINVAL;
             } else {
-               vol&=~QDSK_VIRTUAL;
+               vol&=~QDSK_VOLUME;
 
                if (vol==hlp_curdisk()) hlp_chdisk(DISK_LDR);
 
@@ -263,11 +275,11 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
       printf("This is a floppy disk! \n");
       return EINVAL;
    } else
-   if ((disk&QDSK_VIRTUAL)!=0) {
+   if ((disk&QDSK_VOLUME)!=0) {
       printf("This is volume, not a physical disk! \n");
       return EINVAL;
    } else {
-      char             prnname[8], *sizestr = "";
+      char             prnname[8], sizestr[24];
       disk_geo_data      gdata;
       static char *subcommands[5] = {"WIPE", "CODE", "BOOT", "ACTIVE", 0};
       int subcmd = get_arg_index(args->item[pos],subcommands);
@@ -276,10 +288,8 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
       dsk_disktostr(disk,prnname);
 
       if (subcmd<=1)
-         if (hlp_disksize(disk,0,&gdata)) {
-            sizestr = get_sizestr(gdata.SectorSize, gdata.TotalSectors);
-            while (*sizestr==' ') sizestr++;
-         }
+         if (hlp_disksize(disk,0,&gdata))
+            dsk_formatsize(gdata.SectorSize, gdata.TotalSectors, 0, sizestr);
 
       if (subcmd==0) { // "WIPE"
          vio_setcolor(VIO_COLOR_LRED);
@@ -318,6 +328,9 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
          if (args->count<=pos || !isdigit(args->item[pos][0])) {
             rc = exit_bootmbr(disk, force?EMBR_NOACTIVE:0);
             switch (rc) {
+               case ENOSYS:
+                  printf("MBR boot mode is not possible on EFI host!\n");
+                  break;
                case EINVAL:
                   printf("Invalid disk specified: %s!\n",prnname);
                   break;
@@ -350,6 +363,9 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
             dsk_ptrescan(disk,0);
             rc = exit_bootvbr(disk, index, letter);
             switch (rc) {
+               case ENOSYS:
+                  printf("MBR boot mode is not possible on EFI host!\n");
+                  break;
                case EINVAL:
                   printf("Invalid disk/partition specified: %s index %d!\n",
                      prnname, index);
@@ -366,7 +382,7 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   printf("Unable to boot from emulated disk %s!\n", prnname);
                   break;
                case EFBIG:
-                  printf("Partition or a part of it lies outsize of 2TB!\n");
+                  printf("Partition or a part of it lies outside of 2TB!\n");
                   break;
                default:
                   printf("Error launching VBR code from disk %s partition %d!\n",
@@ -425,11 +441,12 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
 }
 
 u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
+   char  fsname[10];
    u32t  sttype;
    // no subcommand?
    if (args->count<=pos) return EINVAL;
    // current sector type
-   sttype = dsk_sectortype(disk,0,0);
+   sttype = dsk_ptqueryfs(disk,0,fsname,0);
    // check sector type
    if (sttype==DSKST_ERROR) {
       printf("Unable to read boot sector! \n");
@@ -440,7 +457,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
       return EACCES;
    } else {
       char prnname[8];
-      static char *subcommands[6] = {"WIPE", "CODE", "DEBUG", "BPB", 0};
+      static char *subcommands[] = {"WIPE", "CODE", "DEBUG", "BPB", "DIRTY", 0};
       int subcmd = get_arg_index(args->item[pos++],subcommands);
 
       if (subcmd<0) return EINVAL;
@@ -451,12 +468,12 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
             printf("Boot sector on disk %s is empty\n",prnname);
             return 0;
          }
-         if (disk==QDSK_VIRTUAL) {
+         if (disk==QDSK_VOLUME) {
             printf("This is your boot partition! \n");
             return EINVAL;
          }
-         if (disk==QDSK_VIRTUAL+DISK_LDR) {
-            printf("This is a virtual disk! \n");
+         if (disk==QDSK_VOLUME+DISK_LDR) {
+            printf("This is a service volume!\n");
             return EINVAL;
          }
          vio_setcolor(VIO_COLOR_LRED);
@@ -468,32 +485,29 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
          }
       } else
       if (subcmd==1) { // "CODE"
-         if (disk==QDSK_VIRTUAL) {
-            if (hlp_volinfo(0,0)==FST_NOTMOUNTED) {
-               printf("This is non-FAT boot partition! \n");
-               return EINVAL;
-            }
+         if (disk==QDSK_VOLUME) {
             vio_setcolor(VIO_COLOR_LRED);
             printf("Do you really want to replace BOOT disk code?\n");
          } else {
-            if (sttype!=DSKST_BOOTFAT) {
-               printf("This is not a FAT boot sector! \n");
+            if (sttype!=DSKST_BOOTFAT && strcmp(fsname,"HPFS")) {
+               printf("File system type is unknown!\n");
                return EACCES;
             }
             vio_setcolor(VIO_COLOR_LRED);
             printf("Replacing BOOT code on disk %s?\n",prnname);
          }
+         vio_setcolor(VIO_COLOR_LWHITE);
+         printf("Current file system is %s.\n",fsname);
          // saving...
          if (ask_yes(VIO_COLOR_RESET)) {
-            int rc = dsk_newvbr(disk,0,FST_NOTMOUNTED,
-               args->count==pos+1?args->item[pos]:0);
-            printf(rc?"done!\n":"unable to write!\n");
-            return rc?0:EACCES;
+            u32t rc = dsk_newvbr(disk,0,DSKBS_AUTO,args->count==pos+1?args->item[pos]:0);
+            if (rc) common_errmsg("_FMT%02d", 0, rc);
+            return rc?EACCES:0;
          } else
             return EINTR;
       } else
       if (subcmd==2) { // "DEBUG"
-         if (disk==QDSK_VIRTUAL) {
+         if (disk==QDSK_VOLUME) {
             printf("Unable to write debug boot sector to boot partition!\n");
             return EINVAL;
          }
@@ -511,6 +525,40 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
       if (subcmd==3) { // "BPB"
          int rc = dsk_printbpb(disk, 0);
          if (rc && rc!=EINTR) cmd_shellerr(EIO,0);
+         return rc;
+      } else
+      if (subcmd==4) { // "DIRTY"
+         int nstate = -1, 
+                 rc = 0;
+
+         if (sttype!=DSKST_BOOTFAT && strcmp(fsname,"HPFS")) {
+            printf("File system type is unknown!\n");
+            return EACCES;
+         }
+         if (args->count==pos+1) {
+            if (stricmp(args->item[pos],"ON")==0) nstate = 1; else
+            if (stricmp(args->item[pos],"OFF")==0) nstate = 0; else
+               rc = EINVAL;
+
+         } else
+         if (args->count>pos+1) rc = EINVAL;
+
+         if (!rc) {
+            rc = vol_dirty(disk, nstate);
+
+            if (nstate<0 && rc>=0) {
+               vio_setcolor(VIO_COLOR_LWHITE);
+               printf("File system is %s.\n",fsname);
+               vio_setcolor(VIO_COLOR_RESET);
+               printf("Dirty state is %s.\n",rc?"ON":"OFF");
+               return 0;
+            } else
+            if (rc<0) {
+               common_errmsg("_FMT%02d", 0, -rc);
+               rc = EACCES;
+            }
+         } else
+            cmd_shellerr(rc,0);
          return rc;
       }
       return 0;
@@ -644,7 +692,7 @@ static void _std fmt_callback(u32t percent, u32t readed) {
 }
 
 u32t _std shl_format(const char *cmd, str_list *args) {
-   u32t rc = 0;
+   u32t rc = 0, fstype = 0;
    if (key_present(args,"/?")) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
@@ -673,6 +721,14 @@ u32t _std shl_format(const char *cmd, str_list *args) {
                case 'F':if (args->item[ii][2]==':') {
                            fatcpn = atoi(args->item[ii]+3);
                            if (fatcpn!=1 && fatcpn!=2) rc=EINVAL;
+                        } else 
+                        if (toupper(args->item[ii][2])=='S' && 
+                           args->item[ii][3]==':')
+                        {
+                           if (stricmp(args->item[ii]+4, "FAT")==0) fstype = 0;
+                              else
+                           if (stricmp(args->item[ii]+4, "HPFS")==0) fstype = 1;
+                              else rc=EINVAL;
                         } else rc=EINVAL;
                         break;
                case 'N':if (stricmp(args->item[ii]+1,"NOAF")==0) noaf = 1;
@@ -699,7 +755,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          printf("Select one of WIPE and QUICK, please!\n");
          return EINVAL;
       }
-      if ((disk&QDSK_VIRTUAL)==0) {
+      if ((disk&QDSK_VOLUME)==0) {
          printf("Invalid volume name specified!\n");
          return EINVAL;
       }
@@ -716,13 +772,12 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          return EINVAL;
       }
       // buffer is static!
-      szstr = get_sizestr(vi.SectorSize, vi.TotalSectors);
-      while (*szstr==' ') szstr++;
+      szstr = dsk_formatsize(vi.SectorSize, vi.TotalSectors, 0, 0);
 
       if (!quiet) {
          vio_setcolor(VIO_COLOR_LRED);
          printf("Do you really want to format volume %s (%s)?\n"
-            "All data will be lost!\n", dsk_disktostr(disk|QDSK_VIRTUAL,0), szstr);
+            "All data will be lost!\n", dsk_disktostr(disk|QDSK_VOLUME,0), szstr);
       }
       if (quiet || ask_yes(VIO_COLOR_RESET)) {
          u32t flags = DFMT_BREAK;
@@ -731,30 +786,33 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          if (wipe) flags|=DFMT_WIPE;
          if (noaf) flags|=DFMT_NOALIGN;
 
-         rc = dsk_format(disk, flags, asz, quiet?0:fmt_callback);
+         switch (fstype) {
+            case 0: rc = vol_format (disk, flags, asz, quiet?0:fmt_callback); break;
+            case 1: rc = hpfs_format(disk, flags, quiet?0:fmt_callback); break;
+            default: rc = EINVAL;
+         }
+
          if (rc) {
             common_errmsg("_FMT%02d", "Format error", rc);
             rc = ENOMNT;
          } else
          if (!quiet) {
             static const char *ftstr[4] = {"unrecognized", "FAT12", "FAT16", "FAT32"};
-            u32t   fstype, clsize;
-            diskfree_t df;
-
-            if (_dos_getdiskfree(disk+1,&df)) df.avail_clusters = 0;
-            fstype = hlp_volinfo(disk, &vi);
-            clsize = vi.ClSize * vi.SectorSize;
+           u32t   fstype = hlp_volinfo(disk, &vi),
+                  clsize = vi.ClSize * vi.SectorSize;
 
             printf("\rFormat complete.     \n");
-            printf("\nThe type of file system is %s.\n\n", ftstr[fstype]);
+            printf("\nThe type of file system is %s.\n\n", 
+               fstype || !vi.FsName[0] ? ftstr[fstype] : vi.FsName);
             printf("  %s total disk space\n", get_sizestr(vi.SectorSize, vi.TotalSectors));
-            printf("  %s are available\n", get_sizestr(clsize, df.avail_clusters));
-            if (vi.BadClusters)
-               printf("\n  %s in bad sectors\n", get_sizestr(clsize, vi.BadClusters));
+
+            printf("  %s are available\n", get_sizestr(clsize, vi.ClAvail));
+            if (vi.ClBad) 
+               printf("\n  %s in bad sectors\n", get_sizestr(clsize, vi.ClBad));
 
             printf("\n  %8d bytes in each allocation unit.\n", clsize);
-            printf("  %8d total allocation units on disk.\n", df.total_clusters);
-            printf("  %8d allocation units available on disk.\n", df.avail_clusters);
+            printf("  %8d total allocation units on disk.\n", vi.ClTotal);
+            printf("  %8d allocation units available on disk.\n", vi.ClAvail);
          }
       }
       return rc;
@@ -772,10 +830,12 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
    cmd_printseq(0,1,0);
 
    while (args->count>=2) {
-      static char *subcommands[6] = {"WRITE", "ASSIGN", "RENAME", "INFO", "QUERY", 0};
-      int  subcmd = get_arg_index(args->item[0],subcommands),
-               rc = EINVAL;
-      long   disk = FFFF;
+      static char *subcommands[7] = {"WRITE", "ASSIGN", "RENAME", "INFO", "QUERY", "WIPE", 0};
+      int    subcmd = get_arg_index(args->item[0],subcommands),
+                 rc = LVME_INVARGS;
+      long     disk = FFFF;
+      u32t    ssize;
+      u64t  dsksize;
       if (subcmd<0) break;
 
       if (subcmd!=4 || args->count>4) {
@@ -784,23 +844,23 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
             printf("Invalid disk name specified!\n");
             return EINVAL;
          }
-         if ((disk&QDSK_VIRTUAL)!=0) {
+         if ((disk&QDSK_VOLUME)!=0) {
             printf("This is volume, not a physical disk! \n");
             return EINVAL;
          }
       }
+      dsksize = hlp_disksize64(disk,&ssize);
+
       if (subcmd==0) {
          int master_boot = -1;
          rc = lvm_checkinfo(disk);
          // check for non-LVMed huge disk
-         if (rc==LVME_NOINFO) {
-            u64t size = hlp_disksize64(disk,0);
-            if (size>63*255*65535 && dsk_partcnt(disk)>0) {
+         if (rc==LVME_NOINFO)
+            if (dsksize>63*255*65535 && dsk_partcnt(disk)>0) {
                printf("Writing LVM info to non-OS/2 formatted huge "
                       "disk (>500Gb) will affect nothing.\n");
                if (!ask_yes(VIO_COLOR_RESET)) return EINTR;
             }
-         }
          if (args->count>=3)
             if (stricmp(args->item[2],"MASTER")==0) master_boot = 1; else break;
          rc = lvm_initdisk(disk,0,master_boot);
@@ -833,9 +893,6 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
       if (subcmd==3) {
          rc = lvm_checkinfo(disk);
          if (!rc) {
-            u32t   ssize;
-            u64t dsksize = hlp_disksize64(disk,&ssize);
-
             if (args->count>2) {
                lvm_partition_data info;
                u32t index = str2long(args->item[2]);
@@ -910,10 +967,28 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
             if (args->count>2) setenv(args->item[2], 0, 1);
             if (args->count>3) setenv(args->item[3], 0, 1);
          }
+      } else
+      if (subcmd==5 && args->count==2) {
+         disk_geo_data geo;
+
+         vio_setcolor(VIO_COLOR_LRED);
+         printf("Wipe LVM info on disk %s (%s)?\n", dsk_disktostr(disk,0),
+            dsk_formatsize(ssize,dsksize,0,0));
+         if (!ask_yes(VIO_COLOR_RESET)) return EINTR;
+         
+         vio_setcolor(VIO_COLOR_LRED);
+         if (!dsk_getptgeo(disk,&geo))
+            if (geo.SectOnTrack>63 && lvm_checkinfo(disk)!=LVME_NOINFO) {
+               printf("It is highly not recommended to remove LVM info from huge disk (>500Gb)\n"
+                      "because it required for disk format detection!\n");
+               if (!ask_yes(VIO_COLOR_RESET)) return EINTR;
+            }
+         rc = lvm_wipeall(disk);
       }
 
       if (rc) {
          common_errmsg("_LVME%02d", "LVM error", rc);
+         if (rc==LVME_INVARGS) return EINVAL;
          return rc==LVME_IOERROR?EIO:ENODEV;
       }
       return 0;
@@ -982,7 +1057,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
       int   subcmd = get_arg_index(args->item[pos++],subcommands);
       dsk_disktostr(disk,prnname);
 
-      if ((disk&QDSK_VIRTUAL)!=0) {
+      if ((disk&QDSK_VOLUME)!=0) {
          printf("This is volume, not a physical disk!\n");
          return EINVAL;
       }
@@ -1008,8 +1083,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
                u64t  dsize = hlp_disksize64(disk, &ssize);
 
                if (dsize < _4GBLL) {
-                  char *dsstr = get_sizestr(ssize, dsize);
-                  while (*dsstr==' ') dsstr++;
+                  char *dsstr = dsk_formatsize(ssize, dsize, 0, 0);
                   vio_setcolor(VIO_COLOR_LRED);
                   printf("Do you want to init disk %s, which is smaller than 2Tb (%s) as GPT?\n",
                      prnname, dsstr);
@@ -1104,8 +1178,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
             char    *dscp;
 
             hlp_disksize(disk, &ssize, 0);
-            dscp = get_sizestr(ssize, ptsize);
-            while (*dscp==' ') dscp++;
+            dscp = dsk_formatsize(ssize, ptsize, 0, 0);
 
             vio_setcolor(VIO_COLOR_LRED);
             printf("Do you really want to delete partition %d on disk %s?\n"
@@ -1175,7 +1248,7 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
             printf("Invalid disk name specified!\n");
             return EINVAL;
          }
-         if ((disk&QDSK_VIRTUAL)!=0) {
+         if ((disk&QDSK_VOLUME)!=0) {
             printf("This is volume, not a physical disk!\n");
             return EINVAL;
          }

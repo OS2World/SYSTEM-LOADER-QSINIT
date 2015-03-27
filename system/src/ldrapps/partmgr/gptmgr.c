@@ -33,7 +33,7 @@ u32t _std dsk_gptinit(u32t disk) {
          for (ii=0; ii<4; ii++)
             if (hi->pts[ii].PTE_Type) return DPTE_EMPTY;
    }
-   // clear pt entries is case of garbage data
+   // clear pt entries in case of garbage data
    if (!dsk_newmbr(disk,DSKBR_GPTHEAD|DSKBR_GENDISKID|DSKBR_LVMINFO|DSKBR_GPTCODE))
       return DPTE_ERRWRITE;
    if (hi->ghead)  { free(hi->ghead); hi->ghead=0; }

@@ -9,7 +9,7 @@
 #include "direct.h"
 #include "time.h"
 #include "qsutil.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "vio.h"
 
 // default VGA palette for text mode + cursor color for text emu modes
@@ -19,123 +19,63 @@ u8t stdpal_bin[51] = { 0x00,0x00,0x00,0x00,0x00,0xAA,0x00,0xAA,0x00,
    0xFF,0xFF,0x55,0x55,0xFF,0x55,0xFF,0xFF,0xFF,0x55,0xFF,0xFF,0xFF,
    0xFF,0x7F,0x00 };
 
-typedef struct {
-   int     x;
-   int     y;
-   u8t   bin[];
-} fontbits;
-
-static ptr_list pfnt = 0;
-
-static fontbits *addfont(int ebx, fontbits *fb) {
-   struct rmcallregs_s rr;
-   u8t  *font;
-   int     dy;
-
-   memset(&rr, 0, sizeof(rr));
-   rr.r_eax = 0x1130;
-   rr.r_ebx = ebx<<8;
-   if (!int10h(&rr)) return 0;
-   font = (u8t*)(hlp_segtoflat(rr.r_es)+(rr.r_ebp&0xFFFF));
-
-   switch (ebx) {
-      case 3:
-        fb = (fontbits*)malloc(8*256+8);
-        dy=4; fb->x=8; fb->y=8;
-        break;
-      case 4:
-        // high 128 characters
-        memcpy(&fb->bin[1024], font, 1024);
-        return 0;
-      case 5:
-      case 7: {
-        int diffs = 0;
-        fb = (fontbits*)memDup(fb);
-        fb->x=9;
-        // copy alternate font data
-        while (*font) {
-           //log_it(3,"diff for char %02X %c\n", *font, *font);
-
-           dy = fb->y**font++;
-           memcpy(&fb->bin[dy], font, fb->y);
-           font += fb->y;
-           diffs++;
-        }
-        log_it(3,"9x%d font: %d diffs\n", fb->y, diffs);
-        pfnt->add(fb);
-        return 0;
-      }
-      case 2:
-      case 6:
-        dy = ebx==2?14:16;
-        fb = (fontbits*)malloc(dy*256+8);
-        fb->x=8; fb->y=dy;
-        break;
-      default:
-        return 0;
-   }
-   memcpy(&fb->bin, font, dy*256);
-   pfnt->add(fb);
-   return fb;
-}
+ptr_list sysfnt = 0;
 
 void con_queryfonts(void) {
-   fontbits *fb;
-   if (pfnt) return;
-   pfnt   = (ptr_list)exi_create("ptr_list");
-
-   fb = addfont(2,0);     // 8 x 14, 9 x 14
-   if (fb) addfont(5,fb);
-   fb = addfont(6,0);     // 8 x 16, 9 x 16
-   if (fb) addfont(7,fb);
-   fb = addfont(3,0);     // 8 x 8
-   if (fb) addfont(4,fb); 
+   if (sysfnt) return;
+   sysfnt = (ptr_list)exi_create("ptr_list");
+   // call "platform" function
+   pl_addfont();
 }
 
 void con_freefonts(void) {
-   if (!pfnt) return; else {
-      u32t cnt = pfnt->count(), ii;
+   if (!sysfnt) return; else {
+      u32t cnt = sysfnt->count(), ii;
       // free font data
-      for (ii=0; ii<cnt; ii++) free(pfnt->value(ii));
+      for (ii=0; ii<cnt; ii++) free(sysfnt->value(ii));
       // and list
-      exi_free(pfnt);
-      pfnt = 0;
+      exi_free(sysfnt);
+      sysfnt = 0;
    }
 }
 
 static fontbits *con_searchfont(int x, int y) {
-   if (pfnt) {
-      u32t cnt = pfnt->count(), ii, dx, dy, lpos = FFFF;
+   if (sysfnt) {
+      u32t cnt = sysfnt->count(), ii, dx, dy, lpos = FFFF;
       // search for suitable font
       for (ii=0; ii<cnt; ii++) {
-         fontbits *fb = (fontbits*)pfnt->value(ii);
+         fontbits *fb = (fontbits*)sysfnt->value(ii);
          if (lpos==FFFF || abs(fb->x-x)<=dx && abs(fb->y-y)<=dx) {
             dx = abs(fb->x-x); 
             dy = abs(fb->y-y);
             lpos = ii;
          }
       }
-      if (lpos!=FFFF) return (fontbits*)pfnt->value(lpos);
+      if (lpos!=FFFF) return (fontbits*)sysfnt->value(lpos);
    }
    return 0;
 }
 
 static void *con_getfont(int x, int y) {
-   if (pfnt) {
+   if (sysfnt) {
       fontbits *fb = con_searchfont(x,y);
       if (fb) return &fb->bin;
    }
    return 0;
 }
 
+u32t _std con_fontavail(int width, int height) {
+   return con_getfont(width,height)?1:0;
+}
+
 void _std con_fontadd(int width, int height, void *data) {
-   if (pfnt) {
-      u32t     cnt = pfnt->count(), ii,
+   if (sysfnt) {
+      u32t     cnt = sysfnt->count(), ii,
               bpln = BytesPerFont(width);
       fontbits *fb = 0;
       // search for suitable font
       for (ii=0; ii<cnt; ii++) {
-         fb = (fontbits*)pfnt->value(ii);
+         fb = (fontbits*)sysfnt->value(ii);
          if (fb->x==width && fb->y==height) break; 
             else fb = 0;
       }
@@ -143,7 +83,7 @@ void _std con_fontadd(int width, int height, void *data) {
          fb = (fontbits*)malloc(height*256*bpln+8);         
          fb->x = width; 
          fb->y = height;
-         pfnt->add(fb);
+         sysfnt->add(fb);
       }
       memcpy(&fb->bin, data, height*256*bpln);
    }
@@ -187,23 +127,30 @@ void* con_buildfont(int width, int height) {
 }
 
 static void tx2img(u32t mx, u32t my, u32t ltw, u32t lth, u16t *txmem, u8t *dst) {
-   u8t    *fnt = (u8t*)con_getfont(ltw, lth);
-   u32t xx, yy;
+   u8t  *fnt = (u8t*)con_getfont(ltw, lth);
+   u32t  bpp = ltw>16?4:(ltw>9?2:1), xx, yy,
+        mask = bpp==1?0x80:(bpp==2?0x8000:0x80000000);
    if (!fnt) return;
+
    for (yy=0; yy<my; yy++) {
       for (xx=0; xx<mx; xx++) {
-         u32t lx, ly;
-         u16t txv = txmem[yy*mx+xx];
-         u8t *chr = fnt + (txv&0xFF)*lth,
-           a_bgrd = txv>>12,
-           a_forg = txv>>8 & 15;
+         u32t   lx, ly;
+         u16t   txv = txmem[yy*mx+xx];
+         u8t   *chr = fnt + (txv&0xFF)*lth*bpp;
+         u8t a_bgrd = txv>>12,
+             a_forg = txv>>8 & 15;
 
          for (ly=0; ly<lth; ly++) {
-            u8t cw = *chr++,
-               *wp = dst + ((yy*lth+ly)*mx + xx)*ltw;
+            u8t *wp = dst + ((yy*lth+ly)*mx + xx)*ltw;
+            u32t cw = 0;
+            switch (bpp) {
+               case 1: cw = *chr++; break;
+               case 2: cw = *(u16t*)chr; chr+=2; break;
+               case 4: cw = *(u32t*)chr; chr+=4; break;
+            }
             for (lx=0; lx<ltw; lx++) {
-               if (lx>=8) { *wp = wp[-1]; wp++; } else {
-                  *wp++ = (s8t)cw<0?a_forg:a_bgrd;
+               if (ltw==9 && lx>=8) { *wp = wp[-1]; wp++; } else {
+                  *wp++ = cw&mask?a_forg:a_bgrd;
                   cw<<=1;
                }
             }

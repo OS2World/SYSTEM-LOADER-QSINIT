@@ -5,7 +5,7 @@ if "%VIO_SVGA%".=="". goto UnkOS
 set suffix=o
 goto cont
 :UnkOS
-echo Uncknown OS!
+echo Unknown OS!
 exit
 :Win
 set suffix=w

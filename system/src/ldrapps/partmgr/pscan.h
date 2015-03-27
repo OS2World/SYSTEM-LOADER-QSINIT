@@ -11,16 +11,17 @@
 #include "parttab.h"
 #include "qsdm.h"
 #include "lvm.h"
+#include "qsconst.h"
 
 #define shellprc(col,x,...)  cmd_printseq(x,0,col,__VA_ARGS__)
 #define shellprn(x,...)      cmd_printseq(x,0,0,__VA_ARGS__)
 #define shellprt(x)          cmd_printseq(x,0,0)
 
-#define MAX_SECTOR_SIZE  4096
+#define FMT_FILL         0xF6      ///< old good format byte
 
 typedef struct {
    u32t               disk;
-   int              inited;
+   int              inited; ///< first time scan done (can be reset by other code)
    u32t            pt_size; ///< number of total pts entries (multipl. of 4)
    u32t            pt_view; ///< number of viewable partitions
    u32t            scan_rc;
@@ -91,7 +92,8 @@ int  dsk_findextrec(hdd_info *info, u32t quadpos);
 int  dsk_findlogrec(hdd_info *info, u32t quadpos);
 
 /// get disk size string
-char *get_sizestr(u32t sectsize, u64t disksize);
+#define get_sizestr(sectorsize,disksize) \
+   dsk_formatsize(sectorsize, disksize, 11, 0)
 
 /** wipe boot sector.
     Function clears 55AA signature and FS name if BPB was detected.
@@ -165,6 +167,32 @@ void cache_envstart(void);
     @param  arg         argument for call, depends on action
     @return 0 on success, or DPTE_* error. */
 u32t _std pt_action(u32t action, u32t disk, u32t index, u32t arg);
+
+/** finalizing format action.
+    @param  vol         volume to re-mount back
+    @param  di          volume info
+    @param  ptbyte      partition byte type to set (-1 to ignore)
+    @param  volidx      volume index on disk (for ptbyte, -1 to ignore)
+    @param  badcnt      number of bad clusters (for format message text)
+    @return 0 on success, or DPTE_* error. */
+u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t badcnt);
+
+u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint);
+
+int  _std hpfs_dirty(u8t vol, int on);
+
+/// fill sectors by "value" (expanded version of dsk_emptysector()
+u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
+
+/** scan sectors for DLAT record.
+    @param  disk        disk number
+    @param  start       start sector (zero is NOT accepted)
+    @param  count       miber of sectors to scan
+    @return 0 if not found or error occured, else sector number. */
+u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count);
+
+/// check for CPLIB presence
+int cplib_present(void);
 
 /// confirmation dialog with default NO button
 int  confirm_dlg(const char *text);

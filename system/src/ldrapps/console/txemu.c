@@ -2,14 +2,10 @@
 #include "conint.h"
 #include "qsmodext.h"
 #include "qsinit_ord.h"
-#include "start_ord.h"
 #include "console.h"
 #include "qsutil.h"
 #include "vio.h"
 
-extern u32t        txemu800, 
-                   txemumax;
-extern VBEModeInfo   *vinfo;
 static u32t       *fnt_data = 0,
                    m_x, m_y,       // mode size
                fnt_x, fnt_y,       // mode font size
@@ -18,10 +14,6 @@ static u32t       *fnt_data = 0,
                       vbpps,       // bytes per pixel in active mode
                  evio_hooks = 0;   // hooks on
 
-extern con_modeinfo  *modes;       // public mode info array
-static VBEModeInfo  *cur_vi = 0;   // current mode`s vesa info
-extern int     current_mode,       // current mode index in mode info
-                  real_mode;       // current REAL mode index in mode info
 static int          colored = 0;   // colored output
 static u8t          txcolor = 7;
 static u16t         txshape = 0;
@@ -30,6 +22,9 @@ extern u8t       stdpal_bin[51];   // text mode RGB colors
 static u32t         m_color[16];
 
 static con_drawinfo     cdi;
+
+extern u32t    vio_ttylines;
+#pragma aux vio_ttylines "_*";
 
 static void writechar(u32t x, u32t y, char ch, u8t color) {
    con_modeinfo *mi = modes + real_mode;
@@ -49,7 +44,8 @@ static void writechar(u32t x, u32t y, char ch, u8t color) {
       u32t llen = mi->mempitch;
       con_drawchar(&cdi, txcol, bgcol, chdata, mi->physmap + ypos*llen + xpos,
          llen, cursor);
-   }
+   } else
+      pl_flush(real_mode, x*fnt_x, ypos, fnt_x, fnt_y);
 }
 
 static void updatechar(u32t x, u32t y) {
@@ -90,14 +86,13 @@ static u32t charout_common(char ch, int in_seq) {
       }
       // scroll screen
       if (scroll) {
-         con_modeinfo *mi = modes + current_mode,
-                      *ri = modes + real_mode;
+         con_modeinfo *mi = modes + current_mode;
          u32t     linesm1 = fnt_y*(m_y-1),
                    tx_ofs = m_x*(m_y-1)*2;
-         vesascroll(ri, top_ofs+fnt_y, top_ofs, linesm1);
+         pl_scroll(real_mode, top_ofs+fnt_y, top_ofs, linesm1);
          pos_y--;
          // clear last line in shadow buffer and on screen
-         vesaclear(ri, top_ofs+linesm1, fnt_y, m_color[txcolor>>4]);
+         pl_clear(real_mode, top_ofs+linesm1, fnt_y, m_color[txcolor>>4]);
          // update text mode buffer
          memmove(mi->shadow, mi->shadow + m_x*2, tx_ofs);
          memsetw((u16t*)(mi->shadow + tx_ofs), (u16t)txcolor<<8|0x20, m_x);
@@ -105,6 +100,9 @@ static u32t charout_common(char ch, int in_seq) {
    }
    // update cursor
    if (!in_seq && cdi.cdi_CurMask) updatechar(pos_x, pos_y);
+   // update global line counter
+   vio_ttylines+=lines;
+
    return lines;
 }
 
@@ -121,10 +119,9 @@ u32t _std evio_strout(const char *str) {
 }
 
 void _std evio_clearscr(void) {
-   con_modeinfo *ri = modes + real_mode,
-                *mi = modes + current_mode;
+   con_modeinfo *mi = modes + current_mode;
    // fill screen
-   vesaclear(ri, top_ofs, fnt_y*m_y, m_color[txcolor>>4]);
+   pl_clear(real_mode, top_ofs, fnt_y*m_y, m_color[txcolor>>4]);
    // fill text buffer
    memsetw((u16t*)mi->shadow, (u16t)txcolor<<8|0x20, m_x*m_y);
    // cursor pos
@@ -144,6 +141,8 @@ void _std evio_setpos(u8t line, u8t col) {
       updatechar(opx, opy);
       updatechar(pos_x, pos_y);
    }
+   // fix global line counter
+   vio_ttylines += pos_y-opy;
 }
 
 void _std evio_getpos(u32t *line, u32t *col) {
@@ -247,7 +246,6 @@ static u32t hicolor_cvt(u8t rc, u8t gc, u8t bc, u32t mode) {
    return res;
 }
 
-#define S_MOD             (0x1000)
 /* some of 4xxx ATI cards can`t change palette at all, so select orange index
    in default palette to make simular view */
 #define CURSOR_COLOR_IDX   42
@@ -258,8 +256,8 @@ static u16t     replace_ord[] = { ORD_QSINIT_vio_getpos,
    ORD_QSINIT_vio_strout,         ORD_QSINIT_vio_clearscr,
    ORD_QSINIT_vio_setpos,         ORD_QSINIT_vio_setshape,
    ORD_QSINIT_vio_setcolor,       ORD_QSINIT_vio_getmode,
-   ORD_QSINIT_vio_getshape,       S_MOD|ORD_START_vio_writebuf,
-   S_MOD|ORD_START_vio_readbuf,   0 };
+   ORD_QSINIT_vio_getshape,       ORD_QSINIT_vio_writebuf,
+   ORD_QSINIT_vio_readbuf,        0 };
 
 static void    *replace_ptr[] = { evio_getpos,
    evio_getmode,                  evio_defshape,
@@ -270,7 +268,7 @@ static void    *replace_ptr[] = { evio_getpos,
    evio_getshape,                 evio_writebuf,
    evio_readbuf };
 
-void _std evio_newmode() {
+void evio_newmode() {
    con_modeinfo *mi = modes + current_mode;
    u32t  ii;
    if (fnt_data) free(fnt_data);
@@ -284,7 +282,6 @@ void _std evio_newmode() {
    pos_y    = 0;
 
    // current mode info
-   cur_vi   = vinfo + real_mode;
    top_ofs  = modes[real_mode].height - m_y*fnt_y >> 1;
    vbpps    = BytesBP(modes[real_mode].bits);
    colored  = 0;
@@ -315,14 +312,11 @@ void _std evio_newmode() {
    }
 
    if (!evio_hooks) {
-      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR),
-            start = mod_query(MODNAME_START , MODQ_NOINCR);
-
-      if (qsinit && start) {
+      u32t qsh = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
+      if (qsh) {
          ii = 0;
          while (replace_ord[ii]) {
-            mod_apichain(replace_ord[ii]&S_MOD ? start : qsinit, 
-               replace_ord[ii] & S_MOD-1, APICN_REPLACE, replace_ptr[ii]);
+            mod_apichain(qsh, replace_ord[ii], APICN_REPLACE, replace_ptr[ii]);
             ii++;
          }
          evio_hooks = 1;
@@ -337,18 +331,15 @@ void _std evio_newmode() {
    }
 }
 
-void _std evio_shutdown() {
+void evio_shutdown() {
    if (fnt_data) { free(fnt_data); fnt_data = 0; }
 
    if (evio_hooks) {
-      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR),
-            start = mod_query(MODNAME_START , MODQ_NOINCR);
-
-      if (qsinit && start) {
+      u32t qsh = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
+      if (qsh) {
          u32t  ii = 0;
          while (replace_ord[ii]) {
-            mod_apiunchain(replace_ord[ii]&S_MOD ? start : qsinit, 
-               replace_ord[ii] & S_MOD-1, APICN_REPLACE, replace_ptr[ii]);
+            mod_apiunchain(qsh, replace_ord[ii], APICN_REPLACE, replace_ptr[ii]);
             ii++;
          }
          evio_hooks = 0;

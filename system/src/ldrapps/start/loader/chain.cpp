@@ -3,7 +3,7 @@
 #include "seldesc.h"
 #include "qschain.h"
 #include "qsmodext.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "qslog.h"
 #include "stdlib.h"
 

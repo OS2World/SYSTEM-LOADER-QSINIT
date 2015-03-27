@@ -22,13 +22,8 @@ extern u16t         Int1588Mem;                       // memory: int 15h ah=88h
 extern u16t         Int15E8Mem;                       // memory: int 15h ax=E801h
 extern AcpiMemInfo AcpiInfoBuf[ACPIMEM_TABLE_SIZE];   // memory: int 15h ax=E820h
 extern u16t         AcpiMemCnt;
-extern u32t          DiskBufPM;
 extern physmem_block   physmem[PHYSMEM_TABLE_SIZE];
 extern u16t    physmem_entries;
-extern u16t          logbufseg;     // real mode 4k log buffer
-extern u32t          DiskBufPM,     // flat disk buffer address
-                     DiskBufRM;     // RM far disk buffer address
-extern u16t      DiskBufRM_Seg;     // and segment (exported)
 extern u16t          int12size;     // int 12 value
 extern 
 struct filetable_s   filetable;
@@ -188,7 +183,7 @@ void hlp_basemem(void) {
       }
    }
    /* split block on 16M border.
-      APCI array has 10 entries, so we must fit to 16 here ;) */
+      ACPI array has 10 entries, so we must fit to 16 here ;) */
    if (ccount<PHYSMEM_TABLE_SIZE) {
       ii=0;
       while (ii<ccount)

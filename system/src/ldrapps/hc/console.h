@@ -11,7 +11,6 @@ extern "C" {
 //@{
 #define CON_GRAPHMODE         0x0001   ///< graphic mode
 #define CON_NOSCREENCLEAR     0x0002   ///< do not clear screen
-#define CON_NOLFB             0x0004   ///< do not use LFB in vesa modes
 #define CON_COLOR_1BIT        0x0000   ///< mono graphic mode
 #define CON_COLOR_4BIT        0x0100   ///< 16 colors graphic mode
 #define CON_COLOR_8BIT        0x0200   ///< 256 colors graphic mode
@@ -58,6 +57,9 @@ typedef struct {
 } con_modeinfo;
 
 /** Query all available modes.
+    @attention this is internal mode info array, actually, so use it as r/o.
+    This pointer is constant value over all CONSOLE life time.
+
     @param  [out] modes    Number of available modes
     @return array of con_modeinfo structs */
 con_modeinfo *_std con_querymode(u32t *modes);
@@ -106,6 +108,23 @@ void _std con_getvgapal(void *pal);
     @param   height    font height
     @param   data      font data, not required after call */
 void _std con_fontadd(int width, int height, void *data);
+
+/** Check presence of fonts with specific size.
+    @param   width     font width
+    @param   height    font height
+    @return presence flag (1/0) */
+u32t _std con_fontavail(int width, int height);
+
+/** Add new "virtual console" mode.
+    @param  fntx   font width
+    @param  fnty   font height
+    @param  modex  Mode width
+    @param  modey  Mode height
+    @return 0 on success, EINVAL on bad font size, ENODEV - no such mode, 
+            EEXIST - mode with same fnt & screen resolution already exists, 
+            ENOTTY - no installed font of this size, ENOSPC - mode info
+            array is full */
+int _std con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey);
 
 /** Install screenshot handler.
     The same as MKSHOT ON shell command.

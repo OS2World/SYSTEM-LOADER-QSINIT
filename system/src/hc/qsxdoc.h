@@ -616,6 +616,9 @@ of lack of 4k paging.
 @li up to 32 imported modules per module (this can be changed in code).
 @li 16 bit objects can be used, but cannot be start or stack object.
 @li "chaining fixups" can be used to optimize fixup table size.
+@li data cannot be exported from 32-bit CODE objects! The source of problem
+is creation of small thunk for every CODE export entry, this thunk required
+for function chaining (qsmodext.h). */
 
 For linking LX modules by Watcom linker two options must be added:
 @code
@@ -633,9 +636,7 @@ More details:
 @li FLAT 32 bit DOS. No threads, no paging, shared address space (PAE still
 available, but only for mapping memory above 4Gb limit).
 @li launching "process" (module) get parameters and environment in the same
-way as in OS/2. The diffrences are: FS == 0 (no TIB), GS contain pointer to
-current process reference. Compiler must not alter GS register (this not kill
-you, but a lot if runtime functions will return error).
+way as in OS/2. The one diffrence is: FS == 0 (no TIB).
 @li DLL modules (both code and data) are <b>global</b>, DLL init called
 on first load, fini - on real unload (zero usage couner).
 @li system does not mark memory as belonging to specified process, so, no
@@ -814,6 +815,8 @@ This log can be viewed in sysview.exe app and can be copied to OS/4 kernel
 log by adding key "LOGLEVEL" to kernel options.
 
 Some dumps are available in cmd shell or while pause message is active:
+@li Ctrl-Alt-F4 - file table dump
+@li Ctrl-Alt-F5 - process tree dump
 @li Ctrl-Alt-F6 - gdt dump
 @li Ctrl-Alt-F7 - idt dump
 @li Ctrl-Alt-F8 - page tables dump (very long, in paging mode only)

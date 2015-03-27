@@ -173,16 +173,22 @@ and so on; just remember - this is not a BIG OS).
       [[Loading]] message must be red in this mode.
 
     * type "help" to get shell commands list and "help command" or 
-      "command /?" to help on single command.
+      "command /?" to help on single command. Commands have many features,
+      which listed only in help ;)
 
-    * "format" command can be used to format FAT16/32 partition or drive.
-      System type selected automatically (by disk size), but you can vary
+    * "format" command can be used to format partition to FAT16/32 or HPFS.
+      FAT type selected automatically (by disk size), but you can vary
       cluster size (with including not supported by OS/2 - 64k FAT cluster).
 
       Mount partition to QSINIT before format it.
 
       All FAT structures will be aligned to 4k (for Advanced Format HDDs).
       This can be turned off by /noaf key.
+
+      HPFS format is fully functional too (note, that QSINIT unable to read
+      and write HPFS, only able to format it). HPFS requires code page, by
+      default 850 used, but it can be selected in "chcp" command from a short
+      list of available in QSINIT.
 
     * possibility of launching boot sector from any of primary or logical
       partitions. Command:
@@ -234,6 +240,14 @@ and so on; just remember - this is not a BIG OS).
       partitions in QSINIT.
 
     * to copy those "large amount of data" use xcopy.cmd in shell ;)
+
+    * "chcp" command can be used to select codepage for FAT/FAT32 (single
+      byte only, no DBCS now, sorry). Without this command any files with
+      national language letters will be unaccessible.
+      note: this command only makes these names operable, not displayable.
+
+    * "mem hide" command can be used to hide some memory ranges from
+      OS/2 (for example, if memory tests show errors in this range)
 
    QSINIT can be loaded by "WorkSpace On-Demand" PXE loader, but further
 loading process is untested.
@@ -318,6 +332,11 @@ qssetup.cmd:
 
    "Graphic console" is much faster if you turn on Write Combining.
 
+   It is possible to use own font (binary file with 1 bit per pixel - i.e.
+8x16 x 256 chars will be 1 byte (8 bits) x 16 x 256 = 4096 bytes).
+   And it is possible to add own console modes on base of existing graphic
+modes (read more in "mode /?").
+
    And - there is some kind of problems with Virtual PC VESA emulation, use
 VBox or hardware PC for this mode :)
 
@@ -346,9 +365,6 @@ ago).
    6. Documented bugs (aka features).
   -----------------------------------------------------------------------
 
- * FAT/FAT32 have no support of national language letters at all. I.e. you
-   can not access files with russian (and so on) letters in name.
-
  * loading of binary files into SysView text editor can cause panic (because
    of reaching 16k characters per line limit). This is limitation of 
    old-designed Turbo Vision library.
@@ -364,7 +380,10 @@ ago).
    VPC & Vbox works fine, in most cases, with some exceptions:
    - no graphic console and PAE paging mode in VPC
    - PAE paging mode in VBox is unstable
-   - 8, 12, 13 exceptions stops VPC VM (because of task gates used)
+   - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
+     "NOTASK=1" in OS2LDR.INI can be used to prevent using task gates.
+
+   EFI version works only in QEMU (with TianoCore).
 
   =======================================================================
    7. QSINIT boot details.
@@ -393,7 +412,7 @@ ago).
    emergency case.
 
    Common MBR code have no differences with other ones. It loads active
-   partition and run in.
+   partition and launch it.
    In addition - it have special Boot Manager support (as OS/2 MBR).
 
    MBR code for GPT disks searches for 1st partition with "BIOS Bootable"
@@ -403,14 +422,15 @@ ago).
    
    I.e. you can create "dual boot" flash drive, for example:
 
-   * init it to GPT in QSINIT (or rewrite MBR code in it).
-   * create two partitions, set 1st to "EFI boot".
+   * init it to GPT in QSINIT
+   * create two partitions, set type of 1st to "EFI boot"
    * format both to FAT
-   * copy to first \EFI\BOOT\BOOTX64.EFI - something like EFI shell
+   * copy to first \EFI\BOOT\BOOTX64.EFI - something like EFI shell or
+     EFI version of QSINIT.
    * set up second as QSINIT boot partition (set "BIOS Bootable" attribute
-     and install QSINIT to it).
-   * then you can choise in EFI BIOS menu: "YOUR DRIVE" or "UEFI: YOUR DRIVE",
-     1st will be QSINIT and 2nd - EFI shell.
+     and install QSINIT to it)
+   * then you can choose in EFI BIOS boot devices menu: "YOUR DRIVE" or 
+     "UEFI: YOUR DRIVE", 1st will be QSINIT and 2nd - EFI shell.
 
    You can learn MBR/boot sector code details in 
 
@@ -425,7 +445,7 @@ ago).
    You can send me QSINIT log in case of repeatable troubles ;)
    Log can be saved in some different ways:
 
-     * via COM port cable (DBPORT option in OS2LDR.INI)
+     * via COM port cable (DBPORT/DBCARD options in OS2LDR.INI)
 
      * by adding LOGLEVEL option into OS2LDR.INI (see below). In this case
        QSINIT log will be merged with OS/4-compatible kernel log and can
@@ -433,7 +453,7 @@ ago).
          copy oemhlp$ logfile.txt  - without ACPI.PSD
          copy ___hlp$ logfile.txt  - with ACPI.PSD
        This case is NOT working if RESTART option was used for kernel loading
-       (i.e. another OS2LDR running).
+       (i.e. another OS2LDR is running).
 
      * mount any available FAT16/FAT32 partition to QSINIT and save log
        directly to it. This can be done in SysView app or by using LOG
@@ -457,8 +477,8 @@ option).
    The reason - ADD driver must ask QSINIT about disk location.
 
    By default this HDD contain one primary partition, formatted with FAT or
-FAT32  (depends  on  size).  This can be altered by RAMDISK command keys or
-manual partition creation by DMGR command.
+FAT32 (depends on size). You can format it into HPFS too. Variants available
+via RAMDISK command keys or manual partition creation by DMGR command.
 
    You can put swap file to this disk :)
 
@@ -471,6 +491,9 @@ Z: LVM drive letter to it.
 
    Read more in ramdisk\paedisk.txt.
 
+   If you already using HD4DISK.ADD prior to rev.309 - please update it to
+the latest version.
+
   =======================================================================
   10. Additions in kernel loading and OS2LDR.INI
       in comparision with OS/4 loader.
@@ -478,17 +501,17 @@ Z: LVM drive letter to it.
 
    Warp  3  and Merlin (up to FP12) kernels can be loaded as well as Aurora
 type  kernels. But this functionality is not hardly tested. Warp Server SMP
-kernel is not supported (is anyone still need it, even for playing in VBox?
+kernel is not supported (if anyone still need it,  even for playing in VBox
 - just tell me).
    Kernel version is determined automatically.
 
-   In OS2LDR.INI only DBPORT, DISKSIZE, NOAF, BAUDRATE, UNZALL, PCISCAN_ALL
-and  RESETMODE  keys  affect  QSINIT,  any  other  is  used for OS/2 kernel
-menu/boot only.
+   In  OS2LDR.INI  only  DBPORT,  DBCARD, DISKSIZE, NOAF, BAUDRATE, UNZALL,
+PCISCAN_ALL  and  RESETMODE  keys affect QSINIT, any other is used for OS/2
+kernel menu/boot only.
 
    LETTER,  LOGLEVEL,  NOAF  and  BAUDRATE  can  be  added  both  to kernel
 parameters  line  and  to  "config"  section; DISKSIZE, RESETMODE, USEBEEP,
-UNZALL and PCISCAN_ALL has effect in "config" section only.
+UNZALL, DBCARD and PCISCAN_ALL has effect in "config" section only.
 
  * DISKSIZE  - additional space for qsinit "virtual disk" in kb. Required by
                "kernel browser" option above.
@@ -509,13 +532,14 @@ UNZALL and PCISCAN_ALL has effect in "config" section only.
                reset it to selected number of lines (80x25, 80x43, 80x50).
 
  * LETTER=X  - allow to change boot drive letter for OS/2.
+               This option only changes letter, not partition. Wrong letter
+               sometimes can be supplied by Boot Manager, for example.
 
  * SOURCE=X  - allow to change boot partition for OS/2 boot, where X - QSINIT
-               drive letter of mounted (to QSINIT) FAT partition.
-               I.e. this key can change boot partition to any available FAT 
+               drive letter of mounted (to QSINIT!) FAT partition.
+               I.e. this key can change boot partition to any available FAT
                with OS/2 - without reboot.
-
-               Basically, this key is designed for booting from PAE RAM disk.
+               Basically, it designed for booting from PAE RAM disk.
 
  * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
                configurations). It will beep with one tone on first line and
@@ -531,19 +555,49 @@ UNZALL and PCISCAN_ALL has effect in "config" section only.
 
  * NOMTRR    - do not use MTRR changes, was done in QSINIT for OS/2 boot.
 
- * VIEWMEM   - open memory editor before starting kernel (when it ready to
+ * VIEWMEM   - open memory editor just before starting kernel (when it ready to
                launch).
+
+ * CALL=batch_file - call QSINIT batch file just before starting kernel.
+               "batch_file" must be a fully qualified path in QSINIT!
+               I.e. A:\BATCH.CMD (boot disk, possible on FAT boot only), or
+               C:\dir1\batch.cmd (from mounted volume).
+               VIEWMEM (if specified) will be called after this batch file and
+               then kernel will be launched.
 
  * PCISCAN_ALL=1 - scan all 256 PCI buses. By default QSINIT scan only number
                of buses, reported by PCI BIOS. This key can be really slooooow
                on old PCs (2 minutes on my PPro).
+
+ * DBCARD = bus.slot.func,port_index  or
+   DBCARD = vendor:device,[index,]port_index - query address of PCI COM port
+               (specified "i/o_port_index" in it) and use it as debug COM
+               port. In addition, this command will enable device i/o if it
+               turned off by BIOS or UEFI.
+               
+               Optional "index" (1..x) can be used if your adaper mapped on
+               multiple functions or you have two or more adapters with the
+               same vendor:device ID.
+
+               port_index - index of connection port in the list of card
+               address ranges. It looks like this (in PCI.EXE output):
+                   Address 0 is an I/O Port : 0000EC00h
+                   Address 1 is an I/O Port : 0000E880h
+                   Address 2 is an I/O Port : 0000E800h
+               But value is 1-based, not zero.
+
+               Example:
+                  we have NetMos 9710:9835 on 4.2.0:
+
+               DBCARD=9710:9835,3         <- port E800h
+               DBCARD=4.2.0,2             <- port E880h
 
 
    Also,  new section "[partition]" is available in OS2LDR.INI. It define a
 list  of partitions to boot and available to use from "Boot partition" menu
 in QSINIT.
 
-   OS2LDR.INI  can  be  shared  with  OS/4  loader, but it ignores uncknown
+   OS2LDR.INI  can  be  shared  with  OS/4  loader, but it ignores unknown
 sections, so this is not a problem.
    Section format is very simple:
 

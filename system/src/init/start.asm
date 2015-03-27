@@ -56,7 +56,7 @@ bssstart        label   word                                    ;
                 public  _logbufseg                              ;
                 public  _physmem                                ;
                 public  intrmatrix                              ;
-                public  _DiskBufRM, _DiskBufPM                  ;
+                public  _DiskBufPM                              ;
 init_print_attr db      ?                                       ;
                 align   2                                       ;
 _pmdataseg      dw      ?                                       ; pm data segment
@@ -64,7 +64,6 @@ _logbufseg      dw      ?                                       ; rm log buffer 
 intrmatrix      db      100h dup(?)                             ; INT redirectors for all INTs
 _physmem        db      100h dup (?)                            ; 32 * 8 (!!)
                 align   4                                       ;
-_DiskBufRM      dd      ?                                       ;
 _DiskBufPM      dd      ?                                       ;
 BSSINIT         ends                                            ;
 
@@ -241,6 +240,10 @@ endif
                 mov     ax, 1                                   ; if 486?
                 jc      panic_initpm                            ; no, exit too
 
+                smsw    cx                                      ; 486SX?
+                test    cx,CPU_CR0_ET                           ; deny it too
+                jz      panic_initpm                            ;
+
                 mov     bx,ds                                   ; save
                 mov     dh,_dd_bootflags                        ;
                 mov     ah,dh                                   ; copy flags to ah
@@ -373,13 +376,12 @@ endif
                 call    init_alloc_rm                           ; 4k buffer for logging
                 mov     _logbufseg,cx                           ; debug output in RM callbacks
 
-                mov     cx,DISKBUF_SIZE SHR PARASHIFT           ;
-                call    init_alloc_rm                           ;
-                mov     _DiskBufRM_Seg,cx                       ; 32k disk i/o buffer
-                mov     word ptr _DiskBufRM+2,cx                ;
-                movzx   ecx,cx                                  ;
-                shl     ecx,PARASHIFT                           ;
-                mov     _DiskBufPM,ecx                          ;
+                mov     cx,DISKBUF_SIZE SHR PARASHIFT           ; 32k disk i/o buffer
+                call    init_alloc_nohigh                       ; 
+                mov     _DiskBufRM_Seg,cx                       ; must be BELOW 9100
+                movzx   ecx,cx                                  ; else kernel start
+                shl     ecx,PARASHIFT                           ; will be confused
+                mov     _DiskBufPM,ecx                          ; (he use it as temp storage) 
 
                 test    ah,BF_NOMFSHVOLIO                       ; BPB available?
                 jnz     @@init_noBPB                            ;
@@ -394,16 +396,22 @@ endif
                 mov     byte ptr _dd_bootdisk, 0FFh             ; guarantee invalid disk
                 mov     byte ptr minifsd_flags, 0FFh            ; number
 @@init_funclist:
+                call    write_dot                               ;
                 call    int13check                              ; check int 13h
+                call    write_dot                               ;
                 push    cs                                      ;
                 call    _calibrate_delay                        ; calibrate io delay
+                call    write_dot                               ;
                 call    init_memory                             ; get system memory info
+                call    write_dot                               ;
                 call    remap_pic                               ; remap PIC1 to int 50h
+                call    write_dot                               ;
                 call    settimerirq                             ; set own irq0 handler
-
+                call    write_dot                               ;
                 push    ds                                      ;
                 pop     es                                      ;
                 call    _init16                                 ; msg code in ax
+                call    write_dot                               ;
 ifdef INITDEBUG
                 dbg16print <"init16 rc: %x",10>,<ax>            ;
 endif
@@ -458,11 +466,11 @@ halt_sys:
 ; OUT: cx = segment (page aligned)
 init_alloc_rm   label   near                                    ;
                 cmp     up_free_len,cx                          ; trying to put in 9100
-                jc      @@initmem_nohigh                        ;
+                jc      init_alloc_nohigh                       ;
                 sub     up_free_len,cx                          ;
                 xadd    up_free_seg,cx                          ;
                 retn
-@@initmem_nohigh:
+init_alloc_nohigh:
                 sub     lo_used_seg,cx                          ;
                 mov     cx,lo_used_seg                          ;
                 retn                                            ;
@@ -522,13 +530,60 @@ init_print      proc  near                                      ;
                 pop     ds                                      ;
                 jmp     @@msgloop                               ;
 @@msgloop_end:
-                cmp     si,offset msg_no486                     ; this was a
-                jnc     @@msgloop_exit                          ; header print?
+                cmp     si,offset msg_no486                     ; is this a header?
+                jnc     @@msgloop_exit                          ;
                 pop     si                                      ;
                 jmp     @@msgloop                               ; yes, print msg
 @@msgloop_exit:
                 ret                                             ;
 init_print      endp                                            ;
+
+write_dot       proc    near                                    ;
+                pushf                                           ; save all
+                pushad                                          ;
+                push    ds                                      ;
+                push    es                                      ;
+                mov     ah,3                                    ; save current pos
+                xor     bh,bh                                   ;
+                int     10h                                     ;
+                movzx   cx,dotpos                               ; but if it equal,
+                cmp     cx,dx                                   ; update it
+                setz    al                                      ;
+                add     dl,al                                   ;
+                push    dx                                      ;
+                mov     dx,cx                                   ;
+                mov     ah,2                                    ; set pos
+                xor     bh,bh                                   ;
+                int     10h                                     ;
+                mov     ah,9                                    ; print ".>"
+                xor     bh,bh                                   ;
+                mov     cx,1                                    ;
+                mov     al,0fah ;0DEh                           ;
+                mov     bl,mhdr_about                           ;
+                push    bx                                      ;
+                push    cx                                      ;
+                int     10h                                     ;
+                mov     ah,2                                    ;
+                inc     byte ptr dotpos                         ;
+                xor     bh,bh                                   ;
+                movzx   dx,dotpos                               ;
+                int     10h                                     ;
+                pop     cx                                      ;
+                pop     bx                                      ;
+                mov     ah,9                                    ;
+                mov     al,'>'                                  ;
+                int     10h                                     ;
+                pop     dx                                      ; restore cursor
+                mov     ah,2                                    ; position
+                xor     bh,bh                                   ;
+                int     10h                                     ;
+                pop     es                                      ;
+                pop     ds                                      ; and exit
+                popad                                           ;
+                popf                                            ;
+                ret                                             ;
+write_dot       endp
+
 
 ifdef INITDEBUG
 ftab_print      proc    near                                    ;
@@ -560,11 +615,12 @@ embedded_errs   dw      offset msg_loading, offset msg_no486, offset msg_notrm,
                         offset msg_diskerr, offset msg_noextdta, offset msg_runextdta,
                         offset msg_disknomem
 embedded_hdrs   dw      offset mhdr_warning, offset mhdr_fatal, offset mhdr_about
+dotpos          db      msg_no486 - msg_loading - 1
 mhdr_warning    db      0Eh, 'Warning: ',0
 mhdr_fatal      db      0Ch, 'Fatal: ', 0
 mhdr_about      db      0Ah, 0, 0
 msg_loading     db      2, 0DBh,0DBh,' LOADING ',0DBh,0DBh,0       ; 00
-msg_no486       db      1,'no 80486+ detected.',0                  ; 01
+msg_no486       db      1,'no 80486DX+ detected.',0                ; 01
 msg_notrm       db      1,'system already in protected mode.',0    ; 02
 msg_memlow      db      1,'invalid low memory size.',0             ; 03
 msg_a20         db      0,0                                        ; 04

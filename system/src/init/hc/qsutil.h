@@ -29,11 +29,20 @@ extern "C" {
 #define QSMA_NOCLEAR  0x004
 //@}
 
-/// allocate and zero fill memory
+/// allocate and zero fill memory.
 void* _std hlp_memalloc(u32t size, u32t flags);
 
+/** allocate and zero fill memory with info signature.
+    The same as hlp_memalloc(), but with 4 chars signature to be saved for
+    information reasons (can be viewed in hlp_memprint() dump).
+    @param size      Size of memory to alloc.
+    @param sig       Signature, 4 chars string, can be 0.
+    @param flags     Options (QSMA_* flags).
+    @return pointer to allocated block or 0 (if QSMA_RETERR specified). */
+void* _std hlp_memallocsig(u32t size, const char *sig, u32t flags);
+
 /** free memory.
-    @param addr  Address, must point to the begin of allocated block */
+    @param addr      Address, must point to the begin of allocated block */
 void  _std hlp_memfree(void *addr);
 
 /** realloc region of memory.
@@ -65,8 +74,8 @@ u32t  _std hlp_memgetsize(void *addr);
     checked by hlp_memgetsize() call. This can occur on reserving memory
     at the end of memory manager space.
 
-    @param physaddr Physical address (QSINIT FLAT space is NOT zero-based!!)
-    @param length   Length of memory to reserve.
+    @param physaddr  Physical address.
+    @param length    Length of memory to reserve.
     @return block address or 0 if address is used or beyond memory manager
             limits. */
 void* _std hlp_memreserve(u32t physaddr, u32t length);
@@ -92,7 +101,8 @@ void  _std hlp_memcprint(void);
 void  _std hlp_finit();
 
 /** open file.
-    @param  name  File name (boot disk root dir only).
+    In EFI build function read files from \EFI\BOOT dir of EFI system volume.
+    @param  name  File name (boot disk root dir only), up to 63 chars.
     @result -1 on no file, else file size */
 u32t  _std hlp_fopen(const char *name);
 
@@ -115,8 +125,8 @@ typedef void _std (*read_callback)(u32t percent, u32t readed);
 void* _std hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint);
 
 /** shutdown entire file i/o.
-    @attention warning! this call shutdown both micro-FSD and virtual disk management!!!
-*/
+    @attention warning! this call shutdown both micro-FSD and virtual disk
+               management!!! */
 void  _std hlp_fdone();
 
 //===================================================================
@@ -154,8 +164,8 @@ char* _std hlp_curdir(u8t drive);
     @result number of hard disks */
 u32t  _std hlp_diskcount(u32t *floppies);
 
-#define QDSK_FLOPPY      0x080    ///< add to disk number to index floppy disks
-#define QDSK_VIRTUAL     0x100    ///< add to disk number to index QSINIT memory disks
+#define QDSK_FLOPPY      0x080    ///< floppy disk
+#define QDSK_VOLUME      0x100    ///< volume (i.e. 0x100 - 0:, 0x101 - 1:, etc)
 #define QDSK_DISKMASK    0x07F    ///< disk index mask
 /** skip sector cache call.
     internal flag for hlp_diskread/hlp_diskwrite disk number only! */
@@ -239,7 +249,7 @@ u32t _std hlp_mountvol(u8t drive, u32t disk, u64t sector, u64t count);
 
 typedef struct {
    u32t      SerialNum;         ///< Volume serial (from BPB)
-   u32t         ClSize;         ///< Sectors per cluster
+   u32t         ClSize;         ///< Sectors per FS allocation unit (cluster)
    u32t    RootDirSize;         ///< Number of root directory entries (FAT12/16)
    u16t     SectorSize;         ///< Bytes per sector
    u16t      FatCopies;         ///< Number of FAT copies
@@ -247,8 +257,11 @@ typedef struct {
    u64t    StartSector;         ///< Start sector of volume (partition)
    u32t   TotalSectors;         ///< Total sectors on volume
    u32t     DataSector;         ///< First data sector on volume (disk-relative)
+   u32t          ClBad;         ///< Bad clusters (not supported, non-zero only after format)
+   u32t        ClAvail;         ///< Clusters available
+   u32t        ClTotal;         ///< Clusters total
    char      Label[12];         ///< Volume Label
-   u32t    BadClusters;         ///< Bad clusters (not supported, non-zero only after format)
+   char      FsName[9];         ///< File system readable name (empty if not recognized)
 } disk_volume_data;
 
 /// @name hlp_volinfo() result
@@ -279,6 +292,12 @@ u32t _std hlp_vollabel(u8t drive, const char *label);
     @param  drive     Drive number: 2..9 only, unmounting of 0,1 is not allowed.
     @result 1 on success. */
 u32t _std hlp_unmountvol(u8t drive);
+
+/** unmount all QSINIT volumes from specified disk.
+    Function can not unmount boot partition!
+    @param  disk      Disk number
+    @return number of unmounted volumes. */
+u32t _std hlp_unmountall(u32t disk);
 
 //===================================================================
 //  other
@@ -389,9 +408,19 @@ u32t _std hlp_writemsr(u32t index, u32t ddlo, u32t ddhi);
 #define QSBT_SINGLE      4    ///< FAT boot without OS/2 (no OS2BOOT in the root)
 //@}
 
-/** query current type of boot.
+/** query type of boot.
     @return QSBT_* constant */
 u32t _std hlp_boottype(void);
+
+/// @name result of hlp_hosttype()
+//@{
+#define QSHT_BIOS        0    ///< BIOS environment
+#define QSHT_EFI         1    ///< 64-bit EFI environment (QSINIT still 32-bit ;))
+//@}
+
+/** query host environment.
+    @return QSHT_* constant */
+u32t _std hlp_hosttype(void);
 
 /// @name type of hlp_querybios() call
 //@{
@@ -435,27 +464,36 @@ void _std exit_restart(char *loader);
 //@}
 
 /** boot from specified HDD.
-    @param disk    Disk number (QDSK_*)
-    @param ownmbr  Flag 1 to replace disk MBR code to self-provided
-    @return EINVAL on invalid disk handle, ENODEV on empty partition table,
-            EIO if i/o error occured and ENOTBLK if disk is emulated hdd */
+    @param  disk      Disk number (QDSK_*)
+    @param  ownmbr    Flag 1 to replace disk MBR code to self-provided
+    @retval EINVAL    invalid disk handle
+    @retval ENODEV    empty partition table
+    @retval EIO       i/o error occured 
+    @retval ENOTBLK   disk is emulated hdd
+    @retval ENOSYS    this is EFI host and BIOS boot unsupported */
 int  _std exit_bootmbr(u32t disk, u32t flags);
 
 /** boot from specified partition.
-    @param disk    Disk number (QDSK_*)
-    @param index   Partition index (see dmgr ops/qsdm.h)
-    @param letter  Set drive letter for OS/2 boot (0 to ignore/default)
-    @return EINVAL  on invalid disk handle or index, 
-            ENODEV  on empty or unrecognized data in boot sector, 
-            EIO     if i/o error occured,
-            ENOTBLK if disk is emulated hdd,
-            EFBIG   if partition (or a part of it) is beyond of 2TB border */
+    @param disk       Disk number (QDSK_*)
+    @param index      Partition index (see dmgr ops/qsdm.h)
+    @param letter     Set drive letter for OS/2 boot (0 to ignore/default)
+    @retval EINVAL    on invalid disk handle or index
+    @retval ENODEV    on empty or unrecognized data in boot sector,
+    @retval EIO       if i/o error occured
+    @retval ENOTBLK   if disk is emulated hdd
+    @retval EFBIG     boot sector of partition is beyond of 2TB border
+    @retval ENOSYS    this is EFI host and BIOS boot not supported */
 int  _std exit_bootvbr(u32t disk, u32t index, char letter);
 
 /** power off the system (APM only).
     Suspend can work too - on some middle aged motherboards ;)
-    @return 0 if failed, 1 if system really powered off */
+    @return 0 if failed, 1 if system was really powered off */
 u32t _std exit_poweroff(int suspend);
+
+/** reboot the system.
+    @param warm       Wark reboot flag (1/0).
+    @return if failed */
+void _std exit_reboot(int warm);
 
 /** internal call: prepare to leave QSINIT.
     this function call all installed exit callbacks

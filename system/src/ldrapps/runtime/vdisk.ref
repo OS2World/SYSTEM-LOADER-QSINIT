@@ -8,4 +8,6 @@ exports = {
    _sys_vdiskinit     = { index = 10  group="vdisk"  format="uuu@uucc&@*u"  }
    _sys_vdiskfree     = { index = 11  group="vdisk"  format="uv"            }
    _sys_vdiskinfo     = { index = 12  group="vdisk"  format="u&@*u&@*u&@*u" }
+   _sys_vdiskload     = { index = 13  group="vdisk"  format="us@u&@up"      }
 }
+

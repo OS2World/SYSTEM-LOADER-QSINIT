@@ -165,8 +165,9 @@ void setup_memory(void) {
    /* leave pcmem array for multiple hlp_setupmem() calls (it contain pure
       PC memory list) and make a copy of it for page allocator */
    setup_memlist();
-   // print it
-   hlp_memcprint();
+   /* print it to log (except safe mode, where it will use too many lines
+      on screen) */
+   if (!hlp_insafemode()) hlp_memcprint();
 }
 
 void _std hlp_memcprint(void) {

@@ -7,195 +7,217 @@ type = dll
 name = "QSINIT"
 
 exports = {
-  _exit_pm32       = { index=1 }                                 # exit(error)
-  rmcall32         = { index=2 }                                 # RM thunk
-  _hlp_rmcall      = { index=3 }                                 # RM function call
-  _int12mem        = { index=4 }                                 # call int 12h
-  _aboutstr        = { index=5  offset=yes }                     # qsinit version/build string
-  _hlp_querybios   = { index=6  group="system" format="@uu" }    # bios api test
+  _exit_pm32       = { index=1 }                                  # exit(error)
+  _hlp_rmcall      = { index=3 }                                  # RM function call
+  _int12mem        = { index=4 }                                  # call int 12h
+  _aboutstr        = { index=5  offset=yes }                      # qsinit version/build string
+  _hlp_querybios   = { index=6  group="system" format="@uu" }     # bios api test
                                 
-  _exit_pm32s      = { index=7 }                                 # jmp exit(error)
+  _exit_pm32s      = { index=7 }                                  # jmp exit(error)
 
-  _sys_setcr3      = { index=8 }                                 # internal call
-  _sys_settr       = { index=9 }                                 # the same
+  _sys_setcr3      = { index=8 }                                  # internal call
+  _sys_settr       = { index=9 }                                  # the same
 
-  _hlp_seroutchar  = { index=10 }                                # serial print char
-  _hlp_seroutstr   = { index=11 }                                # serial print string
-  _log_printf      = { index=12 }                                # printf to log
-  _log_flush       = { index=13 }                                # flush delayed log data
-  _hlp_seroutinfo  = { index=14 }                                # query serial parameters
-  _sys_errbrk      = { index=15 }                                # DR0..DR3 access
-  _sto_init        = { index=16 }                                # storage support
-  _hlp_seroutset   = { index=17 group="system" format="i@hu" }   # change serial parameters
-  _log_vprintf     = { index=18 }                                # vprintf to log
+  _hlp_seroutchar  = { index=10 }                                 # serial print char
+  _hlp_seroutstr   = { index=11 }                                 # serial print string
+  _log_printf      = { index=12 }                                 # printf to log
+  _log_flush       = { index=13 }                                 # flush delayed log data
+  _hlp_seroutinfo  = { index=14 }                                 # query serial parameters
+  _sys_errbrk      = { index=15 }                                 # DR0..DR3 access
+  _sto_init        = { index=16 }                                 # storage support
+  _hlp_seroutset   = { index=17 group="system" format="i@hu" }    # change serial parameters
+  _log_vprintf     = { index=18 }                                 # vprintf to log
 
-  _hlp_memalloc    = { index=20 }                                # global malloc
-  _hlp_memfree     = { index=21 }                                # global free
-  _hlp_memrealloc  = { index=22 }                                # global realloc
-  _hlp_memavail    = { index=23 }                                # query available memory
-  _hlp_memqconst   = { index=24 }                                # internal
-  _hlp_memprint    = { index=26 }                                # print tables to log
-  _hlp_memgetsize  = { index=27 }                                # query block size
-  _hlp_memreserve  = { index=28 }                                # reserve mem at phys addr
+  _hlp_memalloc    = { index=20 }                                 # global malloc
+  _hlp_memfree     = { index=21 }                                 # global free
+  _hlp_memrealloc  = { index=22 }                                 # global realloc
+  _hlp_memavail    = { index=23 }                                 # query available memory
+  _hlp_memqconst   = { index=24 }                                 # internal
+  _hlp_memprint    = { index=26 }                                 # print tables to log
+  _hlp_memgetsize  = { index=27 }                                 # query block size
+  _hlp_memreserve  = { index=28 }                                 # reserve mem at phys addr
+  _hlp_memallocsig = { index=29 }                                 # global malloc with signature
 
-  _hlp_finit       = { index=30 }                                # init boot FS file i/o
-  _hlp_fopen       = { index=31 }                                # open file
-  _hlp_fread       = { index=32 }                                # read file
-  _hlp_fclose      = { index=33 }                                # close file
-  _hlp_freadfull   = { index=34 }                                # open/read/close file
-  _hlp_fdone       = { index=35 }                                # done boot FS file i/o
+  _hlp_finit       = { index=30 }                                 # init boot FS file i/o
+  _hlp_fopen       = { index=31 }                                 # open file
+  _hlp_fread       = { index=32 }                                 # read file
+  _hlp_fclose      = { index=33 }                                 # close file
+  _hlp_freadfull   = { index=34 }                                 # open/read/close file
+  _hlp_fdone       = { index=35 }                                 # done boot FS file i/o
 
-  _f_mount         = { index=40 group="fatfs"  format="bpsb"  }  # mount virtual disk
-  _f_open          = { index=41 group="fatfs"  format="bps@c" }  # open file
+  _f_mount         = { index=40 group="fatfs"  format="bpsb"  }   # mount virtual disk
+  _f_open          = { index=41 group="fatfs"  format="bps@c" }   # open file
   _f_read          = { index=42 group="fatfs"  format="bppu&*u" } # read file
-  _f_lseek         = { index=43 group="fatfs"  format="bpu"   }  # seek file
-  _f_close         = { index=44 group="fatfs"  format="bp"    }  # close file
-  _f_opendir       = { index=45 group="fatfs"  format="bps"   }  # open dir
-  _f_readdir       = { index=46 group="fatfs"  format="bpp"   }  # read dir
-  _f_stat          = { index=47 group="fatfs"  format="bsp"   }  # stat file
+  _f_lseek         = { index=43 group="fatfs"  format="bpu"   }   # seek file
+  _f_close         = { index=44 group="fatfs"  format="bp"    }   # close file
+  _f_opendir       = { index=45 group="fatfs"  format="bps"   }   # open dir
+  _f_readdir       = { index=46 group="fatfs"  format="bpp"   }   # read dir
+  _f_stat          = { index=47 group="fatfs"  format="bsp"   }   # stat file
   _f_write         = { index=48 group="fatfs"  format="bppu&*u" } # write file
   _f_getfree       = { index=49 group="fatfs"  format="bs&*u&*p" } # get free space
-  _f_truncate      = { index=50 group="fatfs"  format="bp"    }  # truncate file
-  _f_sync          = { index=51 group="fatfs"  format="bp"    }  # sync virtual disk
-  _f_unlink        = { index=52 group="fatfs"  format="bs"    }  # delete file
-  _f_mkdir         = { index=53 group="fatfs"  format="bs"    }  # make dir
-  _f_chmod         = { index=54 group="fatfs"  format="bs@c@c" } # change rights
-  _f_utime         = { index=55 group="fatfs"  format="bsp"   }  #
-  _f_rename        = { index=56 group="fatfs"  format="bss"   }  # rename file
-  _f_closedir      = { index=57 group="fatfs"  format="bp"    }  # close dir
-  _hlp_chdir       = { index=58 group="disk"   format="us"    }  # set current dir
-  _hlp_chdisk      = { index=59 group="disk"   format="u@c"   }  # set current disk
-  _hlp_curdisk     = { index=60 group="disk"   format="@cv"   }  # get current disk
-  _hlp_curdir      = { index=61 group="disk"   format="s@c"   }  # get current dir
+  _f_truncate      = { index=50 group="fatfs"  format="bp"    }   # truncate file
+  _f_sync          = { index=51 group="fatfs"  format="bp"    }   # sync virtual disk
+  _f_unlink        = { index=52 group="fatfs"  format="bs"    }   # delete file
+  _f_mkdir         = { index=53 group="fatfs"  format="bs"    }   # make dir
+  _f_chmod         = { index=54 group="fatfs"  format="bs@c@c" }  # change rights
+  _f_utime         = { index=55 group="fatfs"  format="bsp"   }   #
+  _f_rename        = { index=56 group="fatfs"  format="bss"   }   # rename file
+  _f_closedir      = { index=57 group="fatfs"  format="bp"    }   # close dir
+  _hlp_chdir       = { index=58 group="disk"   format="us"    }   # set current dir
+  _hlp_chdisk      = { index=59 group="disk"   format="u@c"   }   # set current disk
+  _hlp_curdisk     = { index=60 group="disk"   format="@cv"   }   # get current disk
+  _hlp_curdir      = { index=61 group="disk"   format="s@c"   }   # get current dir
   _f_getlabel      = { index=62 group="fatfs"  format="bs&s&*@u" } # get volume label
-  _f_setlabel      = { index=63 group="fatfs"  format="bs"    }  # set volume label
+  _f_setlabel      = { index=63 group="fatfs"  format="bs"    }   # set volume label
+  _hlp_setcpinfo   = { index=64 group="fatfs"  format="v*h"   }   # oem conversion setup
 
-  _snprintf        = { index=70 group="string" format="i&sus." } # clib
-  _memset          = { index=72 group="clib"   format="pp@cu" }  #
-  _strncmp         = { index=73 group="string" format="issu"  }  #
-  _strnicmp        = { index=74 group="string" format="issu"  }  #
-  _strlen          = { index=75 group="string" format="us"    }  #
-  _strncpy         = { index=76 group="string" format="p&ssu" }  #
-  _strcpy          = { index=77 group="string" format="p&ss"  }  #
-  _strchr          = { index=78 group="string" format="ssc"   }  #
-  _memcpy          = { index=79 group="clib"   format="pppu"  }  #
-  _toupper         = { index=80 }                                #
-  _memchrnb        = { index=81 group="clib"   format="pp@cu" }  #
-  _memchrw         = { index=82 group="clib"   format="pp@hu" }  #
-  _memchrnw        = { index=83 group="clib"   format="pp@hu" }  #
-  _memchrd         = { index=84 group="clib"   format="pp@uu" }  #
-  _memchrnd        = { index=85 group="clib"   format="pp@uu" }  #
-  _memmove         = { index=86 group="clib"   format="pppu"  }  #
-  _tolower         = { index=87 }                                #
-  _memchr          = { index=88 group="clib"   format="pp@cu" }  #
-  __vsnprintf      = { index=89 group="string" format="i&susp" } #
-  _usleep          = { index=90 group="clib"   format="vu"    }  #
-  _memsetw         = { index=91 group="clib"   format="pp@hu" }  #
-  _memsetd         = { index=92 group="clib"   format="pp@uu" }  #
-  __longjmp        = { index=93 }  #
-  __setjmp         = { index=94 }  #
-  _str2long        = { index=95 group="string" format="is"    }  #
-  __itoa           = { index=96 group="clib"   format="sipi"  }  #
-  __itoa64         = { index=97 group="clib"   format="s@qpi" }  #
-  __utoa           = { index=98 group="clib"   format="supi"  }  #
-  __utoa64         = { index=99 group="clib"   format="sqpi"  }  #
+  _snprintf        = { index=70 group="string" format="i&sus." }  # clib
+  _memset          = { index=72 group="clib"   format="pp@cu" }   #
+  _strncmp         = { index=73 group="string" format="issu"  }   #
+  _strnicmp        = { index=74 group="string" format="issu"  }   #
+  _strlen          = { index=75 group="string" format="us"    }   #
+  _strncpy         = { index=76 group="string" format="p&ssu" }   #
+  _strcpy          = { index=77 group="string" format="p&ss"  }   #
+  _strchr          = { index=78 group="string" format="ssc"   }   #
+  _memcpy          = { index=79 group="clib"   format="pppu"  }   #
+  _toupper         = { index=80 }                                 #
+  _memchrnb        = { index=81 group="clib"   format="pp@cu" }   #
+  _memchrw         = { index=82 group="clib"   format="pp@hu" }   #
+  _memchrnw        = { index=83 group="clib"   format="pp@hu" }   #
+  _memchrd         = { index=84 group="clib"   format="pp@uu" }   #
+  _memchrnd        = { index=85 group="clib"   format="pp@uu" }   #
+  _memmove         = { index=86 group="clib"   format="pppu"  }   #
+  _tolower         = { index=87 }                                 #
+  _memchr          = { index=88 group="clib"   format="pp@cu" }   #
+  __vsnprintf      = { index=89 group="string" format="i&susp" }  #
+  _usleep          = { index=90 group="clib"   format="vu"    }   #
+  _memsetw         = { index=91 group="clib"   format="pp@hu" }   #
+  _memsetd         = { index=92 group="clib"   format="pp@uu" }   #
+  __longjmp        = { index=93 }                                 #
+  __setjmp         = { index=94 }                                 #
+  _str2long        = { index=95 group="string" format="is"    }   #
+  __itoa           = { index=96 group="clib"   format="sipi"  }   #
+  __itoa64         = { index=97 group="clib"   format="s@qpi" }   #
+  __utoa           = { index=98 group="clib"   format="supi"  }   #
+  __utoa64         = { index=99 group="clib"   format="sqpi"  }   #
 
-  _vio_charout     = { index=100 }                               # print char
-  _vio_strout      = { index=101 }                               # print string
-  _vio_clearscr    = { index=102 group="vio"   format="vv"    }  # clear screen
-  _vio_setpos      = { index=103 }                               # set cursor position
-  _vio_setshape    = { index=104 group="vio"   format="v@b@b" }  # set cursor shape
-  _vio_setcolor    = { index=105 }                               # set output color
-  _vio_setmode     = { index=106 group="vio"   format="vu"    }  # set text mode
-  _vio_resetmode   = { index=107 group="vio"   format="vv"    }  # reset mode to 80x25
-  _vio_getmode     = { index=108 }                               # query current text mode
-  _vio_beep        = { index=109 group="vio"   format="vhu"   }  # speaker sound
+  _vio_charout     = { index=100 }                                # print char
+  _vio_strout      = { index=101 }                                # print string
+  _vio_clearscr    = { index=102 group="vio"   format="vv"    }   # clear screen
+  _vio_setpos      = { index=103 }                                # set cursor position
+  _vio_setshape    = { index=104 group="vio"   format="v@b@b" }   # set cursor shape
+  _vio_setcolor    = { index=105 }                                # set output color
+  _vio_setmode     = { index=106 group="vio"   format="vu"    }   # set text mode
+  _vio_resetmode   = { index=107 group="vio"   format="vv"    }   # reset mode to 80x25
+  _vio_getmode     = { index=108 }                                # query current text mode
+  _vio_beep        = { index=109 group="vio"   format="vhu"   }   # speaker sound
  
-  _zip_open        = { index=110 group="zip"   format="ippu"  }  # open zip
-  _zip_close       = { index=111 group="zip"   format="vp"    }  # close zip
+  _zip_open        = { index=110 group="zip"   format="ippu"  }   # open zip
+  _zip_close       = { index=111 group="zip"   format="vp"    }   # close zip
   _zip_nextfile    = { index=112 group="zip"   format="ip&*s&*u" } # seek next file
-  _zip_readfile    = { index=113 group="zip"   format="pp"    }  # unpack file from zip
-  _crc32           = { index=114 group="zip"   format="@u@upu" } # crc32
-  _zip_isok        = { index=115 group="zip"   format="ip"    }  # check last result
-  _zip_unpacked    = { index=116 group="zip"   format="up&*u" }  # get total zip size
-  _unpack_zip      = { index=117 group="zip"   format="i@cpu" }  # unpack zip to virtual disk
+  _zip_readfile    = { index=113 group="zip"   format="pp"    }   # unpack file from zip
+  _crc32           = { index=114 group="zip"   format="@u@upu" }  # crc32
+  _zip_isok        = { index=115 group="zip"   format="ip"    }   # check last result
+  _zip_unpacked    = { index=116 group="zip"   format="up&*u" }   # get total zip size
+  _unpack_zip      = { index=117 group="zip"   format="i@cpu" }   # unpack zip to virtual disk
 
-  _int15mem        = { index=120 }                               # get full ACPI memory table
-  _exit_poweroff   = { index=121 }                               # power off the system
-  _BootBPB         = { index=124 offset = yes }                  # boot partition BPB
-  _hlp_runcache    = { index=125 group="disk"  format="up" }     # install cache handler
-  _exit_restart    = { index=127 }                               # restart another loader
-  _boot_info       = { index=128 offset = yes }                  # internal, for OS/2 boot
-  _IODelay         = { index=129 offset = yes }                  # i/o delay value
-  _page0_fptr      = { index=130 offset = yes }                  # 48-bit writable page 0 ptr
-  _exit_prepare    = { index=131 }                               # call exit list
-  _exit_handler    = { index=132 }                               # add/remove exit callbacks
-  _hlp_boottype    = { index=133 }                               # query boot type
-  _hlp_getcpuid    = { index=134 }                               # cpuid call
-  _hlp_readmsr     = { index=135 }                               # read msr call
-  _hlp_writemsr    = { index=136 }                               # write msr call
+  _int15mem        = { index=120 }                                # get full ACPI memory table
+  _exit_poweroff   = { index=121 }                                # power off the system
+  _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
+  _hlp_runcache    = { index=125 group="disk"  format="up" }      # install cache handler
+  _exit_reboot     = { index=126 }                                # reboot system
+  _exit_restart    = { index=127 }                                # restart another loader
+  _boot_info       = { index=128 offset = yes }                   # internal, for OS/2 boot
+  _IODelay         = { index=129 offset = yes }                   # i/o delay value
+  _page0_fptr      = { index=130 offset = yes }                   # 48-bit writable page 0 ptr
+  _exit_prepare    = { index=131 }                                # call exit list
+  _exit_handler    = { index=132 }                                # add/remove exit callbacks
+  _hlp_boottype    = { index=133 }                                # query boot type
+  _hlp_getcpuid    = { index=134 }                                # cpuid call
+  _hlp_readmsr     = { index=135 }                                # read msr call
+  _hlp_writemsr    = { index=136 }                                # write msr call
+  _sys_intstate    = { index=137 group="system" format="ii" }     # get/set interrupt state
+  _hlp_hosttype    = { index=138 }                                # query host env. type
+  _call64          = { index=139 }                                # call 64-bit part on EFI host
 
-  _hlp_selalloc    = { index=140 group="system" format="@hu" }   # allocate selectors
-  _hlp_selfree     = { index=141 group="system" format="u@h" }   # free selector
+  _hlp_selalloc    = { index=140 group="system" format="@hu" }    # allocate selectors
+  _hlp_selfree     = { index=141 group="system" format="u@h" }    # free selector
   _hlp_selsetup    = { index=142 group="system" format="u@h@u@u@u" } # setup selector
-  _hlp_selbase     = { index=143 }                               # query selector base & limit
-  _hlp_segtoflat   = { index=145 }                               # convert RM segment to flat
+  _hlp_selbase     = { index=143 }                                # query selector base & limit
+  _hlp_segtoflat   = { index=145 }                                # convert RM segment to flat
+  _sys_getint      = { index=146 group="system" format="vb&@*q" } # get interrupt vector
+  _sys_setint      = { index=147 group="system" format="ib@*q" }  # set interrupt vector
+  _sys_intgate     = { index=148 group="system" format="ib@h"  }  # set interrupt gate
+  _sys_seldesc     = { index=149 group="system" format="i@h@*q" } # set descriptor
+  _sys_selquery    = { index=150 group="system" format="i@h@*&q" } # get descriptor
+  _sys_setxcpt64   = { index=151 group="system" format="pp" }     # setup exceptions on EFI host
 
-  _mod_load        = { index=160 }                               # load module
-  _mod_unpackobj   = { index=161 }                               # unpack module object
-  _mod_getfuncptr  = { index=162 }                               # get pointer to exp. function
-  _mod_exec        = { index=163 }                               # exec loaded exe module
-  _mod_free        = { index=164 }                               # free module
-  _mod_secondary   = { index=165 offset = yes }                  # internal variables and
-  _mod_list        = { index=166 offset = yes }                  # functions
-  _mod_ilist       = { index=167 offset = yes }                  #
-  _mod_listadd     = { index=168 }                               #
-  _mod_listdel     = { index=169 }                               #
-  _mod_listlink    = { index=170 }                               #
-  _mod_listflags   = { index=172 }                               #
-  _mod_context     = { index=173 }                               # query module context (GS)
-  _mod_query       = { index=174 }                               # is module loaded?
-  _mod_apidirect   = { index=175 group="module" format="p@uu" }  #
-  _mod_findexport  = { index=176 }                               # internal
+  _mod_load        = { index=160 }                                # load module
+  _mod_unpackobj   = { index=161 }                                # unpack module object
+  _mod_getfuncptr  = { index=162 }                                # get pointer to exp. function
+  _mod_exec        = { index=163 }                                # exec loaded exe module
+  _mod_free        = { index=164 }                                # free module
+  _mod_secondary   = { index=165 offset = yes }                   # internal variables and
+  _mod_list        = { index=166 offset = yes }                   # functions
+  _mod_ilist       = { index=167 offset = yes }                   #
+  _mod_listadd     = { index=168 }                                #
+  _mod_listdel     = { index=169 }                                #
+  _mod_listlink    = { index=170 }                                #
+  _mod_listflags   = { index=172 }                                #
+  _mod_context     = { index=173 }                                # query module context (GS)
+  _mod_query       = { index=174 }                                # is module loaded?
+  _mod_apidirect   = { index=175 group="module" format="p@uu" }   #
+  _mod_findexport  = { index=176 }                                # internal
 
-  _key_read        = { index=180 }                               # read character
-  _key_pressed     = { index=181 }                               # is character pressed?
-  _key_speed       = { index=182 group="vio" format="vbb" }      # set keyboard rate/delay
-  _key_status      = { index=183 }                               # get sys key status
-  _key_wait        = { index=184 }                               # wait key with delay
-  _key_push        = { index=185 group="vio" format="b@h" }      # push key to keyboard buffer
-  _key_waithlt     = { index=186 group="vio" format="ii" }       # wait method setup
-  _key_getspeed    = { index=187 group="vio" format="v&*b&*b" }  # get keyboard rate/delay
+  _key_read        = { index=180 }                                # read character
+  _key_pressed     = { index=181 }                                # is character pressed?
+  _key_speed       = { index=182 group="vio" format="vbb" }       # set keyboard rate/delay
+  _key_status      = { index=183 }                                # get sys key status
+  _key_wait        = { index=184 }                                # wait key with delay
+  _key_push        = { index=185 group="vio" format="b@h" }       # push key to keyboard buffer
+  _key_waithlt     = { index=186 group="vio" format="ii" }        # wait method setup
+  _key_getspeed    = { index=187 group="vio" format="v&*b&*b" }   # get keyboard rate/delay
 
-  _tm_counter      = { index=190 }                               # bios timer counter value
-  _tm_getdate      = { index=191 }                               # query cmos date/time
-  _vio_beepactive  = { index=192 }                               # is beep active now
-  _tm_setdate      = { index=193 }                               # set cmos date/time
-  _tm_calibrate    = { index=194 }                               # calibrate i/o delay
+  _tm_counter      = { index=190 }                                # bios timer counter value
+  _tm_getdate      = { index=191 }                                # query cmos date/time
+  _vio_beepactive  = { index=192 }                                # is beep active now
+  _tm_setdate      = { index=193 }                                # set cmos date/time
+  _tm_calibrate    = { index=194 }                                # calibrate i/o delay
 
-  _vio_getshape    = { index=200 group="vio" format="@hv" }      # get cursor shape
-  _vio_getpos      = { index=201 }                               # get cursor pos
-  _vio_getmodefast = { index=202 }                               # the same (internal)
-  _vio_defshape    = { index=203 group="vio" format="vb" }       # set cursor shape
-  _vio_intensity   = { index=204 group="vio" format="vb" }       # select intensity or blink
+  _vio_getshape    = { index=200 group="vio" format="@hv" }       # get cursor shape
+  _vio_getpos      = { index=201 }                                # get cursor pos
+  _vio_getmodefast = { index=202 }                                # the same (internal)
+  _vio_defshape    = { index=203 group="vio" format="vb" }        # set cursor shape
+  _vio_intensity   = { index=204 group="vio" format="vb" }        # select intensity or blink
+  _vio_setmodeex   = { index=205 group="vio" format = "iuu" }     # set text mode
+  _vio_writebuf    = { index=206 group="vio" }                    # buffer -> text screen
+  _vio_readbuf     = { index=207 group="vio" }                    # text screen -> buffer
+  _vio_ttylines    = { index=208 offset = yes }                   # global count of printed lines
 
-  _hlp_diskcount   = { index=210 group="disk"  format="u&*u"  }  # physical disk access
+  _hlp_diskcount   = { index=210 group="disk"  format="u&*u"  }   # physical disk access
   _hlp_disksize    = { index=211 group="disk"  format="u@u&*up" } #
   _hlp_diskread    = { index=212 group="disk"  format="u@u@qup" } #
   _hlp_diskwrite   = { index=213 group="disk"  format="u@u@qup" } #
-  _hlp_diskmode    = { index=214 group="disk"  format="u@u@u" }  #
-  _hlp_fddline     = { index=215 group="disk"  format="i@u"   }  #
-  _hlp_diskadd     = { index=216 group="disk"  format="@ip"   }  #
-  _hlp_diskremove  = { index=217 group="disk"  format="i@u"   }  #
+  _hlp_diskmode    = { index=214 group="disk"  format="u@u@u" }   #
+  _hlp_fddline     = { index=215 group="disk"  format="i@u"   }   #
+  _hlp_diskadd     = { index=216 group="disk"  format="@ip"   }   #
+  _hlp_diskremove  = { index=217 group="disk"  format="i@u"   }   #
+  _hlp_mountvol    = { index=218 group="disk"  format="u@c@u@qq"} # mount/unmount FAT/FAT32
+  _hlp_unmountvol  = { index=219 group="disk"  format="u@c"   }   #
+  _hlp_volinfo     = { index=220 group="disk"  format="u@cp"  }   # mounted volume info
+  _hlp_disksize64  = { index=221 group="disk"  format="q@u&*u" }  #
 
-  __U8D            = { index=230 }                               # watcom int64 support
-  __I8D            = { index=231 }                               # and more of clib
-  __U8RS           = { index=232 }                               #
-  __U8LS           = { index=233 }                               #
-  __I8RS           = { index=234 }                               #
-  __I8LS           = { index=235 }                               #
-  __U8M            = { index=236 }                               #
-  __I8M            = { index=237 }                               #
-  __prt_common     = { index=238 }                               #
-  _wcslen          = { index=239 group="string" format="uS"   }  #
+  __U8D            = { index=230 }                                # watcom int64 support
+  __I8D            = { index=231 }                                # and more of clib
+  __U8RS           = { index=232 }                                #
+  __U8LS           = { index=233 }                                #
+  __I8RS           = { index=234 }                                #
+  __I8LS           = { index=235 }                                #
+  __U8M            = { index=236 }                                #
+  __I8M            = { index=237 }                                #
+  __prt_common     = { index=238 }                                #
+  _wcslen          = { index=239 group="string" format="uS"   }   #
+  _memsetq         = { index=240 group="clib"   format="pp@qu" }  #
+  _memchrq         = { index=241 group="clib"   format="pp@qu" }  #
+  _memchrnq        = { index=242 group="clib"   format="pp@qu" }  #
 }

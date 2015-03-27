@@ -30,7 +30,8 @@ out=$(outdir)/
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
-       -fi=%(appinit_lib)\initdef.h -i=$(outdir) -fo=
+       -fi=%(appinit_lib)\initdef.h -i=$(outdir) \
+       -i=%(QS_BASE)\ldrefi\hc -fo=
 
 dlldir=DLL
 cinc=
@@ -44,11 +45,12 @@ outname=$(name).dll
 
 [files]
 $(bld_dir).dir $(outdir).dir clean.cln
-..\runtime\qsinit.ord ..\runtime\start.ord
+..\runtime\qsinit.ord
 ..\..\hc\inc\vbedata.inc ..\..\hc\inc\dpmi.inc
-..\..\hc\inc\seldesc.inc graphdef.inc
-console.c vesa.c fonts.c writegif.c viohook.c graph.asm
-txemu.c
+..\..\hc\inc\seldesc.inc inc\graphdef.inc
+..\..\ldrefi\inc\efnlist.inc
+console.c outvesa.c outefi.c fonts.c writegif.c viohook.c graph.asm
+txemu.c outbase.c
 
 [make_footer]
 MAKEDIRS : $(bld_dir).dir $(outdir).dir

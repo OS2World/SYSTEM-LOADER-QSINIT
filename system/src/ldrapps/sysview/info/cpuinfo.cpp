@@ -166,10 +166,13 @@ void TSysApp::ExecCpuInfoDlg() {
           1,CPUID_FI1_MOVBE, 1,CPUID_FI1_POPCNT, 1,CPUID_FI1_MONITOR,
           4,CPUID_FI4_SYSCALL, 2,CPUID_FI2_TSC,  4,CPUID_FI4_RDTSCP,
           2,CPUID_FI2_CLFSH, 2,CPUID_FI2_CMOV, 3,CPUID_FI3_LAHF64,
-          2,CPUID_FI2_SEP, 0,0};
+          2,CPUID_FI2_SEP, 1,CPUID_FI1_PCLMULQDQ, 1,CPUID_FI1_RDRAND, 
+          1,CPUID_FI1_AVX, 1,CPUID_FI1_FMA, 1,CPUID_FI1_AESNI,
+          1,CPUID_FI1_F16C, 0,0};
        static const char *bstr1[] = { "64bit ", "MMX ", "CMPXC8 ", "CMPXC16 ",
           "FXSR ", "MOVBE ", "POPCNT ", "MON ", "SYSC ", "RDTSC ", "RDTSCP ",
-          "CLFLUSH ", "CMOV ", "LAHF ", "SYSENT "};
+          "CLFLUSH ", "CMOV ", "LAHF ", "SYSENT ", "PCLMULQDQ ", "RDRAND ",
+          "AVX ", "FMA ", "AESNI ", "F16C "};
 
        for (ii=0; batch1[ii*2]; ii++)
           if (fi[batch1[ii*2]-1]&batch1[ii*2+1]) PUSH_AVAIL(bstr1[ii]);
@@ -192,13 +195,13 @@ void TSysApp::ExecCpuInfoDlg() {
          1,CPUID_FI1_DCA, 2,CPUID_FI2_DS, 1,CPUID_FI1_DTES64, 1,CPUID_FI1_DSCPL,
          2,CPUID_FI2_DE, 1,CPUID_FI1_PDCM, 2,CPUID_FI2_PBE, 1,CPUID_FI1_SMX,
          1,CPUID_FI1_CNXTID, 1,CPUID_FI1_xTPRUpdate, 2,CPUID_FI2_SSNOOP, 
-         4,CPUID_FI4_1GBPAGES, 0,0};
+         4,CPUID_FI4_1GBPAGES, 1,CPUID_FI1_TSC_D, 1,CPUID_FI1_PCID, 0,0};
        
        static const char *bstr2[] = { "HT ", "VME ", "FPU ", "VMX ", "PAE ", 
           "PSE ", "PSE36 ", "EXD ", "PAT ", "PSN ", "PGE ", "MSR ", "TM ", 
           "TM2 ", "TTC ", "APIC ", "x2APIC ", "MTRR ", "EST ", "MCA ", "MCE ", 
           "DCA ", "DS ", "DS64 ", "DSCPL ", "DE ", "PDCM ", "PBE ", "SMX ", 
-          "CNXTID ", "xTPRUp ", "SSNOOP ", "1GbPAGES" };
+          "CNXTID ", "xTPRUp ", "SSNOOP ", "1GbPAGES ", "TSC-D ", "PCID " };
 
        for (ii=0; batch2[ii*2]; ii++)
           if (fi[batch2[ii*2]-1]&batch2[ii*2+1]) PUSH_AVAIL(bstr2[ii]);

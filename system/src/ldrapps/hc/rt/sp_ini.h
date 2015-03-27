@@ -58,12 +58,17 @@ public:
   void  WriteArray   (const spstr &Section,const spstr &Key,TList &Value);
   void  WriteArray   (const spstr &Section,const spstr &Key,ptr Buf,d Size);
   void  WriteSection (const spstr &Section,const TStrings &Text,Bool Replace=true);
-  TStrings ReadSections       () { return Sections; }
+  TStrings ReadSections       ();
+  void     ReadSections       (TStrings &names);
   // read non-uppercased section names (slow)
   TStrings ReadSectionOrgNames();
+  void     ReadSectionOrgNames(TStrings &names);
   TStrings ReadSection        (const spstr &Section);
+  void     ReadSection        (const spstr &Section,TStrings &text);
   TStrings ReadSectionKeys    (const spstr &Section);
+  void     ReadSectionKeys    (const spstr &Section,TStrings &keys);
   TStrings ReadSectionValues  (const spstr &Section);
+  void     ReadSectionValues  (const spstr &Section,TStrings &values);
   void  EraseSection (const spstr &Section);
   void  DeleteKey    (const spstr &Section,const spstr &Key);
 #ifndef NO_INIFILESRW

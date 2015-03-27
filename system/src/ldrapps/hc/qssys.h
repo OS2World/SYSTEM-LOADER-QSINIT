@@ -12,17 +12,20 @@ extern "C" {
 #include "qsutil.h"
 
 /** get interrupt vector.
+    Function is not supported on EFI host (always return 0 in vector value).
     @param   [in]  vector  Vector (0..255)
     @param   [out] addr    Buffer for far 48bit address */
 void     _std sys_getint(u8t vector, u64t *addr);
 
 /** set interrupt vector.
+    Function is not supported on EFI host (always return 0).
     @param   [in]  vector  Vector (0..255)
     @param   [in]  addr    Buffer with far 48bit address
     @return boolean success flag (1/0) */
 int      _std sys_setint(u8t vector, u64t *addr);
 
 /** set task gate interrupt handler.
+    Function is not supported on EFI host (always return 0).
     @param   [in]  vector  Vector (0..255)
     @param   [in]  sel     TSS selector
     @return boolean success flag (1/0) */
@@ -44,17 +47,22 @@ u16t     _std sys_tssalloc(void *tssdata, u16t limit);
     @return success flag (1/0) */
 int      _std sys_tssfree(u16t sel);
 
-// include seldesc.inc to get access here
-#ifdef QS_BASE_SELDESC
-
 /** GDT descriptor setup.
-    This function get ready descriptor data (unlike hlp_selsetup()).
-    @param  selector  GDT offset (i.e. selector ith 0 RPL field)
+    This function get ready descriptor data (unlike hlp_selsetup()), but
+    accept only QSINIT's selectors too (i.e. you cannot change selectors
+    of EFI BIOS by this call).
+    @param  selector  GDT offset (i.e. selector with 0 RPL field)
     @param  desc      Descriptor data (8 bytes)
     @return bool - success flag. */
-int      _std sys_seldesc(u16t sel, struct desctab_s *desc);
+int      _std sys_seldesc(u16t sel, void *desc);
 
-#endif // QS_BASE_SELDESC
+/** read GDT descriptor to supplied buffer.
+    Function return actual GDT data and fail only on reaching GDT limit.
+
+    @param  selector  GDT offset (i.e. selector with 0 RPL field)
+    @param  desc      Buffer for Descriptor data (8 bytes)
+    @return bool - success flag. */
+int      _std sys_selquery(u16t sel, void *desc);
 
 /** enable/disable interrupts.
     It is good to call it with saving previous state:
@@ -71,6 +79,28 @@ int      _std sys_intstate(int on);
     @return 1 if paging mode active, else 0 */
 int      _std sys_pagemode(void);
 
+/** query current active mode (32/64).
+    Function must always return 1 on EFI host and 0 on BIOS. But it
+    checks corresponding registers on every call.
+    @return 1 if system is in 64-bit mode, else 0 */
+int      _std sys_is64mode(void);
+
+/// @name flags for sys_isavail
+//@{
+#define SFEA_PAE     0x00000001            ///< PAE supported?
+#define SFEA_PGE     0x00000002            ///< PGE supported?
+#define SFEA_PAT     0x00000004            ///< PAT supported?
+#define SFEA_CMOV    0x00000008            ///< CMOV instructions (>=P6)
+#define SFEA_MTRR    0x00000010            ///< MTRR present
+#define SFEA_MSR     0x00000020            ///< MSRs present
+#define SFEA_X64     0x00000040            ///< AMD64 present
+//@}
+
+/** query some CPU features in more easy way.
+    @param  flags   SFEA_* flags combination
+    @return actually supported subset of flags parameter */
+u32t     _std sys_isavail(u32t flags);
+
 typedef struct {
    u64t      start;                 ///< start of memory block
    u32t      pages;                 ///< number of 4k pages in block
@@ -81,7 +111,6 @@ typedef struct {
 #define PCMEM_RESERVED    0x0001    ///< memory, reserved by hardware (BIOS)
 #define PCMEM_QSINIT      0x0002    ///< memory, used by QSINIT memory manager
 #define PCMEM_RAMDISK     0x0003    ///< memory, used by ram disk app
-#define PCMEM_PHYSALLOC   0x0004    ///< memory, reserved by hlp_memisfree() call
 #define PCMEM_USERAPP     0x0005    ///< memory, used by any custom app
 
 #define PCMEM_HIDE        0x8000    ///< add this flag to hide memory from OS/2
@@ -128,6 +157,20 @@ void     _std sys_gdtdump(void);
 /// dump IDT to log
 void     _std sys_idtdump(void);
 
+/** memcpy for memory above 4Gb border.
+    @attention Function will turn PAE mode on if requested address above 4Gb.
+
+    Copying protected by exception handler.
+    Page 0 cannot be a part of source or destination.
+    Both source and destination cannot cross 4Gb border.
+    Use hlp_memcpy() for protected copying in first 4Gbs.
+
+    @param dst    Destination physical address.
+    @param src    Source physical address.
+    @param length Number of bytes to copy
+    @return success flag (1/0) */
+u32t     _std sys_memhicopy(u64t dst, u64t src, u64t length);
+
 /// flags for hlp_setupmem()
 //@{
 #define SETM_SPLIT16M  0x0001 // split memory block at 16M border
@@ -146,7 +189,7 @@ void     _std sys_idtdump(void);
     @param [in]     flags      flags
     @return return physical log address (or 0 if no log or failed to alloc)
     and corrected log size in *logsize variable */
-u32t _std hlp_setupmem(u32t fakemem, u32t *logsize, u32t *removemem, u32t flags);
+u32t     _std hlp_setupmem(u32t fakemem, u32t *logsize, u32t *removemem, u32t flags);
 
 #ifdef __cplusplus
 }

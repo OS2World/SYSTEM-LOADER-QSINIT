@@ -11,12 +11,12 @@ exports = {
 
    _dsk_ptrescan     = { index =  30  group = "disk"   format = "u@ui"    }
    _dsk_ptquery      = { index =  31  group = "disk"   format = "b@uu&*@u&*@u&s&*@u&*@u" }
-   _dsk_volindex     = { index =  32  group = "disk"   format = "ib&*@u"  }
+   _vol_index        = { index =  32  group = "disk"   format = "ib&*@u"  }
    _dsk_getptgeo     = { index =  33  group = "disk"   format = "u@up"    }
    _dsk_getmap       = { index =  34  group = "disk"   format = "p@u"     }
-   _dsk_mountvol     = { index =  35  group = "disk"   format = "u*@b@uu" }
+   _vol_mount        = { index =  35  group = "disk"   format = "u*@b@uu" }
    _dsk_partcnt      = { index =  36  group = "disk"   format = "i@u"     }
-   _dsk_unmountall   = { index =  37  group = "disk"   format = "u@u"     }
+   # ordinal 37 reserved (moved to START)
    _dsk_ptquery64    = { index =  38  group = "disk"   format = "b@uu&*@q&*@q&s&*@u" }
    _dsk_isgpt        = { index =  39  group = "disk"   format = "i@ui"    }
    _dsk_gptpinfo     = { index = 130  group = "disk"   format = "u@uup"   }
@@ -38,19 +38,22 @@ exports = {
 
    _dsk_newmbr       = { index =  50  group = "dmhelp" format = "i@u@u"   }
    _dsk_sectortype   = { index =  51  group = "dmhelp" format = "u@u@qp"  }
-   _dsk_newvbr       = { index =  52  group = "dmhelp" format = "i@u@q@us" }
+   _dsk_newvbr       = { index =  52  group = "dmhelp" format = "u@u@q@us" }
    _dsk_setactive    = { index =  53  group = "dmhelp" format = "u@uu"    }
    _dsk_debugvbr     = { index =  54  group = "dmhelp" format = "i@u@u"   }
    _dsk_setpttype    = { index =  55  group = "dmhelp" format = "u@uu@b"  }
-   _dsk_format       = { index =  56  group = "dmhelp" format = "u@b@uup" }
+   _vol_format       = { index =  56  group = "dmhelp" format = "u@b@uup" }
    _dsk_wipe55aa     = { index =  57  group = "dmhelp" format = "i@u@q"   }
-   _dsk_emptysector  = { index =  58  group = "dmhelp" format = "u@u@q"   }
+   _dsk_emptysector  = { index =  58  group = "dmhelp" format = "u@u@qu"  }
    _dsk_gptactive    = { index =  59  group = "dmhelp" format = "u@uu"    }
+   _vol_formatfs     = { index =  60  group = "dmhelp" format = "u@bs@uup" }
+   _dsk_ptqueryfs    = { index =  61  group = "dmhelp" format = "u@u@q&sp" }
+   _vol_dirty        = { index =  62  group = "dmhelp" format = "i@bi"    }
 
    _exit_bootmbr     = { index =  70  group = "exit"   format = "i@u@u"   } # boot
    _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uuc"   }
 
-   _dsk_disktostr    = { index =  80  group = "dmhelp" format = "s@up"    }
+   # ordinal 80 reserved (moved to START)
    _dsk_guidtostr    = { index =  81  group = "dmhelp" format = "ip&s"    }
    _dsk_strtoguid    = { index =  82  group = "dmhelp" format = "isp"     }
    _dsk_makeguid     = { index =  83  group = "dmhelp" format = "vp"      }
@@ -67,4 +70,9 @@ exports = {
    _lvm_delptrec     = { index =  99  group = "lvm"    format = "i@uu"    }
    _lvm_crc32        = { index = 190  group = "lvm"    format = "@u@upu"  }
    _lvm_wipedlat     = { index = 191  group = "lvm"    format = "i@uu"    }
+   _lvm_present      = { index = 192  group = "lvm"    format = "@ui"     }
+   _lvm_wipeall      = { index = 193  group = "lvm"    format = "i@u"     }
+
+   # just for test (temporary)
+   _hpfs_format      = { index = 250  group = "hpfs"   format = "u@b@uup" }
 }

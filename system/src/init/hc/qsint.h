@@ -81,7 +81,7 @@ AcpiMemInfo* _std int15mem(void);
 
 /// internal use only: mounted 2:-9: volume data
 typedef struct {
-   u32t                 flags;              ///< flags for volume
+   u32t                 flags;              ///< flags for volume (VDTA_*)
    u32t                  disk;              ///< disk number
    u64t                 start;              ///< start sector of partition
    u32t                length;              ///< length in sectors
@@ -89,7 +89,17 @@ typedef struct {
    u32t                serial;              ///< volume serial (from BPB)
    char             label[12];              ///< volume label
    u32t               badclus;              ///< bad clusters (only after format!)
+   u32t                clsize;              ///< cluster size (in sectors)
+   u32t                clfree;              ///< free clusters
+   u32t               cltotal;              ///< total clusters
+   char             fsname[9];              ///< file system name (or 0)
 } vol_data;
+
+/// vol_data flags value
+//@{
+#define VDTA_ON     0x001  // volume available
+#define VDTA_FAT    0x010  // volume mounted to FatFs
+//@}
 
 #define STOKEY_ZIPDATA  "zip"                ///< key with .ldi file
 #define STOKEY_DELAYCNT "mod_delay"          ///< key with delayed module count
@@ -147,6 +157,21 @@ typedef void _std (*print_outf)(int ch, void *stream);
     @param  outc   character output callback
     @return number of printed characters */
 int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc);
+
+typedef struct {   
+   /// code page (just for trace printing)
+   u16t    cpnum;
+   /// OEM-Unicode bidirectional conversion
+   u16t _std (*convert)(u16t src, int to_unicode);
+   /// unicode upper-case conversion
+   u16t _std (*wtoupper)(u16t src);
+   /** uppercase table for high 128 OEM chars.
+       Table can be released after hlp_setcpinfo() call. */
+   u8t   *oemupr;
+} codepage_info;
+
+/// setup FatFs i/o to specified codepage
+void _std hlp_setcpinfo(codepage_info *info);
 
 #ifdef __cplusplus
 }

@@ -19,6 +19,11 @@ start:
                 add     esp, 8
                 ret
 ;----------------------------------------------------------------
+                public  _call64l
+                extrn   _call64:near
+_call64l:
+                jmp     _call64
+;----------------------------------------------------------------
 next_random:
                 mov     eax,8088405h
                 mul     __RandSeed
@@ -39,8 +44,8 @@ CODE32          ends
 _DATA           segment dword public USE32 'DATA'
                 public  __Module
                 public  __RandSeed
-; this module* struct, referenced in qsmod.h. DO NOT modify contents, this is 
-; a system data actually ;)
+; this is module* struct, referenced in qsmod.h. DO NOT modify contents, this
+; is a system data actually ;)
 __Module        dd      0
 __RandSeed      dd      1
 _DATA           ends

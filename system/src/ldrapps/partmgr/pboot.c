@@ -10,27 +10,39 @@
 #include "vio.h"
 #include "dpmi.h"
 #include "pscan.h"
+#include "hpfs/hpfs.h"         // for HPFSSEC_SUPERB only
 
 #define MBR_LOAD_ADDR    0x7C00
 
-extern char    psect[512],    ///< MBR code
-             gptsect[512];
-extern char  bsect16[512],    ///< VBR code
-         bsect16_name[11],    ///< boot file name (for calculation)
-             bsect32[512],
-         bsect32_name[11],
-             bsectdb[512];
+extern char     psect[512],    ///< MBR code
+              gptsect[512];
+extern char   bsect16[512],    ///< VBR code
+          bsect16_name[11],    ///< boot file name (for calculation)
+              bsect32[512],
+          bsect32_name[11],
+              bsectdb[512];
+extern char   hpfs_bsect[],    ///< HPFS partition boot sector + micro-FSD code
+           hpfs_bsname[16];
+extern u32t   hpfs_bscount;    ///< number of sectors in array above
 
 int _std dsk_newmbr(u32t disk, u32t flags) {
    char   mbr_buffer[MAX_SECTOR_SIZE];
+   u32t   sectorsize;
    struct Disk_MBR *mbr = (struct Disk_MBR *)&mbr_buffer;
+   // query sector size
+   if (!hlp_disksize(disk, &sectorsize, 0)) return 0;
+   if (sectorsize>MAX_SECTOR_SIZE) return 0;
 
-   if ((flags&DSKBR_CLEARALL)==0) 
+   memset(mbr, 0, sectorsize);
+
+   if ((flags&DSKBR_CLEARALL)==0) {
       memcpy(mbr, flags&DSKBR_GPTCODE ? &gptsect : &psect, 512);
-   else 
-      memset(mbr, 0, 512);
-               
-
+      // put 55AA ti the end of sector too
+      if (sectorsize>512) {
+         mbr_buffer[sectorsize-2] = 0x55;
+         mbr_buffer[sectorsize-1] = 0xAA;
+      }
+   }
    if (flags&DSKBR_GENDISKID) {
       u32t id = random(0x10000);
       mbr->MBR_DiskID = id<<16|id;
@@ -57,7 +69,7 @@ int _std dsk_newmbr(u32t disk, u32t flags) {
       mbr->MBR_Reserved = oldmbr->MBR_Reserved;
    }
    // unmount all volumes from this disk if PT will be cleaned
-   if ((flags&(DSKBR_CLEARALL|DSKBR_CLEARPT|DSKBR_GPTHEAD))!=0) dsk_unmountall(disk);
+   if ((flags&(DSKBR_CLEARALL|DSKBR_CLEARPT|DSKBR_GPTHEAD))!=0) hlp_unmountall(disk);
    if (flags&DSKBR_LVMINFO) lvm_wipeall(disk);
 
    // AND write it
@@ -82,28 +94,31 @@ int _std dsk_wipe55aa(u32t disk, u64t sector) {
 int dsk_wipevbs(u32t disk, u64t sector) {
    struct Boot_Record *br = (struct Boot_Record*)malloc(MAX_SECTOR_SIZE);
    u32t st = dsk_sectortype(disk, sector, (u8t*)br);
-   u32t ii, ssize;
+   u32t ssize, rc;
    hlp_disksize(disk, &ssize, 0);
 
-   if (st==DSKST_ERROR) return 0;
-   if (st==DSKST_EMPTY) return 1;
-   // wipe 55AA as in function above
-   if (ssize && ssize>512) {
-      ((u8t*)br)[ssize-2] = 0;
-      ((u8t*)br)[ssize-1] = 0;
-   }
-   ((u8t*)br)[510] = 0;
-   ((u8t*)br)[511] = 0;
-   // wipe FS name
-   if (st==DSKST_BOOTFAT && br->BR_BPB.BPB_RootEntries==0)
-      memset(&((struct Boot_RecordF32*)br)->BR_F32_EBPB.EBPB_FSType, 0, 8);
-   else 
-   if (st==DSKST_BOOTFAT || st==DSKST_BOOTBPB)
-      memset(&br->BR_EBPB.EBPB_FSType, 0, 8);
-   // write it back
-   ii = hlp_diskwrite(disk, sector, 1, br);
+   do {
+      if (st==DSKST_ERROR) { rc = 0; break; }
+      if (st==DSKST_EMPTY) { rc = 1; break; }
+      // wipe 55AA as in function above
+      if (ssize && ssize>512) {
+         ((u8t*)br)[ssize-2] = 0;
+         ((u8t*)br)[ssize-1] = 0;
+      }
+      ((u8t*)br)[510] = 0;
+      ((u8t*)br)[511] = 0;
+      // wipe FS name
+      if (st==DSKST_BOOTFAT && br->BR_BPB.BPB_RootEntries==0)
+         memset(&((struct Boot_RecordF32*)br)->BR_F32_EBPB.EBPB_FSType, 0, 8);
+      else
+      if (st==DSKST_BOOTFAT || st==DSKST_BOOTBPB)
+         memset(&br->BR_EBPB.EBPB_FSType, 0, 8);
+      // write it back
+      rc = hlp_diskwrite(disk, sector, 1, br);
+   } while (false);
+
    free(br);
-   return ii;
+   return rc;
 }
 
 void runmbr(struct rmcallregs_s *regs);
@@ -118,30 +133,30 @@ void runmbr(struct rmcallregs_s *regs);
 #endif // __WATCOMC__
 
 int _std exit_bootmbr(u32t disk, u32t flags) {
-   if (disk&(QDSK_FLOPPY|QDSK_VIRTUAL)) return EINVAL; else {
+   if (hlp_hosttype()==QSHT_EFI) return ENOSYS; else
+   if (disk&(QDSK_FLOPPY|QDSK_VOLUME)) return EINVAL; else {
       char   mbr_buffer[MAX_SECTOR_SIZE];
       struct Disk_MBR *mbr = (struct Disk_MBR *)&mbr_buffer;
       struct rmcallregs_s regs;
-      int ii;
+      int            ii, isgpt;
       // is it emulated?
       if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0) return ENOTBLK;
       // read mbr
       if (!hlp_diskread(disk, 0, 1, mbr)) return EIO;
-      log_printf("MBR boot: disk %02X, flags %04X\n", disk, flags);
+      isgpt = dsk_isgpt(disk,-1)>0?1:0;
+      log_printf("MBR boot: disk %02X, flags %04X, gpt %i\n", disk, flags, isgpt);
       // check for active bit presence
-      if (dsk_isgpt(disk,-1)<=0)
-         if ((flags&EMBR_NOACTIVE)==0) {
-            for (ii=0;ii<4;ii++)
-               if (mbr->MBR_Table[ii].PTE_Active>=0x80) break;
-            if (ii==4) {
-               log_printf("empty partition table!\n");
-               return ENODEV;
-            }
+      if (!isgpt && (flags&EMBR_NOACTIVE)==0) {
+         for (ii=0;ii<4;ii++)
+            if (mbr->MBR_Table[ii].PTE_Active>=0x80) break;
+         if (ii==4) {
+            log_printf("empty partition table!\n");
+            return ENODEV;
          }
+      }
       // copy own code
-      if (flags&EMBR_OWNCODE) memcpy(&mbr->MBR_Code, dsk_isgpt(disk,-1)>0 ?
-         &gptsect : &psect, sizeof(mbr->MBR_Code));
-
+      if (flags&EMBR_OWNCODE)
+         memcpy(&mbr->MBR_Code, isgpt?&gptsect:&psect, sizeof(mbr->MBR_Code));
       // place to 0:07C00
       memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, mbr, 512);
       // setup DPMI
@@ -158,16 +173,18 @@ int _std exit_bootmbr(u32t disk, u32t flags) {
 }
 
 int _std exit_bootvbr(u32t disk, u32t index, char letter) {
-   if (disk&(QDSK_FLOPPY|QDSK_VIRTUAL)) return EINVAL; else {
+   if (hlp_hosttype()==QSHT_EFI) return ENOSYS; else
+   if (disk&(QDSK_FLOPPY|QDSK_VOLUME)) return EINVAL; else {
       u8t    vbr_buffer[MAX_SECTOR_SIZE];
       struct Boot_Record *br = (struct Boot_Record *)&vbr_buffer;
       struct rmcallregs_s regs;
       u32t   bstype, dmode;
-      u64t   start, size;
+      u64t   start;
       int ii;
-      u8t type = dsk_ptquery64(disk, index, &start, &size, 0, 0);
+      u8t type = dsk_ptquery64(disk, index, &start, 0, 0, 0);
       if (!type || IS_EXTENDED(type)) return EINVAL;
-      if (start + size > _4GBLL) return EFBIG;
+      // allow boot on 2Tb border, only 1st sector must be below
+      if (start >= _4GBLL) return EFBIG;
 
       // query current disk access mode
       dmode = hlp_diskmode(disk,HDM_QUERY);
@@ -248,9 +265,9 @@ u32t _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf) {
          if (strnicmp(btw->BR_OEM,"NTFS",4)==0 || strnicmp(btw->BR_OEM,"EXFAT",5)==0)
             boot+=100;
          // HDD sector 0
-         if (!sector && (disk&(QDSK_FLOPPY|QDSK_VIRTUAL))==0) pt++;
+         if (!sector && (disk&(QDSK_FLOPPY|QDSK_VOLUME))==0) pt++;
          // boot partition
-         if (!sector && (disk&QDSK_VIRTUAL)!=0) boot+=100;
+         if (!sector && (disk&QDSK_VOLUME)!=0) boot+=100;
          // check MBR
          for (ii=0;ii<4;ii++) {
             struct MBR_Record *ptr = mbr->MBR_Table+ii;
@@ -266,7 +283,7 @@ u32t _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf) {
       } else {
          struct Disk_GPT *pt = (struct Disk_GPT *)sbuf;
 
-         if (pt->GPT_Sign==GPT_SIGNMAIN && pt->GPT_PtEntrySize==GPT_RECSIZE && 
+         if (pt->GPT_Sign==GPT_SIGNMAIN && pt->GPT_PtEntrySize==GPT_RECSIZE &&
             pt->GPT_HdrSize>=sizeof(struct Disk_GPT)) rc = DSKST_GPTHEAD;
          else
             rc = memchrnb(sbuf,0,MAX_SECTOR_SIZE)?DSKST_DATA:DSKST_EMPTY;
@@ -276,38 +293,58 @@ u32t _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf) {
    return rc;
 }
 
-int _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
+u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
    u8t    sbuf[MAX_SECTOR_SIZE];
    struct Boot_Record *btw = (struct Boot_Record *)&sbuf;
-   char   bfname[12];
+   char   bfname[16], fsname[10];
+   u32t   current, curst;
 
-   // minimal check: do not wipe FSD boot disks
-   if (type==FST_FAT12) type=FST_FAT16;
-   if ((disk&QDSK_VIRTUAL)!=0) {
-      u32t vi = hlp_volinfo(disk&~QDSK_VIRTUAL,0);
-      if (vi==FST_FAT12) vi=FST_FAT16;
-      if (vi==FST_NOTMOUNTED) return 0;
-      // check type match or use auto-detect if was asked
-      if (type==FST_NOTMOUNTED) type=vi; else
-         if (vi!=type) return 0;
-   }
+   if (type>DSKBS_DEBUG) return DFME_INTERNAL;
+   if (type==DSKBS_DEBUG) return dsk_debugvbr(disk, sector)?0:DFME_IOERR;
+
    memset(sbuf, 0, sizeof(sbuf));
-   if (!hlp_diskread(disk, sector, 1, sbuf)) return 0;
+   curst = dsk_ptqueryfs(disk, sector, fsname, sbuf);
+   // i/o error?
+   if (curst==DSKST_ERROR) return DFME_IOERR;
+   // check for BPB presence
+   if (curst!=DSKST_BOOTFAT && curst!=DSKST_BOOTBPB) return DFME_UNKFS;
+   // discover current file system type
+   if ((disk&QDSK_VOLUME)!=0) {
+      switch (hlp_volinfo(disk&~QDSK_VOLUME,0)) {
+         case FST_FAT12:
+         case FST_FAT16: current = DSKBS_FAT16; break;
+         case FST_FAT32: current = DSKBS_FAT32; break;
+         case FST_NOTMOUNTED:
+            if (strcmp(fsname,"HPFS")) return DFME_UNKFS;
+            current = DSKBS_HPFS;
+            break;
+         default:
+            return DFME_UNKFS;
+      }
+   } else {
+      if (curst==DSKST_BOOTFAT)
+         current = btw->BR_BPB.BPB_RootEntries==0?DSKBS_FAT32:DSKBS_FAT16; else
+      if (strcmp(bfname,"HPFS")==0) current = DSKBS_HPFS;
+         else return DFME_UNKFS;
+   }
 
-   if (type==FST_NOTMOUNTED)
-      type=btw->BR_BPB.BPB_RootEntries==0?FST_FAT32:FST_FAT16;
+   if (type==DSKBS_AUTO) type = current; else
+   if (type!=current) return DFME_FSMATCH;
 
    bfname[0]=0;
    if (name&&*name) {
       int ii;
-      for (ii=0;name[ii]&&ii<11;ii++) bfname[ii]=toupper(name[ii]);
-      for (;ii<11;ii++) bfname[ii]=' ';
+      if (type==DSKBS_HPFS) {
+         for (ii=0; name[ii]&&ii<15; ii++) bfname[ii] = toupper(name[ii]);
+         for (; ii<15; ii++) bfname[ii]=0;
+      } else {
+         for (ii=0; name[ii]&&ii<11; ii++) bfname[ii] = toupper(name[ii]);
+         for (; ii<11; ii++) bfname[ii]=' ';
+      }
    }
+   log_printf("Write VBR: disk %02X, %s %s\n", disk, fsname, bfname);
 
-   log_printf("Write VBR: disk %02X, FAT%s %s\n", disk,
-      type==FST_FAT16?"16":"32", bfname);
-
-   if (type==FST_FAT16) {
+   if (type==DSKBS_FAT16) {
       struct Boot_Record *sbtw = (struct Boot_Record *)&bsect16;
 
       memcpy(btw,bsect16,11);
@@ -316,9 +353,9 @@ int _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
       if (bfname[0])
          memcpy(sbuf+((u32t)&bsect16_name - (u32t)&bsect16), bfname, 11);
 
-      return hlp_diskwrite(disk, sector, 1, sbuf);
+      return hlp_diskwrite(disk, sector, 1, sbuf)?0:DFME_IOERR;
    } else
-   if (type==FST_FAT32) {
+   if (type==DSKBS_FAT32) {
       struct Boot_RecordF32 *sbtd = (struct Boot_RecordF32 *)&bsect32,
                              *btd = (struct Boot_RecordF32 *)&sbuf;
 
@@ -328,10 +365,75 @@ int _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
       if (bfname[0])
          memcpy(sbuf+((u32t)&bsect32_name - (u32t)&bsect32), bfname, 11);
 
-      return hlp_diskwrite(disk, sector, 1, sbuf);
+      return hlp_diskwrite(disk, sector, 1, sbuf)?0:DFME_IOERR;
+   } else
+   if (type==DSKBS_HPFS) {
+      struct Boot_Record *sbth = (struct Boot_Record *)&hpfs_bsect;
+
+      /* Boot Manager saves or checks OEM signature and unable to find volume
+         if it was changed, so leave it untouched */
+      memcpy(btw,hpfs_bsect,3);
+      memcpy(btw+1,sbth+1,512-sizeof(struct Boot_Record));
+      // copy custom boot name
+      if (bfname[0])
+         memcpy(sbuf+((u32t)&hpfs_bsname - (u32t)&hpfs_bsect), bfname, 15);
+
+      if (hlp_diskwrite(disk, sector, 1, sbuf)==0) return DFME_IOERR;
+      if (hpfs_bscount>1)
+         if (hlp_diskwrite(disk, sector+1, hpfs_bscount-1, hpfs_bsect+512)!=hpfs_bscount-1)
+            return DFME_IOERR;
+      // zero sectors between micro-FSD & superblock
+      if (HPFSSEC_SUPERB-hpfs_bscount>0)
+         dsk_emptysector(disk, sector+hpfs_bscount, HPFSSEC_SUPERB-hpfs_bscount);
+      return 0;
    }
-   return 0;
+   return DFME_UNKFS;
 }
+
+
+int _std vol_dirty(u8t vol, int on) {
+   u8t    sbuf[MAX_SECTOR_SIZE];
+   struct Boot_Record *btw = (struct Boot_Record *)&sbuf;
+   char   fsname[10];
+   u32t   bs;
+   int    state = -DFME_UNKFS;
+
+   memset(sbuf, 0, sizeof(sbuf));
+   bs = dsk_ptqueryfs(QDSK_VOLUME|vol, 0, fsname, sbuf);
+   // i/o error?
+   if (bs==DSKST_ERROR) return -DFME_IOERR;
+   // check for BPB presence
+   if (bs!=DSKST_BOOTFAT && bs!=DSKST_BOOTBPB) return -DFME_UNKFS;
+   // discover current file system type
+   switch (hlp_volinfo(vol,0)) {
+      case FST_FAT12:
+      case FST_FAT16:
+         state = btw->BR_EBPB.EBPB_Dirty & 1;
+         if (on>=0)
+           if (on>0) btw->BR_EBPB.EBPB_Dirty|=1; else
+              btw->BR_EBPB.EBPB_Dirty&=~1;
+         break;
+      case FST_FAT32: {
+         struct Boot_RecordF32 *btd = (struct Boot_RecordF32 *)&sbuf;
+         state = btd->BR_F32_EBPB.EBPB_Dirty & 1;
+         if (on>=0)
+           if (on>0) btd->BR_F32_EBPB.EBPB_Dirty|=1; else
+              btd->BR_F32_EBPB.EBPB_Dirty&=~1;
+         break;
+      }
+      case FST_NOTMOUNTED:
+         if (strcmp(fsname,"HPFS")) return -DFME_UNKFS;
+         return hpfs_dirty(vol, on);
+         break;
+      default:
+         return -DFME_UNKFS;
+   }
+   if (on>=0)
+      return hlp_diskwrite(QDSK_VOLUME|vol, 0, 1, sbuf)?state:-DFME_IOERR;
+
+   return state;
+}
+
 
 /** write debug boot record code.
     This code does not load anything, but print DL, BPB.PhysDisk and i13x
@@ -346,7 +448,7 @@ int _std dsk_debugvbr(u32t disk, u32t sector) {
    struct Boot_Record *btw = (struct Boot_Record *)&sbuf;
    char   bfname[12];
    // minimal check
-   if (disk==QDSK_VIRTUAL) return 0;
+   if (disk==QDSK_VOLUME) return 0;
 
    memset(sbuf, 0, sizeof(sbuf));
    if (hlp_diskread(disk, sector, 1, sbuf)) {

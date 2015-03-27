@@ -106,8 +106,6 @@ void   __stdcall perror (const char *prefix);
 
 int    __cdecl   sprintf(char *buf, const char *format, ...);
 
-int    __stdcall puts   (const char *buf);
-
 int    __stdcall isspace(int cc);
 
 int    __stdcall isalpha(int cc);
@@ -151,10 +149,13 @@ void   __stdcall rewind (FILE *fp);
 
 s32t   __stdcall ftell  (FILE *fp);
 
+/// drop fflush calls because there is no buffering in clib
+#define fflush(x) (0)
+
 void   __stdcall clearerr(FILE *fp);
 
 /** detach file from current process.
-    File became shared and can be used by all processes. 
+    File became shared and can be used by all processes.
     Function deny std i/o file handles.
     @param  fp   opened file
     @return zero on success */
@@ -176,8 +177,12 @@ extern FILE  *stdin, *stdout, *stderr, *stdaux;
 int    __cdecl   fprintf(FILE *fp, const char *format, ...);
 
 int    __stdcall getchar(void);
-
 int    __stdcall getc   (FILE *fp);
+int    __stdcall fputs  (const char *buf, FILE *fp);
+int    __stdcall puts   (const char *buf);
+int    __stdcall fputc  (int c, FILE *fp);
+#define putc(c,fp) fputc(c,fp)
+#define putchar(c) fputc(c,stdout);
 
 FILE*  __stdcall freopen(const char *filename, const char *mode, FILE *fp);
 
@@ -187,12 +192,11 @@ FILE*  __stdcall freopen(const char *filename, const char *mode, FILE *fp);
 #define STDAUX_FILENO   3   ///< stdaux device (system log and debug com port)
 
 /** fdopen - limited edition (tm).
-    Function simulate to standard fdopen(), but return valid FILE* for 
+    Function simulate to standard fdopen(), but return valid FILE* for
     STDIN_FILENO..STDAUX_FILENO only (i.e. implemented for opening of standard
-    i/o handles only). 
+    i/o handles only).
     Function returns NEW handle on every call! */
 FILE*  __stdcall fdopen(int handle, const char *mode);
-
 
 #define TMP_MAX (36*36*36*36*36)
 
@@ -202,7 +206,7 @@ char*  __stdcall tmpnam(char *buffer);
 char*  __stdcall _tempnam(char *dir, char *prefix);
 
 /** get exist temp dir path from one of TMP, TEMP, TMPDIR, TEMPDIR env variables.
-    @param  buffer  buffer with full name size (NAME_MAX) or 0 for static. 
+    @param  buffer  buffer with full name size (NAME_MAX) or 0 for static.
     @return 0 if no varabler/dir or value in buffer/static buffer */
 char*  __stdcall tmpdir(char *buffer);
 
@@ -211,13 +215,15 @@ char*  __stdcall tmpdir(char *buffer);
 
 long   __stdcall filelength(int handle);
 
+int    __stdcall isatty(int handle);
+
 int    __stdcall _chsize(int handle, u32t size);
 
 #define chsize _chsize
 
 #define setfsize(fp,pos) _chsize((int)(fp),pos)
 
-#define fsize(fp) filelength((int)(fp));
+#define fsize(fp) filelength((int)(fp))
 
 void   __stdcall _splitpath(const char *path, char *drive, char *dir, char *fname, char *ext);
 
@@ -349,19 +355,21 @@ u64t   __stdcall bswap64(u64t value);
     @param flags  SBIT_*. */
 void   __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags);
 
-// reverse search of value match/mismatch (from end to start of block)
+// reverse search of value match/mismatch (from the end to start of block)
 void*  __stdcall memrchr  (const void*mem, int  chr, u32t buflen);
 u8t*   __stdcall memrchrnb(const u8t* mem, u8t  chr, u32t buflen);
 u16t*  __stdcall memrchrw (const u16t*mem, u16t chr, u32t buflen);
 u16t*  __stdcall memrchrnw(const u16t*mem, u16t chr, u32t buflen);
 u32t*  __stdcall memrchrd (const u32t*mem, u32t chr, u32t buflen);
 u32t*  __stdcall memrchrnd(const u32t*mem, u32t chr, u32t buflen);
+u64t*  __stdcall memrchrq (const u64t*mem, u64t chr, u32t buflen);
+u64t*  __stdcall memrchrnq(const u64t*mem, u64t chr, u32t buflen);
 
 // exchange data in two memory blocks
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
 /** safe memcpy.
-    Function makes a memcpy(), but protected by exception handler.
+    Function makes a memmove(), but protected by exception handler.
     Optionally it allow copying from/to page 0 (this page mapped as read-only
     in PAE paging mode and inaccessible from FLAT DS in non-paged mode).
 
@@ -369,8 +377,8 @@ void   __stdcall memxchg  (void *m1, void *m2, u32t length);
     @param src    Source address.
     @param length Number of bytes to copy
     @param page0  Page 0 flag (set 1 to allow page 0 be a part of destination)
-    @return dst if copy was ok, 0 if exception occur */
-void*  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
+    @return 1 on success, 0 if exception occur */
+u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
 
 #ifdef __cplusplus
 }

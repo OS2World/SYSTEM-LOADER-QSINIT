@@ -27,6 +27,8 @@ struct dirent {
    char     d_attr;             ///< file's attribute
    u16t     d_time;             ///< file's time
    u16t     d_date;             ///< file's date
+   u16t     d_crtime;           ///< file's creation time
+   u16t     d_crdate;           ///< file's creation date
    long     d_size;             ///< file's size
    char     d_name[NAME_MAX+1]; ///< file's name
    char    *d_openpath;         ///< path specified to opendir
@@ -116,17 +118,27 @@ u16t  __stdcall _dos_setfileattr(const char *path, unsigned attributes);
     @return 0 or error code value */
 u16t  __stdcall _dos_getfileattr(const char *path, unsigned *attributes);
 
+#define _DT_MODIFY     0x0001   ///< query/set file modification time
+#define _DT_CREATE     0x0002   ///< query/set file creation time
+
 /** set file/dir time.
-    @param path         File path.
-    @param dostime      Time in DOS format.
+    @param       path         File path.
+    @param       dostime      Time in DOS format.
+    @param       type         Time type (_DT_* constant), OR-ed flags
+                              can be used for the same time for some values.
     @return 0 or error code value */
-u16t  __stdcall _dos_setfiletime(const char *path, u32t dostime);
+u16t  __stdcall _dos_setfiletime(const char *path, u32t dostime, u32t type);
 
 /** get file/dir time.
     @param       path         File path.
     @param [OUT] dostime      Time in DOS format.
     @return 0 or error code value */
-u16t  __stdcall _dos_getfiletime(const char *path, u32t *dostime);
+u16t  __stdcall _dos_getfiletime(const char *path, u32t *dostime, u32t type);
+
+/** check string for a exist directory name.
+    @param dir          Directory name.
+    @return 1 if string is existing directory name, else 0 */
+u32t  __stdcall hlp_isdir(const char *dir);
 
 #pragma pack()
 

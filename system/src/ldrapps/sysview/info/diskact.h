@@ -42,6 +42,7 @@ class TDMgrDialog : public TDialog {
       char       *lvmname;
       u8t          *in_bm;
       int          is_gpt;  // dsk_isgpt() value
+      int         ramdisk;  // emulated disk
       dsk_gptpartinfo *gp;  // non-zero on GPT disk only
    };
    diskdata       *ddta;

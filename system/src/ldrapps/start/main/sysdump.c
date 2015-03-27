@@ -3,8 +3,8 @@
 #include "seldesc.h"
 #include "stdlib.h"
 
-void get_gdt(struct lidt_s *gdt);
-void get_idt(struct lidt_s *idt);
+void get_gdt(struct lidt64_s *gdt);
+void get_idt(struct lidt64_s *idt);
 #ifdef __WATCOMC__
 #pragma aux get_gdt = "sgdt [eax]" parm [eax];
 #pragma aux get_idt = "sidt [eax]" parm [eax];
@@ -12,13 +12,19 @@ void get_idt(struct lidt_s *idt);
 
 /// dump GDT to log
 void _std sys_gdtdump(void) {
-   struct lidt_s    gdt;
-   u32t    sels, ii, lp;
-   struct desctab_s *gd;
+   struct lidt64_s    gdt;
+   u32t      sels, ii, lp;
+   struct desctab_s   *gd;
+
+   memset(&gdt, 0, sizeof(struct lidt64_s));
    get_gdt(&gdt);
 
-   gd   = (struct desctab_s *)gdt.lidt_base;
-   sels = (gdt.lidt_limit & 0xFFFF) >> 3;
+   gd   = (struct desctab_s *)gdt.lidt64_base;
+   sels = (gdt.lidt64_limit & 0xFFFF) >> 3;
+   if (gdt.lidt64_base>=_4GBLL) {
+      log_it(2,"GDT is above 4Gb\n");
+      return;
+   }
    
    log_it(2,"== GDT contents ==\n");
    for (ii=0, lp=0; ii<=sels; ii++, gd++) {
@@ -31,7 +37,13 @@ void _std sys_gdtdump(void) {
             else continue;
       } else {
          int good = 0, edn = 0;
-         if (gd->d_attr & D_LONG) strcpy(cp, "long code"); else
+         if (gd->d_attr & D_LONG) {
+            if (gd->d_attr & D_DBIG) strcpy(cp, "invalid"); else {
+               cp += sprintf(cp, "Code64 %c %2s  ", gd->d_access&D_ACCESSED?'A':' ',
+                  gd->d_access&D_CONFORM?"CN":"  ");
+               good = 2;
+            }
+         } else
          if (gd->d_access & D_SEG) {
             int  code = gd->d_access & D_CODE;
 
@@ -55,7 +67,7 @@ void _std sys_gdtdump(void) {
                good = 1;
             }
          }
-         if (good) {
+         if (good==1) {
             u32t limit = gd->d_limit | (u32t)(gd->d_attr & D_EXTLIMIT)<<16,
                   base = gd->d_loaddr | (u32t)gd->d_hiaddr<<16 | (u32t)gd->d_extaddr<<24,
                   rlim, rbase;
@@ -69,9 +81,8 @@ void _std sys_gdtdump(void) {
 
             cp += sprintf(cp, "%08X L:%08X %c %c (%08X..%08X) ", base, limit, 
                gd->d_attr&D_GRAN4K?'G':' ', gd->d_attr&D_DBIG?'B':' ', rbase, rbase+rlim);
-
-            cp += sprintf(cp, " DPL:%d", gd->d_access>>5 & 3);
          }
+         if (good) cp += sprintf(cp, " DPL:%d", gd->d_access>>5 & 3);
          lp = ii;
       }
       strcat(cp, "\n");
@@ -81,54 +92,100 @@ void _std sys_gdtdump(void) {
 
 /// dump IDT to log
 void _std sys_idtdump(void) {
-   struct lidt_s  idt;
-   u32t  irqs, ii, lp;
-   struct gate_s  *id;
+   struct lidt64_s  idt;
+   u32t    irqs, ii, lp;
+
+   memset(&idt, 0, sizeof(struct lidt64_s));
    get_idt(&idt);
 
-   id   = (struct gate_s *)idt.lidt_base;
-   irqs = (idt.lidt_limit & 0xFFFF) >> 3;
-   
    log_it(2,"== IDT contents ==\n");
-   for (ii=0, lp=0; ii<=irqs; ii++, id++) {
-      char  outs[128], *cp = outs;
-      cp += sprintf(cp, "%3d : ", ii);
 
-      if ((id->g_access & D_PRES)==0) {
-         // do not annoy with empty IDT entries
-         if (ii<=lp+1 || ii==irqs) strcpy(cp, "not present"); 
-            else continue;
-      } else {
-         int good = 0,
-            gtype = id->g_access & 7;
+   if (!sys_is64mode()) {
+      struct gate_s   *id = (struct gate_s *)idt.lidt64_base;
+      irqs = (idt.lidt64_limit & 0xFFFF) >> 3;
 
-         switch (gtype) {
-            case D_TASKGATE:
-               if ((id->g_access&(0x10|D_32))==0) {
-                  cp += sprintf(cp, "TaskG    %04X         ", id->g_handler>>16);
-                  good = 1;
-               }
-               break;
-            case D_INTGATE :
-            case D_TRAPGATE:
-               if ((id->g_access&0x10)==0 && (id->g_parms&~D_WCMASK)==0) {
-                  static const char *gtstr[] = {"Int16 ", "Trap16", "Int32 ", "Trap32"};
-
-                  cp += sprintf(cp, "%s   %04X:%08X", gtstr[(id->g_access&1) + 
-                     (id->g_access&D_32?2:0)], id->g_handler>>16,
-                        id->g_handler&0xFFFF|(u32t)id->g_extoffset<<16);
-                  good = 1;
-               }
-               break;
-         }
-         if (good) {
-            cp += sprintf(cp, "  DPL:%d", id->g_access>>5 & 3);
+      // dump 32-bit IDT
+      for (ii=0, lp=0; ii<=irqs; ii++, id++) {
+         char  outs[128], *cp = outs;
+         cp += sprintf(cp, "%3d : ", ii);
+      
+         if ((id->g_access & D_PRES)==0) {
+            // do not annoy with empty IDT entries
+            if (ii<=lp+1 || ii==irqs) strcpy(cp, "not present"); 
+               else continue;
          } else {
-            sprintf(cp, "invalid type (%02X %02X)", id->g_access, id->g_parms);
+            int good = 0,
+               gtype = id->g_access & 7;
+      
+            switch (gtype) {
+               case D_TASKGATE:
+                  if ((id->g_access&(0x10|D_32))==0) {
+                     cp += sprintf(cp, "TaskG    %04X         ", id->g_handler>>16);
+                     good = 1;
+                  }
+                  break;
+               case D_INTGATE :
+               case D_TRAPGATE:
+                  if ((id->g_access&0x10)==0 && (id->g_parms&~D_WCMASK)==0) {
+                     static const char *gtstr[] = {"Int16 ", "Trap16", "Int32 ", "Trap32"};
+      
+                     cp += sprintf(cp, "%s   %04X:%08X", gtstr[(id->g_access&1) + 
+                        (id->g_access&D_32?2:0)], id->g_handler>>16,
+                           id->g_handler&0xFFFF|(u32t)id->g_extoffset<<16);
+                     good = 1;
+                  }
+                  break;
+            }
+            if (good) {
+               cp += sprintf(cp, "  DPL:%d", id->g_access>>5 & 3);
+            } else {
+               sprintf(cp, "invalid type (%02X %02X)", id->g_access, id->g_parms);
+            }
+            lp = ii;
          }
-         lp = ii;
+         strcat(cp, "\n");
+         log_it(2, outs);
       }
-      strcat(cp, "\n");
-      log_it(2, outs);
+   } else {
+      struct gate64_s *id = (struct gate64_s *)idt.lidt64_base;
+      irqs = (idt.lidt64_limit & 0xFFFF) >> 4;
+   
+      if (idt.lidt64_base>=_4GBLL) {
+         log_it(2,"IDT is above 4Gb\n");
+         return;
+      }
+      // dump 64-bit IDT
+      for (ii=0, lp=0; ii<=irqs; ii++, id++) {
+         char  outs[128], *cp = outs;
+         cp += sprintf(cp, "%3d : ", ii);
+      
+         if ((id->g64_access&D_PRES)==0) {
+            // do not annoy with empty IDT entries
+            if (ii<=lp+1 || ii==irqs) strcpy(cp, "not present"); 
+               else continue;
+         } else {
+            int good = 0;
+
+            switch (id->g64_access&0xF) {
+               case D_INTGATE32 :
+               case D_TRAPGATE32:
+                  if ((id->g64_access&0x10)==0 && (id->g64_parms&~D_WCMASK)==0) {
+                     static const char *gtstr[] = {"Int64 ", "Trap64"};
+                     cp += sprintf(cp, "%s   %04X:%012LX", gtstr[id->g64_access&1], id->g64_sel,
+                        (u64t)id->g64_ofs32<<32 | (u64t)id->g64_ofs16<<16 | id->g64_ofs0);
+                     good = 1;
+                  }
+                  break;
+            }
+            if (good) {
+               cp += sprintf(cp, "  DPL:%d  IST:%d", id->g64_access>>5 & 3, id->g64_parms&7);
+            } else {
+               sprintf(cp, "invalid type (%02X %02X)", id->g64_access, id->g64_parms);
+            }
+            lp = ii;
+         }
+         strcat(cp, "\n");
+         log_it(2, outs);
+      }
    }
 }

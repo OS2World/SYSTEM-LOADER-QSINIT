@@ -171,6 +171,7 @@ public:
   spstr& insert(const char*,l pos);           // insert string
   spstr& del(l pos,d len=1);                  // delete substring
   spstr& dellast() { return del(length()-1); }
+  spstr  deltostr(l pos,d len);               // del to new string
   spstr& unquote(char quote='\"');            // unquote string
   spstr& quote(char quote='\"');              // quote string if not quoted
   void unique(d len=0);                       // make string unique

@@ -27,8 +27,6 @@ spprj -nb qsinit.prj %bldtype% bld\qsinit.mak
 rem and build it
 spprj -b -w qsinit.prj %bldtype% %bldarg%
 
-rem wdis -l=OPEN_PM.lst -p -s OPEN_PM.obj
-
 if not exist OS2LDR goto quit
 copy OS2LDR %QS_BIN% >nul
 :quit

@@ -96,7 +96,7 @@ static TraceInfo *trace_load(const char *module, int quiet) {
       ti = new TraceInfo;
       // read group names
       for (ii=0; ii<groups; ii++) {
-         if (!trf.GetStr(str) || !str) { err++; break; }
+         if (!trf.GetStr(str) || !str) { err+=100; break; }
          ti->groups.Add(str);
       }
       if (err>1) break;
@@ -106,13 +106,13 @@ static TraceInfo *trace_load(const char *module, int quiet) {
          // "trace on" flag
          ti->groups.Objects(ii) = 0;
          // read data
-         if (!trf.GetU16(fcnt)) { err++; break; }
+         if (!trf.GetU16(fcnt)) { err+=200; break; }
 
          for (kk=0; kk<fcnt; kk++) {
             u32t idx;
-            if (!trf.GetU16(idx) || !trf.GetStr(str) || !str) { err++; break; }
+            if (!trf.GetU16(idx) || !trf.GetStr(str) || !str) { err+=300; break; }
             ti->name.AddObject(str,idx);  // name<->index pair
-            if (!trf.GetStr(str) || !str) { err++; break; }
+            if (!trf.GetStr(str) || !str) { err+=400; break; }
             ti->fmt.AddObject(str,ii);    // name<->group pair
          }
          if (err>1) break;
@@ -121,6 +121,8 @@ static TraceInfo *trace_load(const char *module, int quiet) {
       err = 0;
    } while (0);
    if (err) {
+      log_it(2, "trace file for '%s' -> err %i (%s)\n", module, err,
+         ti && ti->name.Count()>0 ? ti->name[ti->name.Max()](): "null" );
       if (!quiet) printf("File %s format is invalid!\n",modname());
       if (ti) delete ti;
       return 0;
@@ -353,8 +355,8 @@ void trace_list(const char *module, const char *group, int pause) {
          }
          for (int ii=0; ii<mti->name.Count(); ii++)
             if (mti->fmt.Objects(ii)==idx)
-               cmd_printseq("ordinal %4d, name %s",pause?0:-1,0,mti->name.Objects(ii),
-                  mti->name[ii]());
+               cmd_printseq("ordinal %4d, name %s (%s)",pause?0:-1,0,mti->name.Objects(ii),
+                  mti->name[ii](), mti->fmt[ii]());
       }
    }
 }
@@ -408,10 +410,12 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
 
    do { 
       char ch = fmt[pos++], out=0, ptr=0, hex=0;
-      if (ch=='&') { out=1; ch=fmt[pos++]; }
-      if (ch=='*') { ptr=1; ch=fmt[pos++]; }
-      if (ch=='@') { hex=1; ch=fmt[pos++]; }
-
+      // prefixes
+      while (ch=='&' || ch=='*' || ch=='@') {
+         if (ch=='&') { out=1; ch=fmt[pos++]; }
+         if (ch=='*') { ptr=1; ch=fmt[pos++]; }
+         if (ch=='@') { hex=1; ch=fmt[pos++]; }
+      }
       if (in&&out) ch='p';
 
       u64t llvalue = 0;
@@ -423,17 +427,21 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
          // must be a ptr for out parameter
          if (pvalue) value = *(u32t*)pvalue; else
          if (in) {
-            if (arg) { llvalue = *(u64t*)esp; esp+=2; } else
-               llvalue = (u64t)info->mc_regs->pa_eax | (u64t)info->mc_regs->pa_edx<<32;
-         }
+            if (ptr) value = *esp++; else
+            if (arg) { llvalue = *(u64t*)esp; esp+=2; }
+         } else
+         if (!arg)
+            llvalue = (u64t)info->mc_regs->pa_eax | (u64t)info->mc_regs->pa_edx<<32;
       } else {
          if (pvalue) value = *(u32t*)pvalue; else 
-         if (in) value = arg?*esp++:info->mc_regs->pa_eax;
+         if (in) value = arg?*esp++:0; else
+         if (!arg) value = info->mc_regs->pa_eax;
       }
       if (in&&out) ehbuf[outpcnt++] = value;
       // pointer to value. print (null) if it NUL
-      if (ptr&&arg&&(in&&!out||pvalue)) 
-         if (!value) ch='s'; else value=*(u32t*)value;
+      if (ptr&&arg&&(in&&!out||pvalue))
+         if (!value) ch='s'; else 
+            if (ch=='q') llvalue=*(u64t*)value; else value=*(u32t*)value;
 
       *buf = 0;
 

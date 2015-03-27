@@ -186,7 +186,7 @@ extern "C" {
 #define SP_WIN32 // vc is for win32 only ;)
 #endif
 #else                        // other hypotetic
-#error uncknown compiler!
+#error unknown compiler!
 #define FAST          _fastcall
 #define CHSIZE        chsize
 #define ITOA          _itoa
@@ -325,7 +325,7 @@ typedef b LetterWdtArray[256];
 /* Return types */
 #define RET_OK           0  //  all ok
 #define RET_OPENERR      1  //  file open error
-#define RET_INVALIDFMT   2  //  uncknown/invalid format
+#define RET_INVALIDFMT   2  //  unknown/invalid format
 #define RET_IOERR        3  //  file read/write error
 #define RET_NOMEM        4  //  no free memory
 #define RET_END          5  //  end of file reached
@@ -481,7 +481,7 @@ typedef SPCC* PSPCC;
 #ifndef NO_FSIZE
 #ifdef SP_QSINIT
 #define setfsize(fp,pos) _chsize((int)(fp),pos)
-#define fsize(fp) filelength((int)(fp));
+#define fsize(fp) filelength((int)(fp))
 #else
 d cc_stdcall fsize(FILE *fp);
 void cc_stdcall setfsize(FILE *fp,d newsize);

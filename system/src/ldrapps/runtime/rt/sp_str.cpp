@@ -806,6 +806,16 @@ spstr& spstr::del(l pos,d len) {
   return *this;
 }
 
+spstr spstr::deltostr(l pos,d len) {
+#ifndef NO_SP_ASSERTS
+  assert(!Lock);
+#endif
+  if (!data) return spstr();
+  spstr rc(*this,pos,len);
+  del(pos,len);
+  return rc;
+}
+
 spstr& spstr::unquote(char quote) {
 #ifndef NO_SP_ASSERTS
   assert(!Lock);

@@ -22,8 +22,8 @@ void TSysApp::BootmgrMenu() {
    TCollection *dl = new TCollection(0,10);
 #ifdef __QSINIT__
    u32t       hdds = hlp_diskcount(0), ii, pti, cnt=0,
-           *active = hdds?(u32t*)malloc(sizeof(u32t*) * hdds):0,
-              *dsk = hdds?(u32t*)malloc(sizeof(u32t*) * MAX_ENTRIES):0;
+           *active = hdds?(u32t*)malloc(sizeof(u32t) * hdds):0,
+              *dsk = hdds?(u32t*)malloc(sizeof(u32t) * MAX_ENTRIES):0;
    if (hdds && active)
       if (lvm_querybm(active))
          for (ii=0; ii<hdds; ii++)
@@ -79,10 +79,10 @@ void TSysApp::BootmgrMenu() {
 
 void TSysApp::PowerOFF() {
 #ifdef __QSINIT__
-   u32t ver = hlp_querybios(QBIO_APM);
-   int apmerr = ver&0x10000;
+   u32t    ver = hlp_hosttype()==QSHT_BIOS ? hlp_querybios(QBIO_APM) : 0;
+   int  apmerr = ver&0x10000;
 #else
-   int apmerr = 1;
+   int  apmerr = 1;
 #endif
    if (apmerr) {
       errDlg(MSGE_NOAPM);

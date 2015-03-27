@@ -44,7 +44,7 @@ $(bld_dir).dir $(outdir).dir clean.cln
 ../../hc/inc/ioint13.inc
 ../../init/inc/dskinfo.inc
 ../doshlp/inc/doshlp.inc
-vdisk.c vdproc.c
+vdisk.c vdproc.c vdload.c
 
 [make_footer]
 MAKEDIRS : $(bld_dir).dir $(outdir).dir

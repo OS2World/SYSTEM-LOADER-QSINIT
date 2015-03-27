@@ -157,6 +157,7 @@ void TDMgrDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
       }
       dd.lvminfo = lvm_checkinfo(disk);
       dd.is_gpt  = dsk_isgpt(disk,-1);
+      dd.ramdisk = hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED?1:0;
 
       long   cnt = dsk_partcnt(disk), ii;
 
@@ -364,15 +365,16 @@ void TDMgrDialog::UpdatePartList() {
                lvme==LVME_FLOPPY || lvme==LVME_GPTDISK || lvme==LVME_LOWPART;
    act_disk_cnt = 0;
    // boot from disk
-   if (lvme!=LVME_EMPTY) AddAction(lst_e, actd_mbrboot);
+   if (lvme!=LVME_EMPTY && !ddta[cur_disk].ramdisk) AddAction(lst_e, actd_mbrboot);
    // init disk/change mbr code
-   AddAction(lst_e, lvme==LVME_EMPTY?actd_init:actd_mbrcode);
+   if (lvme!=LVME_FLOPPY)
+      AddAction(lst_e, lvme==LVME_EMPTY?actd_init:actd_mbrcode);
    if (lvme==LVME_EMPTY) AddAction(lst_e, actd_initgpt);
    // LVM info can be fixed
    if (lvme && !badcode && lvme!=LVME_NOINFO) AddAction(lst_e, actd_updlvm);
    // disk is not empty
    if (lvme!=LVME_EMPTY) AddAction(lst_e, actd_wipe);
-   // no LBVM info at all
+   // no LVM info at all
    if (lvme==LVME_NOINFO) AddAction(lst_e, actd_writelvm);
 
    lbDiskAction->newList(lst_e);
@@ -393,13 +395,14 @@ void TDMgrDialog::UpdatePartList() {
 void TDMgrDialog::UpdateActionList(Boolean empty) {
 #ifdef __QSINIT__
    lst_a = new TCollection(0,10);
+   act_part_cnt = 0;
+
    if (!empty && cur_disk<disks && cur_part>=0 && cur_part<lbPartList->range 
       && ddta[cur_disk].mb) 
    {
       char ptinfo[384];
       dsk_mapblock *mb = ddta[cur_disk].mb + cur_part;
       ptinfo[0]        = 0;
-      act_part_cnt     = 0;
 
       if (mb->Type) {
          u32t Index = ddta[cur_disk].mb[cur_part].Index;
@@ -427,8 +430,7 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
             if (drv=='0') strcpy(cp, "boot partition"); else
                sprintf(cp, "mounted as %c:/%c:", drv, drv-'0'+'A');
          }
-
-         AddAction(lst_a, actp_boot);
+         if (!ddta[cur_disk].ramdisk) AddAction(lst_a, actp_boot);
          // not allowed for boot partition
          if (drv!='0') {
             AddAction(lst_a, actp_delete);

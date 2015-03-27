@@ -31,6 +31,7 @@ REPT MAX_QS_DISK                                                ;
 ENDM                                                            ;
 _qd_fdds        db      ?                                       ; # fdds in qs_diskinfo
 _qd_hdds        db      ?                                       ; # hdds in qs_diskinfo
+                extrn   _BootBPB:Disk_BPB                       ;
 _BSS16          ends                                            ;
 
 DATA16          segment
@@ -45,6 +46,8 @@ MAX_QS_FLOPPY
 
 TEXT16          segment                                         ;
                 assume  cs:G16, ds:G16, es:nothing, ss:nothing  ;
+
+                extrn   _dd_bootdisk:byte
 
 ; read disks configuration 
 ;----------------------------------------------------------------
@@ -66,19 +69,51 @@ int13check      proc    near
                 jc      @@i13c_nodrv                            ;
                 or      ah,ah                                   ;
                 jz      @@i13c_nodrv                            ;
+@@i13c_force_boot_fdd:
                 mov     [si].qd_biosdisk,dl                     ; BIOS disk number
                 mov     [si].qd_mediatype,ah                    ; DASD type
                 or      [si].qd_flags,HDDF_PRESENT              ;
                 inc     @@i13c_counter                          ;
 
-
                 push    dx                                      ; get CHS for all
                 xor     eax,eax                                 ; types to correct
                 mov     ah,08h                                  ; CHS i/o
                 call    int13                                   ;
-                jc      @@i13c_chserr                           ;
+                jc      @@i13c_fn08err                          ;
+                ;dbg16print <"int13 08h: %x %x %x %x",10>,<dx,cx,bx,ax>
                 or      cl,cl                                   ;
-                jz      @@i13c_chserr                           ;
+                jnz     @@i13c_fn08ok                           ;
+@@i13c_fn08err:
+                pop     dx                                      ;
+                cmp     [si].qd_mediatype,3                     ;
+                jnc     @@i13c_fn08skip                         ; is it boot FDD
+                cmp     dl,_dd_bootdisk                         ; without CHS?
+                jnz     @@i13c_fn08skip                         ;
+                mov     cx,_BootBPB.BPB_SecPerTrack             ; then copy it
+                mov     [si].qd_chsspt,cx                       ; from BPB!
+                jcxz    @@i13c_fn08skip                         ;
+                mov     ax,cx                                   ;
+                mov     cx,_BootBPB.BPB_Heads                   ;
+                mov     [si].qd_chsheads,cx                     ;
+                jcxz    @@i13c_fn08skip                         ;
+                push    dx                                      ;
+                mul     cx                                      ; heads * spt
+                push    dx                                      ; in ecx
+                push    ax                                      ;
+                pop     ecx                                     ;
+                mov     eax,_BootBPB.BPB_TotalSecBig            ; calc # of cyls
+                or      eax,eax                                 ;
+                jnz     @@i13c_fn08err_1                        ;
+                mov     ax,_BootBPB.BPB_TotalSec                ;
+@@i13c_fn08err_1:
+                xor     edx,edx                                 ;
+                div     ecx                                     ;
+                cmp     edx,1                                   ;
+                cmc                                             ;
+                adc     eax,0                                   ;
+                mov     [si].qd_cyls,eax                        ;
+                jmp     @@i13c_fn08skip                         ;
+@@i13c_fn08ok:
                 movzx   eax,dh                                  ; heads
                 inc     ax                                      ;
                 mov     [si].qd_chsheads,ax                     ;
@@ -89,8 +124,9 @@ int13check      proc    near
                 shr     cl,6                                    ; cylinders
                 xchg    cl,ch                                   ;
                 inc     cx                                      ; ah=08 cyls in cx
+                mov     word ptr [si].qd_cyls,cx                ; zero must be in hi part
                 pop     dx                                      ;
-@@i13c_chserr:
+@@i13c_fn08skip:
                 mov     al,[si].qd_mediatype                    ; hdd?
                 cmp     al, 3                                   ;
                 jz      @@i13c_hddinfo                          ;
@@ -158,11 +194,15 @@ int13check      proc    near
                 add     sp,size EDParmTable
                 or      [si].qd_flags,HDDF_LBAON or HDDF_LBAPRESENT
                 jmp     @@i13c_infodone
-
-
+@@i13c_nodrv:
+                test    dl,80h                                  ; if this is boot
+                jnz     @@i13c_nodrv_hdd                        ; FDD, then force it
+                cmp     dl,_dd_bootdisk                         ; presence with CHS
+                mov     ah,1                                    ; from BPB
+                jz      @@i13c_force_boot_fdd                   ;
+                jmp     @@i13c_nodrv_hdd                        ;
 @@i13c_fddinfo:
-                movzx   ecx,cx                                  ;
-                mov     [si].qd_cyls,ecx                        ;
+                mov     ecx,[si].qd_cyls                        ;
                 mov     ax,[si].qd_chsheads                     ;
                 mov     [si].qd_heads,ax                        ;
                 movzx   eax,[si].qd_chsspt                      ; zero high part
@@ -187,7 +227,7 @@ int13check      proc    near
 @@i13c_sszok:
                 bsf     ax,[si].qd_sectorsize                   ; sector shift
                 mov     [si].qd_sectorshift,al                  ;
-@@i13c_nodrv:
+@@i13c_nodrv_hdd:
                 add     si,size qs_diskinfo                     ;
                 inc     @@i13c_index                            ;
                 cmp     @@i13c_index,MAX_QS_DISK                ;
@@ -238,7 +278,13 @@ sector_io       proc    far
                 push    edx                                     ; @@SectorBase
                 push    eax                                     ;
                 push    cx                                      ; @@SectorCount
-                test    [si].qd_biosdisk,80h                    ; check for hdd
+; this is walking over the minefield
+; int13ext can be incorrecly reported on some bioses, but my own
+; return USB HDD both as fdd & hdd and stops on CHS reading.
+; just leave it in this way for a while
+;                test    [si].qd_biosdisk,80h                    ; check for hdd
+;                jz      @@rsec_oldway                           ;
+                test    [si].qd_flags,HDDF_LBAPRESENT           ;
                 jz      @@rsec_oldway                           ;
                 test    [si].qd_flags,HDDF_LBAON                ; ext. on?
                 jz      @@rsec_oldway                           ; no, use CHS

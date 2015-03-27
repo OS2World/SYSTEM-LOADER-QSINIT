@@ -4,11 +4,11 @@
 #include "stdarg.h"
 #include "qsutil.h"
 
-#define LOG_SIZE         _64KB  // log size
 #define LOG_PRINTSIZE     384
-#define LOG_SIZEFP       (LOG_SIZE/sizeof(log_header))
+#define LOG_SIZEFP       (logsize/sizeof(log_header))
 #define LOG_EntrySize(x) (Round16(x)>>4)
 
+static u32t       logsize = _64KB; // log size
 static log_header* logptr = 0;
 static u8t        logused = 0;
 static u32t       logfptr = 0;
@@ -26,8 +26,16 @@ static void log_setdate(log_header* lp) {
 }
 
 void _std log_clear(void) {
-   if (!logptr) logptr = (log_header*)hlp_memalloc(LOG_SIZE,QSMA_READONLY);
-      else memset(logptr, 0, LOG_SIZE);
+   if (!logptr) {
+      u32t qsmem;
+      hlp_memavail(0,&qsmem);
+      // limit log to 256k now
+      if (qsmem>=120*_1MB) logsize = _256KB; else
+         if (qsmem>=60*_1MB) logsize = _128KB; else logsize = _64KB;
+
+      logptr = (log_header*)hlp_memallocsig(logsize, "log", QSMA_READONLY);
+   } else
+      memset(logptr, 0, logsize);
    logfptr = 0;
    // first entry
    logptr->sign   = LOG_SIGNATURE;
@@ -45,7 +53,7 @@ void setup_log() {
 
 static int log_check(u32t pos) {
    static char errprn[144];
-   if (pos>=LOG_SIZEFP) 
+   if (pos>=LOG_SIZEFP)
       snprintf(errprn,144,"<< log panic: pos too large (%d) >>\n",pos);
    else {
       log_header* lp = logptr + pos;
@@ -114,7 +122,7 @@ static void log_commit(log_header *lp) {
 
    // split too long free entry if next entry is "free"
    if (lp->offset>size+1 && logfptr == (lp-logptr)+lp->offset) {
-      log_header *lpnext = lp+size+1, 
+      log_header *lpnext = lp+size+1,
                 *lpNnext = lp+lp->offset;
 
       if (lpNnext->offset) {
@@ -173,3 +181,4 @@ void _std log_query(log_querycb cbproc, void *extptr) {
    cbproc(logptr,extptr);
    logused--;
 }
+

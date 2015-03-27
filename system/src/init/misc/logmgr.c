@@ -16,21 +16,26 @@
 u32t int_mem_need = sizeof(exit_callback)*CNT_EXITLIST;
 extern stoinit_entry storage_w[STO_BUF_LEN];
 
-extern u16t             logbufseg;
 extern u8t*              logrmbuf;
 extern u16t              logrmpos;
 extern u16t           ComPortAddr;
 extern u32t              BaudRate;
+extern u32t             DiskBufPM; // disk buffer address
 extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 static int           in_exit_call = 0;
 volatile exit_callback  *exitlist;
 u32t             FileCreationTime; // custom file creation time (for unzip)
+#ifndef EFI_BUILD
+extern u16t             logbufseg;
 
 // real mode far functions!
+void rmvtimerirq(void);
+void getfullSMAP(void);
+void poweroffpc(void);
+void biostest(void);
+#endif
 void setbaudrate(void);
 void earlyserinit(void);
-void rmvtimerirq(void);
-void poweroffpc(void);
 
 // some externals
 int  _std _snprint(char *buf, u32t count, const char *fmt, long *argp);
@@ -41,8 +46,10 @@ void log_buffer(int level, const char* msg);
 
 void _std exit_prepare(void) {
    u32t ii;
+#ifndef EFI_BUILD
    // remove real mode irq0 handler, used for speaker sound
    rmcall(rmvtimerirq,0);
+#endif
    cache_ctrl(CC_FLUSH, DISK_LDR);
    // process exit list
    if (in_exit_call||!exitlist) return;
@@ -80,16 +87,14 @@ int _std hlp_seroutset(u16t port, u32t baudrate) {
    if (port==0xFFFF) ComPortAddr = 0; else
    if (port) {
       ComPortAddr = port;
-      rmcall(earlyserinit,0);
+      earlyserinit();
    } else
-   if (baudrate && ComPortAddr) rmcall(setbaudrate,0);
+   if (baudrate && ComPortAddr) setbaudrate();
    return 1;
 }
 
 // ******************************************************************
-
-void biostest(void);
-
+#ifndef EFI_BUILD
 u32t _std hlp_querybios(u32t index) {
    return rmcall(biostest,1,index);
 }
@@ -107,6 +112,11 @@ u32t _std exit_poweroff(int suspend) {
    return 1;
 }
 
+AcpiMemInfo* _std int15mem(void) {
+   rmcall(getfullSMAP,0);
+   return (AcpiMemInfo*)DiskBufPM;
+}
+#endif
 /**************************************************************************/
 
 void exit_init(u8t *memory) {
@@ -119,8 +129,10 @@ static int _std _log_it(int level, const char *fmt, long *argp) {
    char buf[144], *dst=&buf;
    int rc=_snprint(dst, 144, fmt, argp);
    hlp_seroutstr(dst);
+#ifndef EFI_BUILD
    // init log delay buffer in first printf
    if (!logrmbuf) logrmbuf = (u8t*)hlp_segtoflat(logbufseg);
+#endif
    // print to log or to delay buffer
    if (mod_secondary) (*mod_secondary->log_push)(level, dst); 
       else log_buffer(level|LOGIF_DELAY,dst);
@@ -140,8 +152,13 @@ int __cdecl log_it(int level, const char *fmt, ...) {
 }
 
 void _std log_flush(void) {
+   volatile static int recursive = 0;
+   // START still not loaded
    if (!mod_secondary) return;
-   /* flush log entries after rm
+   // we`re called from log_push()
+   if (recursive) return;
+   recursive++;
+   /* flush log entries after rm/efi call
       note: logrmpos points to zero in last string, this used to append
             string in RM */
    if (logrmpos) {
@@ -159,13 +176,14 @@ void _std log_flush(void) {
    }
    // flush storage changes in rm
    if (storage_w[0].name[0]) (*mod_secondary->sto_flush)();
+   recursive--;
 }
 
 /**************************************************************************/
 
 u32t get_fattime(void) {
    if (FileCreationTime) return FileCreationTime;
-   return mod_secondary?mod_secondary->getdate():0;
+   return tm_getdate();
 }
 
 /**************************************************************************/

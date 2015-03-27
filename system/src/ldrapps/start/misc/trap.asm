@@ -67,8 +67,10 @@ CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
                 extrn   _trap_screen:near
+                extrn   _trap_screen_64:near
                 extrn   _exit_pm32:near
                 extrn   __longjmp:near
+                extrn   _key_read:near
                 extrn   _sys_idtdump:near
 
                 public  _except_init
@@ -160,7 +162,7 @@ task_trap       label   near                                    ;
                 mov     [eax+tss_s.tss_esp0],esp                ; stack pointer for ret to iretd
                 cmp     dx,main_tss                             ;
                 jnz     @@trap_nocatch                          ; unable to restore from double
-                jmp     @@trap_handle                           ; task switch (must be in #8 only)
+                jmp     _trap_handle                            ; task switch (must be in #8 only)
 ;----------------------------------------------------------------
 common_trap     label   near                                    ;
                 push    eax                                     ;
@@ -197,11 +199,15 @@ common_trap     label   near                                    ;
                 mov     [eax+tss_s.tss_fs],fs                   ;
                 mov     [eax+tss_s.tss_gs],gs                   ;
                 mov     [eax+tss_s.tss_backlink],0              ;
-@@trap_handle:
+
+                public  _trap_handle
+_trap_handle    label   near
                 mov     ecx,dr6                                 ;
                 mov     [eax+tss_s.tss_esp1],ecx                ;
                 mov     ecx,dr7                                 ;
                 mov     [eax+tss_s.tss_esp2],ecx                ;
+                str     cx                                      ;
+                mov     [eax+tss_s.tss_ss2],cx                  ;
 
                 mov     ecx,xcpt_top                            ;
                 jecxz   @@trap_nocatch                          ;
@@ -218,6 +224,27 @@ cad_wait        label   near                                    ;
 @@trap_loop:
                 hlt                                             ;
                 jmp     @@trap_loop                             ;
+
+; ---------------------------------------------------------------
+                public  _trap_handle_64
+_trap_handle_64 label   near
+                mov     ecx,dr6                                 ;
+                mov     [eax+tss_s.tss_esp1],ecx                ;
+                mov     ecx,dr7                                 ;
+                mov     [eax+tss_s.tss_esp2],ecx                ;
+                str     cx                                      ;
+                mov     [eax+tss_s.tss_ss2],cx                  ;
+                push    edx                                     ; xcpt64_data
+                push    eax                                     ;
+                mov     ecx,xcpt_top                            ;
+                jecxz   @@trap64_nocatch                        ;
+                call    walk_xcpt                               ;
+@@trap64_nocatch:
+                call    _trap_screen_64                         ;
+                call    _key_read                               ; wait key
+                push    10                                      ; and exit to EFI
+                call    _exit_pm32                              ;
+                jmp     cad_wait                                ;
 
 ; walk exception stack
 ; ---------------------------------------------------------------
@@ -273,7 +300,7 @@ walk_xcpt       proc    near
                 ret                                             ; ret to iretd for this task
 walk_xcpt       endp
 
-; check xcpt signature in caller`s first parameter and show trap on mismatch
+; check xcpt signature in caller`s first parameter and shows trap on mismatch
 ; in: [esp+8] = sys_xcpt*
 ; out: trap screen or eax = sys_xcpt*
 check_sign      proc    near                                    ;
@@ -402,108 +429,6 @@ _sys_exfunc7    proc    near
 @@fxcpt7_ok:
                 ret     4                                       ;
 _sys_exfunc7    endp
-
-; get interrupt vector
-;----------------------------------------------------------------
-; void _std sys_getint(u8t vector, u64t *addr);
-                public  _sys_getint
-_sys_getint     proc    near
-                push    ebx                                     ;
-                mov     ax,0204h                                ;
-                mov     bl,[esp+8]                              ;
-                int     31h                                     ; get interrupt
-                mov     ebx,[esp+12]                            ;
-                movzx   ecx,cx                                  ;
-                mov     [ebx],edx                               ;
-                mov     [ebx+4],ecx                             ;
-                pop     ebx                                     ;
-                ret     8                                       ;
-_sys_getint     endp
-
-; set interrupt vector.
-;----------------------------------------------------------------
-; u32t _std sys_setint(u8t vector, u64t *addr);
-                public  _sys_setint
-_sys_setint     proc    near
-                mov     edx,[esp+8]                             ;
-                push    ebx                                     ;
-                mov     ax,0205h                                ;
-                mov     bl,[esp+8]                              ;
-                mov     cx,[edx+4]                              ;
-                mov     edx,[edx]                               ;
-                int     31h                                     ; set interrupt
-                setc    al                                      ;
-                movzx   eax,al                                  ;
-                pop     ebx                                     ;
-                ret     8                                       ;
-_sys_setint     endp
-
-; set int state
-;----------------------------------------------------------------
-; int _std sys_intstate(int on);
-                public  _sys_intstate
-_sys_intstate   proc    near
-                pushfd
-                pop     eax
-                shr     eax,9
-                and     eax,1
-                cmp     dword ptr [esp],0
-                jz      @@fxints_off
-                sti
-                ret     4
-@@fxints_off:
-                cli
-                ret     4
-_sys_intstate   endp
-
-; set selector
-;----------------------------------------------------------------
-; int _std sys_seldesc(u16t sel, struct desctab_s *desc);
-                public  _sys_seldesc
-_sys_seldesc    proc    near
-                push    ebx
-                push    edi
-                mov     ebx,[esp+12]
-                mov     edi,[esp+16]
-                mov     ax,0Ch
-                int     31h
-                setnc   al
-                movzx   eax,al
-                pop     edi
-                pop     ebx
-                ret     8
-_sys_seldesc    endp
-
-; task gate interrupt
-;----------------------------------------------------------------
-; int _std sys_intgate(u8t vector, u16t sel);
-                public  _sys_intgate                            ;
-_sys_intgate    proc    near                                    ;
-                push    ebx                                     ;
-                push    edi                                     ;
-                pushfd                                          ;
-                cli                                             ;
-
-                movzx   ebx,byte ptr [esp+16]                   ; vector
-                mov     cx,[esp+20]                             ; tss sel
-                shl     ebx,3                                   ;
-                sub     esp,8                                   ;
-                sidt    [esp]                                   ;
-                mov     edi,[esp].lidt_base                     ;
-                add     esp,8                                   ;
-                shl     ecx,16                                  ;
-                mov     [edi+ebx].g_handler,ecx                 ;
-                mov     [edi+ebx].g_access,D_TASK0              ;
-                xor     eax,eax                                 ;
-                mov     [edi+ebx].g_parms,al                    ;
-                mov     [edi+ebx].g_extoffset,ax                ;
-
-                popfd                                           ;
-                pop     edi                                     ;
-                pop     ebx                                     ;
-                inc     eax                                     ;
-                ret     8                                       ;
-_sys_intgate    endp
 
 CODE32          ends
 

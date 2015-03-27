@@ -95,4 +95,9 @@ const int
   hcGPTType              = 2103,
   hcGPTTypeGUID          = 2104,
   hcLVMDrive             = 2105,
-  hcQSDrive              = 2106;
+  hcQSDrive              = 2106,
+  hcHexFileEdit          = 2107,
+  hcFmtFsName            = 2108,
+  hcFmtType              = 2109,
+  hcFmtTypeLong          = 2110,
+  hcFmtTypeWipe          = 2111;

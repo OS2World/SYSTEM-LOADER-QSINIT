@@ -7,7 +7,7 @@
 #include "vioext.h"
 #include "errno.h"
 #include "qsstor.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "direct.h"
 
 extern char aboutstr[];
@@ -58,7 +58,18 @@ u32t execute_command(char *cmd) {
             char srch[_MAX_PATH];
             int  namelen = strlen(path);
             strcpy(srch,path);
-            if (search) {
+            // append possible extensions
+            if (tryext) {
+               strcpy(srch+namelen,".EXE");
+               if (access(srch, F_OK)) {
+                  strcpy(srch+namelen,".CMD");
+                  if (access(srch, F_OK)) err = 1; else is_batch = 1;
+               }
+               if (!err) strcpy(path,srch); else strcpy(srch,path);
+            }
+            // search in path
+            if (search&&(err||!tryext)) {
+               err = 0;
                _searchenv(srch,"PATH",path);
                if (!*path) {
                   if (tryext) {
@@ -71,14 +82,6 @@ u32t execute_command(char *cmd) {
                      }
                   } else err = 1;
                }
-            } else
-            if (tryext) {
-               strcpy(srch+namelen,".EXE");
-               if (access(srch, F_OK)) {
-                  strcpy(srch+namelen,".CMD");
-                  if (access(srch, F_OK)) err = 1; else is_batch = 1;
-               }
-               if (!err) strcpy(path,srch);
             }
             // replacing (with care about "") command name to founded one
             if (!err) {

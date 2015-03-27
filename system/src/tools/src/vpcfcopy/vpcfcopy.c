@@ -147,9 +147,12 @@ int main(int argc, char *argv[]) {
          Disk1Size=fsize(disk);
          rc=f_mount(&fat,dp,0);
          if (rc!=FR_OK) { printf("FAT mount error %d\n",rc); break; }
-         rc=f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
+         // drop r/o attr if this file is present on disk
+         f_chmod(argv[2], 0, AM_RDO|AM_HID|AM_SYS);
+         // and re-write it
+         rc = f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
          if (rc!=FR_OK) {
-            printf("Invalid destination file name\"%s\"\n",argv[2]);
+            printf("Invalid destination file name (\"%s\")\n", argv[2]);
             break;
          }
          if (size) {

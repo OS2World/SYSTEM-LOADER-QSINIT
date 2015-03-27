@@ -1,6 +1,6 @@
 //
 // QSINIT
-// screen support dll
+// sector-oriented i/o cache module
 //
 #include "stdlib.h"
 #include "qsutil.h"

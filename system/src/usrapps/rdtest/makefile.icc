@@ -21,9 +21,10 @@ OUT=$(OUTDIR)/
 CC=icc
 CXX=icc
 LINK=ilink
-EXENAME=rdtest.exe 
+EXENAME1=rdtest.exe
+EXENAME2=rdtofile.exe
 
-result    : $(OUTDIR) $(EXENAME)
+result    : $(OUTDIR) $(EXENAME1) $(EXENAME2)
 
 clean     :
             @echo Cleaning ...
@@ -33,11 +34,17 @@ $(OUTDIR) :
             @if not exist $(OUTROOT) mkdir $(OUTROOT)
             @if not exist $(OUTDIR) mkdir $(OUTDIR)
 
-$(EXENAME): $(OUT)rdtest.obj $(OUT)hmio.obj
-            $(LINK) $(LINKFLAGS) /Out:$(EXENAME) $**
+$(EXENAME1): $(OUT)rdtest.obj $(OUT)hmio.obj
+            $(LINK) $(LINKFLAGS) /Out:$(EXENAME1) $**
+
+$(EXENAME2): $(OUT)rdtofile.obj $(OUT)hmio.obj
+            $(LINK) $(LINKFLAGS) /Out:$(EXENAME2) $**
 
 $(OUT)rdtest.obj: rdtest.c hmio.h
             $(CC) $(CFLAGS) /Fo$* rdtest.c
+
+$(OUT)rdtofile.obj: rdtofile.c hmio.h
+            $(CC) $(CFLAGS) /Fo$* rdtofile.c
 
 $(OUT)hmio.obj: hmio.c hmio.h
             $(CC) $(CFLAGS) /Fo$* hmio.c

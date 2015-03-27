@@ -9,10 +9,9 @@
 #include "pscan.h"
 #include "errno.h"
 #include "vio.h"
-#include "qslist.h"
+#include "qcl/qslist.h"
 #include "qsint.h"
 #include "qsinit.h"
-#include "qsconst.h"
 
 #define PRINT_ENTRIES
 
@@ -246,7 +245,7 @@ static u32t scan_disk(hdd_info *drec) {
             }
          }
          /* searching for DLAT in "Sectors_Per_Track - 1" and in sector 126/254
-            (for 127/255 sector disks, maked by danis + LVM combination).
+            (for 127/255 sector disks, made by danis + LVM combination).
             In last case ALL CHS values in partition table is broken and
             most of boot managers go crazy on boot */
          for (ii=0; ii<(offset?1:2); ii++) {
@@ -632,7 +631,7 @@ void scan_free(void) {
 hdd_info *get_by_disk(u32t disk) {
    scan_init();
    if (!hddi) return 0;
-   if (disk&QDSK_VIRTUAL) return 0;
+   if (disk&QDSK_VOLUME) return 0;
    if ((disk&QDSK_DISKMASK)==disk) {
       if (hddc<=disk) return 0;
       return hddi + disk;
@@ -711,8 +710,7 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
          if (stricmp(args->item[pos],"FORCE")==0) force = 1;
       dsk_ptrescan(disk,force);
       // disk size string
-      stext = get_sizestr(hi->info.SectorSize, hi->info.TotalSectors);
-      while (*stext==' ') stext++;
+      stext = dsk_formatsize(hi->info.SectorSize, hi->info.TotalSectors, 0, 0);
       // query lvm disk name
       lvmname[0]=0;
       if (lvm_diskinfo(disk,&lvmi)) {

@@ -61,17 +61,20 @@ char* __stdcall _utoa64 (u64t     value, char *buffer, int radix);
 #define _ultoa  _utoa
 #define _ltoa64 _itoa64
 
-/* a set of functions for byte/word/dword search and fill;
-   note, what memrchrX are available for reverse search in stdlib.h */
+/* a set of functions for byte/word/dword/qword search and fill;
+   note, what memrchrX available for reverse search in stdlib.h */
 void* __stdcall memchr  (const void*mem, int  chr, u32t buflen);
 u8t*  __stdcall memchrnb(const u8t* mem, u8t  chr, u32t buflen);
 u16t* __stdcall memchrw (const u16t*mem, u16t chr, u32t buflen);
 u16t* __stdcall memchrnw(const u16t*mem, u16t chr, u32t buflen);
 u32t* __stdcall memchrd (const u32t*mem, u32t chr, u32t buflen);
 u32t* __stdcall memchrnd(const u32t*mem, u32t chr, u32t buflen);
+u64t* __stdcall memchrq (const u64t*mem, u64t chr, u32t buflen);
+u64t* __stdcall memchrnq(const u64t*mem, u64t chr, u32t buflen);
 
 u16t* __stdcall memsetw (u16t *dst, u16t value, u32t length);
 u32t* __stdcall memsetd (u32t *dst, u32t value, u32t length);
+u64t* __stdcall memsetq (u64t *dst, u64t value, u32t length);
 
 void  __stdcall usleep  (u32t usec);
 
@@ -84,6 +87,18 @@ u32t  __stdcall crc32(u32t crc, const u8t* buf, u32t len);
 
 u32t get_esp(void);
 #pragma aux get_esp = "mov eax,esp" value [eax];
+
+u16t get_flatcs(void);
+#pragma aux get_flatcs =   \
+    "xor     eax,eax"      \
+    "mov     eax,cs"       \
+    value [ax];
+
+u16t get_flatss(void);
+#pragma aux get_flatss =   \
+    "xor     eax,eax"      \
+    "mov     eax,ss"       \
+    value [ax];
 
 u32t ints_enabled(void);
 #pragma aux ints_enabled = \

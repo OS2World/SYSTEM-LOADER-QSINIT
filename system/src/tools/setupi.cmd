@@ -27,7 +27,7 @@ set TOOL_INC=%WATCOM%\H;%WATCOM%\H\OS2;%WATCOM%\H\NT
 set BCKEY=
 goto cont
 :UnkOS
-echo Warning! Uncknown build OS!
+echo Warning! Unknown build OS!
 set BUILD_HERE=ERROR
 goto cont
 :Win
@@ -57,7 +57,7 @@ if "%USER%".=="". set USER=%USERNAME%
 
 rem GS used for process_info, no watcom libs, structs packed to 1 byte,
 rem inline FP code, unmangled stdcall (runtime functions), favor size
-set QS_CFLAGS=-zz -zgp -zl -zls -zq -zp1 -fp5 -fpi87 -zri -os -bt%QS_NAME%
+set QS_CFLAGS=-zz -zl -zls -zq -zp1 -fp5 -fpi87 -zri -os -bt%QS_NAME%
 
 rem common include key for wcc
 set QS_WCCINC=-i%QS_BASE%\hc -i%QS_APPINC% -i%QS_BASE%\init\hc

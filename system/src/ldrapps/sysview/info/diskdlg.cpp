@@ -863,7 +863,7 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
 #ifdef __QSINIT__
          if (qsmode) {
             u8t wl = ltr - 'A';
-            u32t pterr  = dsk_mountvol(&wl, disk, index);
+            u32t pterr  = vol_mount(&wl, disk, index);
             if (pterr) PrintPTErr(pterr);
          } else {
             u32t lvmerr = lvm_assignletter(disk, index, ltr=='-'?0:ltr, 0);
@@ -878,31 +878,102 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
 void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
 #ifdef __QSINIT__
    TView *control;
-   TDialog* dlg = new TDialog(TRect(18, 6, 62, 17), "Format partition");
-   if (!dlg) return;
-   dlg->options |= ofCenterX | ofCenterY;
-
    if (!vol) {
-      u32t rc = dsk_mountvol(&vol, disk, index);
+      u32t rc = vol_mount(&vol, disk, index);
       if (rc && rc!=DPTE_MOUNTED) {
          PrintPTErr(rc, MSGTYPE_FMT);
          return;
       }
    }
+   disk_volume_data di;
+   hlp_volinfo(vol, &di);
+   // check - was it really mounted?
+   if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
+
+   int  allow_fat = di.TotalSectors <= 32768 * 65526 / di.SectorSize,
+                    // min # of sectors for FAT32 (approx, +1024 for garantee)
+      allow_fat32 = di.TotalSectors >= 65536 + (65536*4*2)/di.SectorSize + 40 + 1024,
+                    // check 64gb limit & sector size
+       allow_hpfs = di.SectorSize==512 && di.TotalSectors < _2GB/512*32;
+
+   int  *fs_list[] = { &allow_fat, &allow_fat32, &allow_hpfs, 0};
+   char  *fs_str[] = { "FAT", "FAT32", "HPFS", 0 };
+
+   TDialog* dlg = new TDialog(TRect(18, 5, 62, 17), "Format partition");
+   if (!dlg) return;
+   dlg->options |= ofCenterX | ofCenterY;
+
+   TInputLine *fmtname = new TInputLine(TRect(3, 9, 15, 10), 11);
+   fmtname->helpCtx = hcFmtFsName;
+   dlg->insert(fmtname);
+
+   TSItem *list = 0, *next;
+   int       ii = 0, fnset = 0;
+   // fill available file system list
+   while (fs_list[ii]) {
+      if (*fs_list[ii]) {
+         // set first available
+         if (!fnset) { setstr(fmtname, fs_str[ii]); fnset=1; }
+         TSItem *item = new TSItem(fs_str[ii],0);
+         if (!list) next = list = item; else { next->next = item; next = item; }
+      }
+      ii++;
+   }
+
+   control = new TCombo(TRect(15, 9, 18, 10), fmtname, cbxOnlyList|
+      cbxDisposesList|cbxNoTransfer, list);
+   dlg->insert(control);
+   dlg->insert(new TLabel(TRect(2, 8, 14, 9), "File system", fmtname));
 
    TRadioButtons *rbFmtType = new TRadioButtons(TRect(24, 2, 40, 5),
       new TSItem("Quick", new TSItem("Long",new TSItem("Wipe disk", 0))));
+   rbFmtType->helpCtx = hcFmtType;
    dlg->insert(rbFmtType);
    dlg->insert(new TLabel(TRect(23, 1, 28, 2), "Type", rbFmtType));
 
-   dlg->insert(new TButton(TRect(22, 8, 32, 10), "~O~k", cmOK, bfDefault));
-   dlg->insert(new TButton(TRect(32, 8, 42, 10), "~C~ancel", cmCancel, bfNormal));
+   dlg->insert(new TButton(TRect(22, 9, 32, 11), "~O~k", cmOK, bfDefault));
+   dlg->insert(new TButton(TRect(32, 9, 42, 11), "~C~ancel", cmCancel, bfNormal));
 
    FillDiskInfo(dlg, disk, index);
 
    dlg->selectNext(False);
 
-   if (execView(dlg)==cmOK) {
+   int         ok = execView(dlg)==cmOK;
+   int   fs_index = 0;
+   u32t  unitsize = 0;
+   ///
+   for (; fs_str[fs_index]; fs_index++)
+      if (strcmp(fs_str[fs_index],getstr(fmtname))==0) break;
+
+   int     isHPFS = getstr(fmtname)[0]=='H';
+
+   /* at least one OS/2 installed (we have LVM info on real HDD), so check for
+      partition size and force 32k cluster (else vol_format() will made it 64k for
+      >=48Gb volumes) */
+   if (ok) {
+      // check for too large FAT32 cluster size
+      if (fs_index==1 && lvm_present(1)) {
+         if ((u64t)di.TotalSectors*di.SectorSize >= 48*(u64t)_1GB) {
+           int rc = messageBox("\x03""Volume is too large, but 64k cluster not "
+                               "supported by OS/2.\n\x03Use 32k instead?",
+                               mfConfirmation+mfYesNoCancel);
+           if (rc==cmCancel) ok = false; else
+           if (rc==cmYes) unitsize = 32768;
+         }
+      }
+      /* check for too small FAT32 partition size and adjust unitsize for it
+         (else it will be formatted as FAT16) */
+      if (fs_index==1) {
+         u32t  csize = _64KB;
+         // making too big for FAT16 number of clusters
+         while (di.TotalSectors * (u64t)di.SectorSize / csize <= _64KB)
+            if (csize > di.SectorSize) csize>>=1; else break;
+         if (di.TotalSectors*(u64t)di.SectorSize/csize>_64KB && csize<_64KB)
+            unitsize = csize;
+      }
+   }
+
+   if (ok) {
       long   idx = getRadioIdx(rbFmtType, 3);
       u32t flags = DFMT_BREAK;
       if (idx<=0) flags|=DFMT_QUICK; else
@@ -912,7 +983,9 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
       TView *svowner = current;
 
       PercentDlgOn("Format partition");
-      u32t rc = dsk_format(vol, flags, 0, PercentDlgCallback);
+      u32t rc = vol_formatfs(vol, fs_index<=1?"FAT":fs_str[fs_index], flags,
+                             unitsize, PercentDlgCallback);
+
       PercentDlgOff(svowner);
       SysApp.DiskChanged(disk);
 
@@ -920,41 +993,41 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
          PrintPTErr(rc, MSGTYPE_FMT);
          return;
       } else {
-         diskfree_t       df;
          disk_volume_data vi;
          static const char *ftstr[4] = {"unrecognized", "FAT12", "FAT16", "FAT32"};
-         if (_dos_getdiskfree(vol+1,&df)) df.avail_clusters = 0;
+         char             fsname[32];
          u32t fstype = hlp_volinfo(vol, &vi);
          u32t clsize = vi.ClSize * vi.SectorSize;
 
          dlg = new TDialog(TRect(17, 3, 63, 19), "Format");
          if (!dlg) return;
          dlg->options |= ofCenterX | ofCenterY;
+
+         strncpy(fsname, fstype||!vi.FsName[0] ? ftstr[fstype] : vi.FsName, 32);
          
          dlg->insert(new TButton(TRect(18, 13, 28, 15), "O~K~", cmOK, bfDefault));
          dlg->insert(new TColoredText(TRect(3, 2, 41, 4), "Format complete.", 0x7A));
          dlg->insert(new TStaticText(TRect(3, 4, 31, 5), "The type of files system is "));
-         dlg->insert(new TColoredText(TRect(31, 4, 32+strlen(ftstr[fstype]), 5), 
-            ftstr[fstype], 0x79));
+         dlg->insert(new TColoredText(TRect(31, 4, 32+strlen(fsname), 5), fsname, 0x79));
 
          char buf[96];
          sprintf(buf, "%s total disk space.", getSizeStr(vi.SectorSize, vi.TotalSectors));
          dlg->insert(new TStaticText(TRect(3, 5, 4+strlen(buf), 6), buf));
 
-         sprintf(buf, "%s are available.", getSizeStr(clsize, df.avail_clusters));
+         sprintf(buf, "%s are available.", getSizeStr(clsize, vi.ClAvail));
          dlg->insert(new TStaticText(TRect(3, 6, 4+strlen(buf), 7), buf));
 
-         if (vi.BadClusters) {
-            sprintf(buf, "%s in bad sectors.", getSizeStr(clsize, vi.BadClusters));
+         if (vi.ClBad) {
+            sprintf(buf, "%s in bad sectors.", getSizeStr(clsize, vi.ClBad));
             dlg->insert(new TStaticText(TRect(3, 7, 4+strlen(buf), 8), buf));
          }
          sprintf(buf, "%7d bytes in each allocation unit.", clsize);
          dlg->insert(new TStaticText(TRect(4, 9, 4+strlen(buf), 10), buf));
 
-         sprintf(buf, "%7d total allocation units on disk.", df.total_clusters);
+         sprintf(buf, "%7d total allocation units on disk.", vi.ClTotal);
          dlg->insert(new TStaticText(TRect(4, 10, 4+strlen(buf), 11), buf));
 
-         sprintf(buf, "%7d units available on disk.\n", df.avail_clusters);
+         sprintf(buf, "%7d units available on disk.\n", vi.ClAvail);
          dlg->insert(new TStaticText(TRect(4, 11, 4+strlen(buf), 12), buf));
          
          dlg->selectNext(False);

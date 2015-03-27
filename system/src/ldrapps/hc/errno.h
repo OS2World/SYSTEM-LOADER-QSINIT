@@ -63,6 +63,7 @@ extern int errno;
 #define EILSEQ  40      /* Illegal multibyte sequence */
 /* qsinit */
 #define ENOMNT 10240    /* Device or filesystem is not mounted */
+#define EINVOP 10241    /* Invalid operation */
 
 #ifdef __cplusplus
 }

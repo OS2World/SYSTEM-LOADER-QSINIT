@@ -16,7 +16,7 @@ extern "C" {
 #define DSKBR_CLEARPT   0x0001    ///< clear partition table entries (!!!)
 #define DSKBR_GENDISKID 0x0002    ///< generate random "disk id"
 #define DSKBR_CLEARALL  0x0004    ///< write zero-filled sector without 55AA
-#define DSKBR_LVMINFO   0x0008    ///< wipe LVM info sectors
+#define DSKBR_LVMINFO   0x0008    ///< wipe all LVM info sectors
 #define DSKBR_GPTHEAD   0x0010    ///< write GPT stub record (clear MBR disk!!!)
 #define DSKBR_GPTCODE   0x0020    ///< write MBR code for GPT BIOS boot
 //@}
@@ -45,21 +45,39 @@ int   _std dsk_newmbr(u32t disk, u32t flags);
 /** query sector type.
     @param [in]  disk     disk number
     @param [in]  sector   sector number
-    @param [out] optbuf   buffer for reading sector, 4kb size (can be 0)
+    @param [out] optbuf   buffer for sector, 4kb size (can be 0)
     @return DSKST_* value and readed data in optbuf if specified */
 u32t  _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf);
 
-/** write QSINIT FAT boot record code.
-    @attention this function does not perform any checks!!!!
+/** query filesystem name from boot sector.
+    @param disk           disk number
+    @param sector         sector
+    @param [out] filesys  buffer for file system type (at least 9 chars)
+    @param [out] optbuf   buffer for sector, 4kb size (can be 0)
+    @return the same as dsk_sectortype() and non-empty filesys if detected
+            one. */
+u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
+
+/// @name dsk_newvbr() sector type
+//@{
+#define DSKBS_AUTO      0x0000    ///< autodetect boot sector type
+#define DSKBS_FAT16     0x0001    ///< FAT16 boot sector
+#define DSKBS_FAT32     0x0002    ///< FAT32 boot sector
+#define DSKBS_HPFS      0x0003    ///< HPFS boot record (without OS2BOOT!)
+#define DSKBS_DEBUG     0x0004    ///< debug sector (same as dsk_debugvbr())
+//@}
+
+/** replace boot sector code by QSINIT`s one.
+    @attention function does not perform any checks on location!!!!
+    Function failed in case of file system mismatch between sector data and
+    "type" value.
 
     @param disk     disk number
     @param sector   sector number
-    @param type     FAT type (FST_* constants for qsutil.h),
-                    boot code for FST_FAT12/FST_FAT16 is the same.
-    @param name     custom boot file name instead of QSINIT (11 chars),
-                    can be 0
-    @return boolean (success flag) */
-int   _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
+    @param type     sector type (DSKBS_* value).
+    @param name     custom boot file name (11 chars on FAT, 15 on HPFS), can be 0.
+    @return 0 if success, else DFME_* error code */
+u32t  _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
 
 /** write debug boot record code.
     This code does not load anything, but print DL, BPB.PhysDisk and i13x
@@ -78,11 +96,15 @@ int   _std dsk_debugvbr(u32t disk, u32t sector);
     @return boolean (success flag) */
 int   _std dsk_wipe55aa(u32t disk, u64t sector);
 
-/** write empty sector (zero-fill).
+/** write empty sectors (zero-fill).
+    @attention function deny sector 0 as argument! Use dsk_newmbr() instead.
+    Function accept volumes too (i.e. vol|QDSK_VOLUME disk value).
+   
     @param disk     disk number
-    @param sector   sector 
+    @param sector   first sector
+    @param count    number of sectors to clear
     @return 0 on success or DPTE_* error code */
-u32t  _std dsk_emptysector(u32t disk, u64t sector);
+u32t  _std dsk_emptysector(u32t disk, u64t sector, u32t count);
 
 /// @name dsk_ptrescan(), dsk_setactive(), dsk_ptcreate(), etc result
 //@{
@@ -104,7 +126,7 @@ u32t  _std dsk_emptysector(u32t disk, u64t sector);
 #define DPTE_NOPRFREE 0x0023     ///< no free space in primary table
 #define DPTE_FINDEX   0x0024     ///< invalid free space index
 #define DPTE_FSMALL   0x0025     ///< free space is smaller than specified
-#define DPTE_LARGE    0x0026     ///< partition too large (>4Gb)
+#define DPTE_LARGE    0x0026     ///< partition too large (64-bit number of sectors)
 #define DPTE_MOUNTED  0x0030     ///< partition already mounted.
 #define DPTE_NOLETTER 0x0031     ///< there is no free drive letter.
 #define DPTE_GPTHDR   0x0040     ///< GPT header is broken
@@ -192,7 +214,7 @@ u32t  _std dsk_setpttype(u32t disk, u32t index, u8t type);
     @param [in]  vol      volume (0..9)
     @param [out] disk     disk number (can be 0)
     @return partition index or -1 */
-long  _std dsk_volindex(u8t vol, u32t *disk);
+long  _std vol_index(u8t vol, u32t *disk);
 
 /** mount volume from partition.
     Unlike hlp_mountvol this function get partition number as parameter.
@@ -202,20 +224,14 @@ long  _std dsk_volindex(u8t vol, u32t *disk);
     @param [in]     index    partition index
     @return 0 on success or DPTE_* constant. Vol value filled with current
             drive letter in case of DPTE_MOUNTED error code */
-u32t  _std dsk_mountvol(u8t *vol, u32t disk, u32t index);
+u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
 
-/** unmount all QSINIT volumes from specified disk.
-    Function can not unmount boot partition!
-    @param [in]  disk     disk number
-    @return number of unmounted volumes. */
-u32t  _std dsk_unmountall(u32t disk);
-
-/// @name dsk_format() result
+/// @name vol_format() result
 //@{
 #define DFME_NOMOUNT  0x0001     ///< volume is not mounted
 #define DFME_VINDEX   0x0002     ///< unable to find partition index
 #define DFME_SSIZE    0x0003     ///< unsupported sector size (>4kb)
-#define DFME_SMALL    0x0004     ///< volume too small to fit FAT structures
+#define DFME_SMALL    0x0004     ///< volume too small to fit filesystem structures
 #define DFME_FTYPE    0x0005     ///< failed to select FAT type (16 or 32)
 #define DFME_UMOUNT   0x0006     ///< failed to unmount volume before format
 #define DFME_MOUNT    0x0007     ///< failed to mount volume after format
@@ -224,9 +240,13 @@ u32t  _std dsk_unmountall(u32t disk);
 #define DFME_INTERNAL 0x000A     ///< internal error
 #define DFME_EXTERR   0x000B     ///< extended partition processing error
 #define DFME_UBREAK   0x000C     ///< esc was pressed, format not complete
+#define DFME_NOMEM    0x000D     ///< no free memory to process format
+#define DFME_LARGE    0x000E     ///< volume too large for selected filesystem
+#define DFME_UNKFS    0x000F     ///< unknown file system type
+#define DFME_FSMATCH  0x0010     ///< file system type mismatch (dsk_newvbr())
 //@}
 
-/// @name dsk_format() flags
+/// @name vol_format() flags
 //@{
 #define DFMT_ONEFAT   0x0001     ///< one copy of FAT instead of two
 #define DFMT_QUICK    0x0002     ///< do not test volume for bad sectors
@@ -243,7 +263,25 @@ u32t  _std dsk_unmountall(u32t disk);
     @param cbprint   process indicator callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
     @return 0 if success, else DFME_* error code */
-u32t  _std dsk_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
+u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
+
+/** format file system.
+    @param vol       volume (0..9)
+    @param fsname    fs name (FAT or HPFS now)
+    @param flags     format flags (DFMT_*)
+    @param unitsize  cluster size for FAT, use 0 for auto selection
+    @param cbprint   process indicator callback (can be 0, not used if
+                     no DFMT_WIPE flag or DFMT_QUICK flag is set)
+    @return 0 if success, else DFME_* error code */
+u32t  _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
+                        read_callback cbprint);
+
+/** is volume marked as dirty?
+    Function checks/sets DIRTY state, but only for known filesystems (FAT/HPFS).
+    @param vol       volume (0..9)
+    @param on        new state (0/1) or -1 for returning current state only
+    @return previous state (0/1) or negative value on error (DFME_*) */
+int   _std vol_dirty(u8t vol, int on);
 
 /** query disk text name.
     @param disk     disk number
@@ -256,6 +294,16 @@ char* _std dsk_disktostr(u32t disk, char *buffer);
     @param str      buffer with disk name (with NO spaces before)
     @return disk number or FFFF (0xFFFFFFFF) if no such disk in system */
 u32t  _std dsk_strtodisk(const char *str);
+
+/** format disk size to short string.
+    Returned string cannot be longer than 8 chars (it have 5 digits max:
+    "99999 kb", but "100 mb").
+    @param sectsize   disk sector size
+    @param disksize   number of sectors
+    @param width      min width of output string (left-padded with spaces), use 0 to ignore.
+    @param buf        buffer for result, can be 0 for static. At least 9 bytes.
+    @return buf or static buffer pointer with result string */
+char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf);
 
 /** return existing partition table geometry.
     This function return "virtual" CHS from partition table. If OS/2 LVM
@@ -385,12 +433,12 @@ u32t  _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
 
 /// @name flags for dsk_mapblock.Flags
 //@{
-#define DMAP_PRIMARY    0x01     ///< Primary partition / possibility to create it
-#define DMAP_ACTIVE     0x02     ///< Active partition
-#define DMAP_LEND       0x04     ///< Last entry in list
-#define DMAP_LOGICAL    0x08     ///< Logical partition / possibility to create it
-#define DMAP_MOUNTED    0x10     ///< Partition mounted in QSINIT (DriveQS field is valid)
-#define DMAP_LVMDRIVE   0x20     ///< LVM drive letter is available
+#define DMAP_PRIMARY   0x0001   ///< Primary partition / possibility to create it
+#define DMAP_ACTIVE    0x0002   ///< Active partition
+#define DMAP_LEND      0x0004   ///< Last entry in list
+#define DMAP_LOGICAL   0x0008   ///< Logical partition / possibility to create it
+#define DMAP_MOUNTED   0x0010   ///< Partition mounted in QSINIT (DriveQS field is valid)
+#define DMAP_LVMDRIVE  0x0020   ///< LVM drive letter is available
 //@}
 
 typedef struct {
@@ -464,6 +512,14 @@ int   _std lvm_partinfo(u32t disk, u32t index, lvm_partition_data *info);
     @return boolean (success flag) */
 int   _std lvm_querybm(u32t *active);
 
+/** query LVM presence.
+    Function is not gurantee LVM info quality, it checks only for it presence.
+    @param physonly       flag to 1 to not count virtual HDDs (PAE ram disk and so on).
+    @return bit mask for first 31 HDDs (1 for presented LVM info, 0 for not)
+       and 0x80000000 bit if next HDDs (32...x) have LVM info. I.e. function
+       will return 0 if no LVM at all and non-zero value if LVM info present at
+       least somewhere. */
+u32t  _std lvm_present(int physonly);
 
 /// @name lvm_checkinfo(), lvm_assignletter() result codes
 //@{
@@ -532,6 +588,14 @@ u32t  _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
                      (previous value will be used if LVM was exist on disk).
     @return 0 on success or LVME_* error code. */
 u32t  _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate);
+
+/** wipe all LVM info from disk.
+    Function clears all DLAT entries for all partitions and checks first 255
+    sectors of disk for missing DLATs from previous format.
+
+    @param  disk     disk number
+    @return LVME_NOINFO..LVME_DISKNUM or 0 on success. */
+int   _std lvm_wipeall(u32t disk);
 
 /** search for partition by it`s name.
     @param [in]     name     Partition name.
