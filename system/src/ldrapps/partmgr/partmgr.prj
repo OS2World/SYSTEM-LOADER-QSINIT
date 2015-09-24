@@ -9,7 +9,6 @@ version=0x0001
 aa=@wasm
 cc=@wcc386
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -17,22 +16,18 @@ out=$(outdir)/
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cc) $(cinc) $(cflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
 *ord=$(outdir)\$(*cur_fp)_ord.h|$(*cur_pref).ref| @echo $(*cur_name) | \
      ref2lbc ord $(*cur_pref).ref $@
 
-*cln=clean|.SYMBOLIC|@$(&clean)
-
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
        -fi=%(appinit_lib)\initdef.h -i=. -i=$(outdir) -fo=
 
-dlldir=DLL
+dlldir=dll
 cinc=
 ccinc=$(cinc)
 ainc=
@@ -40,23 +35,29 @@ bld_dir=bld
 outdir=$(bld_dir)\$(config)
 outname=$(name).dll
 &lnk=$(outdir)\$(name).lnk
-&clean=$(outdir)\cleanall.cmd
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
-..\runtime\cache.ord
+..\runtime\qsinit.ord
 ..\..\hc\inc\parttab.inc ..\..\hc\inc\dpmi.inc
+..\..\hc\inc\seldesc.inc
 ..\..\init\inc\qsinit.inc
 ..\..\hc\inc\qsconst.inc
-partmgr.c mount.c pboot.c pscan.c phlp.c format.c
+partmgr.c mount.c pboot.c pscan.c phlp.c format.c pclone.c
 se.asm lvm.c ptmgr.c gptmgr.c hpfs\formatfs.c hpfs\boot.asm
 hpfs\fshelp.c
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait $(**ord) $(**inc) @@wait $(**c) $(**asm)
+nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c) $(**asm)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 [&lnk]
 sys os2v2_dll
@@ -75,23 +76,12 @@ op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc
 
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist *.h @del *.h
-if exist $(name).* @del $(name).*
-cd ..\..
-
 [config.0]
 *out=$(outname) | nolink | \
      @echo Linking ... | \
      @ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
      $(ld) @$(&lnk) | lxlite /c:default_noofs16 $(outname) >nul | \
      @mkdir $(dlldir) | copy $(outname) $(dlldir) >nul | \
-     @pkzip /add /max /silent /nozipext /dir /rec \
-     %(QS_BIN)\%(QS_ARCH) $(dlldir)\*.* | \
+     @zip -q -9 -X -S -D %(QS_BIN)\%(QS_ARCH) $(dlldir)\*.* | \
      del $(dlldir)\$(outname) >nul | \
      rmdir $(dlldir)

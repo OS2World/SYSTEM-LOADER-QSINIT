@@ -151,6 +151,8 @@ static int prepare_dirblk(fmt_info *fd) {
    fd->dbbmp = NEW(bit_map);
    if (!fd->dbbmp) return 0;
    if (!fd->dbbmp->alloc(SPB*512*8)) return 0;
+   // turn off common trace for this instance
+   exi_chainset(fd->dbbmp,0);
    // unused bits was zeroed by alloc, so mark only used part here
    fd->dbbmp->set(1,0,fd->sup.dbsectors/SEC_PER_DIRBLK);
 
@@ -210,13 +212,14 @@ u32t hpfs_cpdatacrc(u8t *data, u32t cnt) {
 
 static int prepare_codepage(fmt_info *fd) {
 #if WRITE_CODEPAGES
-   cpconvert        cpi;
+   qs_cpconvert     cpi;
    u8t             *tab = 0;
    u16t        codepage = 0;
    hpfs_cpinfo      *ci;
    hpfs_cpdataentry *di = (hpfs_cpdataentry*)&fd->cpd_sector[sizeof(hpfs_cpdata)];
 
-   if (cplib_present()) cpi = NEW(cpconvert);
+   // CPLIB lib will be auto-loaded for us if it available
+   cpi = NEW(qs_cpconvert);
    if (cpi) {
       codepage = cpi->getsyscp();
       /* force it to 850 if no selected!
@@ -433,7 +436,8 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
          fd->bmp->setall(1);
          // mark remaining part as used
          fd->bmp->set(0,fd->ptsize,alloc-fd->ptsize);
-
+         // turn off common trace for this instance
+         exi_chainset(fd->bmp,0);
          // allocate space for bitmap index
          fd->mapidx = (u32t*)malloc(fd->mapidxlen*512*SPB);
          if (fd->mapidx) memZero(fd->mapidx);

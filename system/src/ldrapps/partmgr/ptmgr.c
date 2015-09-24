@@ -11,6 +11,10 @@
 // use 0F for extended
 #define EXT_TYPE  PTE_05_EXTENDED
 
+static const char *ExtMngWarning = "Logical partition management "
+        "still dangerous and weakly tested!^Continue at own risc?";
+static int        ExtMngWarnFlag = 1;
+
 static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads);
 
 void lba2chs(u32t heads, u32t spt, u32t start, u8t *phead, u16t *pcs) {
@@ -73,7 +77,7 @@ u32t _std dsk_ptinit(u32t disk, int lvmmode) {
    if (lvmmode) {
       if (hi->info.Cylinders>1024) {
          // normal disk
-         u32t spt = 63, 
+         u32t spt = 63,
             heads = 255, cyls;
 
          if (hi->info.TotalSectors <= 1024 * 128 * 63) {
@@ -87,11 +91,11 @@ u32t _std dsk_ptinit(u32t disk, int lvmmode) {
             if (cyls>>16)
                if (spt<128) spt = spt<<1|1; else cyls = 65535;
          } while (cyls>>16);
-         
+
          vgeo.Cylinders   = cyls;
          vgeo.Heads       = heads;
          vgeo.SectOnTrack = spt;
-      } else { 
+      } else {
          // tiny /pae ram disk
          memcpy(&vgeo, &hi->info, sizeof(disk_geo_data));
       }
@@ -350,6 +354,39 @@ u32t dsk_extmerge(u32t disk) {
 }
 
 
+/** delete empty extended partition
+    @attention Function does not call rescan! */
+static u32t _std dsk_extdelete_int(hdd_info *hi) {
+   if (hi->pt_size==8) {
+      int extidx = dsk_findextrec(hi,0);
+      if (extidx<0) return DPTE_EXTERR;
+      // not emply?
+      if (!dsk_isquadempty(hi,1,0)) return DPTE_EXTPOP;
+      /* wipe quad before calling to pt_action(), because it will force
+         rescan after action */
+      lvm_wipedlat(hi->disk, 1);
+      dsk_wipequad(hi->disk, 1, 1);
+      // delete record and update disk
+      return pt_action(ACTION_DELETE|ACTION_NORESCAN|ACTION_DIRECT,
+         hi->disk, extidx, hi->extpos);
+   }
+   // invalid call!
+   return DPTE_EXTERR;
+}
+
+u32t _std dsk_extdelete(u32t disk) {
+   hdd_info *hi = get_by_disk(disk);
+   u32t      rc;
+   // force rescan because this is DELETE
+   dsk_ptrescan(disk,1);
+   if (hi->scan_rc) return hi->scan_rc;
+   // merge slices
+   rc = dsk_extmerge(disk);
+   if (rc) return rc;
+   // finally, delete it
+   return dsk_extdelete_int(hi);
+}
+
 /** resize extended partition.
     @attention Function does not check free size presence! Caller
                (dsk_ptcreate()) must do this.
@@ -401,13 +438,7 @@ u32t _std dsk_extresize(u32t disk, int atend, int add, u32t size) {
    // one empty slice? just delete extended!
    if (!add && hi->pt_size==8) {
       if (!dsk_isquadempty(hi,1,0)) return DPTE_EXTERR;
-      /* wipe quad before calling to pt_action(), because it will force
-         rescan after action */
-      lvm_wipedlat(disk, 1);
-      dsk_wipequad(disk, 1, 1);
-      // delete record and update disk
-      return pt_action(ACTION_DELETE|ACTION_NORESCAN|ACTION_DIRECT,
-         disk, extidx, hi->extpos);
+      return dsk_extdelete_int(hi);
    }
    // is LVM present?
    lvmstate = lvm_checkinfo(disk);
@@ -512,6 +543,8 @@ u32t _std dsk_extresize(u32t disk, int atend, int add, u32t size) {
          // write new 1st quad
          rc = dsk_emptypt(disk, erec->PTE_LBAStart, npt);
          if (rc) return rc;
+         // zero sectors until the end of "track"
+         dsk_emptysector(disk, erec->PTE_LBAStart+1, hi->lvm_spt-1);
          // update all extended`s slices
          flush_on_exit = 1;
       }
@@ -539,6 +572,15 @@ u32t _std dsk_extresize(u32t disk, int atend, int add, u32t size) {
    return dsk_extmerge(disk);
 }
 
+static int dsk_extwarning(u32t disk) {
+   // little warning ;) only for logical & and REAL disks
+   if (ExtMngWarnFlag && (hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)==0) {
+      if (!confirm_dlg(ExtMngWarning)) return 0;
+      ExtMngWarnFlag = 0;
+   }
+   return 1;
+}
+
 u32t dsk_ptdel(u32t disk, u32t index, u64t start) {
    hdd_info *hi = get_by_disk(disk);
    u32t  ii, rc, flags = 0, lvmstate;
@@ -547,6 +589,9 @@ u32t dsk_ptdel(u32t disk, u32t index, u64t start) {
    if (hi->gpt_present) return dsk_gptdel(disk, index, start);
    // is it primary?
    dsk_ptquery(disk, index, 0, 0, 0, &flags, 0);
+   // warn about extended partition management!
+   if ((flags&DPTF_PRIMARY)==0)
+      if (!dsk_extwarning(disk)) return DPTE_UBREAK;
    // unmount volumes
    for (ii=2; ii<DISK_COUNT; ii++) {
       disk_volume_data vi;
@@ -564,11 +609,17 @@ u32t dsk_ptdel(u32t disk, u32t index, u64t start) {
    // all is ok if this was a primary
    if (flags&DPTF_PRIMARY) return 0;
    // else merge free slices in extended
-   return dsk_extmerge(disk);
+   rc = dsk_extmerge(disk);
+   if (rc) return rc;
+   /* we have empty first slice or entire extended partition after delete?
+      then feed it to dsk_extresize() - it can shrink it or delete at all.
+      Size arg it not a reason here, because it just delete entire slice */
+   if (dsk_isquadempty(hi,1,1)) rc = dsk_extresize(disk, 0, 0, 1);
+   return rc;
 }
 
 /** exclude space from free logical slice.
-    Function exclude space from the end of extended slice and creates a 
+    Function exclude space from the end of extended slice and creates a
     new empty slice for it.
     Function does not align anything to cylinder, but fails if difference with
     current size is smaller than cylinder size.
@@ -580,7 +631,7 @@ u32t dsk_ptdel(u32t disk, u32t index, u64t start) {
     @return 0 on success, or DPTE_* error. */
 static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads) {
    int       lrec, erec;
-   u32t  cylsize, csize, npsize, rc = 0, lvmstate;
+   u32t  cylsize, csize, npsize, rc = 0, lvmstate, npos;
 
    if (!hi || !size || !quad || quad >= hi->pt_size>>2) return DPTE_INVARGS;
    lrec = dsk_findlogrec(hi, quad);
@@ -616,6 +667,7 @@ static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads) {
       return DPTE_EXTERR;
    }
    lvmstate = lvm_checkinfo(hi->disk);
+   npos     = hi->ptspos[quad]+size;
    // new quad for freed part
    if (erec>=0) {
       struct MBR_Record npt[4];
@@ -624,9 +676,11 @@ static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads) {
       // fix offset for dsk_flushquad()
       npt[0].PTE_LBAStart -= hi->extpos;
       // write new quad
-      rc = dsk_emptypt(hi->disk, hi->ptspos[quad]+size, npt);
+      rc = dsk_emptypt(hi->disk, npos, npt);
    } else
-      rc = dsk_emptypt(hi->disk, hi->ptspos[quad]+size, 0);
+      rc = dsk_emptypt(hi->disk, npos, 0);
+   // zero sectors until the end of "track"
+   dsk_emptysector(hi->disk, npos+1, hi->lvm_spt-1);
 
    if (rc) return rc; else {
       struct MBR_Record *rec;
@@ -696,8 +750,8 @@ static u32t dsk_lptcreate(u32t disk, u32t start, u32t size, u8t type, u32t heads
 
       if (diff < size) return DPTE_NOFREE;
       // too close to this quad - switch to easy processing
-      if (dsk_isquadempty(hi,ii,1) && start - pos < cylsize) { 
-         size += start-pos; start = pos; 
+      if (dsk_isquadempty(hi,ii,1) && start - pos < cylsize) {
+         size += start-pos; start = pos;
          tgtquad = ii;
       } else { /* else shrink slice and switch to easy processing too :)
          quad can be USED partially - by other partition */
@@ -764,17 +818,10 @@ u32t dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type) {
          return DPTE_INVARGS;
    // rescan disk
    if ((flags&DFBA_NRESCAN)==0) {
-      static int warn = 1;
       dsk_ptrescan(disk,1);
       // little warning ;) only for logical & and REAL disks
-      if (warn && (flags&DFBA_LOGICAL)!=0 && 
-         (hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)==0)
-      {
-         if (!confirm_dlg("Logical partition creation "
-            "still dangerous and not tested!^Continue at own risc?"))
-               return DPTE_INVARGS;
-         warn = 0;
-      }
+      if ((flags&DFBA_LOGICAL)!=0)
+         if (!dsk_extwarning(disk)) return DPTE_UBREAK;
       // normalizing it on first entry, else we can get wrong free space index
       if ((flags&DFBA_LOGICAL)!=0) dsk_extmerge(disk);
    }
@@ -820,11 +867,11 @@ u32t dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type) {
       } else
       if (start+size<=hi->extpos && fb->StartSector+fb->Length>=hi->extpos) bt=PtBoundL;
          else
-      if (start>=extfin && fb->StartSector<=extfin) bt=PtBoundR; 
+      if (start>=extfin && fb->StartSector<=extfin) bt=PtBoundR;
          else
       if (start+size<=hi->extpos || start>=extfin) bt = PtPrim;
          else
-      if (start>=hi->extpos && (start+size<=hi->extstart || !hi->extstart && 
+      if (start>=hi->extpos && (start+size<=hi->extstart || !hi->extstart &&
          start+size<=extfin)) bt = PtBoundInL; else
       if (start>hi->extstart && start+size<hi->extend) bt=PtIn;
          else
@@ -836,17 +883,17 @@ u32t dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type) {
       }
       log_it(2, "create on %02X, start %08X end %08X, bound %d\n", disk, start,
          start+size-1, (u32t)bt);
-                
+
       if (flags&DFBA_PRIMARY) {
          if (bt==PtIn) break; else
          if (bt==PtInclude) {
             int ext = dsk_findextrec(hi,0);
             if (ext<0) return DPTE_EXTERR;
-            rc = pt_action(ACTION_DELETE|ACTION_NORESCAN|ACTION_DIRECT, disk, ext, 
+            rc = pt_action(ACTION_DELETE|ACTION_NORESCAN|ACTION_DIRECT, disk, ext,
                hi->pts[ext].PTE_LBAStart);
             if (rc) break;
             return dsk_ptcreate(disk, start, size, flags|DFBA_NRESCAN, type);
-         } else 
+         } else
          if (bt==PtBoundInL || bt==PrCrossL) {
             // include extended pt header to partition
             if (start == hi->extpos+fb->SectPerTrack) {

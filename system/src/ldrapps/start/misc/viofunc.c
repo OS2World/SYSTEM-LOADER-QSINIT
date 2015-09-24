@@ -417,3 +417,21 @@ void ansi_strout(char *str) {
       }
    }
 }
+
+/** calculate string length without embedded ANSI sequences.
+    @param str      source string
+    @return string length without ANSI sequences in it */
+u32t _std str_length(const char *str) {
+   if (!str) return 0; else {
+      u32t  len = 0;
+      char  *cs = (char*)str, *cp;
+
+      while ((cp = strchr(cs, '\x1B'))) {
+         char *se = strpbrk(cp,"ABCDJHKfhlmnsu");
+         len += cp-cs;
+         if (se) cs = se+1; else 
+            return len; // truncated ANSI seq, ignore it
+      }
+      return len + strlen(cs);
+   }
+}

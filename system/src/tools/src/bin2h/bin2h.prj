@@ -11,7 +11,6 @@ aa=@wasm
 cc=@wcc386
 cpp=@wpp386
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -22,16 +21,8 @@ out=$(outdir)/
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
-
-*cln=clean|.SYMBOLIC|@echo Cleaning ... | \
-     @if exist $(outdir)\*.obj @del $(outdir)\*.obj | \
-     @if exist $(outdir)\*.lst @del $(outdir)\*.lst | \
-     @if exist $(outdir)\*.h @del $(outdir)\*.h | \
-     @if exist $(outdir)\$(name).* @del $(outdir)\$(name).*
 
 aflags=-mf -4p -zq -fo=
 
@@ -74,16 +65,22 @@ oskey=-bt=dos -DSP_DOS32
 exedir=..\..
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 ..\..\..\ldrapps\runtime\rt\sp_defs.cpp
 ..\..\..\ldrapps\runtime\rt\sp_str.cpp
 bin2h.cpp lxread.cpp
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait @@wait $(**cpp)
+nolink : MAKEDIRS hello @@wait $(**cpp)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 [&lnk]
 sys $(target)

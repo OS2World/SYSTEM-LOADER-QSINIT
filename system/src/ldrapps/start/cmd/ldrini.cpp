@@ -9,7 +9,7 @@ Minor runtime functions, C++ part.
 
 @li ini file cached on first usage until 1st usage of another file
 @li ini file can be loaded from virtual disk only.
-@li os2ldr.ini is copied to the 1:\ on init
+@li os2ldr.ini saved to the 1:\qsinit.ini by this code
 */
 #define LOG_INTERNAL
 #define STORAGE_INTERNAL
@@ -33,6 +33,7 @@ static const char *cfg_section = "config",
                   *msg_section = "help";
 static spstr msg_name,        // spstr do not use heap in constructor, so
             ecmd_name;        // can use static class here ...
+                              // (no heap in START`s init)
 /// ini file access cache
 static TINIFile  *ini = 0,    // ini_* functions current file
                  *msg = 0,    // msg.ini
@@ -55,6 +56,8 @@ static TINIFile *reinitini(const char *IniName) {
    return ini;
 }
 
+/* called from process start callback - to sync with disk files at least in
+   this way */
 extern "C"
 void reset_ini_cache(void) {
    if (ini) delete ini;
@@ -68,9 +71,11 @@ int get_ini_parms(void) {
    u32t  pciscan = 0;
    int        rc = 0;
    spstr  dbcard;
-
+   // init was saved by pointer, not as data copy
    sto_del(STOKEY_INIDATA);
 
+   /* we have root environment here, so just storing keys for any other 
+      feature apps */
    u32t htype = hlp_hosttype();
    if (htype>=QSHT_BIOS && htype<=QSHT_EFI) {
       // scan all PCI buses on EFI by default
@@ -164,14 +169,15 @@ char* _std cmd_shellgetmsg(const char *cmd) {
 
 spstr ecmd_readstr(const char *section, const char *key) {
    if (!ecmd) ecmd = new_ini(ecmd_name());
-   spstr ss(ecmd->ReadString(section,key));
+   spstr sn(section), kn(key), ss(ecmd->ReadString(sn.trim(),kn.trim()));
    return ss.trim();
 }
+
 /** read section from extcmd.ini.
     @param       section   Section name
     @param [out] lst       Section text
     @return success flag (1/0), i.e. existence flag. */
-int ecmd_readsec(spstr &section, TStrings &lst) {
+int ecmd_readsec(const spstr &section, TStrings &lst) {
    if (!ecmd) ecmd = new_ini(ecmd_name());
    ecmd->ReadSection(section,lst);
    return ecmd->SectionExists(section); 
@@ -274,13 +280,13 @@ str_list* __stdcall str_split(const char *str,const char *separators) {
    TStrings lst;
    lst.SplitString(str,separators);
    for (int ii=0;ii<=lst.Max();ii++) lst[ii].trim();
-   return str_getlist(lst);
+   return str_getlist(lst.Str);
 }
 
 str_list* __stdcall str_splitargs(const char *str) {
    TStrings lst;
    lst.ParseCmdLine(str);
-   return str_getlist(lst);
+   return str_getlist(lst.Str);
 }
 
 static str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**values) {
@@ -297,9 +303,9 @@ static str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**valu
          if (!sk.trim().length() && !sv.trim().length())
             { lst.Delete(ii); vlst.Delete(ii); } else ii++;
       }
-      *values = str_getlist(vlst);
+      *values = str_getlist(vlst.Str);
    }
-   return str_getlist(lst);
+   return str_getlist(lst.Str);
 }
 
 str_list* _std str_keylist(const char *IniName, const char *Section,
@@ -318,28 +324,44 @@ str_list* _std str_seclist(const char *IniName) {
    if (!reinitini(IniName)) return 0; else {
       TStrings lst = ini->ReadSections();
       lst.TrimEmptyLines();
-      return str_getlist(lst);
+      return str_getlist(lst.Str);
+   }
+}
+
+static void read_section(const char *Section, u32t flags, TStrings &out) {
+   ini->ReadSection(Section,out);
+   if (flags) {
+      l ii;
+      if (flags&GETSEC_NOEMPTY) out.TrimEmptyLines();
+      ii = out.Count();
+      while (ii-->0) {
+         out[ii].trim();
+         if (out[ii].length())
+            if ((flags&GETSEC_NOEMPTY) && out[ii][0]==';' ||
+               (flags&GETSEC_NOEKEY) && out[ii][0]=='=' ||
+                  (flags&GETSEC_NOEVALUE) && out[ii].cpos('=')==out[ii].length()-1)
+                     out.Delete(ii);
+      }
    }
 }
 
 str_list* _std str_getsec(const char *IniName, const char *Section, u32t flags) {
    if (!reinitini(IniName)) return 0; else {
       TStrings lst;
-      ini->ReadSection(Section,lst);
-      if (flags) {
-         l ii;
-         if (flags&GETSEC_NOEMPTY) lst.TrimEmptyLines();
-         ii=lst.Count();
-         while (ii-->0) {
-            lst[ii].trim();
-            if (lst[ii].length())
-               if ((flags&GETSEC_NOEMPTY) && lst[ii][0]==';' ||
-                  (flags&GETSEC_NOEKEY) && lst[ii][0]=='=' ||
-                     (flags&GETSEC_NOEVALUE) && lst[ii].cpos('=')==lst[ii].length()-1)
-                        lst.Delete(ii);
-         }
+      read_section(Section, flags, lst);
+      return str_getlist(lst.Str);
+   }
+}
+
+u32t _std str_secexist(const char *IniName, const char *Section, u32t flags) {
+   if (!reinitini(IniName)) return 0; else {
+      u32t rc = ini->SectionExists(Section);
+      if (flags && rc) {
+         TStrings lst;
+         read_section(Section, flags, lst);
+         return lst.Count()?1:0;
       }
-      return str_getlist(lst);
+      return rc;
    }
 }
 
@@ -360,7 +382,7 @@ str_list* _std str_fromptr(char **list,int size) {
    TStrings lst;
    if (list&&size>0)
       while (size--) lst.Add(*list++);
-   return str_getlist(lst);
+   return str_getlist(lst.Str);
 }
 
 void _std log_printlist(char *info, str_list*list) {
@@ -624,7 +646,7 @@ void splittext(const char *text, u32t width, TStrings &lst) {
       spstr curr(ps,pps?pps-ps+carry:0), sum;
       sum = lst[ln]+curr;
       sum.expandtabs(4);
-      if (sum.length()<width-2) lst[ln]=sum; else {
+      if (str_length(sum())<width-2) lst[ln]=sum; else {
          lst.Add(curr); 
          if (lst[ln].lastchar()==' ') lst[ln].dellast(); 
          ln++; 

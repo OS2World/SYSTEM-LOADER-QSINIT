@@ -14,7 +14,7 @@ exports = {
    _vol_index        = { index =  32  group = "disk"   format = "ib&*@u"  }
    _dsk_getptgeo     = { index =  33  group = "disk"   format = "u@up"    }
    _dsk_getmap       = { index =  34  group = "disk"   format = "p@u"     }
-   _vol_mount        = { index =  35  group = "disk"   format = "u*@b@uu" }
+   _vol_mount        = { index =  35  group = "disk"   format = "u*@!b@uu" }
    _dsk_partcnt      = { index =  36  group = "disk"   format = "i@u"     }
    # ordinal 37 reserved (moved to START)
    _dsk_ptquery64    = { index =  38  group = "disk"   format = "b@uu&*@q&*@q&s&*@u" }
@@ -23,7 +23,8 @@ exports = {
    _dsk_gptpset      = { index = 131  group = "disk"   format = "u@uup"   }
    _dsk_gptdinfo     = { index = 132  group = "disk"   format = "u@up"    }
    _dsk_gptdset      = { index = 133  group = "disk"   format = "u@up"    }
-   _dsk_gptfind      = { index = 134  group = "disk"   format = "upu&*@u&*u" }
+   _dsk_gptfind      = { index = 134  group = "disk"   format = "upu!*@u&*u" }
+   _dsk_usedspace    = { index = 135  group = "disk"   format = "u@u@&*q@&*q" }
 
    _dsk_ptinit       = { index =  40  group = "dmgr"   format = "u@ui"    } # partition management
    _dsk_ptgetfree    = { index =  41  group = "dmgr"   format = "u@upu"   }
@@ -32,9 +33,12 @@ exports = {
    _dsk_ptdel        = { index =  44  group = "dmgr"   format = "u@uu@q"  }
    _dsk_gptinit      = { index =  45  group = "dmgr"   format = "u@u"     }
    _dsk_gptcreate    = { index =  46  group = "dmgr"   format = "u@u@q@q@up" }
+   _dsk_clonestruct  = { index =  47  group = "dmgr"   format = "u@u@u@u" }
+   _dsk_clonedata    = { index =  48  group = "dmgr"   format = "u@uu@uup@u" }
 
    _dsk_extmerge     = { index = 100  group = "dmgr"   format = "u@u"     } # ext. partition actions
    _dsk_extresize    = { index = 101  group = "dmgr"   format = "u@uii@u" }
+   _dsk_extdelete    = { index = 102  group = "dmgr"   format = "u@u"     }
 
    _dsk_newmbr       = { index =  50  group = "dmhelp" format = "i@u@u"   }
    _dsk_sectortype   = { index =  51  group = "dmhelp" format = "u@u@qp"  }
@@ -49,9 +53,12 @@ exports = {
    _vol_formatfs     = { index =  60  group = "dmhelp" format = "u@bs@uup" }
    _dsk_ptqueryfs    = { index =  61  group = "dmhelp" format = "u@u@q&sp" }
    _vol_dirty        = { index =  62  group = "dmhelp" format = "i@bi"    }
+   _dsk_ismounted    = { index =  63  group = "dmhelp" format = "@u@ui"   }
+   _dsk_copysector   = { index =  64  group = "dmhelp" format = "u@u@q@u@quppp&*u" }
+   _dsk_datatype     = { index =  65  group = "dmhelp" format = "upu@ui"  }
 
    _exit_bootmbr     = { index =  70  group = "exit"   format = "i@u@u"   } # boot
-   _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uuc"   }
+   _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uucp"  }
 
    # ordinal 80 reserved (moved to START)
    _dsk_guidtostr    = { index =  81  group = "dmhelp" format = "ip&s"    }
@@ -66,7 +73,7 @@ exports = {
    _lvm_assignletter = { index =  95  group = "lvm"    format = "u@uuci"  }
    _lvm_initdisk     = { index =  96  group = "lvm"    format = "u@upi"   }
    _lvm_setname      = { index =  97  group = "lvm"    format = "u@uuus"  }
-   _lvm_findname     = { index =  98  group = "lvm"    format = "usu&*@u&*u" }
+   _lvm_findname     = { index =  98  group = "lvm"    format = "usu!*@u&*u" }
    _lvm_delptrec     = { index =  99  group = "lvm"    format = "i@uu"    }
    _lvm_crc32        = { index = 190  group = "lvm"    format = "@u@upu"  }
    _lvm_wipedlat     = { index = 191  group = "lvm"    format = "i@uu"    }
@@ -75,4 +82,5 @@ exports = {
 
    # just for test (temporary)
    _hpfs_format      = { index = 250  group = "hpfs"   format = "u@b@uup" }
+   _hpfs_freadfull   = { index = 251  group = "hpfs"   format = "p@bs&*@u" }
 }

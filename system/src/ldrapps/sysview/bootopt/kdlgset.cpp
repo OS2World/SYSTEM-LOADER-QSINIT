@@ -11,35 +11,39 @@
 #include "tv.h"
 #include "../../hc/qsshell.h"
 
-void replace_coltxt(TColoredText **txt, const char *str, int const_bounds, ushort color) {
-   if (!txt||!*txt||!str) return;
-   TColoredText *txo = *txt;
-   ushort    col = color?color:txo->getTheColor();
-   TGroup *owner = txo->owner;
+static TStaticText *reptext_common(TStaticText *txo, const char *str,
+                                   int const_bounds, int color)
+{
+   if (!txo||!str) return txo;
+   ushort       col;
+   TGroup    *owner = txo->owner;
+   u32t        slen = strlen(str);
+   if (color>=0)
+      col = color>0?color:((TColoredText*)txo)->getTheColor();
 
    TRect rr(txo->getBounds());
-   if (!const_bounds) rr.b.x=rr.a.x+strlen(str)+1;
+   if (!const_bounds) rr.b.x=rr.a.x+slen+1;
    owner->removeView(txo);
    txo->owner = 0;
    SysApp.destroy(txo);
-   txo  = new TColoredText(rr,str,col);
+   txo  = color>=0 ? new TColoredText(rr,str,col) : 
+                     new TStaticText (rr,str);
    owner->insert(txo);
-   *txt = txo;
+   return txo;
+}
+
+void replace_coltxt(TColoredText **txt, const char *str, int const_bounds, ushort color) {
+   if (!txt||!*txt||!str) return;
+
+   TColoredText *rc = (TColoredText*)reptext_common(*txt, str, const_bounds, color);
+   *txt = rc;
 }
 
 void replace_statictxt(TStaticText **txt, const char *str, int const_bounds) {
    if (!txt||!*txt||!str) return;
-   TStaticText *txo = *txt;
-   TGroup *owner = txo->owner;
 
-   TRect rr(txo->getBounds());
-   if (!const_bounds) rr.b.x=rr.a.x+strlen(str)+1;
-   owner->removeView(txo);
-   txo->owner = 0;
-   SysApp.destroy(txo);
-   txo  = new TStaticText(rr,str);
-   owner->insert(txo);
-   *txt = txo;
+   TStaticText *rc = reptext_common(*txt, str, const_bounds, -1);
+   *txt = rc;
 }
 
 void setstr(TInputLine *ln, const char *str) {

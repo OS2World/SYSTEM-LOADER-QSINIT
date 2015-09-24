@@ -37,6 +37,16 @@ typedef struct mod_chaininfo_s {
 #endif // QSINIT_CHAININC
 
 /** api chain(hook) proc.
+    There are two variants of chaining: on module exports and on common
+    functions. Module exports supports chaining without any additional steps.
+    For common function chaining you must create calling thunk (by 
+    mod_buildthunk() call) and use it as function address in any calls.
+
+    Chaining allow interseption on entry and exit of call and replacement of
+    calling function to compatible one. I.e. you can receive stack and
+    registers before/after call and type/modify it transparently or, just,
+    put your own function instead of original.
+
 
     Registers in mc_regs (except esp) can be changed both on entry and exit.
     In entry chain mc_regs.esp points to return address, on exit - to stack
@@ -58,6 +68,8 @@ typedef struct mod_chaininfo_s {
     module execute mod_exec() until child`s exit).
     Stack exhaustion will cause stop exit chain calling for this ordinal and
     produce warning message to log on every call.
+    Changing of ebp will cause immediate panic (critical data saved in it
+    duaring function call).
 
     By default entry/exit hook appends to the end of chain list for this
     function. APICN_FIRSTPOS can be added to mod_apichain() "chaintype" arg
@@ -103,6 +115,46 @@ int   _std mod_apichain  (u32t module, u32t ordinal, u32t chaintype, void *handl
                         this type
     @return number of removed functions */
 u32t  _std mod_apiunchain(u32t module, u32t ordinal, u32t chaintype, void *handler);
+
+/** build calling thunk for function.
+    Returned thunk address must be used by any callers instead of original
+    function pointer - to allow interception by chaining code.
+    Next calls with the same function parameter will return the same thunk.
+
+    @param  module      Module handle
+    @param  function    Function address
+    @return thunk address or 0 on error */
+void *_std mod_buildthunk(u32t module, void *function);
+
+/** free calling thunk.
+    Call is optional, all thunks for this module will be released automatically
+    while module unloading.
+    @param  module      Module handle
+    @param  thunk       Thunk addr from mod_buildthunk(), can be 0 for all 
+                        thunks in this module (this will force unchaining too).
+    @return number of released thunks */
+u32t  _std mod_freethunk (u32t module, void *thunk);
+
+/** install chain procedure for function.
+    @param  module      Module handle. Hooks will be removed on module unloading.
+    @param  thunk       Pointer to calling thunk (returned by mod_buildthunk())
+    @param  chaintype   Type of chaining
+    @param  handler     Function to install, this is mod_chainfunc for entry
+                        and exit and replaced function type for replace
+    @return success flag (1/0) */
+int   _std mod_fnchain   (u32t module, void *thunk, u32t chaintype, void *handler);
+
+/** remove chain procedure.
+    @param  module      Module handle
+    @param  thunk       Pointer to calling thunk, can be 0 for all functions in
+                        this module (except module entiries, which uses
+                        mod_apiunchain()).
+    @param  chaintype   Type of chaining, can be 0 for all chaining types
+    @param  handler     Function to remove, can be 0 for all functions of
+                        this type
+    @return number of removed functions */
+u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handler);
+
 
 /** get direct pointer to module function (by index).
     Function return direct pointer to original function (without thunk, used

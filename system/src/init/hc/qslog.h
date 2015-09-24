@@ -95,7 +95,7 @@ static void log_misc(int level, char *fmt,...) {}
 #define LOGIF_LEVELMASK 0x0003 ///< mask for priority value
 #define LOGIF_SECOND    0x0004 ///< 1 second bit for dostime
 #define LOGIF_USED      0x0008 ///< entry is used
-#define LOGIF_DELAY     0x0010 ///< entry was delayd
+#define LOGIF_DELAY     0x0010 ///< entry was delayed
 #define LOGIF_REALMODE  0x0020 ///< entry was created in real mode
 //@}
 

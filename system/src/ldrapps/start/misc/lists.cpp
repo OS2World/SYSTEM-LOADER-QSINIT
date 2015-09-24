@@ -237,18 +237,18 @@ void *f_dq_list[LIST_M_COUNT] = { lstq_value, lstq_max, lstq_count,
 // register
 void register_lists(void) {
    u32t check = exi_register("dd_list", f_dd_list, LIST_M_COUNT, 
-                sizeof(listd_ptr), lstd_create, lstd_free);
+                sizeof(listd_ptr), lstd_create, lstd_free, 0);
    if (check!=EXID_dd_list) {
       exi_unregister(check);
       log_printf("register lists err (%d)\n",check);
       return;
    }
    exi_register("dds_list", f_dd_list, LIST_M_COUNT, sizeof(listd_ptr), 
-      lstd_create, lstd_free);
+      lstd_create, lstd_free, 0);
    exi_register("ptr_list", f_dd_list, LIST_M_COUNT+1, sizeof(listd_ptr), 
-      lstd_create, lstd_free);
+      lstd_create, lstd_free, 0);
    exi_register("dq_list" , f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 
-      lstq_create, lstq_free);
+      lstq_create, lstq_free, 0);
    exi_register("dqs_list", f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 
-      lstq_create, lstq_free);
+      lstq_create, lstq_free, 0);
 }

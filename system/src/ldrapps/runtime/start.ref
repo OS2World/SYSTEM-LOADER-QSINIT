@@ -28,8 +28,8 @@ exports = {
    _strstr           = { index =  7  group = "string"  format = "sss"   }
    _strrchr          = { index =  8  group = "string"  format = "ssc"   }
    _memcmp           = { index =  9  group = "clib"    format = "ippu"  }
-   _strtol           = { index = 10  group = "string"  format = "ispi"  }
-   _strtoul          = { index = 11  group = "string"  format = "uspi"  }
+   _strtol           = { index = 10  group = "string"  format = "is*&si" }
+   _strtoul          = { index = 11  group = "string"  format = "us*&si" }
    _strpbrk          = { index = 12  group = "string"  format = "sss"   }
    _stricmp          = { index = 13  group = "string"  format = "iss"   }
    _sprintf          = { index = 14  group = "string"  format = "i&ss."  }
@@ -158,6 +158,10 @@ exports = {
                          index = 73  group = "clib"    format = "hs&*@uu"
                          expname = "___dos_getfiletime"
                        }
+   _sprintf_dyn      = {
+                         index = 74  group = "string"  format = "ss."
+                         expname = "__sprintf_dyn"
+                       }
 
    _fopen            = {
                          index = 80  group = "clib"    format = "pss"
@@ -190,8 +194,9 @@ exports = {
                          expname = "___chsize"
                        }
    _atoi64           = { index = 92  group = "string"  format = "@qs"   }
-   _strtoll          = { index = 93  group = "string"  format = "@qspi" }
-   _strtoull         = { index = 94  group = "string"  format = "qspi"  }
+   _strtoll          = { index = 93  group = "string"  format = "@qs*&si" }
+   _strtoull         = { index = 94  group = "string"  format = "qs*&si" }
+
    _clearerr         = { index = 95  group = "clib"    format = "vp"    }
    _rewind           = {
                          index = 96  group = "clib"    format = "vp"
@@ -242,6 +247,7 @@ exports = {
    _fputc            = { index =430  group = "clib"    format = "iip"   }
    _isatty           = { index =431  group = "clib"    format = "ip"    }
    _hlp_isdir        = { index =432  group = "clib"    format = "us"    }
+   _fflush           = { index =433  group = "clib"    format = "ip"    }
 
    # memory manager
 
@@ -285,7 +291,9 @@ exports = {
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
    _str_fromptr      = { index =149  group = "strlist" format = "ppi"   }
-   _str_parseargs    = { index =450  group = "strlist" format = "vpsp." }
+   _str_parseargs    = { index =450  group = "strlist" format = "ppuisp." }
+   _str_secexist     = { index =451  group = "strlist" format = "uss@u" }
+   _str_length       = { index =452  group = "vio"     format = "us"    }
 
    # shell
 
@@ -322,6 +330,10 @@ exports = {
    _mod_dumptree     = { index =179  }
 
    _env_istrue       = { index =180  group = "shell"   format = "is"    }
+   _mod_buildthunk   = { index =181  group = "module"  format = "p@up"  }
+   _mod_freethunk    = { index =182  group = "module"  format = "u@up"  }
+   _mod_fnchain      = { index =183  }
+   _mod_fnunchain    = { index =184  }
 
    _mod_main         = { index =189 }  # do not call THIS! :)
 
@@ -341,9 +353,18 @@ exports = {
    _exi_createid     = { index =201  group = "exi"     format = "p@u"   }
    _exi_classname    = { index =202  group = "exi"     format = "sp"    }
    _exi_classid      = { index =203  group = "exi"     format = "@up"   }
-   _exi_register     = { index =204  group = "exi"     format = "@uspuupp" }
+   _exi_register     = { index =204  group = "exi"     format = "@uspuupp@u" }
    _exi_unregister   = { index =205  group = "exi"     format = "i@u"   }
    _exi_free         = { index =206  group = "exi"     format = "vp"    }
+   _exi_printclass   = { index =207  group = "exi"     format = "i@u"   }
+   _exi_checkstate   = { index =208  group = "exi"     format = "iv"    }
+   _exi_dumpall      = { index =209  group = "exi"     format = "vv"    }
+   _exi_queryid      = { index =210  group = "exi"     format = "@us"   }
+   _exi_chainon      = { index =211  group = "exi"     format = "i@u"   }
+   _exi_thunklist    = { index =212  group = "exi"     format = "p@u"   }
+   _exi_methods      = { index =213  group = "exi"     format = "u@u"   }
+   _exi_instdata     = { index =214  group = "exi"     format = "pp"    }
+   _exi_chainset     = { index =215  group = "exi"     format = "ipi"   }
 
    # shell commands
 
@@ -443,7 +464,7 @@ exports = {
    _hlp_pciexist     = { index =370  group = "system"  format = "i*@u"  }
    _hlp_memcpy       = { index =371  group = "system"  format = "uppui" }
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
-   _hlp_setupmem     = { index =373  group = "system"  format = "@uu*up@u" }
+   _hlp_setupmem     = { index =373  group = "system"  format = "@uu*!up@u" }
    _hlp_memcprint    = { index =374  group = "system"  format = "vv"    }
 
    # additional shell
@@ -452,6 +473,7 @@ exports = {
    _cmd_printtext    = { index =291  group = "shell"   format = "usiib" }
    _cmd_mergeopts    = { index =292  group = "shell"   format = "isss"  }
    _cmd_shellsetmsg  = { index =293  group = "shell"   format = "ss"    }
+   _cmd_execint      = { index =294  group = "shell"   format = "uss"   }
 
    # paging mode support
 
@@ -463,12 +485,13 @@ exports = {
    # disk/volume functions
 
    # ordinals 330-332 reserved (moved back to QSINIT)
-   _hlp_vollabel     = { index =333  group = "disk"    format="u@cs"    }
-   _dsk_strtodisk    = { index =334  group = "disk"    format="@us"     }
+   _hlp_vollabel     = { index =333  group = "disk"    format = "u@cs"  }
+   _dsk_strtodisk    = { index =334  group = "disk"    format = "@us"   }
    # ordinal 335 reserved (moved to QSINIT)
-   _dsk_disktostr    = { index =336  group = "disk"    format="s@up"    }
-   _dsk_formatsize   = { index =337  group = "disk"    format="su@qip"  }
+   _dsk_disktostr    = { index =336  group = "disk"    format = "s@up"  }
+   _dsk_formatsize   = { index =337  group = "disk"    format = "su@qip" }
    _hlp_unmountall   = { index =338  group = "disk"    format = "u@u"   }
+   _hlp_diskclass    = { index =339  group = "disk"    format = "p@us"  }
 
    # system functions
    # ordinals 360-362 reserved (moved to QSINIT)
@@ -489,4 +512,22 @@ exports = {
 
    # time functions (390..393 was moved back to QSINIT)
    _clock            = { index =394  group = "time"    format = "qv"    }
+}
+
+class = {
+   name = "bit_map"
+   entires = {
+      init    = "uppu"
+      alloc   = "upu"
+      resize  = "upu"
+      size    = "upv"
+      mem     = "ppv"
+      setall  = "vpi"
+      set     = "upiuu"
+      check   = "upiuu"
+      find    = "@upiuu"
+      findset = "@upiuu"
+      longest = "upi&*@u"
+      total   = "upi"
+   }
 }

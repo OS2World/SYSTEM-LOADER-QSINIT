@@ -6,7 +6,6 @@
 #include "qslog.h"
 #include "qsutil.h"
 #include "stdlib.h"
-#include "qscache.h"
 #include "cache.h"
 
 #undef  ADV_DEBUG
@@ -133,7 +132,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
 
 /// unload disk info structs on DLL exit
 void unload_all(void) {
-   if (cache) hlp_cachesize(0);
+   if (cache) cc_setsize(0,0);
    if (cdi) {
       int ii;
       for (ii=0; ii<cdi_hdds+cdi_fdds; ii++) {
@@ -209,14 +208,14 @@ static diskinfo *get_di(u32t disk) {
    }
 }
 
-void _std hlp_cachepriority(u32t disk, u64t start, u32t size, int on) {
+void _std cc_setprio(void *data, u32t disk, u64t start, u32t size, int on) {
    diskinfo *di = get_di(disk);
    if (di && di->valid) {
       u32t sp, ep;
       if (start >= di->sectors) return;
       if (start+size >= di->sectors) size = di->sectors - start;
       if (dblevel>1)
-         log_it(2,"hlp_cacheprio(%X,0x%LX,0x%X,%d)\n",disk,start,size,on);
+         log_it(2,"cc_setprio(%X,0x%LX,0x%X,%d)\n",disk,start,size,on);
       // size in bytes
       start <<= di->sshift;
       size  <<= di->sshift;
@@ -226,15 +225,15 @@ void _std hlp_cachepriority(u32t disk, u64t start, u32t size, int on) {
       // set bits in array
       setbits(di->prio, sp, ep-sp+1, on?SBIT_ON:0);
       // log it!
-      if (dblevel>2) log_it(2,"hlp_cacheprio done\n");
+      if (dblevel>2) log_it(2,"cc_setprio done\n");
    }
 }
 
 /// enable/disable cache for specified disk
-int _std hlp_cacheon(u32t disk, int enable) {
+int _std cc_enable(void *data, u32t disk, int enable) {
    diskinfo *di;
    if (!cdi) alloc_structs();
-   if (dblevel>0) log_it(2,"hlp_cacheon(%X,%d)\n",disk,enable);
+   if (dblevel>0) log_it(2,"cc_enable(%X,%d)\n",disk,enable);
 
    di = get_di(disk);
    if (!di) return -1;
@@ -244,13 +243,13 @@ int _std hlp_cacheon(u32t disk, int enable) {
       int oldstate = di->enabled;
       di->enabled  = enable?1:0;
       // if cache is active - drop all cached data for this disk
-      if (cache && !enable) hlp_cacheinv(disk, 0, FFFF64);
+      if (cache && !enable) cc_invalidate(data, disk, 0, FFFF64);
       return oldstate;
    }
 }
 
 /// set cache size in mbs
-void _std hlp_cachesize(u32t size_mb) {
+void _std cc_setsize(void *data, u32t size_mb) {
    if (!size_mb) {
       hlp_runcache(0);
       if (cache) { hlp_memfree(cache); cache = 0; }
@@ -265,7 +264,7 @@ void _std hlp_cachesize(u32t size_mb) {
    } else {
       u32t availmax;
       // turn off old cache
-      if (blocks_total || cache) hlp_cachesize(0);
+      if (blocks_total || cache) cc_setsize(data, 0);
       // check define and calc array`s shift 
       a_shift = bsf64(PRIO_ARRAY_STEP);
       if (a_shift<15 || 1<<a_shift!=PRIO_ARRAY_STEP) return;
@@ -580,16 +579,15 @@ void cache_ioctl(u8t vol, u32t action) {
          u64t start;
          u32t  disk, length;
          if (get_sys_area(vol, &disk, &start, &length))
-            hlp_cachepriority(disk,start,length,action==CC_MOUNT);
+            cc_setprio(0,disk,start,length,action==CC_MOUNT);
 
-         if (action==CC_UMOUNT) hlp_cacheinvvol(vol);
+         if (action==CC_UMOUNT) cc_invalidate_vol(0,vol);
          return;
       }
       case CC_SHUTDOWN : // Disk i/o shutdown
          unload_all();
          return;
       case CC_RESET    : // FatFs disk_initialize()
-         //hlp_cacheinvvol(vol);
          return;
       case CC_SYNC     : // FatFs CTRL_SYNC command
       case CC_IDLE     : // Idle action (keyboard read)
@@ -601,21 +599,21 @@ void cache_ioctl(u8t vol, u32t action) {
    }
 }
 
-void _std hlp_cacheinvvol(u8t drive) {
+void _std cc_invalidate_vol(void *data, u8t drive) {
    disk_volume_data info;
    hlp_volinfo(drive,&info);
    if (info.TotalSectors)
-      hlp_cacheinv(info.Disk, info.StartSector, info.TotalSectors);
+      cc_invalidate(data, info.Disk, info.StartSector, info.TotalSectors);
 }
 
-void _std hlp_cacheinv(u32t disk, u64t start, u64t size) {
+void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
    diskinfo *di = get_di(disk);
    if (di && cache && di->valid) {
       // check arguments
       if (start>di->sectors) return;
       if (start+size>di->sectors) size = di->sectors - start;
       if (dblevel>1)
-         log_it(2,"hlp_cacheinv(%X,%LX,%LX)\n",disk,start,size);
+         log_it(2,"cc_invalidate(%X,%LX,%LX)\n",disk,start,size);
       // full or partial clear?
       if (start==0 && size==di->sectors) {
          u32t ii = blocks_total;
@@ -641,7 +639,7 @@ void _std hlp_cacheinv(u32t disk, u64t start, u64t size) {
    }
 }
 
-u32t _std hlp_cachestat(u32t disk, u32t *pblocks) {
+u32t _std cc_stat(void *data, u32t disk, u32t *pblocks) {
    diskinfo *di = get_di(disk);
    if (pblocks) *pblocks = 0;
    if (di && cache && di->valid) {

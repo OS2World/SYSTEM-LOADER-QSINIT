@@ -10,6 +10,9 @@
 #define MAX_TRACE_MOD (32)         ///< maximum # of traced modules
 #define TRACE_OWNER   (0x42435254)
 
+#define TRACEF_ON     0x0001
+#define TRACEF_CLASS  0x0002       ///< shared class
+
 static int _std hookmain(mod_chaininfo *info);
 
 class TraceFile {
@@ -56,6 +59,7 @@ struct TraceInfo {
    TStrings   groups;
    TStrings     name;
    TStrings      fmt;
+   TList     classid;
 };
 
 /** List of trace file contents.
@@ -87,7 +91,7 @@ static TraceInfo *trace_load(const char *module, int quiet) {
    int       err = 1;
    TraceInfo *ti = 0;
    do {
-      if (!trf.GetStr(str) || str!="QSTRACE") break;
+      if (!trf.GetStr(str) || str!="QSTRACE2") break;
       if (!trf.GetStr(str) || stricmp(str(),module)) break;
       u32t groups, ii;
       if (!trf.GetU16(groups)) break;
@@ -98,21 +102,27 @@ static TraceInfo *trace_load(const char *module, int quiet) {
       for (ii=0; ii<groups; ii++) {
          if (!trf.GetStr(str) || !str) { err+=100; break; }
          ti->groups.Add(str);
+         ti->classid.Add(0);
       }
       if (err>1) break;
       // read groups
       for (ii=0; ii<groups; ii++) {
-         u32t fcnt = 0, kk;
-         // "trace on" flag
-         ti->groups.Objects(ii) = 0;
+         u32t fcnt = 0, kk, scf;
          // read data
          if (!trf.GetU16(fcnt)) { err+=200; break; }
+         // set flag
+         scf   = fcnt&0x8000;
+         ti->groups.Objects(ii) = scf ? TRACEF_CLASS : 0;
+         fcnt &= 0x7FFF;
 
          for (kk=0; kk<fcnt; kk++) {
-            u32t idx;
-            if (!trf.GetU16(idx) || !trf.GetStr(str) || !str) { err+=300; break; }
-            ti->name.AddObject(str,idx);  // name<->index pair
+            /* function index in class stored as ordinal for
+               classes and ordinal itself for functions */
+            u32t idx = kk;
+            if (!scf && !trf.GetU16(idx)) { err+=300; break; }
             if (!trf.GetStr(str) || !str) { err+=400; break; }
+            ti->name.AddObject(str,idx);  // name<->index pair
+            if (!trf.GetStr(str) || !str) { err+=500; break; }
             ti->fmt.AddObject(str,ii);    // name<->group pair
          }
          if (err>1) break;
@@ -164,13 +174,34 @@ static char** trace_getstrlist(u32t pool, TStrings &lst) {
 static u32t trace_makelists(TraceInfo *mti, u32t mh, u32t **ords, 
    char ***fmts, char ***names)
 {
+   TStrings namelist(mti->name);
    u32t  cnt = mti->name.Count(), ii;
+
    if (!cnt) *ords = 0; else {
       *ords = (u32t*) memAlloc(TRACE_OWNER, mh, sizeof(u32t)*cnt);
       memcpy(*ords, mti->name.LList.Value(), sizeof(u32t)*cnt);
+      // zero ordinals present?
+      if (memchrd(*ords, 0, cnt)) {
+         for (ii=0; ii<cnt; ii++) {
+            u32t grp = mti->fmt.Objects(ii);
+            if ((mti->groups.Objects(grp)&TRACEF_CLASS)) {
+               if (!mti->classid[grp])
+                  mti->classid[grp] = exi_queryid(mti->groups[grp]());
+               pvoid *thlist = exi_thunklist(mti->classid[grp]);
+               /* because ordinals are always short (1..65535), we can put
+                  both ordinals & addresses of thunks in the same array. This
+                  is bad, but saves code & time ;) */
+               if (thlist) (*ords)[ii] = (u32t)thlist[(*ords)[ii]]; else
+                  (*ords)[ii] = 0;
+               // make printable name in form "class->method"
+               namelist[ii].insert("->",0);
+               namelist[ii].insert(mti->groups[grp],0);
+            }
+         }
+      }
    }
    *fmts  = trace_getstrlist(mh,mti->fmt);
-   *names = trace_getstrlist(mh,mti->name);
+   *names = trace_getstrlist(mh,namelist);
    return cnt;
 }
 
@@ -233,17 +264,40 @@ static void trace_mhcommon(TraceInfo *mti, int idx, TList &list, int add) {
    log_it(2,"trace_mhcommon(%s,%d)\n", ((module*)activelist[idx])->name, add);
 #endif
    for (ii=0; ii<list.Count(); ii++) {
-      int fidx = mti->fmt.IndexOfObject(list[ii],0);
+      int   fidx = mti->fmt.IndexOfObject(list[ii],0),
+         isclass = mti->groups.Objects(list[ii])&TRACEF_CLASS;
+      u32t  clid = 0;
+      pvoid *cth = 0;
+      if (isclass) {
+         clid = mti->classid[list[ii]];
+         if (clid) cth = exi_thunklist(clid);
+         if (!cth) {
+            log_it(2,"unable to trace class \"%s\"\n", mti->groups[list[ii]]());
+            continue;
+         }
+      }
       while (fidx>=0) {
          u32 ord = mti->name.Objects(fidx);
          if (add) {
-            mod_apichain(activelist[idx],ord,APICN_ONENTRY|APICN_FIRSTPOS,hookmain);
+            if (isclass)
+               mod_fnchain(activelist[idx],cth[ord],APICN_ONENTRY|APICN_FIRSTPOS,hookmain);
+            else
+               mod_apichain(activelist[idx],ord,APICN_ONENTRY|APICN_FIRSTPOS,hookmain);
             // add exit hook on non-void result or out parameter
-            if (mti->fmt[fidx][0]!='v' || mti->fmt[fidx].cpos('&')>=0) 
-               mod_apichain(activelist[idx],ord,APICN_ONEXIT,hookmain);
+            if (mti->fmt[fidx][0]!='v' || mti->fmt[fidx].cpos('&')>=0 ||
+               mti->fmt[fidx].cpos('!')>=0)
+               if (isclass)
+                  mod_fnchain(activelist[idx],cth[ord],APICN_ONEXIT,hookmain);
+               else
+                  mod_apichain(activelist[idx],ord,APICN_ONEXIT,hookmain);
          } else {
-            mod_apiunchain(activelist[idx],ord,APICN_ONENTRY,hookmain);
-            mod_apiunchain(activelist[idx],ord,APICN_ONEXIT,hookmain);
+            if (isclass) {
+               mod_fnunchain (activelist[idx],cth[ord],APICN_ONENTRY,hookmain);
+               mod_fnunchain (activelist[idx],cth[ord],APICN_ONEXIT,hookmain);
+            } else {
+               mod_apiunchain(activelist[idx],ord,APICN_ONENTRY,hookmain);
+               mod_apiunchain(activelist[idx],ord,APICN_ONEXIT,hookmain);
+            }
          }
          fidx = mti->fmt.IndexOfObject(list[ii],fidx+1);
       }
@@ -254,17 +308,21 @@ int trace_common(const char *module, const char *group, int quiet, int on) {
    TraceInfo *mti = trace_find(module,quiet,on); // load only on "trace on"
    if (!mti) return 0;
    TList difflist;
-   int ii;
+   int         ii;
+   // this must this bit only!
+   on = on?TRACEF_ON:0;
    if (!group||!*group) {
       for (ii=0; ii<mti->groups.Count(); ii++) 
-         if (Xor(mti->groups.Objects(ii),on)) {
-            mti->groups.Objects(ii) = on?1:0;
+         if ((mti->groups.Objects(ii)^on)) {
+            if (on) mti->groups.Objects(ii)|=TRACEF_ON; else
+               mti->groups.Objects(ii)&=~TRACEF_ON;
             difflist.Add(ii);
          }
    } else {
       ii = mti->groups.IndexOf(group);
-      if (ii>=0 && Xor(mti->groups.Objects(ii),on)) {
-         mti->groups.Objects(ii) = on?1:0;
+      if (ii>=0 && (mti->groups.Objects(ii)^on)) {
+         if (on) mti->groups.Objects(ii)|=TRACEF_ON; else
+            mti->groups.Objects(ii)&=~TRACEF_ON;
          difflist.Add(ii);
       }
    }
@@ -282,7 +340,7 @@ int trace_common(const char *module, const char *group, int quiet, int on) {
    } else {
       int on_cnt = 0;
       for (ii=0; ii<mti->groups.Count(); ii++) 
-         if (mti->groups.Objects(ii)) on_cnt++;
+         if ((mti->groups.Objects(ii)&TRACEF_ON)) on_cnt++;
       int full = difflist.Count() >= on_cnt, idx;
 
       // process un-trace for all loaded modules with the same name
@@ -331,7 +389,8 @@ void trace_list(const char *module, const char *group, int pause) {
       for (int ii=0; ii<lti->Count(); ii++) {
          int cnt=0, jj;
          TraceInfo *mti = (TraceInfo*)lti->Objects(ii);
-         for (jj=0; jj<mti->groups.Count(); jj++) cnt+=mti->groups.Objects(jj);
+         for (jj=0; jj<mti->groups.Count(); jj++) 
+            cnt += mti->groups.Objects(jj)&TRACEF_ON?1:0;
 
          cmd_printseq("%-16s  %d groups (%d active)",pause?0:-1,0,(*lti)[ii](),
             mti->groups.Count(), cnt);
@@ -345,18 +404,25 @@ void trace_list(const char *module, const char *group, int pause) {
       if (!group) {
          cmd_printseq(0,1,0);
          for (int ii=0; ii<mti->groups.Count(); ii++)
-            cmd_printseq("%-30s : %s",pause?0:-1,0,mti->groups[ii](),
-               mti->groups.Objects(ii)?"ON":"OFF");
+            cmd_printseq("%c  %-30s : %s",pause?0:-1,0,
+               mti->groups.Objects(ii)&TRACEF_CLASS?'c':'g',
+                  mti->groups[ii](), mti->groups.Objects(ii)&TRACEF_ON?"ON":"OFF");
       } else {
-         int idx = mti->groups.IndexOf(group);
+         int  idx = mti->groups.IndexOf(group), isclass;
          if (idx<0) {
             printf("There is no group '%s' in module '%s'\n", group, module);
             return;
          }
+         isclass = mti->groups.Objects(idx)&TRACEF_CLASS;
+         cmd_printseq(0,1,0);
          for (int ii=0; ii<mti->name.Count(); ii++)
             if (mti->fmt.Objects(ii)==idx)
-               cmd_printseq("ordinal %4d, name %s (%s)",pause?0:-1,0,mti->name.Objects(ii),
-                  mti->name[ii](), mti->fmt[ii]());
+               if (isclass)
+                  cmd_printseq("method %s (%s)",pause?0:-1,0, mti->name[ii](),
+                     mti->fmt[ii]());
+               else
+                  cmd_printseq("ordinal %4d, name %s (%s)",pause?0:-1,0,
+                     mti->name.Objects(ii), mti->name[ii](), mti->fmt[ii]());
       }
    }
 }
@@ -369,8 +435,10 @@ void trace_start_hook(module *mh) {
    TList difflist;
    int ii;
    for (ii=0; ii<mti->groups.Count(); ii++) 
-      if (mti->groups.Objects(ii)>0) difflist.Add(ii);
+      if ((mti->groups.Objects(ii)&TRACEF_ON)) difflist.Add(ii);
    if (difflist.Count()) {
+      log_it(2,"trace_start_hook(%s) -> %d groups to activate\n", mh->name,
+         difflist.Count());
       ii = trace_mhfind((u32t)mh);
       if (ii<0) ii = trace_mhadd((u32t)mh, mti, 1);
       trace_mhcommon(mti, ii, difflist, 1);
@@ -382,8 +450,8 @@ extern "C"
 void trace_unload_hook(module *mh) {
    TraceInfo *mti = trace_find(mh->name,1);
    if (!mti) return;
-   /* as we know here - mod_apiunchain() was called in lxmisc.c, so 
-      clearing own structs only */
+   /* mod_apiunchain() was called in lxmisc.c, classes trace thunks must
+      be removed by unregister, so only clearing own structs here */
    int idx = trace_mhfind((u32t)mh);
    if (idx>=0) {
       activelist[idx] = 0;
@@ -395,7 +463,7 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
    char *fmt = fmtlist[idx][fidx],
      *fnname = namelist[idx][fidx], errn=0;
    int   arg = 0, pos=0,
-        outs = in?strccnt(fmt,'&'):0, outpcnt = 0;
+        outs = in?strccnt(fmt,'&')+strccnt(fmt,'!'):0, outpcnt = 0;
    u32t *esp = (u32t*)(info->mc_regs->pa_esp + 4),
                // buffer for/with otuput values
       *ehbuf = in && outs? (u32t*)memAlloc(TRACE_OWNER, activelist[idx], 
@@ -409,14 +477,19 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
    if (!in && fmt[pos]!='v') *buf++='=';
 
    do { 
-      char ch = fmt[pos++], out=0, ptr=0, hex=0;
+      char ch = fmt[pos++], out=0, ptr=0, hex=0, inout=0;
       // prefixes
-      while (ch=='&' || ch=='*' || ch=='@') {
-         if (ch=='&') { out=1; ch=fmt[pos++]; }
-         if (ch=='*') { ptr=1; ch=fmt[pos++]; }
-         if (ch=='@') { hex=1; ch=fmt[pos++]; }
+      while (ch=='&' || ch=='*' || ch=='@' || ch=='!') {
+         switch (ch) {
+            case '&': out=1; inout=0; break;
+            case '!': out=1; inout=1; break;
+            case '*': ptr=1; break;
+            case '@': hex=1; break;
+         }
+         ch=fmt[pos++]; 
       }
-      if (in&&out) ch='p';
+      if (out&&!ptr&&ch!='s'&&ch!='S') out=0;
+      if (in&&out&&!inout) ch='p';
 
       u64t llvalue = 0;
       u32t   value = 0;
@@ -439,7 +512,7 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
       }
       if (in&&out) ehbuf[outpcnt++] = value;
       // pointer to value. print (null) if it NUL
-      if (ptr&&arg&&(in&&!out||pvalue))
+      if (ptr&&arg&&(in&&(!out||inout)||pvalue))
          if (!value) ch='s'; else 
             if (ch=='q') llvalue=*(u64t*)value; else value=*(u32t*)value;
 
@@ -541,8 +614,10 @@ static int _std hookmain(mod_chaininfo *info) {
    // process output
    u32t *pos = memchrd(activelist, mh, MAX_TRACE_MOD);
    if (pos) {
-      int idx = pos-activelist;
-      pos = memchrd(ordlist[idx], info->mc_orddata->od_ordinal, ordinals[idx]);
+      ordinal_data *od = info->mc_orddata;
+      int          idx = pos-activelist;
+      pos = memchrd(ordlist[idx], od->od_ordinal?od->od_ordinal:(u32t)od->od_thunk,
+                    ordinals[idx]);
       if (pos) {
          int fidx = pos-ordlist[idx];
          // do not make any checks of length limit now :((

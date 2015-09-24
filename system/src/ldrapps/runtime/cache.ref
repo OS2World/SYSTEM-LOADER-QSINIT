@@ -2,12 +2,5 @@ type = dll
 name = "CACHE"
 
 exports = {
-   _hlp_cacheon       = { index =  1  group="cache"  format="i@ui"    }
-   _hlp_cachesize     = { index =  2  group="cache"  format="vu"      }
-   _hlp_cacheinv      = { index =  3  group="cache"  format="v@u@q@q" }
-   _hlp_cacheinvvol   = { index =  4  group="cache"  format="vb"      }
-   _hlp_cachestat     = { index =  5  group="cache"  format="u@u&*u"  }
-   _hlp_cachepriority = { index =  6  group="cache"  format="v@u@qui" }
-
    _shl_cache         = { index = 10  group="shell"  format="usp"     }
 }

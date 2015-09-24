@@ -15,13 +15,14 @@ name=qsinit
 ; 0.12 - rev 282, zero-based FLAT mode, new linking of QSINIT binary 
 ; 0.13 - rev 300, console extensions, EFI build :)
 ; 0.14 - rev 320, 3 years of svn, exceptions in EFI, ANSI output
-version=0x0014
+; 0.15 - rev 335, codepages, HPFS format, dmgr clone, class trace
+version=0x0015
 
 ;
 ; some notes about current crazy linking + WASM:
 ; * all assumes in 32-bit objects except unpack.asm must be FLAT.
 ; * all variables/offsets in 16-bit segments must be defined NOT in
-;   the same file with 32-bit code, which use it and exported to
+;   the same file with 32-bit code, which uses it and exported to
 ;   this files as 32-bit (i.e. 16 & 32 bit ASM code must be splitted in
 ;   order to generate correct fixups).
 ;
@@ -36,7 +37,6 @@ aa=wasm
 cc=wcc386
 cc16=wcc
 chgn=chgnam
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -48,15 +48,10 @@ out=$(outdir)/
      $(cc16) $(ccinc) $(ccflags)$* $(*cur_pref).c | \
      $(chgn) misc\init16.pat $@ >nul
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
-*cln=clean|.SYMBOLIC|@$(&clean)
-
 &ver=inc\version.inc
-&clean=$(outdir)\cleanall.cmd
 
 aflags=-d1 -mt -zq -6p -i=%(QS_BASE)\hc -fo=
 
@@ -73,6 +68,10 @@ ccinc=$(cinc)
 ainc=
 outdir=bld\$(config)
 &watlnk=$(outdir)\qsinit.lnk
+; if no svn - use "svnrev" env. variable
+revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
+; export svn to cmd file for sdk packing
+&sdkrev=?[[$(svnrev)!bld\sdkrev.cmd!]]
 
 [vars.*.0]
 cinc=-DDEBUG -DVERBOSE_LOG
@@ -85,8 +84,10 @@ cinc=-ox
 cinc=-DDEBUG -DINITDEBUG -DVERBOSE_LOG
 ainc=-dDEBUG -dINITDEBUG
 
+[vars.linux]
+&sdkrev=
+
 [files]
-bld.dir $(outdir).dir clean.cln
 ..\hc\inc\ioint13.inc ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc 
 ..\hc\inc\filetab.inc inc\qsinit.inc inc\dskinfo.inc inc\qsbinfmt.inc
 ..\hc\inc\parttab.inc
@@ -99,16 +100,23 @@ misc\print.c misc\timer32.asm
 zip\puff.c zip\crc32.c zip\unzip.c
 
 [make_footer]
-MAKEDIRS : bld.dir $(outdir).dir
-    @echo Building ...
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo $(config) build ...
 
 start.asm : inc\version.inc
 
-nolink : $(**dir) $(**inc) @@wait $(**asm) $(**c) $(**cc)
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**asm) $(**c) $(**cc)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo $(config) cleaned ...
 
 [&ver]
-db 'QSinit $(vershort), rev $(svnrev), $(config) build at $(timestr)',0,10
-db '@#QS:$(vershort).$(svnrev)#@  QSinit loader',0
+db 'QSinit $(vershort), rev $(revnum), $(config) build at $(timestr)',0,10
+db '@#QS:$(vershort).$(revnum)#@  QSinit loader',0
 
 [&watlnk]
 sys os2v2_dll
@@ -136,15 +144,8 @@ op nod
 op quiet
 op togglerelocs
 
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.h @del *.h
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist os2ldr.* @del os2ldr.*
-cd ..\..
+[&sdkrev]
+set svnrev=$(svnrev)
 
 [config.0,1,2]
 *out=os2ldr | nolink | \

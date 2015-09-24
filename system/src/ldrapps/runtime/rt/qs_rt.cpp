@@ -1,6 +1,6 @@
 #include "qs_rt.h"
 
-str_list* str_getlist(TStrings &lst) {
+str_list* str_getlist(TStringVector &lst) {
    l len=sizeof(str_list)+lst.Count()*sizeof(char*), dlen=0, ii;
 
    for (ii=0;ii<=lst.Max();ii++) dlen+=lst[ii].trim().length()+1;

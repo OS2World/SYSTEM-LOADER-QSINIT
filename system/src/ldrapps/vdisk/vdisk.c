@@ -10,7 +10,10 @@
 #include "qsmodext.h"
 
 const char   *CMDNAME = "RAMDISK";
-static int lopt_quiet = 0;  // last RAMDISK command has /q option on
+static int lopt_quiet = 0;  ///< last RAMDISK command has /q option on
+
+void register_class(void);
+int  unregister_class(void);
 
 static void errmsg(const char *msg,...) {
    va_list al;
@@ -234,7 +237,11 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       }
       // install shell command
       cmd_shelladd(CMDNAME, shl_ramdisk);
+      // register external info class (optional, result can be ignored)
+      register_class();
    } else {
+      // unregister external info class, cancel unload it unsuccess
+      if (!unregister_class()) return 0;
       // remove shell command
       cmd_shellrmv(CMDNAME, shl_ramdisk);
       /* remove disk and clean memory, but only on module unloading,

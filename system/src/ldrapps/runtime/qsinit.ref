@@ -206,6 +206,7 @@ exports = {
   _hlp_unmountvol  = { index=219 group="disk"  format="u@c"   }   #
   _hlp_volinfo     = { index=220 group="disk"  format="u@cp"  }   # mounted volume info
   _hlp_disksize64  = { index=221 group="disk"  format="q@u&*u" }  #
+  _hlp_diskstruct  = { index=222 group="disk"  format="p@up"  }   #
 
   __U8D            = { index=230 }                                # watcom int64 support
   __I8D            = { index=231 }                                # and more of clib

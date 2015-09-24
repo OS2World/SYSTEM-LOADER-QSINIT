@@ -20,7 +20,7 @@ set INC_ORG=%include%
 rem setup variables
 call ..\..\setup.cmd
 set INCLUDE=%inc_org%;%include%
-rem creating dirs (else spprj will failed to write misc files before build)
+rem creating dirs (else spprj will fail to write misc files before build)
 spprj -b -w -nb sysview.prj %bldtype% makedirs
 rem writing makefile for reference
 spprj -nb sysview.prj %bldtype% bld\sysview.mak

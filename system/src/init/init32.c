@@ -18,7 +18,6 @@
 #include "parttab.h"
 #include "filetab.h"
 u32t                  qs16base; // base addr of 16-bit part
-u8t               bootio_avail; // boot partition disk i/o is available
 extern 
 MKBIN_HEADER        bin_header;
 extern u16t      DiskBufRM_Seg; // and segment (exported)
@@ -36,7 +35,10 @@ extern u16t         LdrRstCode, // save/restore os2ldr entry data for restart
                 dd_firstsector;
 extern 
 struct filetable_s   filetable;
+#else
+extern u32t        qd_bootdisk;
 #endif // EFI_BUILD
+u8t               bootio_avail; // boot partition disk i/o is available
 extern
 MKBIN_HEADER      *pbin_header;  // use pointer to be compat. with EFI build
 extern u8t           *memtable;
@@ -106,6 +108,8 @@ int _std init32(u32t rmstack) {
 #ifndef EFI_BUILD
    // is disk 0: available?
    bootio_avail = dd_bootflags&BF_NOMFSHVOLIO ? 0 : 1;
+#else
+   bootio_avail = qd_bootdisk!=FFFF;
 #endif // EFI_BUILD
    // init file i/o
    hlp_finit();

@@ -13,6 +13,8 @@
 #include "qsinit_ord.h"
 #include "seldesc.h"
 #include "qsmodext.h"
+#include "qcl/qsedinfo.h"
+#include "dskinfo.h"
 
 static int _std catch_diskremove(mod_chaininfo *info) {
    u32t disk = *(u32t*)(info->mc_regs->pa_esp+4);
@@ -132,4 +134,24 @@ u32t _std hlp_unmountall(u32t disk) {
       return umcnt;
    }
    return 0;
+}
+
+qs_extdisk _std hlp_diskclass(u32t disk, const char *name) {
+   struct qs_diskinfo *di = hlp_diskstruct(disk, 0);
+   if (!di) return 0;
+   if (!di->qd_extptr) return 0; else 
+   // "name" is for extension, now only "qs_extdisk" supported
+   if (name && strcmp(name,"qs_extdisk")) return 0; else {
+      u32t id = exi_classid(di->qd_extptr), mcnt;
+      if (!id) return 0;
+      mcnt = exi_methods(id);
+      // can`t check compat., but at least, can compare number of methods!
+      if (mcnt == sizeof(_qs_extdisk)/sizeof(void*)) 
+         return (qs_extdisk)di->qd_extptr;
+      else {
+         // something was supplied with other number of methods?
+         log_it(2, "wrong extptr for disk %03X (%d funcs)\n", disk, mcnt);
+         return 0;
+      }
+   }
 }

@@ -16,7 +16,7 @@
 
 #define FILE_SIGN     (0x454C4946)
 #define FP_IOBUF_LEN   64
-FILE    *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0, **pstdout = 0;
+FILE    *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0, **pstdout = 0, **pstdin = 0;
 
 typedef struct {
    u32t     sign;
@@ -44,9 +44,8 @@ void set_errno2(int x) {
    set_errno((x)>=0&&(x)<=FR_INVALID_PARAMETER?ffErrToErrno[x]:EIO);
 }
 
-FILE* get_stdout(void) {
-   return *pstdout;
-}
+FILE* get_stdout(void) { return *pstdout; }
+FILE* get_stdin (void) { return *pstdin;  }
 
 static int check_pid(FileInfo *fs) {
    u32t pid;
@@ -326,8 +325,6 @@ void __stdcall START_EXPORT(rewind)(FILE *fp) {
 }
 
 int __stdcall START_EXPORT(fseek)(FILE *fp, s32t offset, int where) {
-   u32t  cpos;
-   FRESULT rc;
    checkret_err(1);
    if (!check_pid(ff)) return 1;
 
@@ -336,7 +333,8 @@ int __stdcall START_EXPORT(fseek)(FILE *fp, s32t offset, int where) {
       set_errno(ff->lasterr=ENOTBLK);
       return 1;
    } else {
-      cpos=ff->fi.fptr;
+      FRESULT  rc;
+      u32t   cpos = ff->fi.fptr;
       switch (where) {
          case SEEK_CUR:if (offset<0&&-offset>cpos) cpos=0;
             else cpos+=offset;
@@ -349,7 +347,21 @@ int __stdcall START_EXPORT(fseek)(FILE *fp, s32t offset, int where) {
             set_errno(EINVAL);
             return 1;
       }
-      rc=f_lseek(&ff->fi, cpos);
+      rc = f_lseek(&ff->fi, cpos);
+      set_errno1(rc,ff);
+      return rc!=FR_OK?1:0;
+   }
+}
+
+int  __stdcall fflush(FILE *fp) {
+   checkret_err(1);
+   if (!check_pid(ff)) return 1;
+
+   // ignore console handles
+   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+      return 0;
+   } else {
+      FRESULT rc = f_sync(&ff->fi);
       set_errno1(rc,ff);
       return rc!=FR_OK?1:0;
    }
@@ -406,7 +418,7 @@ int  __stdcall fcloseall(void) {
 }
 
 void _std log_ftdump(void) {
-   log_it(2,"== Opened files ==\n");
+   log_it(2,"== Active handles ==\n");
    if (opened_files) {
       u32t ii=0;
       if (opened_files->count())
@@ -536,6 +548,35 @@ int __cdecl START_EXPORT(printf)(const char *fmt, long args) {
       return START_EXPORT(vfprintf)(*pstdout, fmt, &args);
    else
       return _prt_common(0, fmt, &args, vioprn);
+}
+
+typedef struct {
+   char       *rc;
+   u32t       len;
+   u32t       pos;
+} sprninfo;
+
+static void _std sprndyn(int ch, void *stream) {
+   sprninfo *di = stream;
+   if (di->pos+1 == di->len) {
+      char *np = (char*)realloc(di->rc, di->len*2);
+      if (!np) { di->rc[di->pos]=0; return; }
+      di->rc  = np;
+      di->len*= 2;
+   }
+   di->rc[di->pos++] = ch;
+}
+
+/// sprintf to dynamically allocated buffer
+char* __cdecl START_EXPORT(sprintf_dyn)(const char *fmt, long args) {
+   sprninfo  di;
+   di.rc  = (char*)malloc(16);
+   di.len = 16;
+   di.pos = 0;
+   _prt_common(&di, fmt, &args, sprndyn);
+   // put zero
+   sprndyn(0, &di);
+   return di.rc;
 }
 
 int _stdcall START_EXPORT(vprintf)(const char *fmt, long *argp) {

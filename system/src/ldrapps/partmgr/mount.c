@@ -78,6 +78,7 @@ void common_errmsg(const char *mask, const char *altmsg, u32t rc) {
 
 /// "mount" command
 u32t _std shl_mount(const char *cmd, str_list *args) {
+   int rc = -1;
    if (key_present(args,"/?")) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
@@ -90,12 +91,42 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
       disk_volume_data vi[DISK_COUNT];
       for (ii=0; ii<DISK_COUNT; ii++) vt[ii] = hlp_volinfo(ii, vi+ii);
 
-      str_parseargs(args, argstr, argval, &list, &verbose);
+      args = str_parseargs(args, 0, 1, argstr, argval, &list, &verbose);
 
+      if (args->count>=1 && stricmp(args->item[0],"QUERY")==0) {
+         if (args->count==3 || args->count==4) {
+            char  prnname[8];
+            u32t     disk = get_disk_number(args->item[2]), vol;
+            long      idx = args->count>3?atoi(args->item[3]):-1;
+
+            if ((long)disk<0 || (disk&QDSK_VOLUME)!=0) {
+               printf("Invalid disk name specified!\n");
+               rc = EINVAL;
+            } else
+            if (args->count>3 && (!isdigit(args->item[3][0]) || idx>=dsk_partcnt(disk))) {
+               printf("Invalid partition index!\n");
+               rc = EINVAL;
+            } else {
+               vol = dsk_ismounted(disk, idx);
+               if (vol) dsk_disktostr(vol,prnname);
+               setenv(args->item[1], vol?prnname:0, 1);
+               rc = 0;
+               if (verbose) {
+                  printf("Disk %s", dsk_disktostr(disk,0));
+                  if (idx>=0) printf(", partition %d ", idx);
+                  if (!vol) printf("is not mounted\n"); else
+                     printf("mounted as volume %s\n", prnname);
+               }
+            }
+            // delete env. var in error case
+            if (rc) setenv(args->item[1], 0, 1);
+         }
+      } else
       if (list) {
          static char *fattype[4] = { "unknown ", "  FAT12 ", "  FAT16 ", "  FAT32 " };
 
          cmd_printseq(0,1,0);
+         rc = 0;
 
          for (ii=0; ii<DISK_COUNT; ii++)
             if (vi[ii].TotalSectors) {
@@ -119,7 +150,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                   char *dn = dsk_disktostr(vi[ii].Disk,0), typestr[48];
                   if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else {
                      if (idx>=0) snprintf(typestr, 48, "partition %d %s", idx, lvmi);
-                        else snprintf(typestr, 48, "partition not matched (%09LX)", 
+                        else snprintf(typestr, 48, "partition not matched (%09LX)",
                            vi[ii].StartSector);
                   }
                   snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dn, typestr);
@@ -131,10 +162,9 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                }
                if (shellprn(" %c:/%c: %s %s %s",'0'+ii,'A'+ii, fattype[vt[ii]],
                   get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
-                     return EINTR;
+                     { rc = EINTR; break; }
             }
-         return 0;
-      }
+      } else
       if (args->count>=2) {
          u32t   vol = get_disk_number(args->item[0]),
                disk = get_disk_number(args->item[1]);
@@ -146,72 +176,76 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
 
          if (args->count>2 && !isdigit(args->item[2][0])) {
             printf("Invalid partition index!\n");
-            return EINVAL;
-         }
+            rc = EINVAL;
+         } else
          if ((long)vol<0 || (vol&QDSK_VOLUME)==0) {
             printf("Invalid volume name specified!\n");
-            return EINVAL;
+            rc = EINVAL;
          } else
          if (vol<=QDSK_VOLUME+DISK_LDR) {
             printf("Unable to re-mount 0: and 1: volumes!\n");
-            return EINVAL;
-         }
+            rc = EINVAL;
+         } else
          if ((long)disk<0 || (disk&QDSK_VOLUME)!=0) {
             printf("Invalid disk name specified!\n");
-            return EINVAL;
-         }
-         // check for LM_CACHE_ON_MOUNT and load cache if asked
-         cache_envstart();
-         // re-scan disk
-         dsk_ptrescan(disk,1);
-         // mount as floppy
-         if (idx<0) {
-            u32t     st = dsk_sectortype(disk,0,0);
-            int success = st==DSKST_BOOTFAT || st==DSKST_BOOTBPB || st==DSKST_BOOT
-               || fdd && (st==DSKST_EMPTY || st==DSKST_DATA);
+            rc = EINVAL;
+         } else
+         do {
+            // check for LM_CACHE_ON_MOUNT and load cache if asked
+            cache_envstart();
+            // re-scan disk
+            dsk_ptrescan(disk,1);
+            // mount as floppy
+            if (idx<0) {
+               u32t     st = dsk_sectortype(disk,0,0);
+               int success = st==DSKST_BOOTFAT || st==DSKST_BOOTBPB || st==DSKST_BOOT
+                  || fdd && (st==DSKST_EMPTY || st==DSKST_DATA);
 
-            if (!success) {
-                if (!fdd && (st==DSKST_EMPTY || st==DSKST_DATA)) {
-                   vio_setcolor(VIO_COLOR_LRED);
-                   printf("Do you really want to mount HARD DRIVE %s as big floppy?\n",
-                      prnname);
-                   if (ask_yes(VIO_COLOR_RESET)) success=1; else
-                      return EINTR;
-                }
-                if (!success)
-                   if (fdd && st==DSKST_ERROR) printf("No diskette in drive %s\n",
-                      prnname);
-                   else
-                      printf("Disk %s is not floppy formatted!\n", prnname);
-            }
-            if (!success) return EACCES;
-            start = 0;
-            size  = hlp_disksize64(disk,0);
-         }
-         // or hard disk partition
-         if (idx>=0 && !dsk_ptquery64(disk,idx,&start,&size,0,0)) {
-            printf("There is no partition %d in disk %s!\n", idx, prnname);
-            return EINVAL;
-         } else {
-            for (ii=0; ii<DISK_COUNT; ii++)
-               if (vi[ii].StartSector && vi[ii].Disk==disk &&
-                  vi[ii].StartSector==start)
-               {
-                  printf("Already mounted as %c:\n", '0'+ii);
-                  return 0;
+               if (!success) {
+                   if (!fdd && (st==DSKST_EMPTY || st==DSKST_DATA)) {
+                      vio_setcolor(VIO_COLOR_LRED);
+                      printf("Do you really want to mount HARD DRIVE %s as big floppy?\n",
+                         prnname);
+                      if (ask_yes(VIO_COLOR_RESET)) success=1; else
+                         { rc = EINTR; break; }
+                   }
+                   if (!success)
+                      if (fdd && st==DSKST_ERROR) printf("No diskette in drive %s\n",
+                         prnname);
+                      else
+                         printf("Disk %s is not floppy formatted!\n", prnname);
                }
-            // mount
-            if (hlp_mountvol(vol&QDSK_DISKMASK, disk, start, size)) {
-               printf("Mounted as %c:\n", '0'+(vol&QDSK_DISKMASK));
-            } else {
-               printf("Failed to mount!");
+               if (!success) { rc = ENOTBLK; break; }
+               start = 0;
+               size  = hlp_disksize64(disk,0);
             }
-            return 0;
-         }
+            // or hard disk partition
+            if (idx>=0 && !dsk_ptquery64(disk,idx,&start,&size,0,0)) {
+               printf("There is no partition %d in disk %s!\n", idx, prnname);
+               rc = EINVAL;
+            } else {
+               for (ii=0; ii<DISK_COUNT; ii++)
+                  if (vi[ii].StartSector && vi[ii].Disk==disk &&
+                     vi[ii].StartSector==start)
+                  {
+                     printf("Already mounted as %c:\n", '0'+ii);
+                     rc = 0; break;
+                  }
+               // mount
+               if (hlp_mountvol(vol&QDSK_DISKMASK, disk, start, size)) {
+                  printf("Mounted as %c:\n", '0'+(vol&QDSK_DISKMASK));
+                  rc = 0;
+               } else {
+                  printf("Failed to mount!");
+                  rc = EACCES;
+               }
+            }
+         } while (false);
       }
+      free(args); args=0;
    }
-   cmd_shellerr(EINVAL,0);
-   return EINVAL;
+   if (rc<0) cmd_shellerr(rc = EINVAL,0);
+   return rc;
 }
 
 /// "umount" command
@@ -281,7 +315,7 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
    } else {
       char             prnname[8], sizestr[24];
       disk_geo_data      gdata;
-      static char *subcommands[5] = {"WIPE", "CODE", "BOOT", "ACTIVE", 0};
+      static char *subcommands[6] = {"WIPE", "CODE", "BOOT", "ACTIVE", "BOOTFILE", 0};
       int subcmd = get_arg_index(args->item[pos],subcommands);
 
       if (subcmd<0) return EINVAL;
@@ -317,15 +351,16 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
             return rc?0:EACCES;
          }
       } else
-      if (subcmd==2) { // "BOOT"
+      if (subcmd==2||subcmd==4) { // "BOOT" & "BOOTFILE"
          u32t rc, force = 0;
+         pos++;
          // "FORCE" must be the last in command
-         if (++pos<args->count)
+         if (subcmd==2 && pos<args->count)
             if (stricmp(args->item[args->count-1], "FORCE")==0) {
                force = 1;
                args->count--;
             }
-         if (args->count<=pos || !isdigit(args->item[pos][0])) {
+         if (subcmd==2 && args->count<=pos) {
             rc = exit_bootmbr(disk, force?EMBR_NOACTIVE:0);
             switch (rc) {
                case ENOSYS:
@@ -347,11 +382,60 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   printf("Error launching MBR code from disk %s!\n",prnname);
                   break;
             }
+         } else
+         if (args->count<=pos || !isdigit(args->item[pos][0])) {
+            printf("Missing or invalid partition index!\n");
+            return EINVAL;
          } else {
-            u32t  index = strtoul(args->item[pos++],0,0);
+            u32t  index = strtoul(args->item[pos++],0,0),
+               filesize = 0;
             char letter = 0;
+            void *fdata = 0;
 
             if (force) printf("FORCE option is for MBR boot only!\n");
+
+            if (subcmd==4)
+               if (args->count<=pos) {
+                  printf("Missing file name parameter!\n");
+                  return EINVAL;
+               } else {
+                  char *np = args->item[args->count-1];
+                  fdata = freadfull(np, &filesize);
+                  if (!fdata && strchr(np,'/')==0 && strchr(np,'\\')==0) {
+                     // trying to mount this volume and read file from the root
+                     u32t rvol = dsk_ismounted(disk, index);
+                     u8t  mvol = 0;
+                     if (!rvol)
+                        if (vol_mount(&mvol, disk, index)) mvol = 0; else
+                           rvol = QDSK_VOLUME|mvol;
+                     if (rvol)
+                        if (hlp_volinfo(rvol&QDSK_DISKMASK,0)==FST_NOTMOUNTED) {
+                           // this can be HPFS
+                           fdata = hpfs_freadfull(rvol&QDSK_DISKMASK, np, &filesize);
+                        } else {
+                           // this is FAT
+                           char *fp = sprintf_dyn("%c:\\", (rvol&QDSK_DISKMASK)+'0');
+                           fp    = strcat_dyn(fp, np);
+                           fdata = freadfull(fp, &filesize);
+                           free(fp);
+                        }
+                     if (mvol) hlp_unmountvol(mvol);
+                  }
+                  if (!fdata) {
+                     printf("There is no file \"%s\"!\n", args->item[args->count-1]);
+                     return ENOENT;
+                  } else {
+                     u32t sectsize;
+                     // get sector size
+                     hlp_disksize(disk, &sectsize, 0);
+                     if (sectsize!=filesize) {
+                        printf("File size is not match to disk sector size!\n");
+                        hlp_memfree(fdata);
+                        return EBADF;
+                     }
+                     args->count--;
+                  }
+               }
 
             if (args->count>pos && isalpha(args->item[pos][0])) {
                if (args->item[pos][1]!=':' || args->item[pos][2]) {
@@ -361,7 +445,9 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
                letter = toupper(args->item[pos][0]);
             }
             dsk_ptrescan(disk,0);
-            rc = exit_bootvbr(disk, index, letter);
+            rc = exit_bootvbr(disk, index, letter, fdata);
+            if (fdata) hlp_memfree(fdata);
+
             switch (rc) {
                case ENOSYS:
                   printf("MBR boot mode is not possible on EFI host!\n");
@@ -415,7 +501,7 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
             if (!puregpt) {
                u32t flags;
                u8t  ptype = dsk_ptquery(disk, index, 0, 0, 0, &flags, 0);
-               
+
                if (!ptype) {
                   printf("Invalid partition index (%d)!\n", index); return EINVAL;
                }
@@ -528,7 +614,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
          return rc;
       } else
       if (subcmd==4) { // "DIRTY"
-         int nstate = -1, 
+         int nstate = -1,
                  rc = 0;
 
          if (sttype!=DSKST_BOOTFAT && strcmp(fsname,"HPFS")) {
@@ -601,7 +687,7 @@ u32t shl_dm_mode(const char *cmd, str_list *args, u32t disk, u32t pos) {
       u32t prevmode = hlp_diskmode(disk,HDM_QUERY), mode = prevmode;
       dsk_disktostr(disk,buf);
 
-      if (prevmode&HDM_EMULATED) 
+      if (prevmode&HDM_EMULATED)
          shellprn("Disk %s is emulated and have no access mode", buf);
       else
       if (prevmode) {
@@ -632,6 +718,136 @@ u32t shl_dm_mode(const char *cmd, str_list *args, u32t disk, u32t pos) {
    return 0;
 }
 
+static void _std clonevol_cb(u32t percent, u32t readed) {
+   printf("\rCopying %02d%%",percent);
+}
+
+static u32t dm_clone_np = 0,
+            dm_clone_ip = 0;
+
+static void _std cloneall_cb(u32t percent, u32t readed) {
+   printf("\rCopying partition %d of %d - %02d%%", dm_clone_ip, dm_clone_np, percent);
+}
+
+u32t _std shl_dm_clone(const char *cmd, str_list *args, u32t disk, u32t pos) {
+   // no subcommand?
+   if (args->count<=pos) return EINVAL; else {
+      char dstname[8], srcname[8];
+      long srcdisk;
+      static char *subcommands[] = {"STRUCT", "VOLUME", "ALL", 0};
+      int   subcmd = get_arg_index(args->item[pos++],subcommands);
+      u32t  dpterr = 0;
+
+      if (subcmd<0 || args->count<pos+1) {
+         cmd_shellerr(EINVAL, 0);
+         return EINVAL;
+      }
+      srcdisk = get_disk_number(args->item[pos++]);
+      if (srcdisk<0) {
+         printf("Invalid source disk name specified!\n");
+         return EINVAL;
+      }
+      if ((disk&QDSK_VOLUME) || (srcdisk&QDSK_VOLUME)) {
+         printf("Both source and destination must be a physical disk, not a volume!\n");
+         return ENOTBLK;
+      }
+      dsk_disktostr(disk,dstname);
+      dsk_disktostr(srcdisk,srcname);
+
+      if (subcmd==1) { // "VOLUME"
+         //dmgr clone hd1 volume hd2 pt [hd1pt]
+         char  fsname[10], sdname[8], ddname[8], slen[9], dlen[9];
+         u64t    dstsize, srcsize;
+         u32t   srcindex, dstindex, s_sectsz, d_sectsz;
+
+         if (args->count<pos+1 || args->count>pos+2) {
+            cmd_shellerr(EINVAL, 0);
+            return EINVAL;
+         }
+         // use str2long to prevent octal conversion
+         srcindex = str2long(args->item[pos++]);
+         if (args->count==pos+1) dstindex = str2long(args->item[pos++]);
+            else dstindex = srcindex;
+
+         if (!dsk_ptquery64(disk, dstindex, 0, &dstsize, fsname, 0)) {
+            printf("Destination partition index is invalid\n");
+            return EINVAL;
+         }
+         if (!dsk_ptquery64(srcdisk, srcindex, 0, &srcsize, 0, 0)) {
+            printf("Source partition index is invalid\n");
+            return EINVAL;
+         }
+         dsk_disktostr(srcdisk,sdname);  hlp_disksize(srcdisk, &s_sectsz, 0);
+         dsk_disktostr(disk   ,ddname);  hlp_disksize(disk   , &d_sectsz, 0);
+         dsk_formatsize(s_sectsz, srcsize, 0, slen);
+         dsk_formatsize(d_sectsz, dstsize, 0, dlen);
+
+         vio_setcolor(VIO_COLOR_LRED);
+         printf("Do you really want to copy disk %s partition %d (%s)\n"
+            "to disk %s partition %d (%s)?\n", sdname, srcindex, slen,
+               ddname, dstindex, dlen);
+         if (fsname[0]) {
+            vio_setcolor(VIO_COLOR_LWHITE);
+            printf("Current file system on target is %s. It will be lost!\n",
+               fsname);
+         }
+         if (ask_yes(VIO_COLOR_RESET)) {
+            dpterr = dsk_clonedata(disk, dstindex, srcdisk, srcindex, clonevol_cb, 0);
+            // clear %% printing
+            printf("\r                       \r");
+         } else
+            return EINTR;
+      } else
+      if (subcmd==0 || subcmd==2) { // "STRUCT" && "ALL"
+         static char *argstr   = "ident|sameid|ignspt|nowipe";
+         static short argval[] = { 1,   1};
+         int    ident = 0, sameid = 0, ignspt = 0, nowipe = 0, rcnt;
+         u32t   flags = DCLN_MBRCODE;
+         args = str_parseargs(args, pos, 1, argstr, argval, &ident, &sameid, &ignspt, &nowipe);
+         rcnt = args->count;
+         free(args);
+         // we must get empty list, else uncknown keys here
+         if (rcnt) {
+            cmd_shellerr(EINVAL, 0);
+            return EINVAL;
+         }
+         if (ident ) flags|=DCLN_IDENT;
+         if (sameid) flags|=DCLN_SAMEIDS;
+         if (ignspt) flags|=DCLN_IGNSPT;
+         if (nowipe) flags|=DCLN_NOWIPE;
+
+         dpterr = dsk_clonestruct(disk, srcdisk, flags);
+         if (subcmd==2 && dpterr==0) {
+            long np = dsk_partcnt(disk);
+            if (np<0 || np!=dsk_partcnt(srcdisk)) {
+               printf("Fatal error while cloning partition structure.\n");
+               return EACCES;
+            } else {
+               u32t ii;
+               // copy partitiions
+               for (ii=0; ii<np; ii++) {
+                  dm_clone_np = np;
+                  dm_clone_ip = ii+1;
+                  dpterr = dsk_clonedata(disk, ii, srcdisk, ii, cloneall_cb, 0);
+                  // clear %% printing
+                  printf("\r                                                  \r");
+                  if (dpterr) {
+                     log_it(2, "clone err %d on partition %d (%s->%s)\n", dpterr,
+                        ii, srcname, dstname);
+                     break;
+                  }
+               }
+            }
+         }
+      }
+      if (dpterr) {
+         common_errmsg("_DPTE%02d", "Clone error", dpterr);
+         return EACCES;
+      }
+      return 0;
+   }
+}
+
 /* Disc manager command.
    cmdline: dm subcommand disk operation options */
 u32t _std shl_dmgr(const char *cmd, str_list *args) {
@@ -643,7 +859,8 @@ u32t _std shl_dmgr(const char *cmd, str_list *args) {
       return shl_dm_list(cmd, args, FFFF, 1);
    } else
    while (args->count>=2) {
-      static char *subcommands[] = {"MBR", "BOOT", "LIST", "MODE", "BS", "PM", 0};
+      static char *subcommands[] = {"MBR", "BOOT", "LIST", "MODE", "BS", "PM",
+                                    "CLONE", 0};
       int  subcmd = get_arg_index(args->item[0],subcommands);
       long   disk;
       if (subcmd<0) break;
@@ -661,12 +878,12 @@ u32t _std shl_dmgr(const char *cmd, str_list *args) {
       if (subcmd==5 && stricmp(args->item[1],"FREE")==0) disk=x7FFF; else
       if ((subcmd==2||subcmd==3) && stricmp(args->item[1],"ALL")==0) disk=x7FFF;
       else {
-         // use str2long to prevent octal conversion
          disk = get_disk_number(args->item[1]);
-         if (disk<0) {
-            printf("Invalid disk name specified!\n");
-            return EINVAL;
-         }
+         if (disk<0)
+            if (subcmd==2) disk=FFFF; else {
+               printf("Invalid disk name specified!\n");
+               return EINVAL;
+            }
       }
 
       switch (subcmd) {
@@ -675,11 +892,13 @@ u32t _std shl_dmgr(const char *cmd, str_list *args) {
          case 1: case 4:
             return shl_dm_bootrec(cmd, args, disk, 2);
          case 2:
-            return shl_dm_list(cmd, args, disk, 2);
+            return shl_dm_list(cmd, args, disk, disk==FFFF?1:2);
          case 3:
             return shl_dm_mode(cmd, args, disk, 2);
          case 5:
             return shl_pm(cmd, args, disk, 2);
+         case 6:
+            return shl_dm_clone(cmd, args, disk, 2);
       }
       break;
    }
@@ -721,8 +940,8 @@ u32t _std shl_format(const char *cmd, str_list *args) {
                case 'F':if (args->item[ii][2]==':') {
                            fatcpn = atoi(args->item[ii]+3);
                            if (fatcpn!=1 && fatcpn!=2) rc=EINVAL;
-                        } else 
-                        if (toupper(args->item[ii][2])=='S' && 
+                        } else
+                        if (toupper(args->item[ii][2])=='S' &&
                            args->item[ii][3]==':')
                         {
                            if (stricmp(args->item[ii]+4, "FAT")==0) fstype = 0;
@@ -768,7 +987,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
       hlp_volinfo(disk, &vi);
       // only emulated hdds can be formatted quietly
       if (quiet && (hlp_diskmode(vi.Disk,HDM_QUERY)&HDM_EMULATED)==0) {
-         printf("Quiet format not possible for real disks!\n");
+         printf("Quiet format is not possible for real disks!\n");
          return EINVAL;
       }
       // buffer is static!
@@ -798,16 +1017,16 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          } else
          if (!quiet) {
             static const char *ftstr[4] = {"unrecognized", "FAT12", "FAT16", "FAT32"};
-           u32t   fstype = hlp_volinfo(disk, &vi),
+            u32t  fstype = hlp_volinfo(disk, &vi),
                   clsize = vi.ClSize * vi.SectorSize;
 
             printf("\rFormat complete.     \n");
-            printf("\nThe type of file system is %s.\n\n", 
+            printf("\nThe type of file system is %s.\n\n",
                fstype || !vi.FsName[0] ? ftstr[fstype] : vi.FsName);
             printf("  %s total disk space\n", get_sizestr(vi.SectorSize, vi.TotalSectors));
 
             printf("  %s are available\n", get_sizestr(clsize, vi.ClAvail));
-            if (vi.ClBad) 
+            if (vi.ClBad)
                printf("\n  %s in bad sectors\n", get_sizestr(clsize, vi.ClBad));
 
             printf("\n  %8d bytes in each allocation unit.\n", clsize);
@@ -975,7 +1194,7 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
          printf("Wipe LVM info on disk %s (%s)?\n", dsk_disktostr(disk,0),
             dsk_formatsize(ssize,dsksize,0,0));
          if (!ask_yes(VIO_COLOR_RESET)) return EINTR;
-         
+
          vio_setcolor(VIO_COLOR_LRED);
          if (!dsk_getptgeo(disk,&geo))
             if (geo.SectOnTrack>63 && lvm_checkinfo(disk)!=LVME_NOINFO) {
@@ -1067,7 +1286,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
          int lvmmode = 0;
          if (args->count>pos+1) break;
          if (args->count==pos+1)
-            if (stricmp(args->item[pos],"LVM")==0) lvmmode = 1; else 
+            if (stricmp(args->item[pos],"LVM")==0) lvmmode = 1; else
                if (stricmp(args->item[pos],"GPT")==0) lvmmode = -1; else break;
          // additional check for floppy
          if ((disk&QDSK_FLOPPY)!=0) {
@@ -1144,7 +1363,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
          }
          rc = dsk_ptalign(disk, fb_index, ptsize, (percent?DPAL_PERCENT:0)|
             DPAL_CHSSTART|DPAL_CHSEND|(se_char=='E'?DPAL_ESPC:0), &pt_pos, &pt_len);
-         if (!rc) 
+         if (!rc)
             if (dsk_isgpt(disk,-1) > 0)
                rc = dsk_gptcreate(disk, pt_pos, pt_len, flags|DPAL_AF, 0);
             else
@@ -1201,12 +1420,12 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
 // make attrs str: empty or "(name1 name2)"
 static void fill_gptattr(char *buf, u64t attr) {
    static const s8t attr_flags[] = { GPTATTR_SYSTEM, GPTATTR_IGNORE,
-      GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN, 
+      GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN,
          GPTATTR_MS_NOMNT, -1};
-   static const char *attr_str[] = {"System", "Ignore", "BiosBoot", 
+   static const char *attr_str[] = {"System", "Ignore", "BiosBoot",
       "ReadOnly", "Hidden", "NoMount"};
    u32t kk;
-  
+
    *buf = 0;
    if (attr)
       for (kk=0; attr_flags[kk]>=0; kk++)
@@ -1230,7 +1449,7 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
 
    while (args->count>=2) {
       char prnname[8];
-      static char *subcommands[] = {"TYPE", "ATTR", "RENAME", "INFO", "QUERY", 
+      static char *subcommands[] = {"TYPE", "ATTR", "RENAME", "INFO", "QUERY",
                                     "ID", "QTYPE", 0};
       int   subcmd = get_arg_index(args->item[0],subcommands),
                 rc = -1,
@@ -1304,8 +1523,8 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
                args->item[0][0] = 0;
                args->item[1][0] = 0;
                args->item[2][0] = 0;
-               str_parseargs(args, argstr, argval, &af[0], &af[0], &af[1],
-                  &af[1], &af[2], &af[2], &af[3], &af[3], &af[4], &af[4], 
+               str_parseargs(args, 0, 0, argstr, argval, &af[0], &af[0], &af[1],
+                  &af[1], &af[2], &af[2], &af[3], &af[3], &af[4], &af[4],
                      &af[5], &af[5]);
                for (ii=0; ii<6; ii++)
                   if (af[ii]<0) nattr&=~(1LL<<bitv[ii]); else
@@ -1392,7 +1611,7 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
          }
          if (dskmode)
             rc = dsk_gptfind(gbuf, GPTN_DISK, (u32t*)&disk, 0);
-         /* searching continue if command have form "GPT QUERY guid", i.e.
+         /* continue searching if command is "GPT QUERY guid", i.e.
             query OR disk OR partition by GUID */
          if (rc && (!dskmode || args->count!=3)) {
             rc = dsk_gptfind(gbuf, subcmd==6?GPTN_PARTTYPE:GPTN_PARTITION,
@@ -1434,3 +1653,4 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
    cmd_shellerr(EINVAL,0);
    return EINVAL;
 }
+

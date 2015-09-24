@@ -204,6 +204,10 @@ static int NoMenuWait(char *rcline) {
    return 0;
 }
 
+int IsMenuPresent(const char *section) {
+   return str_secexist(ininame, section, GETSEC_NOEMPTY|GETSEC_NOEKEY);
+}
+
 int MenuKernel(char *rcline, int errors) {
    str_list* kl = str_getsec(ininame,"kernel",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
    int   defcfg = ini_getint("config", "DEFAULT", 1, ininame),
@@ -504,14 +508,14 @@ int MenuPtBoot(char *rcline) {
            done = 0;
    u32t   lines = 25;
    char *initln = rcline;
-   MenuPalette.pl = ini_getint("config", palette_key, 0x0F070F01, ininame);
+   MenuPalette.pl = ini_getint("common", "ptpalette", 0x0F070F01, menu_ini);
 
    vio_getmode(0,&lines);
    // fix wrong number
    if (defcfg<=0 || defcfg>kl->count) defcfg=1;
 
    do {
-      if (kl->count > 1) {
+      if (kl->count >= 1) {
          int  key = 0;
          int  ii;
    
@@ -611,12 +615,6 @@ int MenuPtBoot(char *rcline) {
                }
             }
          }
-      } else 
-      if (kl->count==1) {
-         if (NoMenuWait(rcline)) {
-            free(kl);
-            return 1;
-         }
       } else {
          vio_msgbox(msg_header, "There is no partition menu defined!",
             MSG_OK|MSG_GRAY, 0);
@@ -624,6 +622,7 @@ int MenuPtBoot(char *rcline) {
       }
       // dmgr mbr hd0 boot 1
       if (defcfg>0 && defcfg<=kl->count) {
+         str_list *dn;
          char errtext[256], *pti, *errpt,
               *dskt = strdup(kl->item[defcfg-1]),
                 *ep = strchr(dskt,'='),
@@ -637,31 +636,46 @@ int MenuPtBoot(char *rcline) {
          rcout+=strlen(rcout);
    
          *ep = 0;
-         pti = strrchr(dskt,'/');
+         // function trim spaces for us as a bonus
+         dn = str_split(dskt,",");
+
+         if (dn->count>2 || dn->count==2 && strlen(dn->item[1])>_MAX_PATH)
+            snprintf(errtext, 256, "Invalid disk string \"%s\"!", dskt);
+         free(dskt);
+
+         pti = strrchr(dn->item[0],'/');
          if (pti) {
-            index = strtol(++pti,&errpt,10);
+            index = strtol(++pti, &errpt, 10);
             if (*errpt) snprintf(errtext, 256, "Invalid partition index "
                "in string \"%s\"!", pti);
             pti[-1] = 0;
          }
-         disk = dsk_strtodisk(dskt);
+         disk = dsk_strtodisk(dn->item[0]);
          if (disk==FFFF) {
-            snprintf(errtext, 256, "Invalid disk name: \"%s\"!",dskt);
+            snprintf(errtext, 256, "Invalid disk name: \"%s\"!", dn->item[0]);
          } else 
          if (disk&QDSK_VOLUME) {
-            snprintf(errtext, 256, "Invalid disk type: \"%s\"!",dskt);
+            snprintf(errtext, 256, "Invalid disk type: \"%s\"!", dn->item[0]);
          }
    
          if (errtext[0]) {
             vio_msgbox(msg_header, errtext, MSG_OK|MSG_RED, 0);
+            free(dn);
             continue;
          } else {
-            strcpy(rcout,dskt);
-            strcat(rcout," boot ");
+            strcpy(rcout, dn->item[0]);
+            strcat(rcout, dn->count==2?" bootfile ":" boot ");
             rcout+=strlen(rcout);
-            if (index>=0) itoa(index, rcout, 10);
+            if (index>=0) {
+               itoa(index, rcout, 10);
+               // append file name
+               if (dn->count==2) {
+                  strcat(rcout, " ");
+                  strcat(rcout, dn->item[1]);
+               }
+            }
+            free(dn);
          }
-         free(dskt);
       }
       done = 1;
    } while (!done);

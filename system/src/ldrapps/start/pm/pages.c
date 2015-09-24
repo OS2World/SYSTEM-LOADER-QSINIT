@@ -1,10 +1,7 @@
 /*
    some notes about "too easy" processing and assumes:
-
-   * the difference between physical 0 and QSINIT FLAT 0 - is always page
-     aligned.
-   * hlp_memalloc() memory is always page aligned and zero filled.
-   * malloc() memory is always aligned to 16 bytes.
+     * hlp_memalloc() memory is always page aligned and zero filled.
+     * malloc() memory is always aligned to 16 bytes.
 */
 
 #include "seldesc.h"
@@ -59,7 +56,7 @@ extern u64t _std page0_fptr;     // 48-bit pointer to page 0 in QSINIT
 /** set cr3 and cr4 regs.
     Function also updates internal variables of DPMI code.
     @param  syscr3     New cr3 value
-    @param  syscr4     New cr3 value, can be 0xFFFFFFFF to skip setup */
+    @param  syscr4     New cr4 value, can be 0xFFFFFFFF to skip setup */
 void _std sys_setcr3(u32t syscr3, u32t syscr4);
 void      sys_tsscr3(u32t cr3);
 
@@ -99,7 +96,7 @@ static void ptset(u32t ptaidx, u32t start, u32t len, u64t phys, u32t flags) {
 #if 0
          log_it(2, "pdi %d, cnt %d\n", pdi, pdcnt);
 #endif
-         while (pdcnt--) 
+         while (pdcnt--)
             *pde++ = PT_PRESENT|PT_WRITE|(u32t)pta[ptaidx] + (pdi++<<PAGESHIFT);
          // update page table
          if (flags) {
@@ -201,7 +198,7 @@ int _std pag_enable(void) {
    // add global flag if PGE supported
    if ((ii&SFEA_PGE)) global = PT_GLOBAL;
 
-   // malloc always return memory aligned to 16 bytes
+   // malloc always returning memory aligned to 16 bytes
    pdpt = pdptf = (u64t*)malloc(8*4+16);
    // align PDPT to 32 bytes
    if ((u32t)pdpt&0x10) pdpt+=2;
@@ -220,7 +217,7 @@ int _std pag_enable(void) {
    pag_printall();
 #endif
    /* change reversed FLAT data selector to plain mode.
-      registers will be updated after next switch to RM (intterupt) or 
+      registers will be updated after next switch to RM (interrupt) or
       key_status() call below */
    if (!hlp_insafemode()) {
       struct desctab_s sd;
@@ -238,7 +235,6 @@ int _std pag_enable(void) {
    if (sys_isavail(SFEA_PAT)) {
       u32t  patlo, pathi;
       hlp_readmsr(MSR_IA32_PAT, &patlo, &pathi);
-
       if ((patlo&7)!=MSR_PAT_WB) {
          log_it(2, "Warning! PAT:0 type was %d\n", patlo&7);
 
@@ -254,7 +250,7 @@ int _std pag_enable(void) {
    ii = sys_intstate(0);
    sys_tsscr3(vcr3);
    sys_setcr3(vcr3, vcr4);
-   /* First interrupt or RM call in key_status() will switch us to PAE 
+   /* First interrupt or RM call in key_status() will switch us to PAE
       while returning from RM.
       Page 0 is r/w here - until the end of this function. */
 #if 0

@@ -10,7 +10,6 @@ version=0x0001
 aa=@wasm
 cc=@wcc
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)

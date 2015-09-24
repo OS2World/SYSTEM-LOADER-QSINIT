@@ -7,8 +7,8 @@
 #include "qsint.h"
 #include "qsmod.h"
 #include <stdlib.h>
-#include "cache_ord.h"
 #include "vioext.h"
+#include "qcl/qscache.h"
 
 u32t _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf) {
    struct Boot_Record *br = (struct Boot_Record*)(optbuf?optbuf:malloc(MAX_SECTOR_SIZE));
@@ -265,23 +265,33 @@ u32t dsk_emptypt(u32t disk, u32t sector, struct MBR_Record *table) {
    }
 }
 
-u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
-   u64t disklen = 0;
-   u32t  sectsz = 0;
+// get len/sector size both for disk & volume "disk" parameter
+static u32t getinfo(u32t disk, u64t *pdisklen, u32t *psectsz) {
+   *pdisklen = 0;
+   *psectsz  = 0;
    // accept volume letter as parameter
    if (disk&QDSK_VOLUME) {
       disk_volume_data vi;
       hlp_volinfo(disk&QDSK_DISKMASK, &vi);
       if (!vi.TotalSectors) return DPTE_INVDISK;
-      disklen = vi.TotalSectors;
-      sectsz  = vi.SectorSize;
+      *pdisklen = vi.TotalSectors;
+      *psectsz  = vi.SectorSize;
    } else {
+      disk_geo_data  di;
       // accept QDSK_DIRECT flag here
-      hdd_info *hi = get_by_disk(disk&~QDSK_DIRECT);
-      if (!hi) return DPTE_INVDISK;
-      disklen = hi->info.TotalSectors;
-      sectsz  = hi->info.SectorSize;
+      hlp_disksize(disk&~QDSK_DIRECT, 0, &di);
+      if (!di.TotalSectors) return DPTE_INVDISK;
+      *pdisklen = di.TotalSectors;
+      *psectsz  = di.SectorSize;
    }
+   return 0;
+}
+
+u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
+   u64t disklen = 0;
+   u32t  sectsz = 0,
+             rc = getinfo(disk, &disklen, &sectsz);
+   if (rc) return rc;
    // deny sector 0 & check borders/overflow of sector range
    if (!sector || sector>=disklen || sector+count>disklen) return DPTE_INVARGS;
    else {
@@ -309,6 +319,80 @@ u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
 u32t _std dsk_emptysector(u32t disk, u64t sector, u32t count) {
    return dsk_fillsector(disk, sector, count, 0);
 }
+
+u32t _std dsk_copysector(u32t dstdisk, u64t dstpos, u32t srcdisk,
+   u64t srcpos, u32t count, read_callback cbprint, break_callback ask, 
+   void *askptr, u32t *error)
+{
+   disk_geo_data  sdi, ddi;
+   u32t        rc, act = 0, d_sect, s_sect;
+   u64t   d_total, s_total;
+   do {
+      rc = getinfo(dstdisk, &d_total, &d_sect);
+      if (rc) break;
+      rc = getinfo(srcdisk, &s_total, &s_sect);
+      if (rc) break;
+      if (d_sect != s_sect) { rc = DPTE_INCOMPAT; break; }
+      if (dstpos >= d_total) { rc = DPTE_INVARGS; break; }
+      if (srcpos >= s_total) { rc = DPTE_INVARGS; break; }
+      // adjust size
+      act = count;
+      if (dstpos+act > d_total) act = d_total - dstpos;
+      if (srcpos+act > s_total) act = s_total - srcpos;
+      if (act) {
+         u8t    *buf;
+         u32t  maxsz, spb, prevpct;
+         hlp_memavail(&maxsz,0);
+         maxsz/=4;
+         // get up to 64Mb for buffer if we have indication, else - no limit
+         if ((cbprint || ask) && maxsz>_64MB) maxsz=_64MB;
+         // sectors per buffer
+         spb = maxsz/s_sect;
+         if (!spb) { rc = DPTE_NOMEMORY; break; }
+         if (spb>act) spb = act;
+         // get max 1/4 of max. avail block
+         buf = (u8t*)hlp_memalloc(spb*s_sect, QSMA_RETERR|QSMA_NOCLEAR);
+         if (!spb) { rc = DPTE_NOMEMORY; break; }
+
+         count = act;
+         if (cbprint) cbprint(prevpct = 0, 0);
+         while (!rc && count) {
+            u32t tocpy = count>spb?spb:count;
+            u16t   key;
+            // read full buffer
+            if (hlp_diskread(srcdisk, srcpos, tocpy, buf) != tocpy)
+               { rc = DPTE_ERRREAD; break; }
+            // print a half after read
+            if (cbprint) {
+               u32t newpct = (u64t)(act - (count - tocpy/2)) * 100 / act;
+               if (newpct!=prevpct) cbprint(prevpct = newpct, 0);
+            }
+            // ESC check
+            if (ask)
+               if ((key_wait(0)&0xFF)==27)
+                  if (ask(askptr)) { rc = DPTE_UBREAK; break; }
+            // write full buffer
+            if (hlp_diskwrite(dstdisk, dstpos, tocpy, buf) != tocpy)
+               { rc = DPTE_ERRWRITE; break; }
+            srcpos+=tocpy; dstpos+=tocpy; count-=tocpy;
+            // print a whole after full r/w cycle
+            if (cbprint) {
+               u32t newpct = (u64t)(act - count) * 100 / act;
+               if (newpct!=prevpct) cbprint(prevpct = newpct, 0);
+            }
+            // ESC check
+            if (ask)
+               if ((key_wait(0)&0xFF)==27)
+                  if (ask(askptr)) { rc = DPTE_UBREAK; break; }
+         }
+         hlp_memfree(buf);
+         act -= count;
+      }
+   } while (0);
+   if (error) *error = rc;
+   return act;
+}
+
 
 u32t dsk_isquadempty(hdd_info *info, u32t quadpos, int ign_ext) {
    if (!info) return 0;
@@ -489,6 +573,30 @@ u32t _std dsk_setpttype(u32t disk, u32t index, u8t type) {
    return pt_action(ACTION_SETTYPE, disk, index, type);
 }
 
+u32t _std dsk_ismounted(u32t disk, long index) {
+   hdd_info *hi = get_by_disk(disk);
+   u64t   start, ii,
+           size = 0;
+   if (!hi) return 0;
+   // scan disk at least once
+   dsk_ptrescan(disk,0);
+   // get position & size
+   if (index<0) {
+      start = 0;
+      size  = hlp_disksize64(disk, 0);
+   } else
+   if (!dsk_ptquery64(disk, index, &start, &size, 0, 0)) return 0;
+   if (!size || size>=_4GBLL) return 0;
+
+   for (ii = 0; ii<DISK_COUNT; ii++) {
+      disk_volume_data  vi;
+      hlp_volinfo(ii, &vi);
+      if (vi.Disk==disk && vi.StartSector==start && vi.TotalSectors==size)
+         return QDSK_VOLUME|ii;
+   }
+   return 0;
+}
+
 u32t _std vol_mount(u8t *vol, u32t disk, u32t index) {
    hdd_info *hi = get_by_disk(disk);
    if (!hi) return DPTE_INVDISK;
@@ -531,6 +639,19 @@ long _std dsk_partcnt(u32t disk) {
    dsk_ptrescan(disk,0);
    if (hi->scan_rc) return -1;
    return hi->gpt_view;
+}
+
+u32t  _std dsk_usedspace(u32t disk, u64t *first, u64t *last) {
+   hdd_info *hi = get_by_disk(disk);
+   // save safe values
+   if (first) *first = FFFF64;
+   if (last)  *last  = FFFF64;
+   if (!hi) return DPTE_INVDISK;
+   dsk_ptrescan(disk,0);
+   if (hi->scan_rc) return hi->scan_rc;
+   if (first) *first = hi->usedfirst;
+   if (last)  *last  = hi->usedlast;
+   return 0;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -702,49 +823,16 @@ int confirm_dlg(const char *text) {
 }
 
 /* ------------------------------------------------------------------------ */
-typedef int  _std (*t_hlp_cacheon)(u32t disk, int enable);
-typedef void _std (*t_hlp_cacheprio)(u32t disk, u64t start, u32t size, int on);
-typedef void _std (*t_hlp_cachesize)(u32t size_mb);
+static qs_cachectrl qcl = 0;
 
-static u32t             cachedll_mod     = 0; // cache.dll handle
-static t_hlp_cacheon    fp_hlp_cacheon   = 0;
-static t_hlp_cacheprio  fp_hlp_cacheprio = 0;
-static t_hlp_cachesize  fp_hlp_cachesize = 0;
-static cmd_eproc        fp_shl_cache     = 0;
-
-static void cache_load(void) {
-   if (cachedll_mod) return;
-   // increment CACHE.DLL usage to prevent unloading while we are active
-   cachedll_mod = mod_query(MODNAME_CACHE, MODQ_LOADED);
-   if (!cachedll_mod) return;
-   fp_hlp_cacheon   = (t_hlp_cacheon)  mod_getfuncptr(cachedll_mod, ORD_CACHE_hlp_cacheon);
-   fp_hlp_cacheprio = (t_hlp_cacheprio)mod_getfuncptr(cachedll_mod, ORD_CACHE_hlp_cachepriority);
-   fp_hlp_cachesize = (t_hlp_cachesize)mod_getfuncptr(cachedll_mod, ORD_CACHE_hlp_cachesize);
-   fp_shl_cache     = (cmd_eproc)      mod_getfuncptr(cachedll_mod, ORD_CACHE_shl_cache);
+// create cache instance (this actually, loads CACHE module)
+int cache_load(void) {
+   if (!qcl) qcl = NEW(qs_cachectrl);
+   return qcl?1:0;
 }
 
-int cplib_present(void) {
-   if (mod_query(MODNAME_CPLIB, MODQ_LOADED|MODQ_NOINCR)) return 1;
-   // load it by direct shell command
-   cmd_shellcall(shl_loadmod,"/q " MODNAME_CPLIB,0);
-   // query again
-   return mod_query(MODNAME_CPLIB, MODQ_LOADED|MODQ_NOINCR)?1:0;
-}
-
-void cache_unload(void) {
-   if (cachedll_mod) mod_free(cachedll_mod);
-   fp_hlp_cacheprio = 0;
-   fp_hlp_cachesize = 0;
-   fp_hlp_cacheon   = 0;
-   fp_shl_cache     = 0;
-   cachedll_mod     = 0;
-}
-
-int dsk_cacheset(u32t disk, int enable) {
-   if (!cachedll_mod) cache_load();
-   if (!cachedll_mod || !fp_hlp_cacheon) return -1;
-   // call cache indirectly
-   return (*fp_hlp_cacheon)(disk,enable);
+void cache_free(void) {
+   if (qcl) { DELETE(qcl); qcl = 0; }
 }
 
 #define KEY_NAME  "LM_CACHE_ON_MOUNT"
@@ -760,18 +848,10 @@ void cache_envstart(void) {
          str_list *lst = str_split(cckey,",");
          int    ccload = env_istrue(KEY_NAME);
          if (ccload<0) ccload=0;
-         if (ccload) {
-            // loaded?
-            cache_load();
-            // no, load it!
-            if (!cachedll_mod) {
-               cmd_shellcall(shl_loadmod,"/q " MODNAME_CACHE,0);
-               cache_load();
-               // call cache command only if WE ARE load it
-               if (fp_shl_cache && lst->count>1 && isdigit(lst->item[1][0]))
-                  cmd_shellcall(fp_shl_cache,lst->item[1],0);
-            }
-         }
+         if (ccload)
+            if (cache_load())
+               if (qcl && lst->count>1 && isdigit(lst->item[1][0]))
+                  qcl->setsize_str(lst->item[1]);
          free(lst);
       }
    }

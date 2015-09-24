@@ -248,8 +248,8 @@ int  _std con_instshot(const char *path) {
          if (len && (np[len-1]=='\\'||np[len-1]=='/'))
             np[len-1]=0;
          // check for existence and directory attr
-         if (_dos_stat(np,&pi)) return errno;
-         if ((pi.d_attr&_A_SUBDIR)==0) return ENOTDIR;
+         if (_dos_stat(np,&pi)) { free(np); return errno; }
+         if ((pi.d_attr&_A_SUBDIR)==0) { free(np); return ENOTDIR; }
          strcat(np,"\\");
       }
    }

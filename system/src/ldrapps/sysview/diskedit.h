@@ -43,6 +43,8 @@ void  replace_coltxt(TColoredText **txt, const char *str, int const_bounds = 0, 
 void  replace_statictxt(TStaticText **txt, const char *str, int const_bounds = 0);
 TRect getwideBoxRect(int addlines = 0);
 long  getRadioIdx(TRadioButtons *rb, long maxidx);
+/// get disk number from list box with text "HDD 0", "HDD 1", etc..
+long  getDiskNum(TListBox *lb, long item=-1);
 
 char *getDiskName(u32t disk, char *buf=0);
 char *getSizeStr(u32t sectsize, u64t disksize, Boolean trim = False);
@@ -154,6 +156,9 @@ public:
   void   PowerOFF();
   void   DiskInit(u32t disk, int makegpt = 0);
   void   DiskMBRCode(u32t disk);
+  int    CloneDisk(u32t disk);
+  int    ClonePart(u32t srcdisk, u32t index);
+  int    SaveRestVHDD(u32t disk, int rest);
   void   UpdateLVM(u32t disk, int firstTime = 0);
   void   Unmount(u8t vol);
   void   BootPartition(u32t disk, long index);
@@ -248,6 +253,14 @@ public:
 #define MSGE_FILEOPENERR  (26)
 #define MSGE_FILEEMPTY    (27)
 #define MSGE_MOUNTERROR   (28)
+#define MSGE_SECSIZEMATCH (29)
+#define MSGE_NOVHDD       (30)
+#define MSGE_ACCESSDENIED (31)
+#define MSGE_NOTVHDDFILE  (32)
+#define MSGE_NSECMATCH    (33)
+#define MSGE_VMOUNTERR    (34)
+#define MSGE_INVDISK      (35)
+#define MSGE_FILECREATERR (36)
 
 extern TSysApp SysApp;
 

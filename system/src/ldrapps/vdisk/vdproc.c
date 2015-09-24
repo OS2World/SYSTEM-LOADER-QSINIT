@@ -5,7 +5,7 @@
 #include "errno.h"
 #include "qsvdisk.h"
 #include "qcl/qslist.h"
-#include "ioint13.h"
+#include "qcl/qsedinfo.h"
 #include "qsstor.h"
 #include "qsint.h"
 #include "dskinfo.h"
@@ -26,6 +26,8 @@ static u32t     cdecount = 0;
 static char     *maparea = 0;
 static u64t     mapstart = 0;
 static u32t     endofram = 0;
+static u32t  classid_ext = 0;   ///< external info "qs_extdisk" compatible class
+static qs_extdisk  eiptr = 0;
 
 static u32t io(u32t disk, u64t sector, u32t count, void *data, int write) {
    u32t ii, svcount;
@@ -385,6 +387,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
    if (!rc) {
       s32t           drvnum;
       struct qs_diskinfo dp;
+      memset(&dp, 0, sizeof(dp));
       dp.qd_sectors     = cdhsize;
       dp.qd_cyls        = cdh->h4_cyls;
       dp.qd_heads       = cdh->h4_heads;
@@ -393,7 +396,11 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
       dp.qd_extwrite    = _write;
       dp.qd_sectorsize  = 512;
       dp.qd_sectorshift = 9;
-
+      // if class is ok - create instance for our`s disk
+      if (classid_ext) {
+         eiptr = (qs_extdisk)exi_createid(classid_ext);
+         dp.qd_extptr = eiptr;
+      }
       // install new "hdd"
       drvnum = hlp_diskadd(&dp);
       if (drvnum<0) {
@@ -477,6 +484,8 @@ u32t _std sys_vdiskfree(void) {
       // delete disk name from storage
       sto_save(STOKEY_VDNAME,0,0,0);
    }
+   // delete lost external info class instance
+   if (eiptr) { DELETE(eiptr); eiptr = 0; }
    /* walk over system memory even if no disk present - to find blocks,
       was lost by broken sys_vdiskinit() call */
    me = sys_getpcmem(0);
@@ -514,5 +523,94 @@ u32t _std sys_vdiskinfo(u32t *disk, u32t *sectors, u32t *physpage) {
    if (disk)     *disk     = chdd;
    if (sectors)  *sectors  = cdhsize;
    if (physpage) *physpage = cdhphys>>PAGESHIFT;
+   return 1;
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// external info class
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+typedef struct {
+   u32t          dummy;
+} doptdata;
+
+static void _std dopt_init(void *instance, void *data) {
+   doptdata *dp = (doptdata*)data;
+   dp->dummy = 1;
+}
+
+static void _std dopt_done(void *instance, void *data) {
+   doptdata *dp = (doptdata*)data;
+   memset(dp, 0, sizeof(doptdata));
+}
+
+static u32t _std dopt_getgeo(void *data, disk_geo_data *geo) {
+   if (!geo) return EDERR_INVARG;
+   if (!cdh) return EDERR_INVDISK;
+
+   geo->Cylinders    = cdh->h4_cyls;
+   geo->Heads        = cdh->h4_heads;
+   geo->SectOnTrack  = cdh->h4_spt;
+   geo->SectorSize   = 512;
+   geo->TotalSectors = cdhsize;
+
+   return 0;
+}
+
+static u32t _std dopt_setgeo(void *data, disk_geo_data *geo) {
+   if (!geo) return EDERR_INVARG;
+   if (!cdh) return EDERR_INVDISK;
+   if (geo->TotalSectors!=cdhsize || geo->SectorSize!=512) return EDERR_INVARG;
+
+   // check CHS (at least minimal)
+   if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
+      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders * 
+         geo->Heads * geo->SectOnTrack > geo->TotalSectors) return EDERR_INVARG;
+   // copy CHS
+   cdh->h4_cyls  = geo->Cylinders;
+   cdh->h4_heads = geo->Heads;
+   cdh->h4_spt   = geo->SectOnTrack;
+   // if disk is mounted - update CHS value in system info
+   if (chdd) {
+      struct qs_diskinfo *qdi = hlp_diskstruct(chdd, 0);
+      // this WRONG! we patching it in system struct directly
+      if (qdi) {
+         qdi->qd_cyls  = geo->Cylinders;
+         qdi->qd_heads = geo->Heads;
+         qdi->qd_spt   = geo->SectOnTrack;
+      }
+   }
+   return 0;
+}
+
+static char* _std dopt_getname(void *data) {
+   doptdata *dp = (doptdata*)data;
+   u32t   seclo, sechi, ii;
+   if (!cdh) return 0;
+   for (ii=0, seclo=0, sechi=0; ii<cdecount; ii++)
+      if (cde[ii].hde_1stpage >= _4GBLL>>PAGESHIFT) sechi+=cde[ii].hde_sectors;
+         else seclo+=cde[ii].hde_sectors;
+   return sprintf_dyn("PAE ram disk. %u low, %u high pages", seclo>>3, sechi>>3);
+}
+
+static int _std dopt_setro(void *data, int state) {
+   doptdata *dp = (doptdata*)data;
+   // not implemented now
+   return 0;
+}
+
+static void *qs_ramdisk_list[] = { dopt_getgeo, dopt_setgeo, dopt_getname,
+   dopt_setro };
+
+void register_class(void) {
+   if (!classid_ext) 
+      classid_ext = exi_register("qs_ramdisk_ext", qs_ramdisk_list,
+         sizeof(qs_ramdisk_list)/sizeof(void*), sizeof(doptdata),
+            dopt_init, dopt_done, 0);
+}
+
+int unregister_class(void) {
+   if (classid_ext)
+      if (exi_unregister(classid_ext)) classid_ext = 0; else return 0;
    return 1;
 }

@@ -36,6 +36,8 @@ typedef struct {
    u32t             extlen; ///< selected extended partition length
    u32t           extstart; ///< first sector of USED space in extended part.
    u64t             extend; ///< end of USED space in extended part.
+   u64t          usedfirst; ///< first sec, used by user partitions or FFFF64
+   u64t           usedlast; ///< last sec, used by user partitions or FFFF64
    u32t             *index; ///< translation of pts to viewable partition index
    DLA_Table_Sector  *dlat; ///< LVM info sectors
    dsk_freeblock      *fsp; ///< free space list
@@ -138,19 +140,13 @@ u32t dsk_flushgpt(hdd_info *hi);
     @return -errno or disk number */
 long get_disk_number(char *str);
 
-/** enable/disable cache for specified disk.
-    If CACHE module is loaded - this is call to hlp_cacheon(), else - it do
-    nothing.
-    @return previous state (-1 if no cache or disk is not supported) */
-int  dsk_cacheset(u32t disk, int enable);
-
-/// unload dynamically linked CACHE.DLL (decrement usage)
-void cache_unload(void);
-
 /** check LM_CACHE_ON_MOUNT env key and load CACHE.DLL if asked in it
     key format is:
        set LM_CACHE_ON_MOUNT = on, 5% */
 void cache_envstart(void);
+
+/// free internally used CACHE instance
+void cache_free(void);
 
 #define ACTION_SETACTIVE       0
 #define ACTION_SETTYPE         1   ///< arg is new type
@@ -181,6 +177,8 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint);
 
 int  _std hpfs_dirty(u8t vol, int on);
 
+void*_std hpfs_freadfull(u8t vol, const char *name, u32t *bufsize);
+
 /// fill sectors by "value" (expanded version of dsk_emptysector()
 u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
 
@@ -190,9 +188,6 @@ u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
     @param  count       miber of sectors to scan
     @return 0 if not found or error occured, else sector number. */
 u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count);
-
-/// check for CPLIB presence
-int cplib_present(void);
 
 /// confirmation dialog with default NO button
 int  confirm_dlg(const char *text);

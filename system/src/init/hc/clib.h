@@ -23,10 +23,6 @@ extern "C" {
 */
 int   __cdecl   snprintf(char *buf, u32t count, const char *fmt, ...);
 
-//#ifdef __WATCOMC__       // ugly hack ;)
-//#define sprintf(buf,fmt,...) snprintf(buf,256,fmt,__VA_ARGS__)
-//#endif
-
 /** printf function.
     @see snprintf */
 int   __cdecl   printf  (const char *fmt, ...);

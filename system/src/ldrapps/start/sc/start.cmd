@@ -15,24 +15,21 @@ if NOT %hosttype%=="EFI" goto common0
 rem switch EFI version to virtual console, because EFI`s own is a nightmare
 mode con cols=80 lines=30
 vmtrr
-set start_menu = apps
+rem now "apps" menu auto-selected for EFI & non-OS/2 boot, but "start_menu"
+rem still have priority above default logic.
+rem set start_menu = apps
 :common0
-
-if NOT %boottype%=="SINGLE" goto common1
-rem non-OS/2 boot - change initial menu to "apps"
-set start_menu = apps
-:common1
 
 rem call additional setup.cmd from the root of boot disk
 copy /boot /q qssetup.cmd 1:\qssetup.cmd
 if exist qssetup.cmd call qssetup.cmd
 
-if NOT %boottype%=="SINGLE" goto common2
+if NOT %boottype%=="SINGLE" goto common1
 rem non-OS/2 boot - load disk i/o cache
 cache 6%
-:common2
+:common1
 
-rem launch menu (apps or kernel - depends on "start_menu" str)
+rem menu (apps / kernel / partition - depends on "start_menu" and defaults)
 bootmenu.exe
 
 :cmdloop
@@ -40,6 +37,9 @@ cls
 echo ************************************************
 echo * type "bootmenu" to load menu selection again *
 echo *      "help" for shell commands               *
+if NOT %hosttype%=="EFI" goto efiskip
+echo *      "exit" to return back to UEFI           *
+:efiskip
 echo ************************************************
 cmd
 if %hosttype%=="EFI" goto efiexit

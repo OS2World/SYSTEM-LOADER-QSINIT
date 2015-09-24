@@ -203,6 +203,7 @@
                 extrn   _sys_setxcpt64  :near
                 extrn   _sys_selquery   :near
                 extrn   _hlp_setcpinfo  :near
+                extrn   _hlp_diskstruct :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -448,6 +449,7 @@ _exptable_data:
                 dd      offset _hlp_unmountvol                  ;
                 dd      offset _hlp_volinfo                     ;
                 dd      offset _hlp_disksize64                  ;
+                dd      offset _hlp_diskstruct                  ;
 ;----------------------------------------------------------------
                 nextord <230>                                   ;
                 dd      offset __U8D                            ;

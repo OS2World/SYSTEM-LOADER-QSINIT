@@ -17,10 +17,15 @@ extern "C" {
 void print_bpb(struct Disk_BPB *bpb);
 
 /// check volume type and make BPB for it
-int  replace_bpb(u8t vol, struct Disk_BPB *pbpb);
+int  replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
+                 void **pmfsptr, u32t *pmfssize);
 
 /// fill enulated disk parameters in oemhlp disk tables
-void setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart);
+int  setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart);
+
+/// read file from the root of non-FAT volume (HPFS only now)
+void* altfs_readfull(u8t vol, const char *name, u32t *bufsize);
+
 #ifdef __cplusplus
 }
 #endif

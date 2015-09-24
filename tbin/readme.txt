@@ -79,6 +79,9 @@ partitions to boot from and force it as "initial menu".
 it line:
     set start_menu = bootpart
 
+   This step is not required if you have only "partition" section and have
+no "kernel" one.
+
    Reboot - menu with 3 systems will be shown :)
 
   =======================================================================
@@ -220,6 +223,18 @@ and so on; just remember - this is not a BIG OS).
       GPT partition table is supported by this command too and by additional
       command "gpt" for minor operations.
 
+    * "dmgr clone" command can clone partition structure and data to another
+      disk.
+      It knows nothing about file systems, but simple copying usually not
+      requires changes in file system.
+
+    * There are may advantages in "dmgr" command options. For example, it can
+      set/reset dirty flag on HPFS and FAT partitions. Command
+        
+        dmgr bs a: dirty on
+
+      will force chkdsk on current boot volume.
+
     * "lvm" command can change OS/2 LVM drive letters, write LVM signatures
       to disk and some misc.
 
@@ -248,6 +263,24 @@ and so on; just remember - this is not a BIG OS).
 
     * "mem hide" command can be used to hide some memory ranges from
       OS/2 (for example, if memory tests show errors in this range)
+
+    * one of non-obvious features is on-fly boot partition changing, without
+      booting from boot sector (this works with FAT & HPFS only).
+
+      Default HPFS boot sector code depends on OS/2 MBR code or VPart/AirBoot.
+      If both is absent - it can fail. In this case such emergency way can be
+      used.
+
+      At first, mount partition to QSINIT drive letter (ex. D:), then type in
+      shell:
+
+         bootos2 os2krnl source=d
+
+      and system will start booting from this partition, without boot sector
+      code using.
+
+      This mean what you can load QSINIT from flash drive with FAT32 and then
+      switch boot to HPFS partition on hdd.
 
    QSINIT can be loaded by "WorkSpace On-Demand" PXE loader, but further
 loading process is untested.
@@ -340,6 +373,28 @@ modes (read more in "mode /?").
    And - there is some kind of problems with Virtual PC VESA emulation, use
 VBox or hardware PC for this mode :)
 
+   4.4 Size of QSINIT.LDI file.
+  ------------------------------
+
+   Some modules can be removed from QSINIT.LDI archive without affecting
+base functionality (when it must fit to diskette image for CD boot, for
+example).
+   cache.dll - required only for r/w caching of FAT volumes (if cruel life
+               forces you to use QSINIT shell as copy utilite ;)
+   cplib.dll - CHCP command, this mode provide code pages for FAT long
+               name and HPFS formatting.
+   vdisk.dll - PAE ramdisk
+   vhdd.dll  - VHDD command (commonly not required at all ;)
+   msg\sysview.hlp - small help file for SYSVIEW, can be deleted too
+
+   FNT files in MSG dir - custom fonts for graphic console (both in 866
+codepage) - requires for EFI build, basically (where own EFI console is a
+nightmare). They provide 80x30 and 100x42 text modes, selectable in QSINIT
+menu.
+
+   Also, you can remove games, of course... Finally, the only things you
+need to boot is BOOTMENU.EXE, BOOTOS2.EXE, START and OS2BOOT directory.
+
   =======================================================================
    5. "Kernel browser".
   -----------------------------------------------------------------------
@@ -385,6 +440,9 @@ ago).
 
    EFI version works only in QEMU (with TianoCore).
 
+ * note, that huge USB HDDs can be non-operable via BIOS, especially on
+   old motherboards. Or only a part of disk can be readed.
+
   =======================================================================
    7. QSINIT boot details.
   -----------------------------------------------------------------------
@@ -419,8 +477,8 @@ ago).
    attribute ON (google UEFI Wiki about it) and start sector below 2TB
    (32 bit sector number) - and then launch it.
    You can set "BIOS Bootable" attribute via "gpt" command or "sysview" app.
-   
-   I.e. you can create "dual boot" flash drive, for example:
+
+   As example, you can create "dual boot" flash/hdd drive:
 
    * init it to GPT in QSINIT
    * create two partitions, set type of 1st to "EFI boot"
@@ -430,8 +488,13 @@ ago).
    * set up second as QSINIT boot partition (set "BIOS Bootable" attribute
      and install QSINIT to it)
    * then you can choose in EFI BIOS boot devices menu: "YOUR DRIVE" or 
-     "UEFI: YOUR DRIVE", 1st will be QSINIT and 2nd - EFI shell.
+     "UEFI: YOUR DRIVE", 1st will be QSINIT and 2nd - EFI boot (with EFI shell
+     of EFI QSINIT).
 
+   QSINIT also provide own code for FAT/FAT32/HPFS boot sector. This code not
+   depends on Boot Manager and OS/2 MBR code. You can install it on specified
+   partition by mounting it to QSINIT and then use "dmgr bs" command in shell.
+ 
    You can learn MBR/boot sector code details in 
 
       \QS\system\src\ldrapps\partmgr\se.asm
@@ -536,9 +599,9 @@ UNZALL, DBCARD and PCISCAN_ALL has effect in "config" section only.
                sometimes can be supplied by Boot Manager, for example.
 
  * SOURCE=X  - allow to change boot partition for OS/2 boot, where X - QSINIT
-               drive letter of mounted (to QSINIT!) FAT partition.
-               I.e. this key can change boot partition to any available FAT
-               with OS/2 - without reboot.
+               drive letter of mounted (to QSINIT!) FAT or HPFS partition.
+               I.e. this key can change boot partition to any available FAT or
+               HPFS with OS/2 - without reboot.
                Basically, it designed for booting from PAE RAM disk.
 
  * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
@@ -603,18 +666,25 @@ sections, so this is not a problem.
 
    [partition]
    hd0/0 = Boot 1st partition of disk 0
+   hd0/0,bootsect.dos = The same, but use bootsect.dos file as boot sector
    hd1/0 = Boot 1nd partition of disk 1
    hd2   = Boot MBR of disk 2
 
-   Partition index can be queried by pressing F7 in QSINIT menu.
+   I.e. syntax:
+   disk/partition [, boot sector file] = menu string
+
+   Partition index can be queried by pressing F7 in menu.
+   Boot sector file can be specified by direct QSINIT path or will be searched
+in the root of this partition (FAT/FAT32).
+
    TIMEOUT and USEBEEP parameters will affect this menu too (timeout counter
 occurs on first launch only).
 
    Default string number can be placed into "default_partition" key in
-"[config]" section (in the same way as in kernel setup):
+"[config]" section (in the same way with kernel setup):
 
    [config]
-   default_partition = 3
+   default_partition = 4
 
    will select "Boot MBR of disk 2" as default.
 
@@ -638,8 +708,8 @@ occurs on first launch only).
 
  * OEMHLP$ driver (loader IS this driver) use much less memory in 1st Mb.
 
-   System requirements: 80486, 24Mb of memory (actually 16 of it reserved
-   for OS/2 boot).
+   Min. system requirements: 80486DX, 24Mb of memory (first 16 is reserved for
+   OS/2 boot).
 
    Small article on russian is available on RU/2, you can try to google
    translate it (at least half of text will be readable ;)

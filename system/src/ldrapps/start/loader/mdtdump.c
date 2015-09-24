@@ -94,9 +94,16 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres, u32t *m
    for (ii=0,cnt=0;ii<memblocks;ii++,cnt++) {
       free_block *fb=(free_block*)((u32t)mt+(ii<<16));
       if (mt[ii]&&mt[ii]<FFFF) {
+         char     buffer[64];
+         module      *mi = mod_by_eip((u32t)fb, 0, 0, 0);
+         int         len;
          *(u32t*)&sigstr = memsignlst[ii];
-         log_it(2,"%5d. %08X - %c %-4s  %7d kb (%d)\n", cnt, fb, 
+
+         len = snprintf(buffer, 64, "%5d. %08X - %c %-4s  %7d kb (%d)", cnt, fb,
             mhr[ii>>3]&1<<(ii&7) ? 'R' : ' ', sigstr, Round64k(mt[ii])>>10, mt[ii]);
+         while (len<51) len = strlen(strcat(buffer, " "));
+         if (mi) strcat(buffer, "// ");
+         log_it(2,"%s%s\n", buffer, mi?mi->name:"");
       } else
       if (!mt[ii]&&ii&&mt[ii-1]) {
          if (fb->sign!=FREE_SIGN) log_it(2,"free header destroyd!!!\n");

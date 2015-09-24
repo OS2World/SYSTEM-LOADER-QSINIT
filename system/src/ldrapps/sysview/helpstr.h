@@ -1,4 +1,4 @@
-const char *Hints[121]= {
+const char *Hints[131]= {
   "Type kernel file name here",
   "Preload all basedev and psd files before initing ACPI (OS/4)",
   "Call boot time kernel CONFIG.SYS editor (OS/4)",
@@ -109,9 +109,22 @@ const char *Hints[121]= {
   "Quick format",
   "Long format, with checking for bad sectors",
   "Wipe format, clearing disk space",
-  "","","","","","","","",""
+  "Clone entire disk to empy another one",
+  "Select suitable empty disk",
+  "Clone partition structure only",
+  "Clone entire disk (partition structure and data)",
+  "Clone disk unique IDs (LVM serial, windows id, GPT GUIDs)",
+  "Copy MBR boot code",
+  "Make identical clone of MBR areas (sector to sector copy)",
+  "Ignore BIOS CHS mimatch",
+  "Wipe system sectors on target disk (structure only copying)",
+  "Clone one partition`s data to another",
+  "Select target disk here",
+  "Select target partition",
+  "", "", "", "", "", "",
+  ""
   };
 
 const char *EmptyStr="";
 
-#define HELP_LASTHLPIDX  2121  // must be the last
+#define HELP_LASTHLPIDX  2131  // must be the last

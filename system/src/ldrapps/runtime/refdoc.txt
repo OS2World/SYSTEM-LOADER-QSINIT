@@ -2,11 +2,15 @@
   Import/export module reference file.
 
 
-  REF2LBC tool can convert it to def, watcom .lnk script or ordinals.h include
-          file.
-  Format is self-explaining, additional data fields:
+  REF2LBC tool can convert it to def, watcom .lnk script, ordinals.h include
+          file and trace info file.
+  Format is self-explaining, basically.
+
+  "Exports" section (one per file) contain list of functions to import/export
+  from module. Data fields:
 
     * offset = yes  - direct export/import, without creating asm thunk
+                      (flag must be used for any exported data).
 
     * expname = ... - function name in module (alternative name for export lib)
 
@@ -14,14 +18,14 @@
 
     * trace format string:
 
-      fmt    = [e] [result][arg][arg][arg][arg] [.]
-                e - errno changed (ignored now)
-                . - ... argument (ignored)
+      fmt    = [result][arg][arg][arg][arg] [.]
+                . - ... argument (ignored now)
 
       result = [*][@]type
-      arg    = [&][*][@]type
-                & - out value
+      arg    = [&|!][*][@]type
                 * - pointer to next type
+                & - out value (only with * or s/S)
+                ! - input & output value (only with * or s/S)
                 @ - print in hex form
 
       type   = s - char*
@@ -40,3 +44,19 @@
          char*  ctime_r(const time_t *timer, char* buffer);
 
          format = "s*@up" --> string (out hex ulong, pointer)
+
+  "Class" sections (one per shared class, optional) - contain trace info
+  for shared classes. Because trace info is module-based, all infos placed
+  here, in companion to common exports.
+
+  Class name and method list must be defined (in the order of declaration!).
+  One note - "shared class" methods have hidden first parameter - "instance"
+  or "this". Trace string must include it, i.e.
+
+         u32t _std (*init)(void *bmp, u32t size);
+
+  must be added as
+         init = "uppu"
+  not "upu" - like it looks in declaration.
+
+  Maximum number of exports or methods per class - 32767.

@@ -1,0 +1,51 @@
+Index: os2handl.cpp
+===================================================================
+--- os2handl.cpp	(revision 53)
++++ os2handl.cpp	(working copy)
+@@ -43,10 +43,10 @@
+ // 16Bit functions.
+ TID TThreads::mouseThreadID;
+ TID TThreads::keyboardThreadID;
+-SEMRECORD TThreads::evCombined[2];      // Two Event Semaphores, one for the Mouse and one for Keyboard.
++static SEMRECORD evCombined[2];      // Two Event Semaphores, one for the Mouse and one for Keyboard.
+ // The main thread will do a MuxWait for both.
+-HEV &TThreads::hevMouse1   = (HEV &) TThreads::evCombined[0].hsemCur;
+-HEV &TThreads::hevKeyboard1= (HEV &) TThreads::evCombined[1].hsemCur;
++HEV TThreads::hevMouse1;
++HEV TThreads::hevKeyboard1;
+ // Just an alias.
+ HEV TThreads::hevMouse2;                // _beginthread can't create a suspended thread, so
+ // we keep it waiting with this one
+@@ -92,7 +92,9 @@
+    assert(! DosCreateMutexSem(NULL, &hmtxMouse1, 0, 0));
+ 
+    evCombined[0].ulUser=0;
++   evCombined[0].hsemCur=(HSEM)hevMouse1;
+    evCombined[1].ulUser=1;
++   evCombined[1].hsemCur=(HSEM)hevKeyboard1;
+ 
+    assert(!DosCreateMuxWaitSem(NULL,&hmuxMaster,2,evCombined,DCMW_WAIT_ANY));
+ 
+Index: tscreen.cpp
+===================================================================
+--- tscreen.cpp	(revision 53)
++++ tscreen.cpp	(working copy)
+@@ -350,7 +350,7 @@
+ //---------------------------------------------------------------------------
+ #ifdef __OS2__
+ 
+-#ifdef __IBMCPP__
++#if defined(__IBMCPP__)||defined(__WATCOMC__)
+ #define _far16 _Seg16
+ #endif
+ 
+@@ -449,9 +449,6 @@
+    checksize(screenHeight, screenWidth);
+    hiResScreen = Boolean(screenHeight > 25);
+ 
+-#ifdef __WATCOMC__
+-   static
+-#endif
+    uchar *_far16 s;
+    ushort l;
+    VioGetBuf((PULONG) &s, &l, 0);   // !!! OS/2 specific

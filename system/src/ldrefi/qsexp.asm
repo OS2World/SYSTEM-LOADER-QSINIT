@@ -58,7 +58,9 @@ _gdt_lowest     dw      0
 _IODelay        dw      1000
 _safeMode       db      0
 _reserved_db    db      0
-
+_qs_bootlen     dq      0
+_qs_bootstart   dq      0
+_qd_bootdisk    dd      0
 exp64_tab_end   label   near
 
                 public  _memblocks, _availmem, _phmembase, _highbase
@@ -66,7 +68,8 @@ exp64_tab_end   label   near
                 public  _qd_hdds, _gdt_pos, _gdt_size, _gdt_lowest
                 public  _pbin_header, _IODelay, _sel64, _ofs64
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
-                public  _vio_ttylines, xcptret
+                public  _vio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
+                public  _qd_bootdisk
 
 _DATA           ends
                 end

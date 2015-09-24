@@ -128,7 +128,7 @@ u32t _std hlp_diskcount(u32t *floppies) {
    /* number of floppies is not touched duaring QS work, but hdd number can
       be altered by hlp_diskadd() */
    for (ii=MAX_QS_FLOPPY; ii<MAX_QS_DISK; ii++)
-      if (qd_array[ii].qd_flags&HDDF_PRESENT) rc++;
+      if (qd_array[ii].qd_flags&HDDF_PRESENT) rc = ii+1-MAX_QS_FLOPPY;
    if (floppies) *floppies = qd_fdds;
    return rc;
 }
@@ -286,6 +286,15 @@ u32t _std hlp_diskmode(u32t disk, u32t flags) {
    return HDM_QUERY|qe->qd_flags&HDM_USELBA;
 }
 
+static int check_diskinfo(struct qs_diskinfo *qdi, int bioschs) {
+   /* check sector shift, non-zero sectors & non-zero chs values (someone
+      can fatally divide by it, especially in real-mode code) */
+   if (1<<qdi->qd_sectorshift!=qdi->qd_sectorsize || !qdi->qd_sectors ||
+      !qdi->qd_heads || !qdi->qd_spt) return 0;
+   if (bioschs && (!qdi->qd_chsheads || !qdi->qd_chsspt)) return 0;
+   return 1;
+}
+
 s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
    u32t ii;
    if (!qdi) return -1;
@@ -297,15 +306,39 @@ s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
       } else
       if ((qfl&HDDF_PRESENT)==0) break;
    }
-   if (ii<MAX_QS_DISK) {
+   if (ii<MAX_QS_DISK && check_diskinfo(qdi, 0)) {
       struct qs_diskinfo *qe = qd_array + ii;
+
       memcpy(qe, qdi, sizeof(struct qs_diskinfo));
-      qe->qd_biosdisk = 0xFF;
-      qe->qd_flags    = HDDF_LBAPRESENT|HDDF_PRESENT|HDDF_HOTSWAP|HDDF_LBAON;
+      qe->qd_biosdisk  = 0xFF;
+      qe->qd_flags     = HDDF_LBAPRESENT|HDDF_PRESENT|HDDF_HOTSWAP|HDDF_LBAON;
+      qe->qd_mediatype = 3;
 
       return ii - MAX_QS_FLOPPY;
    }
    return -1;
+}
+
+struct qs_diskinfo *_std hlp_diskstruct(u32t disk, struct qs_diskinfo *qdi) {
+   struct qs_diskinfo *qe = 0;
+   u8t  idx = disk&QDSK_DISKMASK;
+   if (disk & QDSK_FLOPPY) {  // floppy disk
+      if (idx<MAX_QS_FLOPPY) qe = qd_array + idx;
+   } else
+   if (disk<MAX_QS_DISK-MAX_QS_FLOPPY) qe = qd_array + disk + MAX_QS_FLOPPY;
+   if (!qe) return 0;
+   if ((qe->qd_flags&HDDF_PRESENT)==0 || qe->qd_sectorsize==0) return 0; else 
+   if (qdi) {
+      u32t fv = qe->qd_flags;
+      if (check_diskinfo(qdi, (fv&HDDF_HOTSWAP)==0 && (fv&(HDDF_LBAPRESENT|
+         HDDF_LBAON))!=(HDDF_LBAPRESENT|HDDF_LBAON))==0)
+      {
+         memcpy(qe, qdi, sizeof(struct qs_diskinfo));
+         qe->qd_flags = fv;
+      } else
+         return 0;
+   }
+   return qe;
 }
 
 int  _std hlp_diskremove(u32t disk) {

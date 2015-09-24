@@ -342,6 +342,7 @@ void init_vol1data(void) {
       vdta->start  = 0;
       vdta->disk   = QDSK_VOLUME + DISK_LDR;
       vdta->sectorsize = LDR_SSIZE;
+      vdta->flags |= VDTA_FAT;
    }
 }
 

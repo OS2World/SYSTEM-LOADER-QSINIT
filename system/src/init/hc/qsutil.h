@@ -160,8 +160,10 @@ char* _std hlp_curdir(u8t drive);
 //-------------------------------------------------------------------
 
 /** return number of installed hard disks in system.
+    @attention hard disks numeration can have holes at the place of
+               "removed" disks!
     @param  [out]  floppies - ptr to number of floppy disks, can be 0.
-    @result number of hard disks */
+    @result maximum hdd used number + 1 */
 u32t  _std hlp_diskcount(u32t *floppies);
 
 #define QDSK_FLOPPY      0x080    ///< floppy disk
@@ -230,6 +232,9 @@ int  _std hlp_fddline(u32t disk);
 //@}
 
 /** switch disk access mode.
+    In addition, this is disk presence check - pure HDM_QUERY flag for
+    HDD arg must return HDM_QUERY bit on in result.
+
     "CHSONLY" ini key makes the same thing (HDM_USECHS) for boot disk.
     @param  disk      Disk number (HDD only).
     @param  flags     Flags value. Use HDM_QUERY to query current mode,
@@ -326,8 +331,9 @@ u32t  _std hlp_selsetup(u16t selector, u32t base, u32t limit, u32t type);
 //@}
 
 /** query selector base address and limit.
-    @attention this is physical base, not address in QSINIT FLAT space.
-
+    @attention DS selector in non-paged QSINIT mode can use up-down "stack"
+         selector type and limit field in it is reversed in value (see Intel
+         manuals).
     @param [in]  Sel     Selector
     @param [out] Limit   Limit, can be zero.
     @result 0xFFFFFFFF if failed. */
@@ -468,7 +474,7 @@ void _std exit_restart(char *loader);
     @param  ownmbr    Flag 1 to replace disk MBR code to self-provided
     @retval EINVAL    invalid disk handle
     @retval ENODEV    empty partition table
-    @retval EIO       i/o error occured 
+    @retval EIO       i/o error occured
     @retval ENOTBLK   disk is emulated hdd
     @retval ENOSYS    this is EFI host and BIOS boot unsupported */
 int  _std exit_bootmbr(u32t disk, u32t flags);
@@ -477,13 +483,17 @@ int  _std exit_bootmbr(u32t disk, u32t flags);
     @param disk       Disk number (QDSK_*)
     @param index      Partition index (see dmgr ops/qsdm.h)
     @param letter     Set drive letter for OS/2 boot (0 to ignore/default)
+    @param sector     Alternative boot sector binary data (use 0 here,
+                      this data is for booting another/saved boot sector -
+                      like NTLDR do).
     @retval EINVAL    on invalid disk handle or index
     @retval ENODEV    on empty or unrecognized data in boot sector,
     @retval EIO       if i/o error occured
     @retval ENOTBLK   if disk is emulated hdd
     @retval EFBIG     boot sector of partition is beyond of 2TB border
-    @retval ENOSYS    this is EFI host and BIOS boot not supported */
-int  _std exit_bootvbr(u32t disk, u32t index, char letter);
+    @retval ENOSYS    this is EFI host and BIOS boot not supported
+    @retval EFAULT    bad address in "sector" arg */
+int  _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector);
 
 /** power off the system (APM only).
     Suspend can work too - on some middle aged motherboards ;)

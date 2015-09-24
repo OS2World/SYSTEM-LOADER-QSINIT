@@ -145,12 +145,15 @@ int _std lvm_querybm(u32t *active) {
       if (!hi) continue;
       if (!hi->lvm_snum) continue;
 
-      for (idx=0; idx<hi->pt_size; idx++)
-         if (hi->dlat[idx>>2].DLA_Signature1) {
-            DLA_Entry *de = &hi->dlat[idx>>2].DLA_Array[idx&3];
-            if (de->On_Boot_Manager_Menu && hi->index[idx]<32)
-               active[ii] |= 1<<hi->index[idx];
+      for (idx=0; idx<hi->pt_view && idx<32; idx++) {
+         u32t   recidx, dlatidx;
+
+         if (lvm_dlatpos(ii, idx, &recidx, &dlatidx)) continue; else {
+            DLA_Entry *de = &hi->dlat[recidx>>2].DLA_Array[dlatidx];
+
+            if (de->On_Boot_Manager_Menu) active[ii] |= 1<<idx;
          }
+      }
    }
    return 1;
 }
@@ -283,7 +286,7 @@ u32t _std lvm_assignletter(u32t disk, u32t index, char letter, int force) {
 
 u32t _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate) {
    hdd_info *hi = get_by_disk(disk);
-   u32t      ii, idx, pti, heads, cyls, writecnt = 0;
+   u32t      ii, idx, pti, heads, cyls, writeflag = 0;
    int       rc, same_ser = 0, snum_commit = 0;
    if (!hi) return LVME_DISKNUM;
    dsk_ptrescan(disk,1);
@@ -367,20 +370,29 @@ u32t _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate) {
 
    for (ii=0; ii<hi->pt_size; ii+=4) {
       DLA_Table_Sector *dls = hi->dlat + (ii>>2);
-      // whole block is missing
+      // whole block is missing -> write signs here and other in statement below
       if (!dls->DLA_Signature1) {
          dls->DLA_Signature1     = DLA_TABLE_SIGNATURE1;
          dls->DLA_Signature2     = DLA_TABLE_SIGNATURE2;
+         // mark this DLAT as created (in present sectors CRC is 0 after scan)
+         dls->DLA_CRC            = FFFF;
+         sprintf(dls->Disk_Name,"[ %s ]",dsk_disktostr(disk,0));
+         // signal write pass
+         writeflag++;
+      }
+      // info fields mismatch - fix it & write
+      if (dls->Sectors_Per_Track!=hi->lvm_spt || dls->Cylinders!=cyls ||
+         dls->Heads_Per_Cylinder!=heads || dls->Disk_Serial!=hi->lvm_snum ||
+            dls->Boot_Disk_Serial!=hi->lvm_bsnum)
+      {
          dls->Disk_Serial        = hi->lvm_snum;
          dls->Boot_Disk_Serial   = hi->lvm_bsnum;
          dls->Sectors_Per_Track  = hi->lvm_spt;
          dls->Cylinders          = cyls;
          dls->Heads_Per_Cylinder = heads;
-         // mark this DLAT as created (in present sectors CRC is 0 after scan)
          dls->DLA_CRC            = FFFF;
-         sprintf(dls->Disk_Name,"[ %s ]",dsk_disktostr(disk,0));
          // signal write pass
-         writecnt++;
+         writeflag++;
       }
       // check DLAT entries for missing partitions
       for (idx=0; idx<4; idx++) {
@@ -400,7 +412,7 @@ u32t _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate) {
                   memcpy(&dls->DLA_Array[idx],&dls->DLA_Array[idx+1],sizeof(DLA_Entry));
                memset(&dls->DLA_Array[3],0,sizeof(DLA_Entry));
                // signal write pass
-               writecnt++;
+               writeflag++;
                dls->DLA_CRC = FFFF;
             }
          }
@@ -435,7 +447,7 @@ u32t _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate) {
                      de->Partition_Size   = lpsize;
                      de->Partition_Start  = lppos;
                      // signal write pass
-                     writecnt++;
+                     writeflag++;
                      dls->DLA_CRC = FFFF;
                      break;
                   }
@@ -444,7 +456,7 @@ u32t _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate) {
       }
    }
    // some of DLATs was changed, write it
-   if (writecnt||snum_commit) return lvm_flushall(disk, snum_commit);
+   if (writeflag||snum_commit) return lvm_flushall(disk, snum_commit);
 
    return 0;
 }
@@ -625,4 +637,42 @@ u32t _std lvm_present(int physonly) {
       if (dsk>=31) { rc|=0x80000000; break; } else rc|=1<<dsk;
    }
    return rc;
+}
+
+int lvm_newserials(u32t disk, u32t disk_serial, u32t boot_serial, int genpt) {
+   int rc = lvm_checkinfo(disk);
+   // deny any errors here
+   if (!rc) {
+      u32t ii, pti;
+      hdd_info *hi = get_by_disk(disk);
+      if (!hi) return LVME_DISKNUM;
+
+      if (!disk_serial) disk_serial = random(65356) | random(65356)<<16;
+      if (!boot_serial) 
+         boot_serial = hi->lvm_snum==hi->lvm_bsnum ? disk_serial : hi->lvm_bsnum;
+      // nothing to do?
+      if (disk_serial==hi->lvm_snum && boot_serial==hi->lvm_bsnum && !genpt)
+         return 0;
+      // enum records
+      for (ii=0; ii<hi->pt_size; ii+=4) {
+         DLA_Table_Sector *dls = hi->dlat + (ii>>2);
+
+         if (genpt) {
+            for (pti=0; pti<4; pti++) {
+               DLA_Entry *de = &dls->DLA_Array[pti];
+            
+               if (de->Partition_Size && de->Partition_Start) {
+                  de->Volume_Serial    = random(65356) | random(65356)<<16;
+                  de->Partition_Serial = random(65356) | random(65356)<<16;
+               }
+            }
+         }
+         dls->Disk_Serial      = disk_serial;
+         dls->Boot_Disk_Serial = boot_serial;
+         rc = lvm_flushdlat(disk,ii>>2);
+         if (rc) return rc;
+      }
+      rc = 0;
+   }
+   return rc; 
 }

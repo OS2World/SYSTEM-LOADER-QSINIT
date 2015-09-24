@@ -79,10 +79,9 @@ u32t  _std mod_searchload(const char *name, u32t *error);
    String without zero at the end can be used as "name" in we same way:
    length << MODQ_LENSHIFT & MODQ_LENMASK.
 
- * @param name   Internal module name (not file!)
- * @param flags  See MODQ_*
- * @return module handle or 0.
- */
+   @param name   Internal module name (not file!)
+   @param flags  See MODQ_*
+   @return module handle or 0 */
 u32t  _std mod_query(const char *name, u32t flags);
 
 /// name of system module "QSINIT"
@@ -99,18 +98,29 @@ u32t  _std mod_query(const char *name, u32t flags);
 #define MODNAME_CPLIB    "CPLIB"
 
 /** get pointer to module function (by index).
- *
- * @param module Module handle.
- * @param index  Entry index.
- * @return function pointer or 0.
- */
+    @param  module  Module handle.
+    @param  index   Entry index.
+    @return function pointer or 0 */
 void *_std mod_getfuncptr(u32t module, u32t index);
 
-/** free and unload module (decrement usage counter).
- *
- * @param module Module handle.
- */
-void  _std mod_free(u32t module);
+/// @name mod_free error codes
+//@{
+#define MODFERR_HANDLE       (  1)  ///< bad module handle
+#define MODFERR_SELF         (  2)  ///< trying to free self
+#define MODFERR_SYSTEM       (  3)  ///< trying to system module
+#define MODFERR_LIBTERM      (  4)  ///< DLL term function denied unloading
+#define MODFERR_EXECINPROC   (  5)  ///< module is exe and mod_exec() not finished
+//@}
+
+/** free and unload module.
+    Function will decrement usage counter until one, then tries to unload
+    module. If module is current process, system module or DLL term function
+    returned 0 - mod_free() returns error (module will stay in place and
+    fully functional).
+
+    @param  module  Module handle.
+    @return error code or 0 on success */
+u32t  _std mod_free(u32t module);
 
 // internal structures ---------------------------------------------------
 #ifdef MODULE_INTERNAL
@@ -210,6 +220,7 @@ process_context* _std mod_context(void);
 #define MOD_IMPDONE  0x000040  ///< all imported modules was unloaded
 #define MOD_LOADER   0x000080  ///< this module initiate loading process
 #define MOD_NOFIXUPS 0x000100  ///< fixups pre-applied in module
+#define MOD_EXECPROC 0x000200  ///< mod_exec() in process (for exe module)
 //@}
 
 /// external functions located in "start" module
@@ -226,7 +237,7 @@ typedef struct {
    u32t    _std (*mod_unpack2)(u32t DataLen, u8t* Src, u8t *Dst);
    /// unpack ITERDATA3 (OS/4)
    u32t    _std (*mod_unpack3)(u32t DataLen, u8t* Src, u8t *Dst);
-   /// free previously loaded export table
+   /// module unloading callback (free export table)
    void    _std (*mod_freeexps)(module *mh);
    /// heap alloc
    void*   _std (*memAlloc)(long Owner, long Pool, u32t Size);
@@ -255,6 +266,11 @@ typedef struct {
    /** memcpy with catched exceptions.
        @return 0 if exception occured. */
    u32t    _std (*memcpysafe)(void *dst, const void *src, u32t length, int page0);
+   /** module loaded callback.
+       Called before returning ok to user. But module is not guaranteed to
+       be in loaded list at this time, it can be the one of loading imports
+       for someone. */
+   void    _std (*mod_loaded)(module *mh);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()
@@ -311,8 +327,8 @@ void _std mod_listflags(module *first, u32t fl_or, u32t fl_andnot);
     @attention warning! function located in "start" module
 
     @param [in]  eip     EIP value
-    @param [out] object  Module number (zero-based)
-    @param [out] offset  Offset in module
+    @param [out] object  Module`s object number (zero-based)
+    @param [out] offset  Offset in object
     @param [in]  cs      Selector (optional, use 0 for FLAT space)
     @result Module handle or 0 */
 module* _std mod_by_eip(u32t eip, u32t *object, u32t *offset, u16t cs);

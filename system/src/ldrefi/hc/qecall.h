@@ -35,7 +35,7 @@ u64t _std call64l(int function, u32t arg8mask, u32t argcnt, ...);
 typedef void _std (*xcpt64proc)(struct xcpt64_data *xdata);
 
 /** set common 64-bit exception handler.
-    @param cxh    Function index
+    @param cxh    Exception handler function.
     @return return previous handler (or 0 if no one) */
 xcpt64proc _std sys_setxcpt64(xcpt64proc cxh);
 #endif

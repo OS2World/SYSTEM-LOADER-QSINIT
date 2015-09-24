@@ -7,11 +7,15 @@
 #include "qsdm.h"
 #include "memmgr.h"
 #include "pscan.h"
-#include "errno.h"
-#include "vio.h"
 #include "qcl/qslist.h"
 #include "qsint.h"
 #include "qsinit.h"
+#include "vioext.h"
+#include "errno.h"
+#include "qcl/qsedinfo.h"
+#include "seldesc.h"          // next 3 is for hook only
+#include "qsmodext.h"
+#include "qsinit_ord.h"
 
 #define PRINT_ENTRIES
 
@@ -173,6 +177,8 @@ static u32t scan_disk(hdd_info *drec) {
    drec->gpt_size    = 0;
    drec->gpt_sectors = 0;
    drec->gpt_view    = 0;
+   drec->usedfirst   = FFFF64;
+   drec->usedlast    = FFFF64;
 
    // assume <=63 sectors, but LVM can grow it to 255 and write bad CHSs in PT
    drec->lvm_spt   = drec->info.SectOnTrack;
@@ -423,6 +429,12 @@ static u32t scan_disk(hdd_info *drec) {
             }
             // store start pos & size in single qword
             ptl->add(new_item(vlstart, vllen));
+            // update first/last used sectors
+            if (vllen) {
+               if (vlstart+vllen>drec->usedlast || drec->usedlast==FFFF64)
+                  drec->usedlast = vlstart+vllen-1;
+               if (vlstart<drec->usedfirst) drec->usedfirst = vlstart;
+            }
          } else
          if (ii<4) primfree = 1;
       }
@@ -437,19 +449,26 @@ static u32t scan_disk(hdd_info *drec) {
             // index for hybrid partition can be assigned above
             if (drec->gpt_index[ii]==FFFF && pte->PTG_FirstSec &&
                pte->PTG_LastSec > pte->PTG_FirstSec) drec->gpt_index[ii] = idx++;
-#ifdef PRINT_ENTRIES
             if (pte->PTG_FirstSec) {
+#ifdef PRINT_ENTRIES
                char guidstr[40];
                dsk_guidtostr(pte->PTG_TypeGUID, guidstr);
                log_it(3, "%2d. %09LX..%09LX %s \"%S\" %LX\n", ii,
                   pte->PTG_FirstSec, pte->PTG_LastSec, guidstr, pte->PTG_Name,
                      pte->PTG_Attrs);
-            }
 #endif
+               // update first/last used sectors
+               if (pte->PTG_LastSec>drec->usedlast || drec->usedlast==FFFF64)
+                  drec->usedlast = pte->PTG_LastSec;
+               if (pte->PTG_FirstSec<drec->usedfirst)
+                  drec->usedfirst = pte->PTG_FirstSec;
+            }
          }
       }
       // total viewable count
       drec->gpt_view = idx;
+      if (drec->usedfirst!=FFFF64)
+         log_it(3, "used start %09LX end %09LX\n", drec->usedfirst, drec->usedlast+1);
 
       if (extlerr && ptl->count()) {
          log_it(2, "Ignore free space because of extended`s size error\n");
@@ -585,6 +604,7 @@ static u32t scan_disk(hdd_info *drec) {
 static hdd_info *hddi = 0;
 static u32t      hddc = 0,
                  hddf = 0;
+static int    hook_on = 0;    ///< hlp_diskremove hook installed?
 
 void scan_init(void) {
    u32t ii;
@@ -662,52 +682,122 @@ u32t _std dsk_ptrescan(u32t disk, int force) {
    return hi->scan_rc = scan_disk(hi);
 }
 
+/// entry hook for hlp_diskremove()
+static int _std catch_diskremove(mod_chaininfo *info) {
+   u32t disk = *(u32t*)(info->mc_regs->pa_esp+4);
+#if 0
+   log_it(2, "partmgr: hlp_diskremove(%02X)\n", disk);
+#endif
+   /* is it emulated? then drop known data for it!
+      use direct structure addressing here to prevent any unwanted calls, 
+      this is HOOK! */
+   if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0)
+      if (hddi && (disk&QDSK_DISKMASK)==disk && hddc>disk)
+         hddi[disk].inited = 0;
+   return 1;
+}
+
+/* catch hlp_diskremove() to drop all known disk info */
+void set_hooks(void) {
+   if (hook_on) return; else {
+      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
+      if (qsinit)
+         if (mod_apichain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove))
+            hook_on = 1; else log_it(2, "failed to catch!\n");
+   }
+}
+
+void remove_hooks(void) {
+   if (hook_on) {
+      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
+      if (qsinit)
+         mod_apiunchain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove);
+      hook_on = 0;
+   }
+}
+
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
-   u32t ii;
+   int  verbose = 0, force = 0;
+   u32t      ii;
+   if (args->count>=pos+1) {
+      static char *argstr   = "force|/v";
+      static short argval[] = {    1, 1};
+      str_list *rcargs = str_parseargs(args, pos, 1, argstr, argval, &force, &verbose);
+      ii = rcargs->count;
+      free(rcargs);
+      // we must get empty list, else uncknown keys here
+      if (ii) { cmd_shellerr(EINVAL, 0); return EINVAL; }
+   }
    // do not init "pager" at nested calls
    if (cmd) cmd_printseq(0,1,0);
 
    if (disk==FFFF || disk==x7FFF) {
+      int  pstate = vio_setansi(1);
       scan_init();
       if (!hddf) shellprn(" %d HDD%s in system\n",hddc,hddc<2?"":"s"); else
          shellprn(" %d HDD and %d floppy drives in system\n",hddc,hddf);
 
-      for (ii=0;ii<hddf+hddc;ii++) {
+      for (ii=0; ii<hddf+hddc; ii++) {
          u32t dsk = ii<hddf?QDSK_FLOPPY|ii:ii-hddf;
+         // hard disk if OFF, skip it
+         if ((dsk&QDSK_FLOPPY)==0 && (hlp_diskmode(dsk,HDM_QUERY)&HDM_QUERY)==0)
+            continue;
 
          if (disk==FFFF) { // dmgr list
             disk_geo_data  gdata;
-            char          *stext, namebuf,
-                        *dskname = dsk_disktostr(dsk,0);
+            char    *stext, namebuf, sizebuf[32],
+                  *dskname = dsk_disktostr(dsk,0);
+            sizebuf[0] = 0;
+
             if (hlp_disksize(dsk,0,&gdata)) {
                stext = get_sizestr(gdata.SectorSize, gdata.TotalSectors);
-
-               log_it(2,"%s : %5d x %3d x %3d, %09LX sectors (%d bytes)\n",
-                  dskname, gdata.Cylinders, gdata.Heads, gdata.SectOnTrack,
-                     gdata.TotalSectors, gdata.SectorSize);
+               if (verbose) sprintf(sizebuf, "(%Lu sectors)", gdata.TotalSectors);
             } else {
                stext = "    no info";
             }
-            shellprn(" %cDD %i =>%-4s: %s", dsk&QDSK_FLOPPY?'F':'H',
-               dsk&QDSK_DISKMASK, dskname, stext);
+            if (shellprn(verbose?" %cDD %i =>%-4s: \x1B[1;37m%s\x1B[0m %s":
+               " %cDD %i =>%-4s: %s", dsk&QDSK_FLOPPY?'F':'H', 
+                  dsk&QDSK_DISKMASK, dskname, stext, sizebuf)) break;
+            if (verbose) {
+               disk_geo_data ldata;
+               qs_extdisk     edsk;
+               char        str[96];
+               int           islvm = lvm_checkinfo(dsk)==0;
+               if (islvm)
+                  if (dsk_getptgeo(dsk, &ldata)) islvm = 0;
+               sprintf(str, "         Sector %4d, CHS: %d x %d x %d",
+                  gdata.SectorSize, gdata.Cylinders, gdata.Heads, 
+                     gdata.SectOnTrack);
+               if (islvm)
+                  sprintf(str+strlen(str), ", LVM: %d x %d x %d",
+                     ldata.Cylinders, ldata.Heads, ldata.SectOnTrack);
+               if (shellprt(str)) break;
+               edsk = hlp_diskclass(dsk, 0);
+               if (edsk) {
+                  char *einfo = edsk->getname();
+                  if (einfo) {
+                     int brk = shellprn("         %s",einfo);
+                     free(einfo);
+                     if (brk) break;
+                  }
+               }
+            }
          } else {          // dmgr list all
             if (shl_dm_list(0,args,dsk,pos)==EINTR) break;
             shellprt("");
          }
       }
+      vio_setansi(pstate);
    } else {
       char dname[10], lvmname[32];
       hdd_info *hi = get_by_disk(disk);
       disk_volume_data   vi[DISK_COUNT];
       lvm_disk_data    lvmi;
       char           *stext;
-      int             force = 0;
 
       if (!hi) { printf("There is no disk %X!\n", disk); return ENOMNT; }
       // rescan disk (forced or not)
-      if (args->count>=pos+1)
-         if (stricmp(args->item[pos],"FORCE")==0) force = 1;
       dsk_ptrescan(disk,force);
       // disk size string
       stext = dsk_formatsize(hi->info.SectorSize, hi->info.TotalSectors, 0, 0);
@@ -732,7 +822,7 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   dname);
             break;
          case DPTE_FLOPPY :
-            shellprn(" Disk %s is a floppy formatted!", dname);
+            shellprn(" Disk %s is floppy formatted!", dname);
             break;
          case DPTE_EMPTY  :
             shellprn(" Disk %s is empty!", dname);
@@ -833,7 +923,7 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                      *epf = 0;
                   }
                }
-               if (shellprn("  %2d ³ %-8s³%s ³ %s ³ %09LX ³%6s³ %s", ii, pdesc, 
+               if (shellprn("  %2d ³ %-8s³%s ³ %s ³%10.9LX ³%6s³ %s", ii, pdesc, 
                   get_sizestr(hi->info.SectorSize, psize)+2, 
                      *mounted?mounted:"     ", pstart, eflags, ptstr?ptstr:""))
                         return EINTR;

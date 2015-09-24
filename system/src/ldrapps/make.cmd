@@ -31,6 +31,7 @@ call make.cmd vmtrr    %bldparm%
 call make.cmd cache    %bldparm%
 call make.cmd vdisk    %bldparm%
 call make.cmd cplib    %bldparm%
+call make.cmd vhdd     %bldparm%
 
 goto quit
 :single_build
@@ -40,7 +41,7 @@ goto quit
 :buildme
 rem ----- single project build -----
 cd %1
-rem creating dirs (else spprj will failed to write misc files before build)
+rem creating dirs (else spprj will fail to write misc files before build)
 spprj -b -w -nb %1.prj 0 makedirs
 rem writing makefile for reference
 rem spprj -nb %1.prj 0 bld\%1.mak

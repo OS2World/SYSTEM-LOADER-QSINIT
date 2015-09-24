@@ -11,3 +11,6 @@ rem
 set QS_ROOT=\QS
 rem
 call %QS_ROOT%\system\src\tools\setupi.cmd
+rem
+rem note that svn revision appends here in QS_SDK archive compilation only
+set svnrev=0351

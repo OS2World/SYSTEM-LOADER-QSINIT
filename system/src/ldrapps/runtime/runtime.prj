@@ -15,41 +15,35 @@ aa=@wasm
 cc=@wcc386
 cpp=@wpp386
 lib=@wlib
-ilib=@implib
 lbc=@ref2lbc
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
 
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+     $(cpp) $(cinc) $(cppflags)$*.obj $(*cur_name)
 
 *ref=$(outdir)\$(*cur_fp).lib|$(*cur_name)| @echo $(*cur_name) | \
-     $(lbc) asm $(*cur_name) $(outdir)\__$(*cur_fp).asm $(outdir)\__$(*cur_fp).def | \
-     $(ilib) $* $(outdir)\__$(*cur_fp).def >nul | \
+     $(lbc) as2 $(*cur_name) $(outdir)\__$(*cur_fp).asm $(outdir)\__$(*cur_fp).lbc | \
+     $(lib) -b -q -io $* @$(outdir)\__$(*cur_fp).lbc | \
      $(aa) $(ainc) $(aflags)$(outdir)\__$(*cur_fp).obj $(outdir)\__$(*cur_fp).asm | \
      $(lib) -b -q $* $(outdir)\__$(*cur_fp).obj | \
-     @del $(outdir)\__$(*cur_fp).def | \
-     @del $(outdir)\__$(*cur_fp).asm
+     $(del) $(outdir)\__$(*cur_fp).lbc | \
+     $(del) $(outdir)\__$(*cur_fp).asm
 
 *def=$(outdir)\$(*cur_fp)2.lib|$(*cur_fp).ref| @echo $(*cur_name) | \
-     $(lbc) def $(*cur_fp).ref $(outdir)\$(*cur_fp).def | \
-     $(ilib) $* $(outdir)\$(*cur_fp).def >nul | \
-     @del $(outdir)\$(*cur_fp).def
-
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
+     $(lbc) lb2 $(*cur_fp).ref $(outdir)\$(*cur_fp).lbc | \
+     $(lib) -b -q -io $* @$(outdir)\$(*cur_fp).lbc | \
+     $(del) $(outdir)\$(*cur_fp).lbc
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
 *trace=$(outdir)\$(*cur_fp).trc|$(*cur_fp).ref| @echo $(*cur_fp).trc | \
-     @ref2lbc trc $(*cur_fp).ref $@
-
-*cln=clean|.SYMBOLIC|@$(&clean)
+     $(lbc) trc $(*cur_fp).ref $@
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
@@ -63,37 +57,46 @@ cinc=
 ccinc=$(cinc)
 ainc=
 bld_dir=bld
-msgdir=MSG
+msgdir=msg
 outdir=$(bld_dir)\$(config)
 outname=$(name).lib
 &rsp1=$(outdir)\wlib.rsp
 &rsp2=$(outdir)\wlibs.rsp
-&clean=$(outdir)\cleanall.cmd
+del=@del
+copy=@copy
+
+[vars.linux]
+del=rm
+copy=cp
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
-cplib.ref
-start.trace qsinit.trace partmgr.trace
+cplib.ref vhdd.ref
+start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace
 init.asm initdll.asm cpproute.asm
 rtcode.c defdll.c cpplib.cpp watcinit.c common.c
 rt\sp_defs.cpp rt\sp_ini.cpp rt\sp_str.cpp rt\qs_rt.cpp
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait $(**c) $(**cpp) $(**asm) $(**ref) @@wait $(**def)
+nolink : MAKEDIRS hello @@wait $(**c) $(**cpp) $(**asm) $(**ref) @@wait $(**def)
 
-packtrace : .SYMBOLIC
-    mkdir $(msgdir)
-    copy $(outdir)\*.trc $(msgdir) >nul
+packtrace : .DIRECTORY $(msgdir)
+    $(copy) $(outdir)\*.trc $(msgdir) >nul
 
 tracefiles : $(**trace) @@wait packtrace @@wait
-    pkzip /add /max /silent /nozipextension /dir /rec /move \
-    %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*
+    @zip -q -9 -X -S -D -m %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*
 
 #$(**inc) 
+
+clean : .WIPEDIR $(outdir)
+    @echo Cleaning $(name)...
 
 [&rsp1]
 $(**c) $(**ref) $(**cpp) $(outdir)\cpproute.obj
@@ -108,20 +111,9 @@ $(**def)
 
 #$(**asm)
 
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.obj @del *.obj
-if exist *.lib @del *.lib
-if exist *.lst @del *.lst
-if exist *.trc @del *.trc
-if exist *.h @del *.h
-if exist $(name).* @del $(name).*
-cd ..\..
-
 [config.0]
 *out=$(outname) | nolink tracefiles | \
      @echo Creating lib... | \
      $(lib) -b -n -q $* @$(&rsp1) | \
-     $(lib) -b -n -q imp_st.lib @$(&rsp2)
+     $(lib) -b -n -q imp_st.lib @$(&rsp2) | \
+     rmdir $(msgdir)

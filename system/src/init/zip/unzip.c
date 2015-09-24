@@ -204,6 +204,7 @@ int zip_nextfile(ZIP *zip, char** filename, u32t *filesize) {
             zip->uncompressed = uncompressed;
             zip->stored_crc   = stored_crc;
             zip->dostime      = dostime;
+            zip->extradata    = extra_size;
           
             strncpy(zip->name, name, name_size);
             zip->name[name_size] = 0;

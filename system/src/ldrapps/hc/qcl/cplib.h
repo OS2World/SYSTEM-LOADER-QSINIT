@@ -13,12 +13,12 @@
     Instance-driven codepage access.
     Usage:
     @code
-       cpconvert cvt = NEW(cpconvert);
+       qs_cpconvert cvt = NEW(qs_cpconvert);
        cvt->setcp(cvt->getsyscp());
        printf("%C\n", cvt->convert('a',1));
        DELETE(cvt);
     @endcode */
-typedef struct cpconvert_s {
+typedef struct qs_cpconvert_s {
    /** set conversion code page.
       Default page after instance creation - current active code page (if
       it was selected).
@@ -44,10 +44,10 @@ typedef struct cpconvert_s {
       Function simulate to CHCP command.
       @return success flag (1/0) */
    u32t    _std (*setsyscp)(u16t cp);
-   /** query 128 byt uppercase table.
+   /** query 128 byte uppercase table.
        @param  cp       codepage number to query, 0 for current
        @return pointer or zero on error */
    u8t*    _std (*uprtab)(u16t cp);
-} _cpconvert, *cpconvert;
+} _qs_cpconvert, *qs_cpconvert;
 
 #endif // CODEPAGE_LIB

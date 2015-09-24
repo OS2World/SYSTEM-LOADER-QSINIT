@@ -17,7 +17,7 @@ BUILDFILES = example.obj
 $(PRJNAME).exe : $(PRJNAME).lnk $(BUILDFILES)
       @echo Linking...
       @wlink @$(PRJNAME).lnk 
-      @pkzip /add /max /silent /nozipext /path=none $(%QS_BIN)\$(%QS_ARCH) $@
+      @zip -q -9 -X -S -j $(%QS_BIN)\$(%QS_ARCH) $@
 
 clean: .SYMBOLIC
       @echo Cleaning ...

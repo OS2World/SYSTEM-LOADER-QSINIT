@@ -14,40 +14,45 @@ extern TCheckBoxes *ChUseOwnBoot;
 #define disk_id_from_idx(ii) (ii<vdsk_cnt?DSK_VIRTUAL|ii^1:  \
     (ii<fdd_cnt+vdsk_cnt?DSK_FLOPPY|ii-vdsk_cnt:ii-fdd_cnt-vdsk_cnt))
 
+static int add_str(TCollection *dl, u32t disk, char *name) {
+   u32t  ssize;
+   u64t   size = dsk_size64(disk, &ssize);
+   if (!size) return 0; else {
+      char   *str = new char[80];
+      strncpy(str, name, 40);
+      strcat(str,getSizeStr(ssize,size));
+      dl->insert(str);
+      return 1;
+   }
+}
+
 u32t TSysApp::GetDiskDialog(int floppies, int vdisks, int dlgtype) {
    TCollection *dl = new TCollection(0,10);
    TDialog  *seldd = dlgtype==SELDISK_BOOT?makeSelBootDiskDlg():
                                            makeSelDiskDlg(dlgtype-1);
-   u32t    fdd_cnt, ssize, vdsk_cnt,
+   u32t    fdd_cnt, vdsk_cnt,
            hdd_cnt = dsk_count(&fdd_cnt,&vdsk_cnt);
-   int          ii;
+   u32t   *disknum = new u32t[vdsk_cnt+fdd_cnt+hdd_cnt+1], rcdisk;
+   u32t         ii, dcnt = 0;
    if (!floppies) fdd_cnt = 0;
    if (!vdisks) vdsk_cnt = 0;
 
-   for (ii=0; ii<(int)(vdsk_cnt+fdd_cnt+hdd_cnt);) {
-      u32t disk = disk_id_from_idx(ii);
-      u64t size = dsk_size64(disk, &ssize);
-
-      char *str = new char[128];
-      if (ii<vdsk_cnt) {
-         if (!size) { vdsk_cnt--; continue; } else
-         switch (ii) {
-            case 0: strcpy(str,"Virtual disk         "); break;
-            case 1: strcpy(str,"Boot partition       "); break;
-         }
-      } else
-      if (ii<vdsk_cnt+fdd_cnt) {
-         if (!size) { fdd_cnt--; continue; }
-         sprintf(str,"Floppy disk %i        ",ii-vdsk_cnt);
-      } else {
-         if (!size) { hdd_cnt--; continue; }
-         sprintf(str,"HDD %i                ",ii-fdd_cnt-vdsk_cnt);
-      }
-      strcat(str,getSizeStr(ssize,size));
-      dl->insert(str);
-
-      ii++;
+   for (ii=0; ii<vdsk_cnt; ii++)
+      if (add_str(dl, disknum[dcnt] = DSK_VIRTUAL|ii^1, ii?
+         "Boot partition       ":"Virtual disk         ")) dcnt++;
+   // floppies
+   for (ii=0; ii<fdd_cnt; ii++) {
+      char stb[48];
+      sprintf(stb, "Floppy disk %u        ", ii);
+      if (add_str(dl, disknum[dcnt] = DSK_FLOPPY|ii, stb)) dcnt++;
    }
+   // hdds
+   for (ii=0; ii<hdd_cnt; ii++) {
+      char stb[48];
+      sprintf(stb, "HDD %i                ", ii);
+      if (add_str(dl, disknum[dcnt] = ii, stb)) dcnt++;
+   }
+
    SelDiskList->newList(dl);
 
    int res = execView(seldd)==cmOK,
@@ -56,7 +61,9 @@ u32t TSysApp::GetDiskDialog(int floppies, int vdisks, int dlgtype) {
    nextBootOwnMbr = dlgtype==SELDISK_BOOT?ChUseOwnBoot->mark(0):0;
    destroy(seldd);
    destroy(dl);
-   return res&&idx>=0?disk_id_from_idx(idx):FFFF;
+   rcdisk = res&&idx>=0?disknum[idx]:FFFF;
+   delete disknum;
+   return rcdisk;
 }
 
 int TSysApp::CanChangeDisk(u32t disk) {

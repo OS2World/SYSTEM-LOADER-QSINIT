@@ -11,7 +11,8 @@
 #include "qsint.h"
 #include "qsdm.h"
 #include "vio.h"
-#include "qscache.h"
+#include "qcl/qscache.h"
+#include "cache.h"
 
 const char *selfname = MODNAME_CACHE;
 
@@ -19,7 +20,8 @@ const char *selfname = MODNAME_CACHE;
 #define shellprn(x,...)      cmd_printseq(x,0,0,__VA_ARGS__)
 #define shellprt(x)          cmd_printseq(x,0,0)
 
-int lib_ready =  0; // lib is ready
+int                lib_ready = 0; // lib is ready
+u32t                 classid = 0; // class id
 
 extern cache_extptr exptable;
 extern u32t     blocks_total,
@@ -39,8 +41,6 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
 
    if (args->count>0) {
       char *fp = args->item[0];
-      if (stricmp(fp,"OFF")==0) { hlp_cachesize(0); return 0; }
-         else
       if (stricmp(fp,"DBLEVEL")==0 && args->count==2) {
          dblevel = atoi(args->item[1]);
          return 0;
@@ -63,10 +63,10 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
          hdds = hlp_diskcount(&fdds);
          for (ii=0; ii<fdds+hdds; ii++) {
             u32t disk = ii<fdds ? ii|QDSK_FLOPPY : ii-fdds;
-            int    on = hlp_cacheon(disk, -1);
+            int    on = cc_enable(0, disk, -1);
             char pbuf[80];
             if (on>0) {
-               u32t  bcntp, bcnt = hlp_cachestat(disk, &bcntp);
+               u32t  bcntp, bcnt = cc_stat(0, disk, &bcntp);
 
                sprintf(pbuf, "(used/with priority: %u/%u)", bcnt, bcntp);
             } else pbuf[0] = 0;
@@ -83,36 +83,61 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
             if (*fp=='-' || *fp=='+') {
                u32t dsk = dsk_strtodisk(fp+1);
                if (dsk==FFFF) break;
-               hlp_cacheon(dsk, *fp=='+');
+               cc_enable(0, dsk, *fp=='+');
                continue;
             }
             fp=0; break;
          }
          if (fp) return 0;
       } else
-      if (isdigit(fp[0])) {
-         char *errptr = 0;
-         u32t value = strtoul(fp, &errptr, 0);
-         if (*errptr=='%') {
-            u32t availmax;
-            if (value>50) value = 50;
-            hlp_memavail(&availmax,0);
-            hlp_cachesize((availmax>>20) * value /100);
-         } else
-            hlp_cachesize(value);
-         // do not make noise to screen, because can be called from partmgr init
-         return 0;
-      }
+      if (cc_setsize_str(0,fp)) return 0;
    }
    cmd_shellerr(EINVAL,0);
    return EINVAL;
 }
 
+static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio, 
+   cc_enable, cc_invalidate, cc_invalidate_vol, cc_stat};
+
+// data is not used and no any signature checks in this class
+typedef struct {
+   u32t     reserved;
+} cc_data;
+
+u32t _std cc_setsize_str(void *data, const char *size) {
+   if (stricmp(size,"OFF")==0) { cc_setsize(data, 0); return 1; } 
+      else
+   if (isdigit(size[0])) {
+      char *errptr = 0;
+      u32t value = strtoul(size, &errptr, 0);
+      if (*errptr=='%') {
+         u32t availmax;
+         if (value>50) value = 50;
+         hlp_memavail(&availmax,0);
+         cc_setsize(data, (availmax>>20) * value /100);
+      } else
+         cc_setsize(data, value);
+      // do not make noise to screen, because can be called from partmgr init
+      return 1;
+   }
+   return 0;
+}
+
+static void _std cc_init(void *instance, void *data) {
+   cc_data *cpd  = (cc_data*)data;
+   cpd->reserved = 0xCC;
+}
+
+static void _std cc_done(void *instance, void *data) {
+   cc_data *cpd  = (cc_data*)data;
+   cpd->reserved = 0;
+}
+
+// shutdown handler
 void on_exit(void) {
    if (!lib_ready) return;
    lib_ready = 0;
    unload_all();
-   cmd_shellrmv("CACHE",shl_cache);
 }
 
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
@@ -125,8 +150,22 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       }
       exit_handler(&on_exit,1);
       cmd_shelladd("CACHE",shl_cache);
+
+      classid = exi_register("qs_cachectrl", methods_list,
+         sizeof(methods_list)/sizeof(void*), sizeof(cc_data), 
+            cc_init, cc_done, 0);
+      if (!classid) {
+         log_printf("unable to register class!\n");
+         return 0;
+      }
       lib_ready = 1;
    } else {
+      if (classid)
+         if (exi_unregister(classid)) classid = 0;
+      // DENY unload if class was not unregistered
+      if (classid) return 0;
+
+      cmd_shellrmv("CACHE",shl_cache);
       exit_handler(&on_exit,0);
       on_exit();
    }

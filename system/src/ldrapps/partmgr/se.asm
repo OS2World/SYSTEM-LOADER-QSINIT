@@ -24,6 +24,8 @@
 ;    * no fixups in code, but assume 0:7C00 as location
 ;    * use disk number from DL, not from own BPB!
 ;    * check "active FAT copy" bits as windows boot sector do.
+;    * can read partition on 2Tb border ;) (i.e. only boot sector must have
+;      32-bit number)
 ;
 ; 3. boot sector: _bsectdb
 ;    * print DL from BIOS, disk number and "hidden sectors" from BPB and i13x
@@ -32,7 +34,7 @@
 ;
 ; 4. partition table code for GPT disk: _gptsect
 ;    * move self to 0:0600
-;    * panic if no i13x (CHS makes me ill, sorry)
+;    * panic if no i13x (CHS+GPT makes me ill, sorry)
 ;    * detects sector size via int 13h ah=48h call (to calc number of GPT
 ;      records per sector)
 ;    * assume 32bit sector number for 1st GPT copy
@@ -84,7 +86,7 @@ _psect:
                 jnz     @@pt_m_notbm                            ; try to boot
                 mov     ax,di                                   ; Boot Manager
 @@pt_m_notbm:
-                cmp     [di].PTE_Active,al                      ; if exists one
+                cmp     [di].PTE_Active,ch                      ; if exists one
                 jl      @@pt_m_active                           ; (as OS/2 mbr
                 jnz     @@pt_m_badrec                           ; code do).
                 add     di,size MBR_Record                      ;
@@ -147,23 +149,24 @@ _psect:
                 cmp     word ptr [bp+510],0AA55h                ;
                 jnz     @@pt_m_missing                          ;
                 mov     si,di                                   ; ds:[si] - pt entry
+                xor     edi,edi                                 ;
                 cmp     [si].PTE_Type,PTE_0A_BOOTMGR            ;
-                jnz     @@pt_m_go                               ; make BootMGR happy
-
-                xor     edi,edi                                 ; use [di] to avoid wasm
-                mov     ax,[di + LOC_0600h + (@@pt_m_sign - _psect)] ; wrong op type
+                jz      @@pt_m_bootmgr                          ;
+                jmp     @@pt_m_set_I13X                         ;
+@@pt_m_bootmgr:
+                mov     ax,[di + LOC_0600h + (@@pt_m_sign - _psect)] ; use [di] to avoid wasm wrong op type
                 mov     [bp+512+offset MBR_Reserved],ax         ; BootMGR check it here!
-                mov     edi,eax                                 ;
-                cmp     [si-4],al                               ; with I13X
+@@pt_m_set_I13X:
+                mov     eax,edi                                 ;
+                cmp     [si-4],al                               ; I13X?
                 mov     ecx,[si].PTE_LBAStart                   ;
                 jz      @@pt_m_no_i13x                          ;
                 mov     eax,58333149h                           ;
 @@pt_m_no_i13x:
-                push    I13X_SEG                                ;
-                pop     es                                      ;
-                stosd                                           ;
-                mov     es:[di],ecx                             ;
-@@pt_m_go:
+                push    I13X_SEG                                ; this is for IBM boot
+                pop     es                                      ; sectors only, but I hope
+                stosd                                           ; is not critical for any
+                mov     es:[di],ecx                             ; other (2 dd at 3000:0)
                 JmpF16a 0,LOC_7C00h                             ;
 @@pt_m_i13:
                 push    di                                      ;
@@ -518,7 +521,7 @@ _bsect32:
 @@bt_d_err1:    db      'No '
 _bsect32_name:
                 db      'QSINIT     ',0                         ;
-@@bt_d_err2:    db      'Disk i/o error',0                      ;
+@@bt_d_err2:    db      'Read error!',0                         ;
 @@bt_d_start:
                 mov     bp,LOC_7C00h                            ;
                 xor     eax,eax                                 ;
@@ -607,7 +610,7 @@ _bsect32_name:
 ;----------------------------------------------------------------
 ; next cluster in chain
 ; in  : @@bt_d_curclus - cluster
-; out : dx  - cluster, !CF - end of file
+; out : edx  - cluster, !CF - end of file
 ; save & return : the same as read sector + es, bx destroyd, edx - cluster
 @@bt_d_next_in_chain:
                 mov     eax,@@bt_d_curclus                      ;
@@ -635,11 +638,16 @@ _bsect32_name:
                 call    @@bt_d_read                             ;
 @@bt_d_nic_ready:
                 pop     bx                                      ;
+                and     byte ptr es:[bx+3], 0Fh                 ; saves 2 bytes
                 mov     edx,es:[bx]                             ;
-                and     edx,0FFFFFFFh                           ;
+;                and     edx,0FFFFFFFh                           ;
                 cmp     edx,0FFFFFF8h                           ;
                 ret                                             ;
 ;----------------------------------------------------------------
+@@bt_d_err:
+                xor     ax,ax                                   ;
+                int     16h                                     ;
+                int     19h                                     ;
 @@bt_d_readerr:
                 add     bp,offset @@bt_d_err2 - offset @@bt_d_err1
 @@bt_d_nofile:
@@ -652,17 +660,16 @@ _bsect32_name:
                 mov     bx,7                                    ;
                 int     10h                                     ;
                 jmp     @@bt_d_err_msg                          ;
-@@bt_d_err:
-                xor     ax,ax                                   ;
-                int     16h                                     ;
-                int     19h                                     ;
 ;----------------------------------------------------------------
 ; read sector
 ; in    : eax - start, cl - count, bx - seg to place data
 ; save  : si, di, ds, ch
 ; return: cl=0, es=seg, bx=offset to the end of data
 @@bt_d_read:
+                push    edx                                     ;
+                xor     edx,edx                                 ;
                 add     eax,[bp+BOOT_OEM_LEN].BPB_HiddenSec     ;
+                adc     dl,dl                                   ; 2Tb ;)
                 mov     es,bx                                   ;
                 xor     bx,bx                                   ;
 @@bt_d_sloop:
@@ -670,7 +677,6 @@ _bsect32_name:
 @@bt_d_rloop:
                 pushad                                          ;
                 mov     di,sp                                   ;
-                xor     edx,edx                                 ;
                 cmp     @@bt_d_i13x,dh                          ; cmp with 0
                 jz      @@bt_d_no_ext_read                      ;
                 push    edx                                     ;
@@ -687,6 +693,7 @@ _bsect32_name:
                 inc     eax                                     ;
                 dec     cl                                      ;
                 jnz     @@bt_d_sloop                            ;
+                pop     edx                                     ;
                 ret                                             ;
 @@bt_d_no_ext_read:
                 movzx   ecx,[bp+BOOT_OEM_LEN].BPB_SecPerTrack   ;
@@ -803,6 +810,14 @@ _bsectdb:
                 mov     ax,word ptr [bp+BOOT_OEM_LEN].BPB_HiddenSec ;
                 call    @@bt_p_word                             ;
                 call    @@bt_p_print                            ;
+                mov     ah,8                                    ;
+                mov     dl,@@bt_p_physdisk                      ;
+                int     13h                                     ; max head for
+                mov     al,dh                                   ; CHS i/o
+                inc     al                                      ;
+                call    @@bt_p_hex                              ;
+                call    @@bt_p_print                            ;
+
                 xor     ax,ax                                   ;
                 int     16h                                     ;
                 int     19h                                     ;
@@ -846,6 +861,7 @@ _bsectdb:
                 db      ' bpb.disk=',0,0,',',0,0                ;
                 db      ' i13x=',0                              ;
                 db      ' hidden=',0,0,0,0,0,0,0,0              ;
+                db      ' heads=',0,0                           ;
                 db      13,10,'press any key to reboot',0       ;
 @@bt_p_end:
 bt_p_reserved   equ     510 - (@@bt_p_end - _bsectdb)           ;
@@ -867,7 +883,7 @@ _gptsect:
                 and     ax,2420h                                ; but zero ax too :)
                 mov     si,LOC_7C00h                            ;
                 mov     ss,ax                                   ;
-                mov     sp,si                                   ; 
+                mov     sp,si                                   ;
                 mov     bp,si                                   ; 7C00h const
                 mov     es,ax                                   ;
                 mov     ds,ax                                   ;

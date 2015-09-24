@@ -7,3 +7,17 @@ exports = {
 
    _shl_chcp         = { index = 10   group = "shell"  format="usp"   }
 }
+
+class = {
+   name = qs_cpconvert
+   entires = {
+      setcp    = "uph"
+      convert  = "CpCi"
+      toupper  = "cpc"
+      tolower  = "cpc"
+      cplist   = "pp"
+      getsyscp = "hp"
+      setsyscp = "uph"
+      uprtab   = "pph"
+   }
+}

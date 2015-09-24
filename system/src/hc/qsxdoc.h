@@ -815,6 +815,7 @@ This log can be viewed in sysview.exe app and can be copied to OS/4 kernel
 log by adding key "LOGLEVEL" to kernel options.
 
 Some dumps are available in cmd shell or while pause message is active:
+@li Ctrl-Alt-F3 - installed shared classes list
 @li Ctrl-Alt-F4 - file table dump
 @li Ctrl-Alt-F5 - process tree dump
 @li Ctrl-Alt-F6 - gdt dump

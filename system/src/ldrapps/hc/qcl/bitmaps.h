@@ -47,7 +47,7 @@ typedef struct bit_map_s {
        @param  length   number of bits to set
        @return number of actually changed bits */
    u32t    _std (*set    )(int on, u32t pos, u32t length);
-   /** set area for value.
+   /** check area for value.
        @param  on       check value (1/0)
        @param  pos      start position
        @param  length   number of bits to check

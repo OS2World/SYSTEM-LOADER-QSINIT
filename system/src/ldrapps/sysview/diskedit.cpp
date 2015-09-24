@@ -1,11 +1,10 @@
-/*---------------------------------------------------------*/
-/*                                                         */
-/*   QSINIT: big TV app                                    */
-/*   Note  : this code looks like a garbage and created    */
-/*           only for speed up testing and debugging...    */
-/*                                                         */
-/*---------------------------------------------------------*/
-
+/*--------------------------------------------------------------------*/
+/*                                                                    */
+/*   QSINIT: big TV app                                               */
+/*   Note  : this code looks like a garbage and was created only for  */
+/*           speed up QSINIT`s testing... in addition this is still a */
+/*           GUI (some kind of it ;))                                 */
+/*--------------------------------------------------------------------*/
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,7 +39,6 @@
 #define Uses_TCollection
 #define Uses_TLabel
 #define Uses_TInputLine
-#define Uses_TFileDialog
 #define Uses_TColoredText
 #define Uses_TTerminal
 #define Uses_TFileEditor
@@ -305,7 +303,15 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""No memory to perform this action!",
                                "\3""Unable to open selected file!",
                                "\3""Specified file is empty!",
-                               "\3""Volume mount error!"
+                               "\3""Volume mount error!",
+                               "\3""Sector size is different on disks!",
+                               "\3""There is no VHDD module services!",
+                               "\3""Share error - file in use!",
+                               "\3""File is not a VHDD image!",
+                               "\3""Number of sectors is not matched!",
+                               "\3""Unable to mount disk image temporary!",
+                               "\3""Selected disk is invalid!",
+                               "\3""Unable to create file!"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
 }

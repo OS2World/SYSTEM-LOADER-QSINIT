@@ -98,7 +98,8 @@ static u32t pause_println(const char *line, int init_counter=0, u8t color=0) {
 
    if (pp_logcopy) log_it(2,"echo: %s\n",line);
    // check pause if we have real console here
-   return isatty(fileno(stdo))?pause_check(init_counter):0;
+   return init_counter>=0 && isatty(fileno(stdo))?pause_check(init_counter):0;
+
 }
 
 int __cdecl cmd_printf(const char *fmt, ...) {
@@ -151,8 +152,8 @@ int ask_yn(int allow_all) {
    }
 }
 
-static void process_args_common(TPtrStrings &al, char* args, short *values, 
-   va_list argptr) 
+static void process_args_common(TPtrStrings &al, char* args, short *values,
+   va_list argptr)
 {
    char  arg[128], *ap = args;
    // a bit of safeness
@@ -187,14 +188,17 @@ void process_args(TPtrStrings &al, char* args, short *values, ...) {
    va_end(argptr);
 }
 
-void str_parseargs(str_list *lst, char* args, short *values, ...) {
+str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
+   short *values, ...)
+{
    va_list   argptr;
    TPtrStrings   al;
 
-   str_getstrs(lst,al);
+   str_getstrs2(lst,al,firstarg);
    va_start(argptr, values);
    process_args_common(al, args, values, argptr);
    va_end(argptr);
+   return ret_list ? str_getlist(al.Str) : 0;
 }
 
 #define AllowSet " ^\r\n"
@@ -216,9 +220,10 @@ u32t _std cmd_printtext(const char *text, int pause, int init, u8t color) {
 
 
 u32t _std shl_copy(const char *cmd, str_list *args) {
-   int quiet=0, rc=-1;
+   char *errstr = 0;
+   int    quiet = 0, rc = -1;
    if (args->count>0) {
-      int frombp=0, cpattr=0;
+      int frombp = 0, cpattr = 0;
 
       TPtrStrings al;
       str_getstrs(args,al);
@@ -240,7 +245,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
             al.ParseCmdLine(merged.replace("\x01",""),'+');
             al.TrimEmptyLines();
             if (al.Count()>0) {
-               u8t  *is_boot = new u8t [al.Count()], 
+               u8t  *is_boot = new u8t [al.Count()],
                       sfattr = _A_ARCH;
                u32t *bt_len  = frombp?new u32t[al.Count()]:0,
                      bt_type = hlp_boottype(),
@@ -292,12 +297,17 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                      }
                      // opens source
                      FILE *ff = fopen(al[idx](),"rb");
-                     if (!ff) { rc=ENOENT; break; }
+                     if (!ff) {
+                        rc     = get_errno();
+                        errstr = sprintf_dyn("%s : ", al[idx]());
+                        break;
+                     }
                      al.Objects(idx)=ff;
                   }
                }
                if (!rc) {
-                  FILE *dstf = fopen(dst(),"wb");
+                  FILE  *dstf = fopen(dst(),"wb");
+                  int openerr = get_errno(); // save it for printing below
                   if (!dstf) {
                      // is this a dir? try to merge file name to it
                      dir_t dstinfo;
@@ -315,7 +325,10 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                      }
                   }
 
-                  if (!dstf) rc=EACCES; else {
+                  if (!dstf) {
+                     rc     = openerr;
+                     errstr = sprintf_dyn("%s : ", dst());
+                  } else {
                      const u32t memsize = _128KB;
                      void *buf = hlp_memalloc(memsize,QSMA_RETERR);
                      if  (!buf) rc=ENOMEM;
@@ -372,7 +385,8 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (!quiet&&rc) cmd_shellerr(rc,0);
+   if (!quiet&&rc) cmd_shellerr(rc,errstr);
+   if (errstr) free(errstr);
    return rc;
 }
 
@@ -447,6 +461,9 @@ struct dir_cbinfo {
    long     file_cnt;
    int        inited;
    int        crtime;
+   int     check_esc;
+   u32t   lincounter; // counter for esc check
+   int        ubreak; // user breaks this
 };
 
 static int __stdcall readtree_cb(dir_t *fp, void *cbinfo) {
@@ -488,7 +505,16 @@ static int __stdcall readtree_cb(dir_t *fp, void *cbinfo) {
          tme.tm_year+1900,tme.tm_hour,tme.tm_min);
       pp.insert(buf,0);
    }
-   return pause_println(pp(),cbi->dir_npmode)?-1:1;
+   int rc = pause_println(pp(),cbi->dir_npmode)?-1:1;
+   // check for ESC every 1024 files in non-pause mode
+   if (cbi->dir_npmode<0 && cbi->check_esc && (++cbi->lincounter&1023)==0) {
+      u16t key = key_wait(0);
+      if (key && !log_hotkey(key))
+         if ((key&0xFF)==27) rc = -1;
+   }
+   // flag user break
+   if (rc<0) cbi->ubreak = 1;
+   return rc;
 }
 
 static void dir_total(unsigned drive, dir_cbinfo *cbi) {
@@ -539,6 +565,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
    al.TrimEmptyLines();
    if (!al.Count()) al<<spstr(".");
    if (al.Count()>=1) {
+      FILE *stdo = get_stdout();
       // init "paused" output
       pause_println(0,1);
       dir_cbinfo cbi;
@@ -549,6 +576,9 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
       cbi.file_cnt   = 0;
       cbi.inited     = 0;
       cbi.crtime     = crtime;
+      cbi.check_esc  = nopause && isatty(fileno(stdo));
+      cbi.lincounter = 0;
+      cbi.ubreak     = 0;
 
       for (idx=0; idx<al.Count(); idx++) {
          // fix and split path
@@ -594,12 +624,18 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
             al[idx] = drive;
             // read tree
             u32t count = _dos_readtree(drive(),name(),0,subdirs,readtree_cb,&cbi);
-            // total files
-            cbi.file_cnt += count;
-            if (!count && cbi.ppath_len==-1) error = get_errno();
-            // last cycle print
-            ldrive = drive[0]-'0';
-            if (rc<0 && idx==al.Max()) dir_total(ldrive, &cbi);
+
+            if (cbi.ubreak) {
+               printf("User break\n");
+               return EINTR;
+            } else {
+               // total files
+               cbi.file_cnt += count;
+               if (!count && cbi.ppath_len==-1) error = get_errno();
+               // last cycle print
+               ldrive = drive[0]-'0';
+               if (rc<0 && idx==al.Max()) dir_total(ldrive, &cbi);
+            }
          }
          if (error) cmd_shellerr(rc=error,0);
       }
@@ -759,7 +795,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       // process args
       static char *argstr   = "/a|/o|/m|/np|/log|hide";
       static short argval[] = { 1, 1, 1,  1,   2,   1};
-      process_args(al, argstr, argval, 
+      process_args(al, argstr, argval,
                    &acpitable, &os2table, &mtrr, &nopause, &tolog, &hide);
    }
 
@@ -913,8 +949,8 @@ u32t _std shl_del(const char *cmd, str_list *args) {
       // process args
       static char *argstr   = "/p|/f|/s|/q|/e|/qn|/np|/nb";
       static short argval[] = { 1, 1, 1, 1, 1,  1,  1,  0};
-      process_args(al, argstr, argval, 
-                   &askall, &force, &subdir, &quiet, &edirs, 
+      process_args(al, argstr, argval,
+                   &askall, &force, &subdir, &quiet, &edirs,
                    &nquiet, &nopause, &breakable);
 
       al.TrimEmptyLines();
@@ -1307,7 +1343,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
 
    if (rc>=0) {
       if (!quiet) cmd_shellerr(rc,0);
-   } else 
+   } else
    while (al.Count()) {
       spstr dir, name;
       splitfname(al[0], dir, name);
@@ -1333,7 +1369,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
          int matchcount = 0, idx;
          strcpy(buf,dir());
          TStrings slst, dlst;
-      
+
          if (name.cpos('?')>=0||name.cpos('*')>=0) {
             dir_t *dt = opendir(dir()), *drec = dt;
             if (!dt) rc = ENOENT; else {
@@ -1360,7 +1396,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
                matchcount++;
             }
          }
-      
+
          if (!matchcount) {
             if (!quiet)
                printf("There is no replacement for specified criteria.\n");
@@ -1579,19 +1615,6 @@ u32t _std shl_msgbox(const char *cmd, str_list *args) {
    return 0;
 }
 
-/// exec "onload_MODNAME" section from extcmd.ini.
-void call_onload(spstr &mdname) {
-   TStrings  lst, alst;
-   spstr       autorun("onload_");
-   autorun += mdname;
-   // if section exists - then launch it!
-   if (ecmd_readsec(autorun, lst)) {
-      cmd_state cst = cmd_init2(lst, alst);
-      cmd_run(cst,CMDR_ECHOOFF);
-      cmd_close(cst);
-   }
-}
-
 u32t _std shl_mode(const char *cmd, str_list *args) {
    int rc=-1, idx, flags=0, ii;
    TPtrStrings al;
@@ -1621,11 +1644,8 @@ u32t _std shl_mode(const char *cmd, str_list *args) {
                u32t error = 0;
                if (!load_module(ename, &error)) {
                   log_it(2,"unable to load MODE %s handler, error %u\n", al[0](), error);
-               } else {
+               } else
                   proc = cmd_modermv(al[0](),0);
-                  // cll "onload", but only on extcmd.ini source, not env.str
-                  if (proc && mdname.length()) call_onload(mdname);
-               }
             }
          }
          if (!proc) rc = ENODEV;
@@ -1716,12 +1736,9 @@ u32t _std shl_autostub(const char *cmd, str_list *args) {
                else fall to "not loaded" message */
             cmd_eproc func = cmd_shellrmv(cmd,0);
 
-            if (func!=shl_autostub) {
-               call_onload(mdname);
-               return cmd_shellcall(func, 0, args);
-            }
+            if (func!=shl_autostub) return cmd_shellcall(func, 0, args);
          } else
-            log_printf("Error %d on loading \"%s\" handler module \"%s\"\n", 
+            log_printf("Error %d on loading \"%s\" handler module \"%s\"\n",
                error, cmd, mdfname());
       }
    }
@@ -1739,11 +1756,11 @@ u32t _std shl_log(const char *cmd, str_list *args) {
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       static char *argstr   = "/f|/d|/np|/nt|/nc";
       static short argval[] = { 1, 1,  1, 0, 0};
-      process_args(al, argstr, argval, 
+      process_args(al, argstr, argval,
                    &useflags, &usedate, &nopause, &usetime, &usecolor);
 
       idx = al.IndexOfName("/l");
-      if (idx>=0) { 
+      if (idx>=0) {
          spstr lv(al.Value(idx));
          level = !lv?3:lv.Int();
          al.Delete(idx);
@@ -1765,12 +1782,12 @@ u32t _std shl_log(const char *cmd, str_list *args) {
                if (useflags) flags|=LOGTF_FLAGS;
                if (level>=0) flags|=LOGTF_LEVEL|level; else
                if (usecolor) flags|=LOGTF_LEVEL|LOG_GARBAGE;
-                
+
                char *cp = log_gettext(flags);
                TPtrStrings ft;
                ft.SetText(cp);
                free(cp);
-               
+
                if (is_save) rc = ft.SaveToFile(al[1]()) ? 0 : EACCES; else {
                   u32t ii;
                   for (ii=0; ii<ft.Count(); ii++) {
@@ -1824,9 +1841,9 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
       // process args
       static char *argstr   = "/s|/d|/np|+r|-r|+s|-s|+h|-h|+a|-a|/q";
       static short argval[] = { 1, 1,  1, 1,-1, 1,-1, 1,-1, 1,-1, 1};
-      
-      process_args(al, argstr, argval, 
-                   &subdir, &idirs, &nopause, &a_R, &a_R, &a_S, &a_S, 
+
+      process_args(al, argstr, argval,
+                   &subdir, &idirs, &nopause, &a_R, &a_R, &a_S, &a_S,
                    &a_H, &a_H, &a_A, &a_A);
       al.TrimEmptyLines();
    }
@@ -1882,16 +1899,16 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
             int ii;
             u32t andmask = FFFF, ormask = 0;
             if (a_R||a_A||a_S||a_H) {
-               if (a_R) { 
+               if (a_R) {
                   andmask&=~_A_RDONLY; if (a_R>0) ormask|=_A_RDONLY;
                }
-               if (a_H) { 
+               if (a_H) {
                   andmask&=~_A_HIDDEN; if (a_H>0) ormask|=_A_HIDDEN;
                }
-               if (a_A) { 
+               if (a_A) {
                   andmask&=~_A_ARCH;   if (a_A>0) ormask|=_A_ARCH;
                }
-               if (a_S) { 
+               if (a_S) {
                   andmask&=~_A_SYSTEM; if (a_S>0) ormask|=_A_SYSTEM;
                }
             }
@@ -1951,7 +1968,7 @@ u32t _std shl_pushd(const char *cmd, str_list *args) {
          getcwd(cd, NAME_MAX+1);
          pdlist->Add(cd);
          pq->rtbuf[RTBUF_PUSHDST] = (u32t)pdlist;
-         
+
          if (al.Count()==1) rc = chdir_int(al[0]());
          if (rc<0) rc = 0;
       }
@@ -2103,7 +2120,7 @@ void setup_shell(void) {
    cmd_shelladd("ANSI"   , shl_ansi   );
    cmd_shelladd("MOVE"   , shl_move   );
    cmd_shelladd("REBOOT" , shl_reboot );
-   
+
    // install MODE SYS handler
    cmd_modeadd("SYS", shl_mode_sys);
    /* install stubs for pre-defined external commands */

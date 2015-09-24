@@ -19,6 +19,7 @@
 #include "qsstor.h"
 #include "qspage.h"
 #include "qsmodext.h"
+#include "qsclass.h"
 
 #define SESS_SIGN     0x53534553
 #define MODE_ECHOOFF      0x0001
@@ -167,7 +168,7 @@ u32t shl_extcall(spstr &cmd, TStrings &plist) {
    if (!ext_shell || !ext_shell->IsMember(cmd)) return EINVAL;
    /* str_getlist() must be used here, because it split spaces around =
       in parameter list */
-   str_list* args = str_getlist(plist);
+   str_list* args = str_getlist(plist.Str);
    int        idx = ext_shell->IndexOf(cmd);
    cmd_eproc func = ext_shell->Objects(idx);
    // ext_shell content can be changed inside call
@@ -201,7 +202,7 @@ u32t cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb) {
       if (argsa && argsb) arga.AddStrings(arga.Count(),argb);
       /* str_getlist() must be used here, because it split spaces around =
          in parameter list */
-      str_list *lst = str_getlist(argsa?arga:argb);
+      str_list *lst = str_getlist(argsa?arga.Str:argb.Str);
       u32t rc = (*func)(cmdname(),lst);
       free(lst);
 
@@ -460,7 +461,7 @@ static u32t cmd_process(spstr ln,session_info *si) {
    } else
    if (cmd=="EXIT") {
       linediff=si->list.Count()-si->nextline;
-      rc=CMDR_RETEND;
+      rc = CMDR_RETEND;
    } else
    if (cmd=="CALL") {
       u32t  size = 0;
@@ -482,7 +483,7 @@ static u32t cmd_process(spstr ln,session_info *si) {
    // process installed external command
    if (ext_shell && ext_shell->IsMember(cmd)) {
       ii = shl_extcall(cmd,plist);
-      if (ii<CMDR_RETEND) set_errorlevel(ii); else rc = ii;
+      if (ii<CMDR_NOFILE) set_errorlevel(ii); else rc = ii;
    } else
    if (cmd.length()) {
       u32t error=0;
@@ -565,15 +566,27 @@ void _std cmd_close(cmd_state commands) {
    delete si;
 }
 
-u32t _std cmd_exec(const char *file,const char *args) {
+u32t _std cmd_exec(const char *file, const char *args) {
    TStrings cmd;
    if (!cmd.LoadFromFile(file)) {
       printf(no_cmd_err,file);
-      return 255;
+      return CMDR_NOFILE;
    }
-   cmd_state state = cmd_init(cmd.GetTextToStr()(), args?args:file);
-   u32t rc = cmd_run(state, CMDR_ECHOOFF);
-   cmd_close(state);
+   cmd_state  cst = cmd_init(cmd.GetTextToStr()(), args?args:file);
+   u32t        rc = cmd_run(cst, CMDR_ECHOOFF);
+   cmd_close(cst);
+   return rc;
+}
+
+u32t _std cmd_execint(const char *section, const char *args) {
+   TStrings    lst;
+   spstr   autorun("exec_");
+   autorun += section;
+   // if section exists - then launch it!
+   if (!ecmd_readsec(autorun, lst)) return CMDR_NOFILE;
+   cmd_state  cst = cmd_init(lst.GetTextToStr()(), args?args:section);
+   u32t        rc = cmd_run(cst, CMDR_ECHOOFF);
+   cmd_close(cst);
    return rc;
 }
 
@@ -582,7 +595,9 @@ int _std log_hotkey(u16t key) {
    //log_printf("key %04X state: %08X\n", key, key_status());
    if ((key_status()&(KEY_CTRL|KEY_ALT))==(KEY_CTRL|KEY_ALT)) {
       switch (kh) {
-         // Ctrl-Alt-F4: opened files
+         // Ctrl-Alt-F3: class list
+         case 0x3D: case 0x60: case 0x6A: exi_dumpall(); return 1;
+         // Ctrl-Alt-F4: file handles
          case 0x3E: case 0x61: case 0x6B: log_ftdump(); return 1;
          // Ctrl-Alt-F5: process tree
          case 0x3F: case 0x62: case 0x6C: mod_dumptree(); return 1;
@@ -657,8 +672,7 @@ str_list* _std cmd_shellqall(int ext_only) {
    int ii = 0;
    while (ii<lst.Max())
       if (lst[ii]==lst[ii+1]) lst.Delete(ii+1); else ii++;
-   TStrings cpp(lst);
-   return str_getlist(cpp);
+   return str_getlist(lst.Str);
 }
 
 cmd_eproc _std cmd_modeadd(const char *name, cmd_eproc proc) {
@@ -673,7 +687,7 @@ str_list* _std cmd_modeqall(void) {
    if (ext_mode) {
       TStrings lst(*ext_mode);
       lst.Sort();
-      return str_getlist(lst);
+      return str_getlist(lst.Str);
    }
    str_list *rc = (str_list*)malloc(sizeof(str_list));
    rc->count    = 0;

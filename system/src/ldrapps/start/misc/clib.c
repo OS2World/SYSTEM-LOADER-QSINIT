@@ -13,7 +13,8 @@
 #include "internal.h"
 #include "limits.h"
 
-// this __stdcall save from linking errno as forward(!!) entry to itself ;)
+/* must be exported as _errno. But all such exports can`t be used directly in
+   START, because of linker madness */
 int __stdcall errno=EZERO;
 void set_errno(int errno_new) { errno=errno_new; }
 int  get_errno(void) { return errno; }

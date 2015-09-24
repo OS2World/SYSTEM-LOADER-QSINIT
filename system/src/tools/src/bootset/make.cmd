@@ -6,7 +6,7 @@
 @rem **************************************************
 @echo off
 rem --------------
-set prjname=BOOTSET
+set prjname=bootset
 rem --------------
 set bldtype=%1
 set bldarg=%2
@@ -21,7 +21,7 @@ call ..\..\..\setup.cmd
 set INCLUDE=%TOOL_INC%
 set PATH=%PATH_ORG%;%PATH%
 
-rem creating dirs (else spprj will failed to write misc files before build)
+rem creating dirs (else spprj will fail to write misc files before build)
 spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
 rem writing makefile for reference
 spprj -nb %prjname%.prj %bldtype% bld\%prjname%.mak

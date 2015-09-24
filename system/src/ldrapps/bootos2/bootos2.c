@@ -62,6 +62,7 @@ u32t     dhfsize = 0,               // doshlp file size
         arenacnt = 0,               // number of filled arenas
        respart4k = 0,               // doshlp size, rounded to page
       laddrdelta = 0;               // paddr / vaddr offset
+void    *mfsdptr = 0;               // pointer to mini-fsd file
 int     twodiskb = 0,               // two disk boot flag
        isos4krnl = 0,               // is OS/4 kernel?
        isdbgkrnl = 0;               // is debug kernel?
@@ -103,10 +104,17 @@ void error_exit(int code, const char *message) {
    if (os2sym)  { hlp_memfree(os2sym); os2sym=0; }
    if (mfsdsym) { hlp_memfree(mfsdsym); mfsdsym=0; }
    if (logresv) { hlp_memfree(logresv); logresv=0; }
+   // only allocated by SOURCE option loading code
+   if (mfsdptr && mfsdptr!=boot_info.minifsd_ptr) { 
+      hlp_memfree(mfsdptr); mfsdptr=0; 
+      mfsdsize = 0;
+   }
    if (pcidata) { free(pcidata); pcidata=0; }
    if (cmdcall) { free(cmdcall); cmdcall=0; }
    if (hiptbuf) { free(hiptbuf); hiptbuf=0; }
    if (kparm)   { free(kparm); kparm=0; }
+
+
    // reinit physmem array
    hlp_setupmem(0,0,0,SETM_SPLIT16M);
 
@@ -471,14 +479,14 @@ void load_kernel(module  *mi) {
       } else
          b16frame = t16a->a_paddr + t16a->a_size;
       // calculate used space
-      if (mfsdsym && msymsize)   b16frame -= PAGEROUND(msymsize + 4);
-      if (os2sym && symsize)     b16frame -= PAGEROUND(symsize + 4);
-      if (boot_info.minifsd_ptr) b16frame -= PAGEROUND(mfsdsize);
+      if (mfsdsym && msymsize) b16frame -= PAGEROUND(msymsize + 4);
+      if (os2sym && symsize)   b16frame -= PAGEROUND(symsize + 4);
+      if (mfsdptr)             b16frame -= PAGEROUND(mfsdsize);
 
       // copying mini-FSD to final location
-      if (boot_info.minifsd_ptr) {
+      if (mfsdptr) {
          log_printf("mFSD: %08X\n", b16frame);
-         memcpy((void*)(b16frame+pdiff), boot_info.minifsd_ptr, mfsdsize);
+         memcpy((void*)(b16frame+pdiff), mfsdptr, mfsdsize);
          // setup mini-FSD arena
          pa->a_paddr  = b16frame;
          pa->a_size   = PAGEROUND(mfsdsize);
@@ -509,7 +517,7 @@ void load_kernel(module  *mi) {
          pa++;
       }
       // copying mini-FSD sym file
-      if (boot_info.minifsd_ptr && mfsdsym && msymsize) {
+      if (mfsdptr && mfsdsym && msymsize) {
          u32t *tgt = (u32t*)(b16frame+pdiff);
          // save size and data
          tgt[0] = msymsize;
@@ -797,9 +805,10 @@ void memparm_init(void) {
          log_printf("VMTRR limit us to %uMb\n", ps);
 
       }
-   // limit warp kernel memory to 2Gb
+   /* limit warp kernel memory to 1Gb
+      Valerius says - this is the real limit, so just set it ;) */
    if (lid->BootFlags&BOOTFLAG_WARPSYS)
-      if (!limit || limit>2048) limit=2048;
+      if (!limit || limit>1024) limit=1024;
    // additional requirements
    if (lid->BootFlags&BOOTFLAG_EDISK) exrsize = PAEIO_MEMREQ>>16;
    // fill removemem array
@@ -973,13 +982,15 @@ void check_size(void **ptr, u32t *size, u32t limit, const char *info) {
 void *read_file(const char *path, u32t *size, int kernel) {
    void *rc = 0;
    *size = 0;
-   if (path[1]!=':') {
+   if (strchr(path,'\\')==0 && strchr(path,'/')==0) {
       if (bootsrc) {
          char *cp = strdup("A:\\");
          cp[0] += bootsrc;
          cp     = strcat_dyn(cp,path);
          rc     = freadfull(cp,size);
          free(cp);
+         // no file? try it via HPFS read
+         if (!rc) rc = altfs_readfull(bootsrc,path,size);
       }
       if (!rc) rc = hlp_freadfull(path,size,0);
       if (!rc && kernel && strnicmp(path,"OS2KRNL",8)==0) {
@@ -1014,7 +1025,7 @@ void load_miscfiles(const char *kernel) {
       }
    }
    // mini-FSD present, check SYM key
-   if (boot_info.minifsd_ptr) {
+   if (mfsdptr) {
       parmptr = key_present("MFSDSYM");
       if (parmptr) {
          mfsdsym = read_file(parmptr, &msymsize, 0);
@@ -1074,11 +1085,10 @@ void main(int argc,char *argv[]) {
          /* check volume is mounted FAT partition, make fake BPB for it
             and switch flags to FAT boot type */
          if (dsk>='2' && dsk<='9')
-            if (replace_bpb(dsk - '0', &RepBPB)) {
+            if (replace_bpb(dsk - '0',&RepBPB,&bootflags,&mfsdptr,&mfsdsize)) {
                serr      = 0;
                bootsrc   = dsk - '0';
                bootdisk  = RepBPB.BPB_BootDisk;
-               bootflags = 0;
             }
       }
       if (serr) error_exit(10,"Invalid volume in \"SOURCE\" parameter!\n");
@@ -1087,13 +1097,19 @@ void main(int argc,char *argv[]) {
       // just remembering about missing filetable struct!
       error_exit(13,"Fix me!\n");
    }
-   // mini-fsd present
-   if (boot_info.minifsd_ptr) {
-      mfsdsize = boot_info.filetab.ft_mfsdlen;
-      log_printf("mini-fsd len: %d\n",mfsdsize);
-   } else
-   if ((bootflags&BF_MICROFSD)!=0)
-      error_exit(9,"Mini-FSD is absent in FSD boot mode!\n");
+   /* mini-fsd present (note, mfsdptr/mfsdsize can be assigned above - 
+      if SOURCE parameter present) */
+   if (!mfsdptr) {
+      if (boot_info.minifsd_ptr) {
+         mfsdptr  = boot_info.minifsd_ptr;
+         mfsdsize = boot_info.filetab.ft_mfsdlen;
+      } else
+      if ((bootflags&BF_MICROFSD)!=0)
+         error_exit(9,"Mini-FSD is absent in FSD boot mode!\n");
+   }
+   // print it!
+   if (mfsdsize) log_printf("mini-fsd len: %d\n",mfsdsize);
+
    /* read kernel from "boot replacement" partition if present,
       then from boot FS */
    kernel = read_file(argv[1], &kernsize, 1);
@@ -1395,7 +1411,8 @@ void main(int argc,char *argv[]) {
 
    // setup ram disk boot configuration
    if (lid->BootFlags&BOOTFLAG_EDISK)
-      setup_ramdisk(bootdisk^QDSK_FLOPPY, efd, (char*)doshlp);
+      if (!setup_ramdisk(bootdisk^QDSK_FLOPPY, efd, (char*)doshlp))
+         error_exit(12,"Internal error in RAM disk setup!\n");
    /* turn on COM2 port for IBM debug kernel without OS2LDR.INI 
       (actually, without parameters) */
    if (isdbgkrnl && !isos4krnl && kparm->count==0 && (lid->DebugTarget&DEBUG_TARGET_MASK)==0) {
@@ -1454,11 +1471,11 @@ void main(int argc,char *argv[]) {
       }
    }
    log_printf("Flags: %04X\n",lid->BootFlags);
-
+   
    // push key press
    parmptr = key_present("PKEY");
-   if (parmptr) {
-      u16t key = strtoul(parmptr,0,0);
+   if (parmptr || key_present("ALTE")) {
+      u16t key = parmptr?strtoul(parmptr,0,0):0x1200;
       log_printf("pkey = %s %04X\n",parmptr,key);
       if (key) key_push(key);
    }

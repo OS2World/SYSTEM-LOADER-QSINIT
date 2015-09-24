@@ -46,14 +46,15 @@ Source tree:
    system\src\ldrapps\tv           - Turbo Vision
    system\src\ldrapps\vdisk        - PAE ram disk support module
    system\src\ldrapps\vmtrr        - Write Combining MTRR setup
+   system\src\ldrapps\vhdd         - simple "file disk" (virtual hdd for
+                                     PARTMGR testing)
 
    system\src\usrapps            - additional apps
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
    system\src\usrapps\mptable      - mp table dump app (from bsd)
-   system\src\usrapps\vhdd         - tiny "file disk" (virtual hdd for
-                                     PARTMGR testing)
    system\src\usrapps\rdtest       - OS/2 application example of IOCTL
-                                     access to PAE RAM disk
+                                     access to PAE RAM disk (speed test app
+                                     and read disk to file example)
 
    system\src\tools\src          - various build tools source code
    system\src\tools\src\bin2h      - binary data to .h simple converter
@@ -70,12 +71,18 @@ Some helpful key combinations for ones, who not read Doxygen doc:
 ( keys available in cmd shell or while pause message is active, log_hotkey()
   can be used in own code to filter and call all of this )
 
+   Ctrl-Alt-F3 - shared classes dump
    Ctrl-Alt-F4 - file table dump
    Ctrl-Alt-F5 - process tree dump
    Ctrl-Alt-F6 - gdt dump
    Ctrl-Alt-F7 - idt dump
-   Ctrl-Alt-F8 - page tables dump (very long, in paging mode only)
+   Ctrl-Alt-F8 - page tables dump (very long, in paging mode only / it takes
+                 minutes in EFI version, seriously)
    Ctrl-Alt-F9 - entire pci config space dump (very long)
    Ctrl-Alt-F10 - module table dump
    Ctrl-Alt-F11 - system memory table dump
    Ctrl-Alt-F12 - pool block list (very long)
+
+TRACE command can help in strange situations. It supports tracing of all
+described module`s exports and shared classes. Trace info stored in TRC files
+(one per module) in LDI archive.

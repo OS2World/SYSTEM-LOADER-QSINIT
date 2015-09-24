@@ -42,16 +42,16 @@ static u32t mod_makeaddr(module *md, u32t Obj, u32t offset) {
 
 // link module to list
 void mod_listadd(module **list, module *module) {
-   module->next = *list;
+   module->prev = 0;
+   if ((module->next = *list)) module->next->prev = module;
    *list=module;
 }
 
 // unlink module from list
 void mod_listdel(module **list, module *module) {
-   if (!module->prev&&!module->next&&module!=*list) return; // not linked
-   if (module->prev) module->prev->next=module->next; else {
-      *list=module->next;
-   }
+   // not linked?
+   if (!module->prev && !module->next && module!=*list) return;
+   if (module->prev) module->prev->next=module->next; else *list=module->next;
    if (module->next) module->next->prev=module->prev;
    module->next=0;
    module->prev=0;
@@ -117,12 +117,14 @@ static void mod_unloadimports(module *md) {
 
 // call init/term for single dll module
 static u32t mod_initterm(module *md, u32t term) {
+   u32t rc;
    if ((md->flags&MOD_LIBRARY)==0) return 1;
    if (!md->start_ptr||(md->flags&(term?MOD_TERMDONE:MOD_INITDONE))!=0||
       term&&md->usage>1) return 1;
+   rc = dll32init(md,term);
    // flag about function was called at least once ;)
-   md->flags|=term?MOD_TERMDONE:MOD_INITDONE;
-   return dll32init(md,term);
+   if (rc) md->flags|=term?MOD_TERMDONE:MOD_INITDONE;
+   return rc;
 }
 
 /* call init/term for all modules, used by module "md" and for
@@ -476,6 +478,8 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
       }
       // free module image
       hlp_memfree(buf);
+      // callback to START
+      if (md&&mod_secondary) (*mod_secondary->mod_loaded)(md);
 
       return (u32t)md;
    }
@@ -797,11 +801,13 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
 
    // copying env/cmdline data
    if (envlen) memcpy(cmdline,env,envlen); else envlen=2;
-   cmdline+=envlen;
+   cmdline += envlen;
    memcpy(cmdline,md->mod_path,pathlen);
-   cmdline+=pathlen;
+   cmdline += pathlen;
    memcpy(cmdline,md->mod_path,pathlen);
    if (parmlen) memcpy(cmdline+pathlen,params,parmlen);
+   // flag we`re running
+   md->flags |= MOD_EXECPROC;
 
    rc = 0;
    if (svctx) {
@@ -835,36 +841,50 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    } else {
       //log_printf("warning! \"start\" module exited!\n");
    }
+   md->flags&=~MOD_EXECPROC;
    return rc;
 }
 
 // free and unload module (decrement usage)
-void mod_free(u32t mh) {
+u32t mod_free(u32t mh) {
    process_context *pq = mod_context();
    module          *md = (module*)mh;
    u32t             oi;
 
-   if (md->sign!=MOD_SIGN) return;
+   if (md->sign!=MOD_SIGN) return MODFERR_HANDLE;
    // do not allow to free self while running
-   if (pq && pq->self == md) return;
+   if (pq && pq->self == md) return MODFERR_SELF;
    // block main modules final free
-   if ((md==mod_start || md==mod_self) && md->usage==1) return;
+   if ((md==mod_start || md==mod_self) && md->usage==1) return MODFERR_SYSTEM;
    // dec usage
-   if (--md->usage>0) return;
+   if (--md->usage>0) return 0;
    log_printf("unload %s\n",md->mod_path);
-   // call term function in case of dll module
-   if (md->flags&MOD_LIBRARY) mod_initterm(md,1);
+   /* check is mod_exec() not launched for EXE and
+      call term function for DLL module */
+   if ((md->flags&MOD_LIBRARY)==0) {
+      if ((md->flags&MOD_EXECPROC)) {
+         log_printf("\"%s\" is running!\n",md->mod_path);
+         md->usage++; 
+         return MODFERR_EXECINPROC;
+      }
+   } else
+      if (mod_initterm(md,1)==0) { 
+         log_printf("\"%s\" deny unload\n",md->mod_path);
+         md->usage++; 
+         return MODFERR_LIBTERM; 
+      }
    // free all used modules
    mod_unloadimports(md);
-   // free export table
+   // free export table (common unload callback to START)
    if (mod_secondary) (*mod_secondary->mod_freeexps)(md);
-   // free selectors (zero value will be ignored)
-   for (oi=0;oi<md->objects;oi++) hlp_selfree(md->obj[oi].sel);
+   // free selectors (zero values will be ignored)
+   for (oi=0; oi<md->objects; oi++) hlp_selfree(md->obj[oi].sel);
    // unlink self from lists
    mod_listdel(md->flags&MOD_LOADING?&mod_ilist:&mod_list, md);
    // free module header(md itself) + module objects
    md->sign=0;
    hlp_memfree(md->baseaddr);
+   return 0;
 }
 
 // build export table (boot time only, for start module)

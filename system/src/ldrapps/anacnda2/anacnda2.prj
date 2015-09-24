@@ -9,7 +9,6 @@ version=0x0001
 aa=@wasm
 cc=@wcc386
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -17,12 +16,8 @@ out=$(outdir)/
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cc) $(cinc) $(cflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
-
-*cln=clean|.SYMBOLIC|@$(&clean)
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
@@ -36,19 +31,22 @@ bld_dir=bld
 outdir=$(bld_dir)\$(config)
 outname=$(name).exe
 &lnk=$(outdir)\$(name).lnk
-&clean=$(outdir)\cleanall.cmd
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 anacnda2.c
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait $(**c)
+nolink : MAKEDIRS hello @@wait $(**c)
 
-#$(**inc) $(**asm) 
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 [&lnk]
 sys os2v2
@@ -66,19 +64,8 @@ op st=32768
 op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist *.h @del *.h
-if exist $(name).* @del $(name).*
-cd ..\..
-
 [config.0]
 *out=$(outname) | nolink | \
      @echo Linking ... | \
      $(ld) @$(&lnk) | lxlite $(outname) >nul | \
-     @pkzip /add /max /silent /nozipextension /path=none \
-     %(QS_BIN)\%(QS_ARCH) $(outname)
+     @zip -q -9 -X -S -j %(QS_BIN)\%(QS_ARCH) $(outname)

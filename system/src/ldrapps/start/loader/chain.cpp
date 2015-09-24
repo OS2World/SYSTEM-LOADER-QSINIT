@@ -50,18 +50,97 @@ void _std thunk_panic(ordinal_data *od, int msgnum) {
    }
 }
 
-static ordinal_data *find_entry(module *mh, u32t ordinal) {
+/// get chain info by ordinal or function pointer
+static ordinal_data *find_entry(module *mh, u32t ordinal, void *func = 0) {
    u32t ii, cnt = chlist?chlist->count():0;
-   if (!cnt) return 0;
+   if (!cnt || !ordinal && !func) return 0;
    for (ii=0;ii<cnt;ii++) {
       ordinal_data *od = (ordinal_data*)chlist->value(ii);
-      if (od->od_handle==mh && od->od_ordinal==ordinal) return od;
+      if (od->od_handle==mh) {
+         if (ordinal && od->od_ordinal==ordinal) return od;
+         if (od->od_address==(u32t)func) return od;
+      }
    }
    return 0;
 }
 
-int  _std mod_apichain  (u32t mh, u32t ordinal, u32t chaintype, void *handler)
-{
+/// get chain info by thunk pointer
+static ordinal_data *find_by_thunk(void *thunk) {
+   u32t ii, cnt = chlist?chlist->count():0;
+   if (!cnt || !thunk) return 0;
+   for (ii=0;ii<cnt;ii++) {
+      ordinal_data *od = (ordinal_data*)chlist->value(ii);
+      if (od->od_thunk==thunk) return od;
+   }
+   return 0;
+}
+
+static void add_handler(ordinal_data *od, u32t chaintype, void *handler) {
+   int f1stpos = chaintype&APICN_FIRSTPOS;
+   // disable thunk until the end of changes
+   build_thunk(od,1);
+   switch (chaintype&~APICN_FIRSTPOS) {
+      case APICN_ONENTRY:
+         if (!od->od_entry) od->od_entry = NEW(ptr_list);
+         if (f1stpos) od->od_entry->insert(0,handler,1); 
+            else od->od_entry->add(handler);
+         break;
+      case APICN_ONEXIT :
+         if (!od->od_exit)  od->od_exit  = NEW(ptr_list);
+         if (f1stpos) od->od_exit->insert(0,handler,1); 
+            else od->od_exit->add(handler);
+         break;
+      case APICN_REPLACE:
+         od->od_replace = handler;
+         break;
+   }
+   build_thunk(od);
+}
+
+static u32t del_handler(ordinal_data *od, u32t chaintype, void *handler) {
+   u32t rc = 0;
+   // disable thunk until end of changes
+   build_thunk(od,1);
+
+   if (!handler) {
+      if ((!chaintype || chaintype==APICN_ONENTRY) && od->od_entry) {
+         rc+=od->od_entry->count();
+         od->od_entry->clear();
+      }
+      if ((!chaintype || chaintype==APICN_ONEXIT) && od->od_exit) {
+         rc+=od->od_exit->count();
+         od->od_exit->clear();
+      }
+      if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace) {
+         od->od_replace = 0;
+         rc++;
+      }
+   } else {
+      if ((!chaintype || chaintype==APICN_ONENTRY) && od->od_entry) {
+         rc+=od->od_entry->count();
+         od->od_entry->delvalue(handler);
+         rc-=od->od_entry->count();
+      }
+      if ((!chaintype || chaintype==APICN_ONEXIT) && od->od_exit) {
+         rc+=od->od_exit->count();
+         od->od_exit->delvalue(handler);
+         rc-=od->od_exit->count();
+      }
+      if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace==handler) {
+         od->od_replace = 0;
+         rc++;
+      }
+   }
+   if (od->od_entry && od->od_entry->count()==0)
+      { DELETE(od->od_entry); od->od_entry = 0; }
+   if (od->od_exit  && od->od_exit->count()==0 )
+      { DELETE(od->od_exit);  od->od_exit  = 0; }
+   build_thunk(od);
+
+   return rc;
+}
+
+int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
    module *md=(module*)mh;
    if (!mh || md->sign!=MOD_SIGN || !ordinal || !chaintype ||
       (chaintype&~APICN_FIRSTPOS)>APICN_REPLACE || !handler) return 0;
@@ -92,31 +171,12 @@ int  _std mod_apichain  (u32t mh, u32t ordinal, u32t chaintype, void *handler)
       od->od_address = me->direct;
 
       chlist->add(od);
-   } else // disable thunk until end of changes
-      build_thunk(od,1);
-
-   int f1stpos = chaintype&APICN_FIRSTPOS;
-
-   switch (chaintype&~APICN_FIRSTPOS) {
-      case APICN_ONENTRY:
-         if (!od->od_entry) od->od_entry = NEW(ptr_list);
-         if (f1stpos) od->od_entry->insert(0,handler,1); 
-            else od->od_entry->add(handler);
-         break;
-      case APICN_ONEXIT :
-         if (!od->od_exit)  od->od_exit  = NEW(ptr_list);
-         if (f1stpos) od->od_exit->insert(0,handler,1); 
-            else od->od_exit->add(handler);
-         break;
-      case APICN_REPLACE:
-         od->od_replace = handler;
-         break;
    }
-   build_thunk(od);
+   add_handler(od, chaintype, handler);
    return 1;
 }
 
-u32t  _std mod_apiunchain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
+u32t _std mod_apiunchain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
    module *md=(module*)mh;
    if (!mh || md->sign!=MOD_SIGN || chaintype>APICN_REPLACE) return 0;
    if (!chlist) return 0;
@@ -134,44 +194,8 @@ u32t  _std mod_apiunchain(u32t mh, u32t ordinal, u32t chaintype, void *handler) 
    } else {
       ordinal_data *od = find_entry(md, ordinal);
       if (!od) return 0;
-      // disable thunk until end of changes
-      build_thunk(od,1);
-
-      if (!handler) {
-         if ((!chaintype || chaintype==APICN_ONENTRY) && od->od_entry) {
-            rc+=od->od_entry->count();
-            od->od_entry->clear();
-         }
-         if ((!chaintype || chaintype==APICN_ONEXIT) && od->od_exit) {
-            rc+=od->od_exit->count();
-            od->od_exit->clear();
-         }
-         if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace) {
-            od->od_replace = 0;
-            rc++;
-         }
-      } else {
-         if ((!chaintype || chaintype==APICN_ONENTRY) && od->od_entry) {
-            rc+=od->od_entry->count();
-            od->od_entry->delvalue(handler);
-            rc-=od->od_entry->count();
-         }
-         if ((!chaintype || chaintype==APICN_ONEXIT) && od->od_exit) {
-            rc+=od->od_exit->count();
-            od->od_exit->delvalue(handler);
-            rc-=od->od_exit->count();
-         }
-         if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace==handler) {
-            od->od_replace = 0;
-            rc++;
-         }
-      }
-      if (od->od_entry && od->od_entry->count()==0)
-         { DELETE(od->od_entry); od->od_entry = 0; }
-      if (od->od_exit  && od->od_exit->count()==0 )
-         { DELETE(od->od_exit);  od->od_exit  = 0; }
-      build_thunk(od);
-
+      // process
+      rc += del_handler(od, chaintype, handler);
       // delete empty ordinal entry
       if (od->od_entry==0 && od->od_exit==0 && od->od_replace==0) {
          chlist->delvalue(od);
@@ -190,4 +214,88 @@ void mod_resetchunk(u32t mh, u32t ordinal) {
    if (!mh || md->sign!=MOD_SIGN || !ordinal) return;
    ordinal_data *od = find_entry(md, ordinal);
    if (od) build_thunk(od,1);
+}
+
+void *mod_buildthunk(u32t mh, void *function) {
+   module *md=(module*)mh;
+   if (!mh || md->sign!=MOD_SIGN || !function) return 0;
+   ordinal_data *od = find_entry(md, 0, function);
+   if (!od) {
+      if (!chlist) chlist = NEW(ptr_list);
+      od = (ordinal_data*)malloc(Round16(sizeof(ordinal_data))+16);
+      memZero(od);
+      od->od_handle  = md;
+      od->od_ordinal = 0;
+      od->od_thunk   = (u8t*)od + Round16(sizeof(ordinal_data));
+      od->od_address = (u32t)function;
+      // build thunk to direct forwarding
+      build_thunk(od,1);
+      
+      chlist->add(od);
+   }	
+   return od->od_thunk;
+}
+
+u32t mod_freethunk(u32t mh, void *thunk) {
+   module *md=(module*)mh;
+   if (!mh || md->sign!=MOD_SIGN) return 0;
+   if (!chlist) return 0;
+   u32t rc = 0;
+   if (!thunk) {
+      u32t ii = 0;
+      while (ii<chlist->count()) {
+         ordinal_data *od = (ordinal_data*)chlist->value(ii);
+         if (od->od_handle!=md) ii++; else {
+            rc += mod_freethunk(mh, od->od_thunk);
+            if (!rc) ii++;
+         }
+      }
+      if (rc) log_it(2,"module %s, free %d thunks\n", md->name, rc);
+   } else {
+      ordinal_data *od = find_by_thunk(thunk);
+      if (!od) return 0;
+      // remove all
+      rc += del_handler(od, 0, 0);
+      chlist->delvalue(od);
+      free(od);
+   }
+   return rc;
+}
+
+int mod_fnchain(u32t mh, void *thunk, u32t chaintype, void *handler) {
+   module *md=(module*)mh;
+   if (!mh || md->sign!=MOD_SIGN || !thunk || !chaintype ||
+      (chaintype&~APICN_FIRSTPOS)>APICN_REPLACE || !handler) return 0;
+   ordinal_data *od = find_by_thunk(thunk);
+   if (!od) return 0;
+   add_handler(od, chaintype, handler);
+   return 1;
+}
+
+u32t mod_fnunchain(u32t mh, void *thunk, u32t chaintype, void *handler) {
+   module *md=(module*)mh;
+   if (!mh || md->sign!=MOD_SIGN || chaintype>APICN_REPLACE) return 0;
+   if (!chlist) return 0;
+   u32t rc = 0;
+   if (!thunk) {
+      u32t ii = 0;
+      while (ii<chlist->count()) {
+         ordinal_data *od = (ordinal_data*)chlist->value(ii);
+         if (od->od_handle!=md) ii++; else {
+            rc += mod_fnunchain(mh, od->od_thunk, chaintype, handler);
+            if (!rc) ii++;
+         }
+      }
+      if (rc) log_it(2,"module %s, unchain %d functions\n", md->name, rc);
+   } else {
+      ordinal_data *od = find_by_thunk(thunk);
+      if (!od) return 0;
+      // process
+      rc += del_handler(od, chaintype, handler);
+      //log_it(2,"unchain %08X, module %s, cnt=%d\n", od->od_address, md->name, rc);
+   }
+   /* function simulate to mod_apiunchain(), with exception: it saves thunks
+      in chlist, because they are global for this module and will be released
+      only in mod_freethunk() */
+   return rc;
 }

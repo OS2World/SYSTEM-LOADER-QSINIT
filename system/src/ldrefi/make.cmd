@@ -18,7 +18,7 @@ if "%bldarg%".=="". set bldarg=*
 rem setup variables
 call ..\setup.cmd
 
-rem creating dirs (else spprj will failed to write misc files before build)
+rem creating dirs (else spprj will fail to write misc files before build)
 spprj -b -w -nb qsefi.prj %bldtype% makedirs
 
 rem writing makefile for reference

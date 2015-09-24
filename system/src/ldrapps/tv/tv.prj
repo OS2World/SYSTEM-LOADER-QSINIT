@@ -11,7 +11,6 @@ cc=@wcc386
 cpp=@wpp386
 lib=@wlib
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -22,12 +21,8 @@ out=$(outdir)/
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
-
-*cln=clean|.SYMBOLIC|@$(&clean)
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
@@ -45,32 +40,27 @@ bld_dir=bld
 outdir=$(bld_dir)\$(config)
 outname=$(name).dll
 &rsp1=$(outdir)\wlib.rsp
-&clean=$(outdir)\cleanall.cmd
 tvloc=src/
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 ##tvfiles.lst
 src\qs_sys.cpp src\qs_main.c
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait $(**c) $(**cpp)
+nolink : MAKEDIRS hello @@wait $(**c) $(**cpp)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 [&rsp1]
 $(**c) $(**cpp)
-
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist *.h @del *.h
-if exist $(name).* @del $(name).*
-cd ..\..
 
 [config.0]
 *out=$(outname) | nolink | \

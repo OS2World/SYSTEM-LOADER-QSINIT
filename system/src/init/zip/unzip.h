@@ -17,6 +17,7 @@ typedef struct {
    u32t     stored_crc;
    u32t            crc;
    u32t        dostime;
+   u32t      extradata;
 } ZIP;
 
 /** open memory buffer as ZIP file.

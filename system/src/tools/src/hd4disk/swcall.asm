@@ -42,16 +42,16 @@ ifdef DOSHLP_BUILD
 ; ---------------------------------------------------------------
 ; IN:    al - action: 0=read, 1=write (not used)
 ;       edx - start sector
+;       edi - bpb`s hidden sectors
 ;        cx - sector count
 ;     es:bx - buffer address
 ; OUT:  C=1 - failed
-;     dx:ax - start sector + count
+;     dx:ax - start sector + count (without hidden sectors)
 ;     all registers destroyd
 ;
                 public  pae_diskio
 pae_diskio      proc    near                                    ;
-                push    ebp                                     ;
-                mov     edi,edx                                 ;
+                add     edi,edx                                 ;
                 movzx   ecx,cx                                  ;
                 add     edx,ecx                                 ;
                 push    edx                                     ; out dx:ax
@@ -130,7 +130,6 @@ pae_diskio      proc    near                                    ;
                 cmc                                             ;
                 pop     ax                                      ;
                 pop     dx                                      ;
-                pop     ebp                                     ;
                 ret                                             ;
 pae_diskio      endp                                            ;
 

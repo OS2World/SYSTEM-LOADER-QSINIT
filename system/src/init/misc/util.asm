@@ -858,6 +858,8 @@ _sys_selquery   proc    near                                    ;
                 mov     edi,[esp+16]                            ;
                 push    esi                                     ;
                 and     ebx,0FFF8h                              ;
+                pushfd                                          ;
+                cli                                             ;
                 sub     esp,8                                   ;
                 sgdt    [esp]                                   ;
                 cmp     [esp].lidt_limit,bx                     ;
@@ -872,6 +874,7 @@ _sys_selquery   proc    near                                    ;
                 setnc   al                                      ;
                 movzx   eax,al                                  ;
                 add     esp,8                                   ;
+                popfd                                           ;
                 pop     esi                                     ;
                 pop     edi                                     ;
                 pop     ebx                                     ;
@@ -1016,11 +1019,11 @@ _dll32init      proc    near
                 mov     fs,cx                                   ;
                 mov     gs,cx                                   ;
 
-                pop     ebp
-                pop     edi
-                pop     esi
-                pop     ebx
-                ret     8
+                pop     ebp                                     ;
+                pop     edi                                     ;
+                pop     esi                                     ;
+                pop     ebx                                     ;
+                ret     8                                       ;
 _dll32init      endp
 
 ; void __stdcall usleep(u32t usec);
@@ -1173,7 +1176,7 @@ _str2long       proc    near
                 pop     ebx                                     ;
                 pop     esi                                     ;
                 ret     4                                       ;
-_str2long       endp         
+_str2long       endp
 
 ;----------------------------------------------------------------
 ; int _std hlp_getcpuid(u32t index, u32t *data);
@@ -1215,6 +1218,8 @@ _hlp_getcpuid   endp
 
 ; return NZ and eax=1 if supported
 msr_avail       proc    near
+                pushfd                                          ;
+                cli                                             ;
                 test    msr_supported,1                         ; present?
                 jnz     @@msrchk_ret                            ;
                 test    msr_supported,2                         ; cpuid readed?
@@ -1231,7 +1236,8 @@ msr_avail       proc    near
                 or      msr_supported,al                        ;
 @@msrchk_ret:
                 setnz   al                                      ;
-                movzx   eax,al                                  ;
+                popfd                                           ;
+                and     eax,0FFh                                ; restore ZF
                 ret                                             ;
 msr_avail       endp
 
@@ -1243,7 +1249,7 @@ _hlp_readmsr    proc    near
                 mov     edx,eax                                 ; edx:eax = 0
                 jz      @@msrr_err                              ;
                 mov     ecx,[esp+4]                             ;
-                rdmsr                                           ; 
+                rdmsr                                           ;
 @@msrr_err:
                 mov     ecx,[esp+8]                             ; write lo dd
                 jecxz   @@msrr_no_ddlo                          ;
@@ -1267,7 +1273,7 @@ _hlp_writemsr   proc    near
                 mov     eax,[esp+8]                             ;
                 mov     edx,[esp+12]                            ;
                 mov     ecx,[esp+4]                             ;
-                wrmsr                                           ; 
+                wrmsr                                           ;
 @@msrw_err:
                 setnz   al                                      ; result
                 movzx   eax,al                                  ;

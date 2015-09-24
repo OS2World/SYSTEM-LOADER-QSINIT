@@ -15,6 +15,7 @@
 #include "qsdm.h"
 #include "partmgr_ord.h"
 #include "qspage.h"
+#include "filetab.h"
 #include "doshlp.h"
 
 typedef struct {
@@ -25,12 +26,14 @@ typedef struct {
    u16t       DPFlags;
 } DHDriveParams;
 
-typedef int  (_std *fplvm_partinfo)(u32t disk, u32t index, lvm_partition_data *info);
-typedef long (_std *fpvol_index)(u8t vol, u32t *disk);
+typedef int   (_std *fplvm_partinfo)(u32t disk, u32t index, lvm_partition_data *info);
+typedef long  (_std *fpvol_index)(u8t vol, u32t *disk);
+typedef void* (_std *fphpfs_freadfull)(u8t vol, const char *name, u32t *bufsize);
 
 static u32t   partmgr = 0;
-static fplvm_partinfo plvm_partinfo = 0;
-static fpvol_index    pvol_index    = 0;
+static fplvm_partinfo   plvm_partinfo   = 0;
+static fpvol_index      pvol_index      = 0;
+static fphpfs_freadfull phpfs_freadfull = 0;
 // variables for switch code setup
 u32t         paeppd, swcode;
 u8t              *swcodelin;
@@ -40,25 +43,38 @@ extern u16t  switch_codelen;
 extern void __far _cdecl pae_setup(u32t hdrpage, u32t hdrcopy, u32t dwbuf,
                                    u16t pdsel, u16t bhseg);
 
-static int dmgr_load(void) {
-   if (!partmgr) {
-      partmgr = mod_query(MODNAME_DMGR,0);
-      if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0);
-   }
-   if (partmgr) {
-      plvm_partinfo = (fplvm_partinfo)mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
-      pvol_index    = (fpvol_index)   mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index);
-   }
-   return partmgr && plvm_partinfo && pvol_index?1:0;
-}
+void error_exit(int code, const char *message);
 
 static void dmgr_free(void) {
    if (partmgr) {
       mod_free(partmgr);
+      phpfs_freadfull = 0;
       plvm_partinfo = 0;
       pvol_index = 0;
       partmgr = 0;
    }
+}
+
+static int dmgr_load(void) {
+   if (!partmgr) {
+      partmgr = mod_query(MODNAME_DMGR,0);
+      if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0);
+      // query functions & install unload proc
+      if (partmgr) {
+         plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
+         pvol_index      = (fpvol_index)      mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index);
+         phpfs_freadfull = (fphpfs_freadfull) mod_getfuncptr(partmgr,ORD_PARTMGR_hpfs_freadfull);
+         atexit(dmgr_free);
+      }
+   }
+   // hpfs_freadfull is not required
+   return partmgr && plvm_partinfo && pvol_index?1:0;
+}
+
+void* altfs_readfull(u8t vol, const char *name, u32t *bufsize) {
+   dmgr_load();
+   if (partmgr && phpfs_freadfull) return phpfs_freadfull(vol,name,bufsize);
+   return 0;
 }
 
 void print_bpb(struct Disk_BPB *bpb) {
@@ -79,21 +95,40 @@ void print_bpb(struct Disk_BPB *bpb) {
    log_printf(" * Boot Drive Number %02X\n",bpb->BPB_BootLetter);
 }
 
-int replace_bpb(u8t vol, struct Disk_BPB *pbpb) {
+int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags, 
+                void **pmfsptr, u32t *pmfssize)
+{
+   u8t           sbuf[512];
    disk_volume_data     vi;
-   struct Boot_Record  *br;
-   if (!pbpb || vol<=DISK_LDR || hlp_volinfo(vol, &vi)==FST_NOTMOUNTED) return 0;
+   struct Boot_Record  *br = (struct Boot_Record*)sbuf;
+   u32t             vol_fs;
+   if (!pbpb || vol<=DISK_LDR) return 0;
+   // check FS type on volume
+   vol_fs = hlp_volinfo(vol, &vi);
+   // OS/2 boot will fail on 1024/2048/4096
+   if (vi.SectorSize!=512) return 0;
    // read boot sector to get BPB data
-   br = (struct Boot_Record *)malloc(vi.SectorSize);
-   if (!hlp_diskread(vi.Disk, vi.StartSector, 1, br)) {
-      free(br);
-      return 0;
+   if (!hlp_diskread(vi.Disk, vi.StartSector, 1, br)) return 0;
+
+   if (vol_fs!=FST_NOTMOUNTED) { // FAT/FAT32
+      *pbootflags = 0;
+      *pmfsptr    = 0;
+      *pmfssize   = 0;
+   } else {                      // HPFS
+      // check BPB too
+      if (br->BR_BPB.BPB_BytePerSect!=512 ||
+         memcmp(br->BR_EBPB.EBPB_FSType,"HPFS",4)) return 0;
+      *pmfsptr    = altfs_readfull(vol, "OS2BOOT", pmfssize);
+      *pbootflags = BF_MINIFSD|BF_MICROFSD;
+
+      if (!*pmfsptr || !*pmfssize) 
+         error_exit(10,"Unable to find OS2BOOT file on SOURCE volume!\n");
    }
    pbpb->BPB_BytesPerSec = vi.SectorSize;
-   pbpb->BPB_SecPerClus  = vi.ClSize;
+   pbpb->BPB_SecPerClus  = br->BR_BPB.BPB_SecPerClus;
    pbpb->BPB_ResSectors  = br->BR_BPB.BPB_ResSectors;
-   pbpb->BPB_FATCopies   = vi.FatCopies;
-   pbpb->BPB_RootEntries = vi.RootDirSize;
+   pbpb->BPB_FATCopies   = br->BR_BPB.BPB_FATCopies;
+   pbpb->BPB_RootEntries = br->BR_BPB.BPB_RootEntries;
    pbpb->BPB_TotalSec    = vi.TotalSectors<65535?vi.TotalSectors:0;
    pbpb->BPB_MediaByte   = br->BR_BPB.BPB_MediaByte;
    pbpb->BPB_SecPerFAT   = br->BR_BPB.BPB_SecPerFAT;
@@ -103,7 +138,6 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb) {
    pbpb->BPB_TotalSecBig = vi.TotalSectors>65535?vi.TotalSectors:0;
    pbpb->BPB_BootDisk    = vi.Disk^QDSK_FLOPPY;
    pbpb->BPB_BootLetter  = vi.Disk&QDSK_FLOPPY ? 0 : 0x80;
-   free(br);
    // query LVM drive letter
    if (dmgr_load()) {
       long vidx = pvol_index(vol, 0);
@@ -113,14 +147,13 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb) {
             if (li.Letter && li.Letter>'C')
                pbpb->BPB_BootLetter = 0x80+(li.Letter-'C');
       }
-      dmgr_free();
    }
    return 1;
 }
 
 #define GET_ADDR(x) (((x)<efd->DisPartOfs?flat1000:bhpart) + (x))
 
-void setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
+int setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
    u8t      *flat1000 = (u8t*)hlp_segtoflat(DOSHLP_SEG);
    void          *dpt = GET_ADDR(efd->DPOfs);
    u8t           *dft = GET_ADDR(efd->DFTabOfs);
@@ -129,6 +162,7 @@ void setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
    HD4_Header     *dh = 0,
                  *dhc = 0;
    u16t         pdsel = 0;
+   u32t           res = 0;
 
    dh        = pag_physmap((u64t)efd->HD4Page<<PAGESHIFT, PAGESIZE, 0);
    dhc       = pag_physmap(paeppd, PAEIO_MEMREQ, 0);
@@ -172,6 +206,7 @@ void setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
             dp->DPHeads    = dh->h4_heads;
          }
       }
+      res = 1;
    } else
       log_printf("alloc err: %04X %08X %08X\n", pdsel, dh, dhc);
 
@@ -179,4 +214,6 @@ void setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
    if (pdsel) hlp_selfree(pdsel);
    if (dhc)   pag_physunmap(dhc);
    if (dh)    pag_physunmap(dh);
+
+   return res;
 }

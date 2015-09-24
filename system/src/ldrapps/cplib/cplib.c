@@ -60,7 +60,6 @@ static u16t cpages[CPAGES] = { 437, 720, 737, 775, 850, 852, 855, 857, 858,
    cpconv_data *inst = (cpconv_data*)data;  \
    if (inst->sign!=CPLIB_SIGN) return;
 
-int         lib_ready =  0; // lib is ready
 codepage_info  cpisys = { 0 };
 u32t          classid = 0;
 u16t            cpcur = 0;
@@ -228,17 +227,6 @@ u32t _std shl_chcp(const char *cmd, str_list *args) {
    return EINVAL;
 }
 
-void on_exit(void) {
-   if (!lib_ready) return;
-   lib_ready = 0;
-   cmd_shellrmv("CHCP",shl_chcp);
-   // drop code page support in FatFs
-   hlp_setcpinfo(0);
-   // remove cp class
-   if (classid) exi_unregister(classid);
-   classid = 0;
-}
-
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
       if (mod_query(mod_getname(hmod,0), MODQ_LOADED|MODQ_NOINCR)) {
@@ -247,18 +235,24 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          vio_setcolor(VIO_COLOR_RESET);
          return 0;
       }
-      classid = exi_register("cpconvert", methods_list, sizeof(methods_list)/sizeof(void*),
-         sizeof(cpconv_data), cpconv_init, cpconv_done);
+      classid = exi_register("qs_cpconvert", methods_list,
+         sizeof(methods_list)/sizeof(void*), sizeof(cpconv_data), cpconv_init,
+            cpconv_done, 0);
       if (!classid) {
          log_printf("unable to register cpconvert class!\n");
          return 0;
       }
-      exit_handler(&on_exit,1);
       cmd_shelladd("CHCP",shl_chcp);
-      lib_ready = 1;
    } else {
-      exit_handler(&on_exit,0);
-      on_exit();
+      // remove cp class
+      if (classid)
+         if (exi_unregister(classid)) classid = 0;
+      // DENY unload if class was not unregistered
+      if (classid) return 0;
+
+      cmd_shellrmv("CHCP",shl_chcp);
+      // drop code page support in FatFs
+      hlp_setcpinfo(0);
    }
    return 1;
 }

@@ -187,4 +187,20 @@ BR_F32_BPB      ExtF32_BPB    <?>         ;
 BR_F32_EBPB     Extended_BPB  <?>         ;
 Boot_RecordF32  ends
 
+Boot_RecordNT   struc
+BR_Jump         db      3 dup (?)         ;/< 
+BR_OEM          db      8 dup (?)         ;
+BR_BPB          Common_BPB    <?>         ;
+BR_NT_Reserved0 dd      ?                 ;
+BR_NT_TotalSec  dq      ?                 ;
+BR_NT_Mft1Lcn   dq      ?                 ;
+BR_NT_Mft2Lcn   dq      ?                 ;
+BR_NT_CpFileRec db      ?                 ;
+BR_NT_Reserved1 db      3 dup (?)         ;
+BR_NT_CpIdx     db      ?                 ;
+BR_NT_Reserved2 db      3 dup (?)         ;
+BR_NT_Serial    dq      ?                 ;
+BR_NT_Checksum  dd      ?                 ;/< ignored
+Boot_RecordNT   ends
+
 ;cc #endif // QS_BASE_PARTTABLE

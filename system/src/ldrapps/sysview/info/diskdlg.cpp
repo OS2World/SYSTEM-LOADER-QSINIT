@@ -19,9 +19,12 @@
 #include "qsint.h"     // for disk count
 #include "qsdm.h"
 #include "qsshell.h"
+#include "qsconst.h"
 #include "errno.h"
+#include "qcl/rwdisk.h"
 #endif
 #include "diskdlg.h"
+#include "diskact.h"
 
 #define DISK_BUFFER   (32768)
 
@@ -32,7 +35,8 @@ static char *getfname(int open) {
 
    TFileDialog *fo = new TFileDialog("*.*", open?"Import file":"Export to file",
       "~F~ile name", open?fdOpenButton:fdOKButton, open?hhSectFnRead:hhSectFnWrite);
-   int res=SysApp.execView(fo)==cmFileOpen;
+   fo->helpCtx = hcFileDlgCommon;
+   int     res = SysApp.execView(fo)==cmFileOpen;
    if (res) fo->getFileName(fname);
    SysApp.destroy(fo);
    if (!res) return 0;
@@ -73,7 +77,7 @@ void TDiskCopyDialog::processNext() {
    u32t readed,
        s_sc32k = source.isFile? 0 : (sin32k+source.ssize-1)/source.ssize,
        d_sc32k = destin.isFile? 0 : (sin32k+destin.ssize-1)/destin.ssize;
-   
+
    if (source.isFile) {
       u32t until_end = fsize(source.file) - ftell(source.file);
       if (until_end < sin32k) {
@@ -173,7 +177,7 @@ void TSysApp::doDiskCopy(int mode, u32t disk, u64t pos, u32t len, const char *fp
          stop = copyDlg->stopreason;
          epos = mode==SCSEL_READ?copyDlg->destin.pos:copyDlg->source.pos;
          fclose(fp);
-      } else 
+      } else
          errDlg(MSGE_FILESIZEERR);
    }
    destroy(copyDlg);
@@ -196,7 +200,7 @@ u64t TSysApp::SelectSector(int mode, u32t disk, long vol, u64t start,
    TStaticText *sgHddName, *sgHddMax, *sgHddMin;
    int dmode = mode==SCSEL_GOTO||mode==SCSEL_TGT?0:1;
    static const char *dlgtitle[5] = { "Jump to sector", "Export sectors to file",
-                                      "Import sectors from file", 
+                                      "Import sectors from file",
                                       "Copy sectors to another disk",
                                       "Target sector for copying" };
    static int          dlghelp[5] = { hcSectGoto, hcSectExport, hcSectImport,
@@ -278,7 +282,7 @@ u64t TSysApp::SelectSector(int mode, u32t disk, long vol, u64t start,
          if (rc==FFFF64) errDlg(MSGE_INVVALUE); else
          if (rc<start || rc>=start+length) errDlg(MSGE_RANGE); else
          if (dmode) {
-            u64t dstpos, 
+            u64t dstpos,
                    llen = getui64(sgLength);
             u32t    len, dstdisk, dstssize;
             // limit copy size to 2TB ;)
@@ -299,7 +303,7 @@ u64t TSysApp::SelectSector(int mode, u32t disk, long vol, u64t start,
                // copy will reach the end of target disk
                if (dstpos*dstssize+(u64t)len*sectsize > ddsksize*dstssize) {
                   infoDlg(MSGI_LENTRUNCTDISK);
-                  len = (u64t)(ddsksize - dstpos) * dstssize / sectsize; 
+                  len = (u64t)(ddsksize - dstpos) * dstssize / sectsize;
                }
                if (dstdisk==disk) {
                   if (rc==dstpos) { infoDlg(MSGI_SAMEPOS); break; }
@@ -341,7 +345,7 @@ u64t TSysApp::SelectSector(int mode, u32t disk, long vol, u64t start,
                   "\x3""Are you sure you want to replace sector%s to data from file \"%s\"?",
                      sname, ll<52?sfname:sfname+(ll-52))!=cmYes) break;
             }
-            // check available space on target volume 
+            // check available space on target volume
             if (mode==SCSEL_SAVE) {
                if ((u64t)sectsize * len > opts_freespace(toupper(sfname[0])-'A')) {
                   errDlg(MSGE_LOWSPACE);
@@ -392,9 +396,9 @@ void TDiskSearchDialog::processNext() {
    u32t readed;
    if (disk==DISK_MEMORY) {
       for (u32t ii=0; ii<sin32k; ii++)
-         if (opts_memread(sector+ii<<8, buf32k + sectorsize*(ii+1))) 
+         if (opts_memread(sector+ii<<8, buf32k + sectorsize*(ii+1)))
             readed++; else break;
-   } else 
+   } else
       readed = dsk_read(disk, sector, sin32k, buf32k + sectorsize);
 
    if (readed) {
@@ -611,7 +615,7 @@ void TDiskBootDialog::processNext() {
    now = (now-startms)/19;
    if (now!=cseconds) {
       char buf[64];
-      snprintf(buf, 64, "Boot %s in %u second%c", is_disk?"disk":"partition", 
+      snprintf(buf, 64, "Boot %s in %u second%c", is_disk?"disk":"partition",
          4-now, now==3?' ':'s');
       cseconds = now;
       replace_coltxt(&timeStr, buf);
@@ -630,7 +634,7 @@ void TSysApp::BootPartition(u32t disk, long index) {
    if (ok) {
       int rc = MSGE_COMMONFAIL;
 #ifdef __QSINIT__
-      if (index>=0) rc = exit_bootvbr(disk,index,0); else {
+      if (index>=0) rc = exit_bootvbr(disk,index,0,0); else {
          rc = exit_bootmbr(disk,0);
          if (rc==ENODEV) {
             if (!askDlg(MSGA_PTEMPTY)) return; else
@@ -738,10 +742,10 @@ char* TSysApp::GetPTErr(u32t rccode, int msgtype) {
 
 void TSysApp::PrintPTErr(u32t rccode, int msgtype) {
    char msg[384], *mtext;
-   msg[0  ] = 3; 
+   msg[0  ] = 3;
    msg[383] = 0;
    mtext = GetPTErr(rccode, msgtype);
-   if (mtext) strncpy(msg+1, mtext, 382); else 
+   if (mtext) strncpy(msg+1, mtext, 382); else
       sprintf(msg+1, "Error code %d", rccode);
 
    messageBox(msg, mfError+mfOKButton);
@@ -881,7 +885,7 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
    if (!vol) {
       u32t rc = vol_mount(&vol, disk, index);
       if (rc && rc!=DPTE_MOUNTED) {
-         PrintPTErr(rc, MSGTYPE_FMT);
+         PrintPTErr(rc);
          return;
       }
    }
@@ -1004,7 +1008,7 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
          dlg->options |= ofCenterX | ofCenterY;
 
          strncpy(fsname, fstype||!vi.FsName[0] ? ftstr[fstype] : vi.FsName, 32);
-         
+
          dlg->insert(new TButton(TRect(18, 13, 28, 15), "O~K~", cmOK, bfDefault));
          dlg->insert(new TColoredText(TRect(3, 2, 41, 4), "Format complete.", 0x7A));
          dlg->insert(new TStaticText(TRect(3, 4, 31, 5), "The type of files system is "));
@@ -1029,7 +1033,7 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
 
          sprintf(buf, "%7d units available on disk.\n", vi.ClAvail);
          dlg->insert(new TStaticText(TRect(4, 11, 4+strlen(buf), 12), buf));
-         
+
          dlg->selectNext(False);
          execView(dlg);
       }
@@ -1059,20 +1063,20 @@ void TSysApp::LVMRename(u32t disk, u32t index) {
    TDialog* dlg = new TDialog(TRect(7, 9, 72, 14), "Rename LVM partition");
    if (!dlg) return;
    dlg->options |= ofCenterX | ofCenterY;
-   
+
    el = new TInputLine(TRect(29, 2, 51, 3), 21);
    el->setData(cname+1);
    dlg->insert(el);
 
    control = new TColoredText(TRect(3, 2, 25, 3), cname, 0x1F);
    dlg->insert(control);
-   
+
    control = new TColoredText(TRect(26, 2, 28, 3), "->", 0x7C);
    dlg->insert(control);
-   
+
    control = new TButton(TRect(53, 2, 63, 4), "O~K~", cmOK, bfDefault);
    dlg->insert(control);
-   
+
    dlg->selectNext(False);
    if (execView(dlg)==cmOK) {
       el->getData(cname);
@@ -1086,3 +1090,266 @@ void TSysApp::LVMRename(u32t disk, u32t index) {
    }
    destroy(dlg);
 }
+
+
+int TSysApp::CloneDisk(u32t srcdisk) {
+#ifdef __QSINIT__
+   TDialog*  dlg = new TDialog(TRect(10, 6, 69, 17), "Clone disk");
+   if (!dlg) return 0;
+   dlg->options |= ofCenterX | ofCenterY;
+   dlg->helpCtx  = hcDskClone;
+
+   u32t     ii, disks = hlp_diskcount(0);
+   TCollection *lst_d = new TCollection(0,10);
+   u64t      usedsize;
+   dsk_usedspace(srcdisk, 0, &usedsize);
+   if (usedsize==FFFF64) return 0; else usedsize++;
+
+   for (ii=0; ii<disks; ii++) {
+      u32t  scan_rc = dsk_ptrescan(ii,0), sector;
+      if (scan_rc!=DPTE_EMPTY) continue;
+
+      disk_geo_data geo;
+      if (!hlp_disksize(ii, &sector, &geo)) continue;
+
+      if (sector) {
+         char *str = new char[64];
+         sprintf(str,"HDD %-4i  ",ii);
+         strcat(str,getSizeStr(sector,geo.TotalSectors));
+         lst_d->insert(str);
+      }
+   }
+
+   TListBox *dcdisks = new TListBox(TRect(3, 2, 28, 5), 1, 0);
+   dcdisks->helpCtx = hcDskCloneSel;
+   dlg->insert(dcdisks);
+   dlg->insert(new TLabel(TRect(2, 1, 20, 2), "Target empty disk", dcdisks));
+   dcdisks->newList(lst_d);
+
+   TRadioButtons *dctype = new TRadioButtons(TRect(3, 7, 24, 9),
+      new TSItem("Structure only", new TSItem("Entire disk", 0)));
+   dctype->helpCtx = hcDskCloneStruct;
+   dlg->insert(dctype);
+   dlg->insert(new TLabel(TRect(2, 6, 13, 7), "Clone type", dctype));
+
+   TCheckBoxes *dcopts = new TCheckBoxes(TRect(31, 2, 56, 7),
+      new TSItem("Clone IDs", new TSItem("Copy MBR code",
+         new TSItem("Identical", new TSItem("Ignore CHS mismatch",
+            new TSItem("Wipe old data", 0))))));
+   static u16t dcoptflags[5] = { DCLN_SAMEIDS, DCLN_MBRCODE, DCLN_IDENT,
+                                 DCLN_IGNSPT, DCLN_NOWIPE };
+
+   dcopts->helpCtx = hcDskCloneID;
+   dlg->insert(dcopts);
+   dlg->insert(new TLabel(TRect(31, 1, 39, 2), "Options", dcopts));
+
+   TView *control = new TButton(TRect(28, 8, 37, 10), "~G~o!", cmOK, bfDefault);
+   dlg->insert(control);
+
+   control = new TButton(TRect(37, 8, 47, 10), "~C~ancel", cmCancel, bfNormal);
+   dlg->insert(control);
+
+   control = new TButton(TRect(47, 8, 57, 10), "~H~elp", cmHelp, bfNormal);
+   dlg->insert(control);
+   dlg->selectNext(False);
+
+   static u32t saveopts = 1<<4; // "Wipe old data" is on by default
+   int           rescan = 0;
+   for (ii=0; ii<5; ii++)
+      if ((1<<ii & saveopts)) dcopts->press(ii);
+
+   if (execView(dlg)==cmOK) {
+      u32t clflags = 0;
+      saveopts = 0;
+      for (ii=0; ii<5; ii++)
+         if (dcopts->mark(ii)) {
+            saveopts |= 1<<ii;
+            clflags  |= dcoptflags[ii];
+         }
+      long hdd = getDiskNum(dcdisks);
+
+      ii = dsk_clonestruct(hdd, srcdisk, clflags);
+      if (ii) PrintPTErr(ii); else
+      if (dctype->mark(1)) {
+         long pcnt = dsk_partcnt(srcdisk);
+         // copy partitions
+         if (pcnt>0)
+            for (ii=0; ii<pcnt; ii++) {
+               char      nbuf[64];
+               TView *svowner = current;
+
+               sprintf(nbuf, "Partition %d of %d", ii+1, pcnt);
+               SysApp.PercentDlgOn(nbuf);
+               u32t rc = dsk_clonedata(hdd, ii, srcdisk, ii,
+                                       SysApp.PercentDlgCallback, 0);
+               SysApp.PercentDlgOff(svowner);
+               if (rc) {
+                  if (rc!=DPTE_UBREAK) PrintPTErr(rc);
+                  break;
+               }
+            }
+      }
+      rescan = 1;
+   }
+   destroy(dlg);
+   // return flag to rescan for dmgr dialog
+   return rescan;
+#else
+   return 0;
+#endif // __QSINIT__
+}
+
+int TSysApp::ClonePart(u32t srcdisk, u32t index) {
+#ifdef __QSINIT__
+   TCloneVolDlg *cld = new TCloneVolDlg(srcdisk, index);
+   u32t      dstdisk, dstindex;
+
+   int res = execView(cld)==cmOK;
+   if (res) {
+      dstdisk  = cld->targetDisk,
+      dstindex = cld->targetIndex;
+   }
+   destroy(cld);
+   if (res) {
+      char  fsname[10], sdname[8], ddname[8], slen[9], dlen[9], msg[128];
+      u64t    dstsize, srcsize;
+      u32t  s_sectsz, d_sectsz;
+      if (!dsk_ptquery64(dstdisk, dstindex, 0, &dstsize, fsname, 0)) {
+         log_printf("dst index is invalid\n");
+         errDlg(MSGE_RANGE);
+         return 0;
+      }
+      if (!dsk_ptquery64(srcdisk, index, 0, &srcsize, 0, 0)) {
+         log_printf("source index is invalid\n");
+         errDlg(MSGE_RANGE);
+         return 0;
+      }
+      dsk_disktostr(srcdisk, sdname);  hlp_disksize(srcdisk, &s_sectsz, 0);
+      dsk_disktostr(dstdisk, ddname);  hlp_disksize(dstdisk, &d_sectsz, 0);
+      dsk_formatsize(s_sectsz, srcsize, 0, slen);
+      dsk_formatsize(d_sectsz, dstsize, 0, dlen);
+
+      if (dstsize<srcsize) { PrintPTErr(DPTE_CSPACE); return 0; }
+      if (s_sectsz!=d_sectsz) { errDlg(MSGE_SECSIZEMATCH); return 0; }
+
+      snprintf(msg, 128, "\3""Do you want to copy disk %s partition %d "
+         "(%s) to disk %s partition %d (%s)?\n", sdname, index, slen, ddname,
+            dstindex, dlen);
+      if (messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes) {
+         int go = 1;
+         if (fsname[0]) {
+            snprintf(msg, 128, "\3""Current file system on target is %s. It will be lost!\n",
+              fsname);
+            go = messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes;
+         }
+         if (go) {
+            TView *svowner = current;
+            PercentDlgOn("Cloning partition");
+            u32t rc = dsk_clonedata(dstdisk, dstindex, srcdisk, index,
+                                    PercentDlgCallback, 0);
+            PercentDlgOff(svowner);
+            if (rc) PrintPTErr(rc);
+         }
+      }
+   }
+   return res;
+#else
+   return 0;
+#endif // __QSINIT__
+}
+
+
+int TSysApp::SaveRestVHDD(u32t disk, int rest) {
+#ifdef __QSINIT__
+   char imgname[QS_MAXPATH+1];
+   TFileDialog *fo = new TFileDialog("*.*", rest?"Open backup image":"Create backup image",
+                     "~F~ile name", rest?fdOpenButton:fdOKButton, hhVhddImage);
+   fo->helpCtx = hcFileDlgCommon;
+   int res = execView(fo)==cmFileOpen;
+   if (res) fo->getData(imgname);
+   destroy(fo);
+
+   if (res) {
+      qs_emudisk ed = NEW(qs_emudisk);
+      if (!ed) { errDlg(MSGE_NOVHDD); return 0; }
+
+      disk_geo_data  rdi;
+      memset(&rdi, 0, sizeof(disk_geo_data));
+      hlp_disksize(disk, 0, &rdi);
+
+      if (!rdi.TotalSectors) res = MSGE_INVDISK; else {
+         if (!rest && _access(imgname,F_OK)==0) {
+            char *msg = sprintf_dyn("\x03""Overwrite file \"%s\"?\n", imgname);
+            res = messageBox(msg, mfConfirmation+mfYesButton+mfNoButton);
+            free(msg);
+            res = res==cmYes ?0:-1;
+            // delete previous file
+            if (!res) unlink(imgname);
+         } else
+            res = 0;
+
+         if (!res) {
+            // open file and check result
+            res = rest ? ed->open(imgname) :
+                         ed->make(imgname, rdi.SectorSize, rdi.TotalSectors);
+            if (res)
+               switch (res) {
+                  case EIO   : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
+                  case EBUSY :
+                  case EACCES: res = MSGE_ACCESSDENIED; break;
+                  case EEXIST: res = MSGE_FILECREATERR; break;
+                  case EBADF : res = MSGE_NOTVHDDFILE; break;
+                  default    : res = MSGE_FILEOPENERR;
+               }
+         }
+      }
+      // query file info and compare sector/disk size
+      if (!res && rest) {
+         disk_geo_data  vdi;
+         memset(&vdi, 0, sizeof(disk_geo_data));
+
+         ed->query(&vdi, 0, 0, 0);
+         if (vdi.SectorSize != rdi.SectorSize) res = MSGE_SECSIZEMATCH; else
+            if (vdi.TotalSectors != rdi.TotalSectors) res = MSGE_NSECMATCH;
+               else res = 0;
+      }
+      // exit on errors above
+      if (res) {
+         DELETE(ed);
+         if (res>0) errDlg(res);
+         return 0;
+      }
+
+      char ddname[8];
+      dsk_disktostr(disk, ddname);
+      char *msg = rest ? sprintf_dyn("\x03""Write image data from file \"%s\" to disk %s?\n",
+                                     imgname, ddname) :
+                         sprintf_dyn("\x03""Backup MBR data from disk %s to \"%s\"?\n",
+                                     ddname, imgname);
+      res = messageBox(msg, mfConfirmation+mfYesButton+mfNoButton);
+      free(msg);
+
+      if (res==cmYes) {
+         s32t vdisk = ed->mount();
+         if (vdisk<0) { errDlg(MSGE_VMOUNTERR); res=0; } else {
+            // clone it at last!
+            res = dsk_clonestruct(rest?disk:vdisk, rest?vdisk:disk,
+               DCLN_MBRCODE|DCLN_SAMEIDS|DCLN_IDENT|DCLN_NOWIPE|DCLN_IGNSPT);
+            ed->umount();
+            ed->close();
+            if (res) PrintPTErr(res);
+            res = res?0:1;
+         }
+      } else {
+         res = 0;
+         ed->close();
+         // remove unfinished file
+         if (!rest) unlink(imgname);
+      }
+      DELETE(ed);
+      return res;
+   }
+#endif // __QSINIT__
+   return 0;
+}
+

@@ -49,10 +49,11 @@ static char *trapname[19]={"Divide Error Fault", "Step Fault", "",
    "Breakpoint Trap", "Overflow Trap", "BOUND Range Exceeded Fault",
    "Invalid Opcode", "", "Double Fault Abort", "", "Invalid TSS Fault",
    "Segment Not Present Fault", "Stack-Segment Fault",
-   "General Protection Fault", "Page Fault", "Exception stack broken",
-   "FPU Floating-Point Error", "Alignment Check Fault", "Machine Check Abort"};
+   "General Protection Fault", "Page Fault", "", "FPU Floating-Point Error",
+   "Alignment Check Fault", "Machine Check Abort"};
 
-static char *softname[2]={"Bad _currentexception_", "Exit hook failed"};
+static char *softname[4]={"Exception stack broken", "Exit hook failed",
+   "Unsupported exit() in dll module", "Shared class list damaged"};
 
 void draw_border(u32t x,u32t y,u32t dx,u32t dy,u32t color) {
    u32t ii,jj;
@@ -123,11 +124,8 @@ static void reset_video(void) {
 }
 
 static const char *get_trap_name(struct tss_s *ti) {
-   // broken exception record fake trap screen
-   if (ti->tss_reservdbl==0xFFFE) ti->tss_reservdbl=16;
-   // print
    if (ti->tss_reservdbl<19) return trapname[ti->tss_reservdbl]; else
-   if (ti->tss_reservdbl>=xcpt_hookerr)
+   if (ti->tss_reservdbl>=xcpt_exierr)
       return softname[xcpt_invalid-ti->tss_reservdbl];
    return "";
 }

@@ -164,10 +164,13 @@ static u32t opts_memio(u64t pos, void *data, int write) {
             static int askonce = 0;
             if (askonce) return 0; else {
                askonce++;
-               if (SysApp.askDlg(MSGA_TURNPAE)) pag_enable();
+               if (SysApp.askDlg(MSGA_TURNPAE)) pag_enable(); else
+                  return 0;
             }
          }
       }
+      /* we should avoid of this function if askDlg(MSGA_TURNPAE) returns
+         false, because it too smart and turning it ON internally ;) */
       return sys_memhicopy(write?pos:(u32t)data, write?(u32t)data:pos, 256);
    } else {
       void *addr = (char*)pos + hlp_segtoflat(0);

@@ -1,0 +1,77 @@
+[project]
+name=vhdd
+version=0x0001
+
+[config]
+0=Common
+
+[vars]
+aa=@wasm
+cc=@wcc386
+ld=@wlink
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
+
+cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
+       -fi=%(appinit_lib)\initdef.h -i=$(outdir) -fo=
+
+dlldir=dll
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name).dll
+&lnk=$(outdir)\$(name).lnk
+
+[files]
+rwdisc.c vhdd.c ../../init/inc/dskinfo.inc
+
+[make_footer]
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo Building $(name)...
+
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**c)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
+
+[&lnk]
+sys os2v2_dll
+name $(outname)
+file /[[$(**c)! !,]]
+#file /[[$(**asm)! !,]]
+file %(appinit_lib)\bld\Common\initdll.obj
+lib %(appinit_lib)\runtime.lib
+op map=$(name).map
+sort global
+op togglerelocs
+op quiet
+op el
+op nod
+op osname=%(QS_NAME)
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+anonymousexport=$(outdir)\$(name).lbc
+
+[config.0]
+*out=$(outname) | nolink | \
+     @echo Linking ... | \
+     @ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
+     $(ld) @$(&lnk) | lxlite $(outname) >nul | \
+     @mkdir $(dlldir) | copy $(outname) $(dlldir) >nul | \
+     @zip -q -9 -X -S -D %(QS_BIN)\%(QS_ARCH) $(dlldir)\*.* | \
+     del $(dlldir)\$(outname) >nul | \
+     rmdir $(dlldir)

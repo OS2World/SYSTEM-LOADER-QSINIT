@@ -49,7 +49,7 @@ char*  __stdcall strlwr(char *str);
 int    __stdcall memcmp (const void *s1, const void *s2, u32t length);
 
 /** binary comparision.
-    This function compatible with watcom bcmp, but return position of
+    This function compatible with watcom bcmp, but returns position of
     founded difference + 1.
     @param  s1      first binary array
     @param  s2      second binary array
@@ -86,16 +86,16 @@ char*  __stdcall strcat_dyn(char *dst, const char *src);
 
 /** exit function.
     @param errorcode  Error code
-    @attention warning! Cannot be used in DLLs!!! */
+    @attention using this function in DLL will cause immediate panic screen */
 void   __stdcall exit   (int errorcode);
 
 /** immediatly exit function.
-    @attention warning! Cannot be used in DLLs!!!
-    @param errorcode  Error code */
+    @param errorcode  Error code
+    @attention using this function in DLL will cause immediate panic screen */
 void   __stdcall _exit  (int errorcode);
 
 /** install exit proc.
-    @attention warning! Cannot be used in DLLs!!!
+    Not available in DLL modules.
     @param func  Additional exit proc to install
     @return zero on success */
 int    __stdcall atexit (void (*func)(void));
@@ -105,6 +105,9 @@ int    __stdcall atexit (void (*func)(void));
 void   __stdcall perror (const char *prefix);
 
 int    __cdecl   sprintf(char *buf, const char *format, ...);
+
+/// sprintf to dynamically allocated buffer
+char*  __cdecl   sprintf_dyn(const char *format, ...);
 
 int    __stdcall isspace(int cc);
 
@@ -149,8 +152,7 @@ void   __stdcall rewind (FILE *fp);
 
 s32t   __stdcall ftell  (FILE *fp);
 
-/// drop fflush calls because there is no buffering in clib
-#define fflush(x) (0)
+int    __stdcall fflush (FILE *fp);
 
 void   __stdcall clearerr(FILE *fp);
 
@@ -205,9 +207,10 @@ char*  __stdcall tmpnam(char *buffer);
 /// watcom analogue
 char*  __stdcall _tempnam(char *dir, char *prefix);
 
-/** get exist temp dir path from one of TMP, TEMP, TMPDIR, TEMPDIR env variables.
+/** get existing temp dir path from one of TMP, TEMP, TMPDIR, TEMPDIR
+    environment variables.
     @param  buffer  buffer with full name size (NAME_MAX) or 0 for static.
-    @return 0 if no varabler/dir or value in buffer/static buffer */
+    @return path in buffer/static buffer or 0 if no such variable/dir */
 char*  __stdcall tmpdir(char *buffer);
 
 
@@ -376,7 +379,8 @@ void   __stdcall memxchg  (void *m1, void *m2, u32t length);
     @param dst    Destination address.
     @param src    Source address.
     @param length Number of bytes to copy
-    @param page0  Page 0 flag (set 1 to allow page 0 be a part of destination)
+    @param page0  Page 0 access (set 1 to allow page 0 be a part of source and
+                  destination)
     @return 1 on success, 0 if exception occur */
 u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
 

@@ -1,8 +1,7 @@
 [project]
-; this is 32-bit part of test 64-bit EFI executable, still not finished and
-; experimental.
+; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0014
+version=0x0015
 
 [config]
 0=Debug
@@ -12,7 +11,6 @@ version=0x0014
 [vars]
 aa=wasm
 cc=wcc386
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -20,15 +18,10 @@ out=$(outdir)/
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cc) $(cinc) $(cflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
-*cln=clean|.SYMBOLIC|@$(&clean)
-
 &ver=$(outdir)\version.inc
-&clean=$(outdir)\cleanall.cmd
 
 aflags=-d1 -dEFI_BUILD -mt -zq -6p -i=%(QS_BASE)\hc -i=$(outdir) -fo=
 
@@ -43,6 +36,8 @@ ccinc=$(cinc)
 ainc=
 outdir=bld\$(config)
 &watlnk=$(outdir)\qsefi.lnk
+; if no svn - use "svnrev" env. variable
+revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 
 [vars.*.0]
 cinc=-DDEBUG -DVERBOSE_LOG
@@ -56,7 +51,6 @@ cinc=-DDEBUG -DINITDEBUG -DVERBOSE_LOG
 ainc=-dDEBUG -dINITDEBUG
 
 [files]
-bld.dir $(outdir).dir clean.cln
 ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc $(ldrsrc)\inc\qsinit.inc
 ..\hc\inc\ioint13.inc inc\efnlist.inc ..\hc\inc\parttab.inc
 $(ldrsrc)\inc\dskinfo.inc $(ldrsrc)\inc\qsbinfmt.inc
@@ -70,15 +64,22 @@ $(ldrsrc)\misc\wcrt.asm $(ldrsrc)\misc\log.asm
 $(ldrsrc)\fat\diskio.c $(ldrsrc)\disk1.c $(ldrsrc)\init32.c
 
 [make_footer]
-MAKEDIRS : bld.dir $(outdir).dir
-    @echo Building ...
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo $(config) EFI build (rev.$(revnum)) ...
 
 start.asm : $(outdir)\version.inc
 
-nolink : $(**dir) $(**inc) @@wait $(**asm) $(**c)
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**asm) $(**c)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo $(config) EFI cleaned ...
 
 [&ver]
-db 'QSinit $(vershort), rev $(svnrev), $(config) build at $(timestr)',0
+db 'QSinit $(vershort), rev $(revnum), $(config) build at $(timestr)',0
 
 [&watlnk]
 sys os2v2_dll
@@ -95,16 +96,6 @@ sort global
 op nod
 op quiet
 op togglerelocs
-
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.h @del *.h
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist QSEFI.* @del QSEFI.*
-cd ..\..
 
 [config.0,1,2]
 *out=qsefi | nolink | \

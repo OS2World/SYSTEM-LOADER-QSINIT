@@ -22,7 +22,7 @@ u32t _std ini_getstr(const char *Section, const char *Key, const char *Def,
     @param IniName  ini file name
     @param Section  ini section name, can be 0
     @param key      key name
-    @return 0 if no key, section or ini, else string maked by stddup(). */
+    @return 0 if no key, section or ini, else string made by stddup(). */
 char*_std ini_readstr(const char *IniName, const char *Section, const char *Key);
 
 /// full analogue of wnd`s WritePrivateProfileString
@@ -50,17 +50,21 @@ typedef struct {
    char*  item[1];
 } str_list;
 
-/// split string to items. result must be freed by single free() call
-str_list* _std str_split(const char *str,const char *separators);
+/** split string to items.
+    Note that function trim spaces from both sides of all returning items.
+    @param str          source string
+    @param separators   string with separator characters (ex. ",-\n\t")
+    @return string list, must be freed by single free() call */
+str_list* _std str_split(const char *str, const char *separators);
 
 /// create list from array of char*
-str_list* _std str_fromptr(char **list,int size);
+str_list* _std str_fromptr(char **list, int size);
 
 /** return list of keys in specified Section of IniName.
     @param [in]  IniName  name of ini file
     @param [in]  Section  name of section
     @param [out] values   list of values for returning keys (can be 0)
-    return list of keys or 0 */
+    @return list of keys or 0 */
 str_list* _std str_keylist(const char *IniName, const char *Section, str_list**values);
 
 /// return list of sections in IniName
@@ -80,6 +84,13 @@ str_list* _std str_seclist(const char *IniName);
     @return string list */
 str_list* _std str_getsec(const char *IniName, const char *Section, u32t flags);
 
+/** query Section presence in init file "IniName".
+    @param IniName     name of ini file
+    @param Section     name of section
+    @param flags       ignore sections with only empty values (GETSEC_* flags)
+    @return presence flag (1/0) */
+u32t      _std str_secexist(const char *IniName, const char *Section, u32t flags);
+
 /// split string by command line parsing rules (with "" support)
 str_list* _std str_splitargs(const char *str);
 
@@ -92,18 +103,28 @@ str_list* _std str_getenv(void);
 /// get text to single string (must be free() -ed).
 char*     _std str_gettostr(str_list*list, char *separator);
 
+/** calculate string length without embedded ANSI sequences.
+    @param str      source string
+    @return string length without ANSI sequences in it */
+u32t      _std str_length(const char *str);
+
 /** parse argument list and set flags from it.
     Example of call:
     @code
       static char *argstr   = "+r|-r|+s|-s|+h|-h";
       static short argval[] = { 1,-1, 1,-1, 1,-1};
-      str_parseargs(al, argstr, argval, &a_R, &a_R, &a_S, &a_S, &a_H, &a_H);
+      str_parseargs(al, 0, argstr, argval, &a_R, &a_R, &a_S, &a_S, &a_H, &a_H);
     @endcode
     @param lst      list with arguments
-    @param args     argument names in form: "/boot|/q|/a" or "+h|-h|+a|-a"
-    @param values   array of SHORT values for EVERY argument in args string
-    @param ...      pointers to INT variables to setup */
-void      _std str_parseargs(str_list *lst, char* args, short *values, ...);
+    @param firstarg start position of first argument in lst
+    @param ret_list return updated arg list (newly allocated!)
+    @param args     arguments in form: "/boot|/q|/a" or "+h|-h|+a|-a"
+    @param values   array of SHORT values for EVERY argument in args
+    @param ...      pointers to INT variables to setup
+    @return 0 if ret_list==0 else NEW list with removed known arguments,
+            this list must be released by free() call. */
+str_list* _std str_parseargs(str_list *lst, u32t firstarg, int ret_list, 
+                             char* args, short *values, ...);
 
 /// print str_list to log
 void      _std log_printlist(char *info, str_list*list);
@@ -125,8 +146,14 @@ int       _std env_istrue(const char *name);
 /** single call batch file execution.
     @param  file    File name.
     @param  args    Arguments (including batch name, for %0 %1, etc), optional.
-    @return result ;) */
-u32t      _std cmd_exec(const char *file,const char *args);
+    @return result, CMDR_NOFILE if no file */
+u32t      _std cmd_exec(const char *file, const char *args);
+
+/** exec [exec_*] section from extcmd.ini.
+    @param  section Section name suffix
+    @param  args    Arguments (including batch name, for %0 %1, etc), optional.
+    @return result, CMDR_NOFILE if no section */
+u32t      _std cmd_execint(const char *section, const char *args);
 
 typedef void *cmd_state;
 
@@ -134,13 +161,13 @@ typedef void *cmd_state;
     @param  cmds    Single command or batch file data.
     @param  args    Command line (including batch name, for %0 %1, etc), optional.
     @return handle for cmd_run(), cmd_close(). */
-cmd_state _std cmd_init (const char *cmds,const char *args);
+cmd_state _std cmd_init (const char *cmds, const char *args);
 
 /** init batch file process (alternative way)
     @param  cmds    List of batch file strings.
     @param  args    Arguments (%0,%1,%2,etc), can be 0.
     @return handle for cmd_run(), cmd_close(). */
-cmd_state _std cmd_initbatch(const str_list* cmds,const str_list* args);
+cmd_state _std cmd_initbatch(const str_list* cmds, const str_list* args);
 
 #define CMDR_ONESTEP    0x0001        ///< run one step
 #define CMDR_ECHOOFF    0x0002        ///< echo is off by default
@@ -148,6 +175,7 @@ cmd_state _std cmd_initbatch(const str_list* cmds,const str_list* args);
 
 #define CMDR_RETERROR   0xFFFFFFFF    ///< exit code: internal error
 #define CMDR_RETEND     0xFFFFFFFE    ///< exit code: execution finished
+#define CMDR_NOFILE     0xFFFFFFFD    ///< exit code: missing file (in cmd_exec())
 
 /// exec batch file (complete or one step)
 u32t      _std cmd_run  (cmd_state cmdenv, u32t flags);
@@ -256,6 +284,8 @@ void      _std cmd_shellerr(int errorcode, const char *prefix);
     execution, command will search MODE_DEV_HANDLER environment variable 
     (DEV - device name), where module name must be specified and try to
     load this module permanently. 
+    If no such variable - extcmd.ini will be asked for module name.
+
     Typically, this function must be called from such module at the moment
     of it`s loading.
 

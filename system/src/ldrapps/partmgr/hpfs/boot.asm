@@ -10,6 +10,7 @@
 ;    was reproduced here for compatibility ;)
 ;  * size made the same with original micro (12kb, but actually code uses
 ;    only 10 - 2kb for self, 4kb - i/o buffer & 4kb - stack space)
+;  * not depends on I13X string in memory (boot manager/vpart/airboot presence)
 ;
                 include inc/qstypes.inc
                 include inc/parttab.inc
@@ -768,7 +769,7 @@ micro_start:
                 cmp     user_ss,dx                              ; these censored calls
                 setnz   stack_rest                              ; us with OUR stack?
                 jz      @@entry_no_stack_set                    ;
-                mov     ss,dx                                   ; it not -
+                mov     ss,dx                                   ; if not -
                 mov     sp,stack_pos                            ; switching to it
 @@entry_no_stack_set:
                 push    es                                      ;

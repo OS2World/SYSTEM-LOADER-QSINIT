@@ -46,8 +46,10 @@ void TRunCommandDialog::handleEvent(TEvent& event) {
    if (event.what==evCommand) {
       switch (event.message.command)  {
          case cmRunBrowse: {
-            TFileDialog *fo=new TFileDialog("*.*","Open file","~F~ile name",fdOpenButton,201);
-            int res=owner->execView(fo)==cmFileOpen;
+            TFileDialog *fo=new TFileDialog("*.*", "Open file", "~F~ile name",
+                                            fdOpenButton, hhRunFile);
+            fo->helpCtx = hcFileDlgCommon;
+            int     res = owner->execView(fo)==cmFileOpen;
             if (res) {
                char exename[QS_MAXPATH+1];
                fo->getData(exename);

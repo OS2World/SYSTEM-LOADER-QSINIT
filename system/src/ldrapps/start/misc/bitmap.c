@@ -413,5 +413,5 @@ static void _std bm_finalize(void *instance, void *data) {
 
 void register_bitmaps(void) {
    exi_register("bit_map", methods_list, sizeof(methods_list)/sizeof(void*),
-      sizeof(bitmap_data), bm_initialize, bm_finalize);
+      sizeof(bitmap_data), bm_initialize, bm_finalize, 0);
 }

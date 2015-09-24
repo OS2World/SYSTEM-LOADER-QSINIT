@@ -20,11 +20,13 @@
 #include "vio.h"
 #include "start_ord.h"
 #include "internal.h"
+#include "qsclass.h"
 
 extern u16t  _std IODelay;
 extern u32t  M3BufferSize;
 static u8t  *M3Buffer = 0;
-extern FILE     **pstdout;
+extern FILE     **pstdout,
+                 **pstdin;
 
 // decompression routines
 u32t _std DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
@@ -50,7 +52,7 @@ extern mod_export*  _std mod_findexport(module *mh, u16t ordinal);
    memset(exp+(expsmax>>1),0,(expsmax>>1)*sizeof(mod_export)); \
 }
 
-/* build export table (full version. short in qsinit support only 32bit and no
+/* build export table (full version, short in qsinit supports only 32bit and no
    forwards) */
 int _std mod_buildexps(module *mh, lx_exe_t *eh) {
    lx_exp_b    *ee = (lx_exp_b*)((u8t*)eh+eh->e32_enttab);
@@ -140,14 +142,6 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
       }
    }
    return 0;
-}
-
-void _std mod_freeexps(module *mh) {
-   mh->exports=0;
-   if (mh->thunks) { free(mh->thunks); mh->thunks=0; }
-   if (mh->exps)   { free(mh->exps);   mh->exps  =0; }
-   mod_apiunchain((u32t)mh,0,0,0);
-   trace_unload_hook(mh);
 }
 
 u32t _std mod_searchload(const char *name, u32t *error) {
@@ -308,14 +302,38 @@ int _std unzip_ldi(void *mem, u32t size, const char *path) {
    return bsize?1:0;
 }
 
+/** module loaded callback.
+    Called before returning ok to user. But module is not guaranteed to
+    be in loaded list at this time, it can be the one of loading imports
+    for someone. */
+void _std mod_loaded(module *mh) {
+   trace_start_hook(mh);
+}
+
+/// module free callback.
+void _std mod_freeexps(module *mh) {
+   mh->exports=0;
+   // free exports, not used below
+   if (mh->exps) { free(mh->exps); mh->exps=0; }
+   /* unchain ordinals first, because it rebuild thunks internally, 
+      then free thunks ;) */
+   mod_apiunchain((u32t)mh,0,0,0);
+   if (mh->thunks) { free(mh->thunks); mh->thunks=0; }
+   // free trace info
+   trace_unload_hook(mh);
+   // free other possible function thunks
+   mod_freethunk((u32t)mh,0);
+}
+
+// process start callback
 int _std mod_startcb(process_context *pq) {
    reset_ini_cache();
-   trace_start_hook(pq->self);
    init_stdio(pq);
    return 0;
 }
 
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
+   int errtype = 0;
    fcloseall();
    if (pq->rtbuf[RTBUF_PUSHDST]) {
       pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
@@ -326,18 +344,27 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
       pq->rtbuf[RTBUF_ANSIBUF] = 0;
    }
 
-   if (!memCheckMgr()) {
+   if (!memCheckMgr()) errtype = 1; else
+   if (!exi_checkstate()) errtype = 2;
+
+   if (errtype) {
+      char prnbuf[128];
       vio_clearscr();
       vio_setcolor(VIO_COLOR_LRED);
-      printf("\n Application %s made unrecoverably damage in\n"
-             " system heap manager structures...\n", pq->self->name);
-      printf(" This will produce trap or deadlock in nearest time.\n"
-             " Reboot or press any key to continue...\n");
+      // can`t use printf here, if was closed above ;)
+      snprintf(prnbuf, 128, "\n Application \"%s\"\n made unrecoverable damage in"
+        " system %s structures...\n\n", pq->self->name, errtype==1?
+           "heap manager":"shared classes");
+      vio_strout(prnbuf);
+      snprintf(prnbuf, 128, " This will produce trap or deadlock in nearest time.\n"
+         " Reboot or press any key to continue...\n");
+      vio_strout(prnbuf);
       vio_setcolor(VIO_COLOR_RESET);
       key_wait(60);
    }
    log_printf("memory check done\n");
    mod_apiunchain((u32t)pq->self,0,0,0);
+   mod_fnunchain((u32t)pq->self,0,0,0);
    return rc;
 }
 
@@ -345,7 +372,7 @@ mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
    &mod_buildexps, &mod_searchload, &mod_unpack1, &mod_unpack2, &mod_unpack3,
    &mod_freeexps, &memAlloc, &memRealloc, &memFree, &freadfull, &log_push,
    &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
-   &hlp_memcpy};
+   &hlp_memcpy, &mod_loaded};
 
 extern module*_std _Module;
 
@@ -367,6 +394,7 @@ void setup_loader(void) {
    if (pq) {
       mod_export *me = mod_findexport(_Module, ORD_START_stdin);
       me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDIN];
+      pstdin  = (FILE**)me->direct;
 
       me = mod_findexport(_Module, ORD_START_stdout);
       me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDOUT];

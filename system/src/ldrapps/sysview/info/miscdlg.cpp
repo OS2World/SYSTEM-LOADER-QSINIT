@@ -61,7 +61,7 @@ void TSysApp::BootmgrMenu() {
 #ifdef __QSINIT__
          u32t disk = dsk[idx] & QDSK_DISKMASK,
              index = dsk[idx] >> 24;
-         int   err = exit_bootvbr(disk, index, 0);
+         int   err = exit_bootvbr(disk, index, 0, 0);
          char errmsg[128];
          sprintf(errmsg, "\x03""Failed to boot this entry (error:%d)", err);
          messageBox(errmsg,mfError+mfOKButton);

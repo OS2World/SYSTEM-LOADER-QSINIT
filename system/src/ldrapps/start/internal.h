@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 /** trace helper macros.
-    @li define function as START_EXPORT(rmdir)
+    @li declare function as START_EXPORT(rmdir)
     @li add option expname = "__rmdir" into start.ref file _rmdir export
     @li rebuild runtime & start
     @li all <b>internal</b> rmdir calls will be linked as imports from entry
@@ -45,6 +45,7 @@ int   get_errno(void);
 void  set_errno2(int ffliberr);
 // direct using of std* handles in START is not supported too
 FILE* get_stdout(void);
+FILE* get_stdin(void);
 
 /** global printed lines counter.
     Used for pause message calculation, updated by common vio functions and
@@ -53,7 +54,7 @@ extern u32t vio_ttylines;
 #pragma aux vio_ttylines "_*";
 
 // free pushd stack
-void  pushd_free(void* ptr); 
+void  pushd_free(void* ptr);
 
 // random
 u32t  _std random(u32t range);
@@ -155,7 +156,7 @@ spstr ecmd_readstr(const char *section, const char *key);
     @param       section   Section name
     @param [out] lst       Section text
     @return success flag (1/0), i.e. existence flag. */
-int   ecmd_readsec(spstr &section, TStrings &lst);
+int   ecmd_readsec(const spstr &section, TStrings &lst);
 
 /// get command list from extcmd.ini
 void  ecmd_commands(TStrings &rc);
@@ -165,7 +166,7 @@ cmd_state cmd_init2(TStrings &file, TStrings &args);
 
 /** DBCARD INI option parsing and execution.
     @param setup        Setup string from INI or MODE CON command.
-    @param pfn          Printf function for messages (log_printf() or printf()). 
+    @param pfn          Printf function for messages (log_printf() or printf()).
     @return success flag (1/0) */
 int   shl_dbcard(const spstr &setup, int __cdecl (*pfn)(const char *fmt, ...));
 

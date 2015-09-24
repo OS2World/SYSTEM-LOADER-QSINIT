@@ -10,12 +10,6 @@ typedef unsigned long long u64t;
 
 FILE *fout = 0;
 
-ULONG getmsuptime(void) {
-   ULONG res;
-   DosQuerySysInfo(QSV_MS_COUNT, QSV_MS_COUNT, &res, sizeof(res));
-   return res;
-}
-
 void errexit(const char *str, APIRET code) {
    char msgbuf[256];
    ULONG   len = 0;

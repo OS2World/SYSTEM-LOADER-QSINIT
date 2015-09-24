@@ -9,17 +9,18 @@ extern "C" {
 
 /// @name con_setmode flags
 //@{
-#define CON_GRAPHMODE         0x0001   ///< graphic mode
-#define CON_NOSCREENCLEAR     0x0002   ///< do not clear screen
-#define CON_COLOR_1BIT        0x0000   ///< mono graphic mode
-#define CON_COLOR_4BIT        0x0100   ///< 16 colors graphic mode
-#define CON_COLOR_8BIT        0x0200   ///< 256 colors graphic mode
-#define CON_COLOR_15BIT       0x0300   ///< 64k colors graphic mode
-#define CON_COLOR_16BIT       0x0400   ///< 64k colors graphic mode
-#define CON_COLOR_24BIT       0x0500   ///< 16m colors graphic mode (24 bits)
-#define CON_COLOR_32BIT       0x0600   ///< 16m colors graphic mode (32 bits)
-#define CON_EMULATED          0x1000   ///< emulated text mode (info flag only)
-#define CON_SHADOW            0x2000   ///< mode with shadow buffer
+#define CON_GRAPHMODE        0x00001   ///< graphic mode
+#define CON_NOSCREENCLEAR    0x00002   ///< do not clear screen
+#define CON_COLOR_1BIT       0x00000   ///< mono graphic mode
+#define CON_COLOR_4BIT       0x00100   ///< 16 colors graphic mode
+#define CON_COLOR_8BIT       0x00200   ///< 256 colors graphic mode
+#define CON_COLOR_15BIT      0x00300   ///< 64k colors graphic mode
+#define CON_COLOR_16BIT      0x00400   ///< 64k colors graphic mode
+#define CON_COLOR_24BIT      0x00500   ///< 16m colors graphic mode (24 bits)
+#define CON_COLOR_32BIT      0x00600   ///< 16m colors graphic mode (32 bits)
+#define CON_EMULATED         0x01000   ///< emulated text mode (info flag only)
+#define CON_SHADOW           0x02000   ///< mode with shadow buffer
+#define CON_INDEX_MASK       0xF0000   ///< index (0..15) for modes with same size/colors
 //@}
 
 /** Set text or graphic video mode.

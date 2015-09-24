@@ -232,10 +232,14 @@ public:
 
 void about(void) {
    printf(" ref2lbc - QS ref file conversion:\n\n"
-          " * write watcom linker batch file: \n"
+          " * write watcom linker batch file (for exports): \n"
           "       def2lbc lbc <in_ref> <out_lbc>\n\n"
+          " * write watcom linker batch file (for import lib): \n"
+          "       def2lbc lb2 <in_ref> <out_lbc>\n\n"
           " * write asm jumping code and def for implib: \n"
           "       def2lbc asm <in_ref> <out_asm> <out_def>\n\n"
+          " * the same but with wlib batch instead of def: \n"
+          "       def2lbc as2 <in_ref> <out_asm> <out_lbc>\n\n"
           " * write pure def: \n"
           "       def2lbc def <in_ref> <out_def>\n\n"
           " * write trace file: \n"
@@ -259,7 +263,9 @@ int main(int argc, char *argv[]) {
    spstr op(argv[1]);
    int mode = 0;
 
-   if (op.upper()!="ASM" && op!="LBC" && op!="DEF" && op!="TRC" && op!="ORD") {
+   if (op.upper()!="ASM" && op!="AS2" && op!="LBC" && op!="LB2" && op!="DEF"
+      && op!="TRC" && op!="ORD") 
+   {
       printf("Invalid mode requsted: \"%s\", exiting...\n",op());
       return 1;
    } else
@@ -283,19 +289,22 @@ int main(int argc, char *argv[]) {
          errstr.sprintf("Error! Invalid module type: \"%s\"",modtype);
       }
       l pos = FindVarPos(*refs,"exports"), ii;
-      if (pos<0) {
+      /// module ref can contain only trace info for classes
+      if (pos<0 && op!="TRC") {
          errstr="Missing EXPORTS section!";
          break;
       }
       // exports tree
-      TTreeList *exl=(TTreeList*)refs->Objects(pos);
+      TTreeList *exl = pos<0?0:(TTreeList*)refs->Objects(pos);
 
       if (op[0]=='A') {
-         spstr wrk;
-         wrk.sprintf("%s %s", modtype=="EXE"?"NAME":"LIBRARY", modname());
-         mdef<<wrk;
-         mdef<<""<<"EXPORTS";
-
+         spstr    wrk;
+         int  lbcmode = op[2]=='2';
+         if (!lbcmode) {
+            wrk.sprintf("%s %s", modtype=="EXE"?"NAME":"LIBRARY", modname());
+            mdef<<wrk;
+            mdef<<""<<"EXPORTS";
+         }
          lbc.Add("; generated file, do not modify");
          lbc.Add("\t\t.486p\n");
 
@@ -313,7 +322,10 @@ int main(int argc, char *argv[]) {
                mfunc = ipfx + func;
 
                if (is_offset) {
-                  wrk.sprintf("  %-50s @%d   NONAME", func(), edat->IntValue("index"));
+                  if (lbcmode)
+                     wrk.sprintf("++%s.%s.%d", func(), modname(), edat->IntValue("index"));
+                  else
+                     wrk.sprintf("  %-50s @%d   NONAME", func(), edat->IntValue("index"));
                   mdef<<wrk;
                } else {
                   sprintf(pbuf,"IMPSEG%04X\tsegment byte public use32 'CODE'",segcount);
@@ -330,7 +342,10 @@ int main(int argc, char *argv[]) {
                   lbc<<pbuf;
                   
                   segcount++;
-                  wrk.sprintf("  %-50s @%d   NONAME", mfunc(), edat->IntValue("index"));
+                  if (lbcmode)
+                     wrk.sprintf("++%s.%s.%d", mfunc(), modname(), edat->IntValue("index"));
+                  else
+                     wrk.sprintf("  %-50s @%d   NONAME", mfunc(), edat->IntValue("index"));
                   mdef<<wrk;
                }
             }
@@ -343,13 +358,15 @@ int main(int argc, char *argv[]) {
          }
       } else 
       if (op[0]=='L') {
-         spstr wrk;
+         spstr  wrk;
+         int  imode = op[2]=='2';
          for (ii=0; ii<exl->Count(); ii++)
             if ((*exl)[ii].trim().length() && exl->Objects(ii)) {
                TTreeList *edat = (TTreeList*)exl->Objects(ii);
-               spstr expname = edat->Value("expname").trim().unquote();
+               spstr expname;
+               if (!imode)   expname = edat->Value("expname").trim().unquote();
                if (!expname) expname = (*exl)[ii].trim();
-               wrk.sprintf("++%s.%s.%d",expname(), modname(), edat->IntValue("index"));
+               wrk.sprintf("++%s.%s.%d", expname(), modname(), edat->IntValue("index"));
                lbc<<wrk;
             }
       } else 
@@ -383,32 +400,53 @@ int main(int argc, char *argv[]) {
       } else 
       if (op[0]=='T') {
          Strings<TList*> groups;
+         l              num_grp;
+         
+         if (exl)
+            for (ii=0; ii<exl->Count(); ii++)
+               if ((*exl)[ii].trim().length() && exl->Objects(ii)) {
+                  TTreeList *edat = (TTreeList*)exl->Objects(ii);
+                  Bool  is_offset = IsValueOn(*edat, "offset");
+                  int       index = edat->IntValue("index");
+                  spstr     group = edat->Value("group").trim().unquote(),
+                           format = edat->Value("format").trim().unquote();
+                  int         idx = groups.IndexOfName(group);
+            
+                  if (index<=0 || is_offset || !group || !format) continue;
+                  if (idx<0) {
+                     TList *memb = new TList;
+                     idx = groups.AddObject(group,memb);
+                     memb->Add(ii);
+                  } else
+                     groups.Objects(idx)->Add(ii);
+               }
 
-         for (ii=0; ii<exl->Count(); ii++)
-            if ((*exl)[ii].trim().length() && exl->Objects(ii)) {
-               TTreeList *edat = (TTreeList*)exl->Objects(ii);
-               Bool  is_offset = IsValueOn(*edat, "offset");
-               int       index = edat->IntValue("index");
-               spstr     group = edat->Value("group").trim().unquote(),
-                        format = edat->Value("format").trim().unquote();
-               int         idx = groups.IndexOfName(group);
+         num_grp = groups.Count();
+         pos     = -1;
+         while ((pos = FindVarPos(*refs,"class","name",0,pos+1)) >= 0) {
+            TTreeList *cti = (TTreeList*)refs->Objects(pos);
+            spstr   clname = cti->Value("name").trim().unquote();
 
-               if (index<=0 || is_offset || !group || !format) continue;
-               if (idx<0) {
-                  TList *memb = new TList;
-                  idx = groups.AddObject(group,memb);
-                  memb->Add(ii);
-               } else
-                  groups.Objects(idx)->Add(ii);
+            if (!clname || groups.IndexOfICase(clname())>=0) {
+               errstr.sprintf("Invalid or duplicate class name \"%s\"!", clname());
+               break;
             }
+            if (FindVarPos(*cti,"entires")<0) {
+               errstr.sprintf("Missing ENTIRES section in class \"%s\"!", clname());
+               break;
+            }
+            groups.AddObject(clname,0);
+         }
+
          TraceFile trf(argv[3]);
-         trf.Push("QSTRACE");
+         trf.Push("QSTRACE2");
          trf.Push(modname);
          trf.Push(groups.Count());
          for (ii=0; ii<groups.Count(); ii++) trf.Push(groups[ii]);
-
-         for (ii=0; ii<groups.Count(); ii++) {
+         // saves exports
+         for (ii=0; ii<num_grp; ii++) {
             TList *el = groups.Objects(ii);
+            // number of functions
             trf.Push(el->Count());
             for (l idx=0; idx<el->Count(); idx++) {
                TTreeList *edat = (TTreeList*)exl->Objects((*el)[idx]);
@@ -422,6 +460,20 @@ int main(int argc, char *argv[]) {
                trf.Push(format);
             }
          }
+         // saves classes
+         pos = -1;
+         while ((pos = FindVarPos(*refs,"class","name",0,pos+1)) >= 0) {
+            TTreeList *cti = (TTreeList*)refs->Objects(pos);
+            l          eps = FindVarPos(*cti,"entires");
+            TTreeList  *el = (TTreeList*)cti->Objects(eps);
+            // number of methods
+            trf.Push(el->Count()|0x8000);
+            for (ii=0; ii<el->Count(); ii++) {
+               trf.Push(el->Name(ii));
+               trf.Push(el->Value(ii).trim().unquote());
+            }
+         }
+         if (errstr.length()) break;
 
          // delete TLists
          FreeItems(groups);
@@ -436,9 +488,8 @@ int main(int argc, char *argv[]) {
    } while (false);
 
    if (err) {
-      printf("%s in file \"%s\"",argv[1],errstr());
+      printf("%s in file \"%s\"",errstr(),argv[1]);
       return 2;
-
    }
 
    if (!lbc.SaveToFile(argv[3])) {

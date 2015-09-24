@@ -35,7 +35,7 @@ void _std mod_main(void) {
    setup_storage();
    // export minor LE/LX loader code, missing in QSINIT
    setup_loader();
-   // setup std file i/o 
+   // setup std file i/o
    setup_fileio();
    // get some parameters from ini and copy ini file to 1:
    get_ini_parms();
@@ -63,16 +63,9 @@ void _std mod_main(void) {
    log_printf("exiting start\n");
 }
 
-/* some of C++ code wants exit(), but we have no it in DLL code, so add one
-   with going to trap screen */
-void _std exit(int errorcode) {
-   log_printf("exit called with code (%d)\n", errorcode);
-   _throw_(xcpt_interr);
-}
-
 /* empty LibMain, because it called too early to init START things.
-   _wc_static_init called from mod_main() for us, 
-   _wc_static_fini is never called */
+   _wc_static_init calling from mod_main() for us,
+   _wc_static_fini is never calling */
 unsigned __stdcall LibMain(unsigned hmod, unsigned termination) {
    return 1;
 }

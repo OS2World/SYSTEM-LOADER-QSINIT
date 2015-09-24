@@ -117,7 +117,7 @@ defs.h defs.cpp
 #@section
 
 [config.0] ; compilation parameters for every file in form:
-           ; out file | dependencies | command1 [| command2 ...
+           ; target | dependencies | command1 [| command2 ...
            ; *out - single "main" file, last in order
 defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 
@@ -130,8 +130,18 @@ defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 ; with -b key (self-made build) it acts like "barrier" (waiting for all
 ; compilation threads until continue).
 
-; everywhere (or nearly) \ at the end of line means concatenation with next
-; line (as in makefiles)
+; some special dependencies:
+;  .SYMBOLIC           - empty list (like in wmake)
+;  .DIR[ECTORY] [name] - create path "name". If name omitted, target is used
+;  .WIPEDIR [name]     - wipe directory "name". Warning! This command deletes
+;                        all files and subdirectories!
+;  .CLEAN [mask1] [mask2] ... - delete files. Mask can contain *? and path
+
+; everywhere (or nearly):
+; * '\'  at the end of line means concatenation with next line (as in 
+;        makefiles)
+; * "\\" changing to '\' (on any platform)
+; * '\'  (single char only!) changing to '/' (on linux)
 
 ;Usage : spprj <prj> <config> <output makefile> [<var=value>...]
 ;           produce single makefile for the current platform    

@@ -137,7 +137,8 @@ TEditWindow* TSysApp::OpenEditor(int NewFile, int hide) {
    if (!NewFile) {
       TFileDialog *fo = new TFileDialog("*.*", "Open file", "~F~ile name",
                                         fdOpenButton, hhEditorOpen);
-      int res=execView(fo)==cmFileOpen;
+      fo->helpCtx = hcFileDlgCommon;
+      int     res = execView(fo)==cmFileOpen;
       if (res) fo->getFileName(fname);
       destroy(fo);
       if (!res) return 0;
@@ -216,8 +217,8 @@ void TSysApp::SaveLog(Boolean TimeMark) {
    snprintf(namebuf, MAXPATH+1, "%02d%02d%02d_%02d%02d.log", tme.tm_year%100,
       tme.tm_mon + 1, tme.tm_mday, tme.tm_hour, tme.tm_min);
 
-   if (execDialog(new TFileDialog("*.*","Save system log to file","~N~ame",
-      fdOKButton,101),namebuf)!=cmCancel)
+   if (execDialog(new TFileDialog("*.*", "Save system log to file", "~N~ame",
+      fdOKButton, hhLogFile),namebuf)!=cmCancel)
    {
       char  *log = opts_getlog(TimeMark,True);
       int   llen = strlen(log),

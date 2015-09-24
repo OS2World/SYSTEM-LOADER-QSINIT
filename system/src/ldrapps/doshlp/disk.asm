@@ -329,8 +329,7 @@ int13           endp                                            ;
                 public  int13read
 int13read       proc    near
                 push    es                                      ;
-                push    edx                                     ; save high part of edx
-                pusha                                           ; (does anyone need it?)
+                pushad                                          ;
 
                 mov     si, di                                  ; move offset
                 shr     si, PARASHIFT                           ; to segment
@@ -344,8 +343,7 @@ int13read       proc    near
                 xor     bl,bl                                   ;
                 call    sector_io                               ; single read op
 @@i13r_exit:
-                popa                                            ;
-                pop     edx                                     ;
+                popad                                           ;
                 pop     es                                      ;
                 ret                                             ;
 @@i13r_partial:
@@ -374,6 +372,7 @@ int13read       proc    near
                 mov     si,readbuf_ptr                          ; reset tmp buffer to scratch buff
                 pop     es                                      ; restore buffer address
                 pop     di                                      ;
+                cld                                             ;
                 pop     cx                                      ; restore byte count
             rep movsb                                           ; last sector
                 jmp     @@i13r_exit                             ;
@@ -438,7 +437,8 @@ sector_io       proc    near
                 test    _i13ext_table[si],8                     ; the same call
                 jz      @@rsec_oldway                           ; method as for
                 pop     edx                                     ; int13_rwext
-                add     edx, _BootBPB.BPB_HiddenSec             ;
+                mov     edi, _BootBPB.BPB_HiddenSec             ;
+                ;dbg16print <"pae: s:%lx",10>,<edx>              ;
                 call    pae_diskio                              ;
                 ret                                             ;
 ;----------------------------------------------------------------
@@ -815,8 +815,8 @@ DHReadSectors   proc    far                                     ;
                 ;dbg16print <"DHReadSectors es:di=%x:%x, dx:ax=%x:%x cx=%x bx=%x",10>,<bx,cx,ax,dx,di,es>
                 call    int13read                               ; read
                 setc    al                                      ;
-                ;cbw                                             ;
-                ;dbg16print <"DHReadSectors done %x",10>,<ax>
+                cbw                                             ;
+                ;dbg16print <"DHReadSectors done %x : %b16",10>,<es,di,ax>
                 popf                                            ;
                 rcr     al,1                                    ; save all flags except OF ;)
                 pop     ax                                      ;

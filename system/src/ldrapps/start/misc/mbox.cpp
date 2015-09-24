@@ -13,20 +13,28 @@
 #undef  COLOR_SEL  // dialog color changing by 1..4 + up & down arrows
 
 static u8t mb_color[MSG_WHITE+1][4] = { // box text button selbutton
-   { 0x7F, 0x7F, 0x2A, 0x2E },  // gray
-   { 0x3B, 0x3F, 0x2F, 0x2E },  // cyan
-   { 0x2A, 0x2F, 0xA5, 0xFC },  // green
-   { 0xA8, 0xA8, 0x1F, 0x9E },  // light green
+//   { 0x7F, 0x7F, 0x2A, 0x2E },  // gray
+   { 0x7F, 0x7F, 0x8F, 0x2E },  // gray
+//   { 0x3B, 0x3F, 0x2F, 0x2E },  // cyan
+   { 0x3B, 0x3F, 0x73, 0xFC },  // cyan
+//   { 0x2A, 0x2F, 0xA5, 0xFC },  // green
+   { 0x2A, 0x2F, 0xAF, 0xEC },  // green
+//   { 0xA8, 0xA8, 0x1F, 0x9E },  // light green
+   { 0xAE, 0xA0, 0x2A, 0xEC },  // light green
    { 0x1B, 0x1F, 0xF9, 0xEC },  // blue
-   { 0x9F, 0x9F, 0xF1, 0xBC },  // light blue
-   { 0x4C, 0x4E, 0x71, 0xF9 },  // red
-   { 0xCF, 0xCF, 0x3F, 0xEC },  // light red
-   { 0xF1, 0xF1, 0x1B, 0xCE }}; // white
+//   { 0x9F, 0x9F, 0xF1, 0xBC },  // light blue
+   { 0x9F, 0x9F, 0xF1, 0xCE },  // light blue
+//   { 0x4C, 0x4E, 0x71, 0xF9 },  // red
+   { 0x4C, 0x4E, 0x65, 0xFC },  // red
+//   { 0xCF, 0xCF, 0x3F, 0xEC },  // light red
+   { 0xCF, 0xCF, 0x4C, 0xEC },  // light red
+//   { 0xF1, 0xF1, 0x1B, 0xCE }}; // white
+   { 0xF1, 0xF1, 0x7F, 0x9C }}; // white
 
 static const char *mb_text[] = { 0, "Ok", "Cancel", "Yes", "No" };
 
 static u32t mb_res[] = { MRES_CANCEL, MRES_OK, MRES_CANCEL, MRES_YES, MRES_NO };
-// list of buttons (up to 4 numbers of buttons on reverse order)
+// list of buttons (up to 4 buttons in reverse order)
 static u32t mb_list[MAX_BUTTYPE] = { 0, 0x01, 0x0201, 0x0403, 0x020403 };
 
 static u32t mb_buttons[MAX_BUTTYPE] = { 0, 1, 2, 2, 3 };
@@ -85,6 +93,8 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
    u32t   width = flags&MSG_WIDE?WDT_WIDE:WDT_NORM,
         viscols = width - 4, lines, vislines, ii,
         keymode = flags>>4&0xF, borderlines = keymode?6:4;
+   /* note, that splittext() takes ANSI in mind, but msgbox ignoring it
+      and shows as usual symbols, so ansi seqs in text will cause chaos */
    splittext(text, viscols, lst);
    // drop lines behind maximum height
    if (lst.Count()>HDT_MAX-borderlines)

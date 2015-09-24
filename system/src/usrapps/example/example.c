@@ -84,6 +84,7 @@ int main(int argc,char *argv[]) {
 
    if (argc>1) {
       if (stricmp(argv[1],"fps")==0) {
+         // screen clear fps counter (for virtual console)
          u32t start = tm_counter(),
                 cnt = 0;
          do {
@@ -94,14 +95,48 @@ int main(int argc,char *argv[]) {
          return 0;
       } else
       if (stricmp(argv[1],"r")==0 && argc==4) {
+         // mem hide test
          u64t addr = strtoull(argv[2],0,16),
                len = strtoull(argv[3],0,16);
          sys_markmem(addr, len>>PAGESHIFT, PCMEM_HIDE|PCMEM_USERAPP);
       } else
       if (stricmp(argv[1],"u")==0 && argc==2) {
+        // trap screen
         __asm { int 1 }
       } else
+      if (stricmp(argv[1],"f")==0 && argc==3) {
+         // test of module unload
+         u32t mod = mod_query(argv[2], MODQ_NOINCR), rc;
+         if (!mod) printf("There is no module \"%s\"\n",argv[2]); else {
+            //log_mdtdump();
+            rc = mod_free(mod);
+            if (rc) printf("mod_free() error %d\n",rc); else
+               printf("mod_free(\"%s\") ok\n",argv[2]);
+            //log_mdtdump();
+         }
+      } else
+      if (stricmp(argv[1],"g")==0 && argc==3) {
+         // create 40Gb GPT partition directly on 2TB border
+         u32t disk = dsk_strtodisk(argv[2]);
+         if (disk==FFFF) {
+            printf("Invalid disk name (%s)\n", argv[2]);
+         } else {
+            // 32 sectors before 2Tb
+            u32t rc = dsk_gptcreate(disk, 0xFFFFFFE0, 40*1024*1024*2, DFBA_PRIMARY, 0);
+            if (rc) {
+               char topic[16], *msg;
+               sprintf(topic, "_DPTE%02d", rc);
+               msg = cmd_shellgetmsg(topic);
+               if (msg) {
+                  printf("Error: %s\n", msg);
+                  free(msg);
+               } else
+                  printf("Error code 0x%04X\n", rc);
+            }
+         }
+      } else
       if (stricmp(argv[1],"s")==0 && argc==3) {
+         // query GDT selector data
          u8t sd[8];
          u16t  sel = strtoul(argv[2],0,16);
          if (sys_selquery(sel,&sd)) printf("%04X: %8b\n", sel, &sd);
@@ -115,9 +150,9 @@ int main(int argc,char *argv[]) {
             cmd_printf("%010LX: %16b\n", addr, mem);
             cmd_printf("%010LX: %16b\n", addr + 16, mem + 16);
             cmd_printf("%010LX: %16b\n", addr + 32, mem + 32);
-            
+
             pag_physunmap(mem);
-         } else 
+         } else
             cmd_printf("unable to read memory at addr %LX\n", addr);
       }
       return 0;
@@ -163,7 +198,7 @@ int main(int argc,char *argv[]) {
          printf("%15s %8d %s",di.d_name,di.d_size,asctime(&tme));
       } while (!_dos_findnext(&di));
       _dos_findclose(&di);
-   } else 
+   } else
       printf("_dos_findfirst error %i\n",errno);
 
    if (setjmp(jmp)) {

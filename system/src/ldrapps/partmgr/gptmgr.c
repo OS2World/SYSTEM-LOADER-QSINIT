@@ -85,12 +85,12 @@ u32t dsk_flushgpt(hdd_info *hi) {
 
    if (!hi || !hi->gpthead || !hi->ptg || !pt) return DPTE_INVARGS;
    // update partition data crc32
-   pt ->GPT_PtCRC = crc32(crc32(0,0,0), (u8t*)hi->ptg, sizeof(struct GPT_Record) * 
+   pt ->GPT_PtCRC = crc32(crc32(0,0,0), (u8t*)hi->ptg, sizeof(struct GPT_Record) *
       pt->GPT_PtCout);
    // there is no second copy? reconstruct one
    if (!pt2) {
       // check location
-      if (!pt->GPT_Hdr2Pos || pt->GPT_Hdr2Pos==FFFF64) 
+      if (!pt->GPT_Hdr2Pos || pt->GPT_Hdr2Pos==FFFF64)
          pt->GPT_Hdr2Pos = hi->info.TotalSectors - 1;
       if (pt->GPT_Hdr2Pos - hi->gpt_sectors <= pt->GPT_UserLast)
          return DPTE_GPTHDR;
@@ -105,12 +105,12 @@ u32t dsk_flushgpt(hdd_info *hi) {
    pt2->GPT_HdrCRC = crc32(crc32(0,0,0), (u8t*)pt2, sizeof(struct Disk_GPT));
 
    // write second copy of partition data
-   if (hlp_diskwrite(hi->disk, pt2->GPT_PtInfo, hi->gpt_sectors, hi->ptg) != 
+   if (hlp_diskwrite(hi->disk, pt2->GPT_PtInfo, hi->gpt_sectors, hi->ptg) !=
       hi->gpt_sectors) return DPTE_ERRWRITE;
    // write second header
    if (!hlp_diskwrite(hi->disk, pt->GPT_Hdr2Pos, 1, pt2)) return DPTE_ERRWRITE;
    // write first copy of partition data
-   if (hlp_diskwrite(hi->disk, pt->GPT_PtInfo, hi->gpt_sectors, hi->ptg) != 
+   if (hlp_diskwrite(hi->disk, pt->GPT_PtInfo, hi->gpt_sectors, hi->ptg) !=
       hi->gpt_sectors) return DPTE_ERRWRITE;
    // write first header
    if (!hlp_diskwrite(hi->disk, pt->GPT_Hdr1Pos, 1, pt)) return DPTE_ERRWRITE;
@@ -205,7 +205,7 @@ u32t dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid) {
    if (!size) size = fb->StartSector + fb->Length - start;
 
    widx = FFFF;
-   /* sort and compress GPT partition list (not requited, I think, but who
+   /* sort and compress GPT partition list (not required, I think, but who
       knows */
    for (ii=0; ii<hi->gpt_size; ii++)
       if (!hi->ptg[ii].PTG_FirstSec)
@@ -259,10 +259,10 @@ u32t dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid) {
 u32t _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
    hdd_info *hi = get_by_disk(disk);
 
-   /* we ALLOW hybrid changing in this function!!! 
+   /* we ALLOW hybrid changing in this function!!!
       This is only GPT record update, so, I hope - it cannot kill ;) */
 
-   if (!hi) return DPTE_INVDISK; else 
+   if (!hi) return DPTE_INVDISK; else
    if (!pinfo) return DPTE_INVARGS; else {
       struct GPT_Record  *pte;
       u32t   *pos;
@@ -273,7 +273,7 @@ u32t _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
       if (!pos) return DPTE_PINDEX;
       pte = hi->ptg + (pos - hi->gpt_index);
 
-      if (pte->PTG_FirstSec!=pinfo->StartSector || 
+      if (pte->PTG_FirstSec!=pinfo->StartSector ||
          pinfo->Length != pte->PTG_LastSec - pte->PTG_FirstSec + 1)
             return DPTE_RESCAN;
       /* linux, as always, made an additional trouble - empty partition name,
@@ -289,7 +289,7 @@ u32t _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
       memcpy(pte->PTG_GUID, pinfo->GUID, 16);
       memcpy(pte->PTG_Name, pinfo->Name, sizeof(pinfo->Name));
       pte->PTG_Attrs = pinfo->Attr;
-      
+
       // flush changes and rescan
       return update_rescan(hi);
    }
@@ -304,7 +304,7 @@ u32t _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
 
    if (guidtype==GPTN_DISK || *disk==FFFF) {
       u32t hdds = hlp_diskcount(0), ii;
-      
+
       for (ii=0; ii<hdds; ii++) {
          hdd_info *hi = get_by_disk(ii);
          if (!hi) continue;
@@ -336,7 +336,7 @@ u32t _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
             struct GPT_Record  *pte = hi->ptg + idx;
             // if partition is not indexed, then skip it and search next
             if (memcmp(guidtype&GPTN_PARTITION ? pte->PTG_GUID : pte->PTG_TypeGUID,
-               guid, 16)==0) 
+               guid, 16)==0)
                if (hi->gpt_index[idx]!=FFFF) {
                   *index = hi->gpt_index[idx];
                   return 0;
@@ -349,7 +349,7 @@ u32t _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
 /** update GPT disk info.
     Function set new GUID.
     Function allow to change UserFirst/UserLast positions (!), but only if all
-    existing partitions still covered by new UserFirst..UserLast value 
+    existing partitions still covered by new UserFirst..UserLast value
     (else DPTE_NOFREE returned). Set both UserFirst/UserLast to 0 to skip this.
     Hdr1Pos and Hdr2Pos values ignored.
 
@@ -359,9 +359,9 @@ u32t _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
 u32t _std dsk_gptdset(u32t disk, dsk_gptdiskinfo *dinfo) {
    hdd_info *hi = get_by_disk(disk);
    int     type;
-   /* ALLOW hybrid changing in this function, but GUID only, 
+   /* ALLOW hybrid changing in this function, but GUID only,
       not UserFirst/UserLast */
-   if (!hi) return DPTE_INVDISK; else 
+   if (!hi) return DPTE_INVDISK; else
    if (!dinfo) return DPTE_INVARGS;
    // this call scan disk if required
    type = dsk_isgpt(disk, -1);

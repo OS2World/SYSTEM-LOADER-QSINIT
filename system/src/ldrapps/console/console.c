@@ -103,13 +103,15 @@ void con_init(void) {
 }
 
 int search_mode(u32t x, u32t y, u32t flags) {
-   u32t ii;
-   flags&=~(CON_NOSCREENCLEAR);
+   u32t ii, idx,
+     index = (flags&CON_INDEX_MASK)>>16;
+   flags  &=~(CON_NOSCREENCLEAR);
    // isolate known flags
-   flags&=0xF0F;
-   for (ii=0;ii<mode_cnt;ii++)
-      if (modes[ii].width==x && modes[ii].height==y &&
-         (modes[ii].flags&~(CON_EMULATED))==flags) return ii;
+   flags  &= 0xF0F;
+   for (ii=0,idx=0; ii<mode_cnt; ii++)
+      if (modes[ii].width==x && modes[ii].height==y && (modes[ii].flags&
+         ~(CON_EMULATED))==flags) 
+             if (idx++==index) return ii;
    return -1;
 }
 
@@ -434,7 +436,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                     cps[rate]%10UL, (u32t)(delay+1)*250);
          rc = 0;
       } else {
-         u32t cols=0, lines=0, rate=FFFF, delay=0;
+         u32t cols=0, lines=0, rate=FFFF, delay=0, index=0;
          ii = 1;
          while (ii<args->count) {
             if (strnicmp(args->item[ii],"COLS=",5)==0)
@@ -445,6 +447,9 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                rate  = strtoul(args->item[ii]+5, 0, 0); else
             if (strnicmp(args->item[ii],"DELAY=",6)==0)
                delay = strtoul(args->item[ii]+6, 0, 0); else
+            if (strnicmp(args->item[ii],"INDEX=",6)==0) {
+               index = strtoul(args->item[ii]+6, 0, 0); 
+            } else
             if (strnicmp(args->item[ii],"ADD=",4)==0) {
                // check add=fx,fy,mx,my parameter
                char *cp = args->item[ii]+4;
@@ -521,15 +526,16 @@ u32t _std con_handler(const char *cmd, str_list *args) {
          }
          if (ii) {
             if (cols || lines) {
-               u32t oldcols, oldlines;
+               u32t oldcols, oldlines, 
+                      flags = index<<16&CON_INDEX_MASK;
                con_getmode(&oldcols, &oldlines, 0);
                if (!cols)  cols  = oldcols;
                if (!lines) lines = oldlines;
 
-               if (!con_modeavail(cols, lines, 0))
+               if (!con_modeavail(cols, lines, flags))
                   cmd_printf("There is no such mode.\n");
                else
-               if (!con_setmode(cols, lines, 0))
+               if (!con_setmode(cols, lines, flags))
                   cmd_printf("Error while setting specified mode (%dx%d).\n", cols, lines);
                rc = 0;
             }
@@ -600,6 +606,8 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       cmd_shelladd("MKSHOT",shl_mkshot);
       // install "mode con" shell command
       cmd_modeadd("CON",con_handler);
+      // exec shell commands on load
+      cmd_execint(selfname,0);
       // we are ready! ;)
       log_printf("console.dll is loaded!\n");
    } else {

@@ -359,6 +359,8 @@ You also need to replace MBR code to provided by QSINIT.
 
 * "Set type GUID" - set partition type on GPT disks
 
+* "Clone" - clone partition data to another existing partition.
+
 * "Create logical" - create logical partition on selected free space
 
 * "Create primary" - create primary partition on selected free space
@@ -382,17 +384,27 @@ This list contain actions on entire disk. Be cafrefully with all of it:
 
 * "Boot" - boot MGR code of disk disk
 
+* "Clone" - clone disk structure (and data, optionally). Option available
+only if exist empty disk of appropriate size.
+
 * "Init disk" - write empty partition table to empty disk (i.e. init it to use).
 This action will can also write initial LVM signature.
 
 * "Init disk (GPT)" - write GPT partition table to empty disk (GPT is not
-supported by OS/2, but QSINIT can operate with it).
+supported by OS/2, but QSINIT can operate it).
 
-* "Replace MBR code" - replace MBR code to provided by QSINIT. This code
+* "Replace MBR code" - replace MBR code to provided by QSINIT. This code is
 compatible with OS/2 boot.
+
+* "Restore MBR backup" - restore partition structure from backup image file. Option
+active only when disk is empty (i.e. MBR sector have no 55 AA signature).
 
 * "Update LVM info" - update LVM info (option available only if LVM info on disk
 have one or more correctable errors).
+
+* "Save MBR backup" - save partition structure to VHDD image file. This file can
+be used to restore it (when MBR will be damaged). File also can be mounted by
+VHDD command as common QSINIT disk.
 
 * "Wipe disk" - wipe partition table (ENTIRE DISK!)
 
@@ -431,9 +443,56 @@ View/edit PC memory.
 Memory editor operates with 256 byte blocks. When you leave this block
 editor will ask for update actual memory.
 
+Note that in non-paging mode QSINIT shows all memory, but below 4Gb only. In
+paging mode QSINIT shows all physical memory, but device space at the end of
+4th gigabyte is not mapped and unaccessible. This is not so bad, because
+walking over it in memory editor can cause deadlocks.
+
 .topic SectGoto=2102
  Disk≥Go to sector ‹    (F11)
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Type physical disk sector number to go to.
 
 Use decimal values or C language hex notation (0xA1B2C3D4).
+
+.topic DskClone=2112
+ Disk clone ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Clone disk to any available empty disk.
+
+Options:
+
+* "Clone IDs" - clone all known disk identifiers (serial numbers and so on).
+
+* "Copy MBR code" - copy MBR code from source disk.
+
+* "Identical" - make sector-to-sector copy of source disk partition table
+structures (affects MBR only).
+
+* "Ignore CHS mismatch" - ignore "sector per track" value miscmatch on BIOS
+level. If LVM info is available on source disk - it can produce CHS mismatch
+too, but this case is unavoidable (Disks must be close in size to avoid this).
+
+* "Wipe old data" - (Structure only) wipe partition boot sectors on target disk
+after copying. This is required because some old data can be available in it.
+Turn this option off if you restoring MBR structure from backup disk to broken
+original.
+
+.topic VolClone=2121
+ Partition clone ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Clone partition data to any available partition.
+
+Command knows nothing about file systems, it just copies data. If target
+partition larger, than source - remaining part will be "lost" - because file
+system structures not adjusted to new partition size.
+
+Only one thing updated by copying process - common BPB in boot sector, if it
+available.
+
+.topic FileDlgCommon=2124
+ Open/Save dialog‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+To change disk just type A: or B: in file name`s edit line.
+
+To go to directory directly - type it path in this line too.

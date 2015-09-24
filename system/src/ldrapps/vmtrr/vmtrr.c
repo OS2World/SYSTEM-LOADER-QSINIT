@@ -184,7 +184,7 @@ int main(int argc,char *argv[]) {
    if ((state&MTRRS_MTRRON)==0) 
       printf("Warning! MTRR is in disabled state!\nType MTRR ON to turn it back\n");
    if ((state&MTRRS_DEFMASK)!=MTRRF_UC)
-      error(6,"Default memory type in NOT \"uncacheable\". Unable to operate!\n");
+      error(6,"Default memory type is NOT \"uncacheable\". Unable to operate!\n");
 
    mtrr = (mtrrentry*)malloc(vregs*sizeof(mtrrentry));
    memZero(mtrr);

@@ -15,7 +15,6 @@ aa=@wasm
 cc=@wcc386
 cpp=@wpp386
 ld=@wlink
-out=$(outdir)/
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
@@ -26,12 +25,8 @@ out=$(outdir)/
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
 
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
-
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
-
-*cln=clean|.SYMBOLIC|@$(&clean)
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
@@ -46,7 +41,6 @@ ccinc=$(cinc)
 ainc=
 bld_dir=bld
 outname=$(name).exe
-&clean=$(outdir)\cleanall.cmd
 tvloc=../tv/src/
 spdefs=-DSRT -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_HUGELIST -DNO_RANDOM -DNO_SP_POINTRECT
 
@@ -79,7 +73,6 @@ dbgkey=
 outdir=$(bld_dir)\$(config).$(build_osc)
 
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 ..\..\hc\inc\ioint13.inc ..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc
 ..\..\hc\inc\parttab.inc
 tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
@@ -102,12 +95,17 @@ info\lvmdlat.cpp info\setgpt.cpp
 ..\runtime\rt\sp_defs.cpp ..\runtime\rt\sp_str.cpp
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) $(**inc) @@wait $(**c) $(**cpp)
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**c) $(**cpp)
 
-#$(**asm)
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 [&lnk0]
 sys os2v2
@@ -143,24 +141,11 @@ op quiet
 #op el
 op st=262144
 
-[&clean]
-@echo off
-echo Cleaning ...
-cd $(outdir)
-if exist *.obj @del *.obj
-if exist *.lst @del *.lst
-if exist *.h @del *.h
-if exist $(name).* @del $(name).*
-cd ..\..
-
 [config.0]
 *out=$(outname) | nolink | \
      @echo Linking ... | \
      $(ld) @$(&lnk0) | lxlite $(outname) >nul | \
-     @pkzip /add /max /silent /nozipextension /path=none \
-     %(QS_BIN)\%(QS_ARCH) $(outname) | \
-     @pkzip /add /max /silent /nozipextension /dir /rec \
-     %(QS_BIN)\%(QS_ARCH) MSG\*.hlp
+     @zip -q -9 -X -S -D %(QS_BIN)\%(QS_ARCH) $(outname) msg\*.HLP
 
 [config.1,2]
 *out=$(outname) | nolink | \

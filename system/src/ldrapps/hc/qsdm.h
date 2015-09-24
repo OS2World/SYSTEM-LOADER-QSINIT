@@ -49,6 +49,14 @@ int   _std dsk_newmbr(u32t disk, u32t flags);
     @return DSKST_* value and readed data in optbuf if specified */
 u32t  _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf);
 
+/** query sector type in memory buffer.
+    @param sectordata     sector binary data
+    @param sectorsize     sector size
+    @param disk           disk number (help to analyze, use 0 for common hdd)
+    @param is0            is sector 1st on disk? (help to analyze)
+    @return DSKST_* value */
+u32t  _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0);
+
 /** query filesystem name from boot sector.
     @param disk           disk number
     @param sector         sector
@@ -98,13 +106,37 @@ int   _std dsk_wipe55aa(u32t disk, u64t sector);
 
 /** write empty sectors (zero-fill).
     @attention function deny sector 0 as argument! Use dsk_newmbr() instead.
-    Function accept volumes too (i.e. vol|QDSK_VOLUME disk value).
-   
+    Function accepts volumes too (i.e. vol|QDSK_VOLUME disk value).
+
     @param disk     disk number
     @param sector   first sector
     @param count    number of sectors to clear
     @return 0 on success or DPTE_* error code */
 u32t  _std dsk_emptysector(u32t disk, u64t sector, u32t count);
+
+/// break copying confirmation callback
+typedef int _std (*break_callback)(void *info);
+
+/** copy sectors.
+    Function accepts volumes too (i.e. vol|QDSK_VOLUME disk value).
+
+    @param [in]  dstdisk   destination disk
+    @param [in]  dststart  start sector on destination disk
+    @param [in]  srcdisk   source disk
+    @param [in]  srcstart  start sector on source disk
+    @param [in]  count     number of sectors to copy
+    @param [in]  cbprint   process indication callback (can be 0)
+    @param [in]  ask       ask confirmation to break copy process, if it non-0,
+                           then this function will be called on ESC key press.
+                           If function returns 1, dsk_copysector() will stop
+                           copying and set DPTE_UBREAK error code.
+    @param [in]  askptr    info parameter for ask callback, can be 0
+    @param [out] error     ptr to error code (can be 0)
+    @return number of actually copied sectors. */
+u32t  _std dsk_copysector(u32t dstdisk, u64t dststart,
+                          u32t srcdisk, u64t srcstart,
+                          u32t count, read_callback cbprint,
+                          break_callback ask, void *askptr, u32t *error);
 
 /// @name dsk_ptrescan(), dsk_setactive(), dsk_ptcreate(), etc result
 //@{
@@ -133,6 +165,11 @@ u32t  _std dsk_emptysector(u32t disk, u64t sector, u32t count);
 #define DPTE_2TBERR   0x0041     ///< Unable to access disk data above 2TB
 #define DPTE_GPTLARGE 0x0042     ///< GPT header too large to process
 #define DPTE_GPTHDR2  0x0043     ///< second GPT header is broken
+#define DPTE_EXTPOP   0x0044     ///< extended partition is not empty and cannot be deleted
+#define DPTE_INCOMPAT 0x0045     ///< incompatible disks (dsk_clonestruct() - sector size or spt mismatch)
+#define DPTE_CSPACE   0x0046     ///< there is no free space on target disk for clone
+#define DPTE_UBREAK   0xFFFC     ///< esc was pressed, operation not complete
+#define DPTE_NOMEMORY 0xFFFD     ///< no memory to process this operation
 #define DPTE_INVARGS  0xFFFE     ///< invalid arguments
 #define DPTE_INVDISK  0xFFFF     ///< bad disk number specified
 //@}
@@ -181,8 +218,8 @@ u8t   _std dsk_ptquery(u32t disk, u32t index,
                        u32t *ptofs);
 
 /** query MBR/GPT partition.
-    This function do not scan disk, so call to dsk_ptrescan(disk,0) first,
-    to make sure, what disk info is actual.
+    This function run without disk scanning, so call to dsk_ptrescan(disk,0)
+    first, to make sure, what disk info is actual.
 
     @param [in]  disk     disk number
     @param [in]  index    partition index
@@ -194,6 +231,15 @@ u8t   _std dsk_ptquery(u32t disk, u32t index,
             it will be PTE_EE_UEFI. */
 u8t   _std dsk_ptquery64(u32t disk, u32t index,
                          u64t *start, u64t *size, char *filesys, u32t *flags);
+
+/** query used disk space borders.
+    @param [in]  disk     disk number
+    @param [out] first    first used sector on disk (by existing partition!)
+    @param [out] last     last used sector on disk. Note, that extended partition
+                          can have a lot of free space behind this sector, but
+                          only existing partitions counted here.
+    @return 0 on success, DPTE_EMPTY if disk is empty, else disk scan error */
+u32t  _std dsk_usedspace(u32t disk, u64t *first, u64t *last);
 
 /** set active partition (MBR disks).
     Function deny all types of extended partition.
@@ -209,6 +255,13 @@ u32t  _std dsk_setactive(u32t disk, u32t index);
     @param [in]  type     new partition type
     @return 0 on success or DPTE_* constant. */
 u32t  _std dsk_setpttype(u32t disk, u32t index, u8t type);
+
+/** is partition mounted?
+    @param disk           disk number
+    @param index          partition index, can be -1 for entire disk mount
+    @return 0 if not mounted or error occured, else disk number (i.e.
+            QDSK_VOLUME|volume). */
+u32t  _std dsk_ismounted(u32t disk, long index);
 
 /** query mounted volume partition index.
     @param [in]  vol      volume (0..9)
@@ -260,7 +313,7 @@ u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
     @param vol       volume (0..9)
     @param flags     format flags (DFMT_*)
     @param unitsize  cluster size, use 0 for auto selection
-    @param cbprint   process indicator callback (can be 0, not used if
+    @param cbprint   process indication callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
     @return 0 if success, else DFME_* error code */
 u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
@@ -270,7 +323,7 @@ u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
     @param fsname    fs name (FAT or HPFS now)
     @param flags     format flags (DFMT_*)
     @param unitsize  cluster size for FAT, use 0 for auto selection
-    @param cbprint   process indicator callback (can be 0, not used if
+    @param cbprint   process indication callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
     @return 0 if success, else DFME_* error code */
 u32t  _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
@@ -401,6 +454,13 @@ u32t  _std dsk_ptdel(u32t disk, u32t index, u64t start);
     @return 0 on success, or DPTE_* error. */
 u32t  _std dsk_extmerge(u32t disk);
 
+/** delete empty extended partition.
+    By default, this action is not required, all FDISKs must do it self.
+    @param disk     Disk number.
+    @return 0 on success, or DPTE_* error (DPTE_EXTPOP if extended partition
+            is not empty). */
+u32t  _std dsk_extdelete(u32t disk);
+
 /// @name flags for dsk_ptalign()
 //@{
 #define DPAL_PERCENT   0x0001   ///< size is in percents, not megabytes.
@@ -414,7 +474,7 @@ u32t  _std dsk_extmerge(u32t disk);
 
     @param [in]   disk      Disk number.
     @param [in]   freeidx   Free space index (from dsk_ptgetfree()).
-    @param [in]   ptsize    Partition size in megabytes or percents, use 0 
+    @param [in]   ptsize    Partition size in megabytes or percents, use 0
                             for full free space size.
     @param [in]   altype    Flags (DPAL_).
     @param [out]  start     Calculated start sector.
@@ -456,10 +516,66 @@ typedef struct {
     attribute ON - as DMAP_ACTIVE (this can occur multiple times(!)).
 
     @param disk     Disk number.
-    @return 0 on invalid disk number/disk scan error or an array of 
-           dsk_mapblock (must be free()-ed), sorted by StartSector, 
+    @return 0 on invalid disk number/disk scan error or an array of
+           dsk_mapblock (must be free()-ed), sorted by StartSector,
            with DMAP_LEND in Flags field of last entry */
 dsk_mapblock* _std dsk_getmap(u32t disk);
+
+
+/// @name flags for dsk_clonestruct()
+//@{
+#define DCLN_MBRCODE   0x0001   ///< copy MBR code
+#define DCLN_SAMEIDS   0x0100   ///< clone IDs (GUIDs on GPT & serials on LVM)
+#define DCLN_IDENT     0x0200   ///< make identical copy (MBR only)
+#define DCLN_NOWIPE    0x0400   ///< do now wipe boot sectors on target disk
+#define DCLN_IGNSPT    0x8000   ///< ignore sectors per track mismatch
+//@}
+
+/** clone disk structure to the empty disk of the same or larger size.
+    Function copies only disk structure, not actual partition data. Use
+    dsk_clonedata() to copy partition sectors.
+
+    DCLN_IDENT flag force to direct copying of all MBR records byte to byte.
+    This mode is not recommended, actually. Flag DCLN_IDENT does NOT include
+    DCLN_SAMEIDS - i.e. after direct copying LVM serials will be updated to
+    new values (by default).
+
+    DCLN_NOWIPE prevents wiping of boot sectors on newly created partitions
+    on target disk. Wiping is ON by default - to remove possible remains of
+    old filesystem data.
+
+    @param dstdisk   Destination disk.
+    @param srcdisk   Source disk.
+    @param flags     Flags (DCLN_).
+    @return 0 on success, DPTE_CSPACE if target disk is not empty or too
+            small to fit source disk structure, DPTE_ERRWRITE on write error,
+            any of DPTE_* errors if srcdisk scan was unsuccessful, DPTE_HYBRID
+            if source disk has hybrid partition table (GPT+MBR), DPTE_INCOMPAT
+            on sector size or sectors per track value mismatch. */
+u32t  _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags);
+
+/// @name flags for dsk_clonedata()
+//@{
+#define DCLD_NOBREAK   0x0001   ///< operation is NON-breakable by ESC key
+#define DCLD_SKIPBPB   0x0002   ///< do NOT fix values in boot sector`s BPB
+//@}
+
+/** clone partition data to other existing partition of the same or larger size.
+
+    This function knows nothing about file system structures - it just copying
+    data. Only one thing it can change - some fields in BPB structure in boot
+    sector of destination, but only if valid BPB was detected.
+
+    @param dstdisk   Destination disk.
+    @param dstindex  Partition index on destination disk.
+    @param srcdisk   Source disk.
+    @param srcindex  Partition index on source disk.
+    @param cbprint   process indication callback (can be 0)
+    @param flags     Flags (DCLD_).
+    @return 0 on success or DPTE_* error code */
+u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex,
+                         u32t srcdisk, u32t srcindex, 
+                         read_callback cbprint, u32t flags);
 
 //===================================================================
 //  OS/2 LVM information access
@@ -569,22 +685,22 @@ u32t  _std lvm_assignletter(u32t disk, u32t index, char letter, int force);
 /** set ASCII disk/volume name.
     @param disk      disk number
     @param index     partition index (ignored for LVMN_DISK)
-    @param nametype  name type (LVMN_*). LVMN_PARTITION and LVMN_VOLUME flags 
+    @param nametype  name type (LVMN_*). LVMN_PARTITION and LVMN_VOLUME flags
                      can be combined to set the same name for partition and
                      volume name DLAT fields.
-    @param name      name to set 
+    @param name      name to set
     @return 0 on success or LVME_* error code. */
 u32t  _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
 
 /** write LVM signatures to disk.
     Better use OS/2 LVM or DFSEE.
     @param disk      disk number
-    @param geo       disk virtual CHS geometry, can be 0 for 
+    @param geo       disk virtual CHS geometry, can be 0 for
                      auto-detect.
-    @param separate  Disk will have "boot disk serial number" equal to own 
-                     "serial number". This option must be ON for disks, 
-                     which will be used for master boot, but now connected 
-                     as secondary. Use 1 for ON, 0 for OFF and -1 for AUTO 
+    @param separate  Disk will have "boot disk serial number" equal to own
+                     "serial number". This option must be ON for disks,
+                     which will be used for master boot, but now connected
+                     as secondary. Use 1 for ON, 0 for OFF and -1 for AUTO
                      (previous value will be used if LVM was exist on disk).
     @return 0 on success or LVME_* error code. */
 u32t  _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate);
@@ -599,7 +715,7 @@ int   _std lvm_wipeall(u32t disk);
 
 /** search for partition by it`s name.
     @param [in]     name     Partition name.
-    @param [in]     nametype Name type (LVMN_*). 
+    @param [in]     nametype Name type (LVMN_*).
                              Volume name can be empty in some cases
                              (boot manager partition, for example).
     @param [in,out] disk     Disk number, init it with 0xFFFFFFFF for all disks
@@ -639,12 +755,12 @@ void _std dsk_makeguid(void *guid);
     not 2 for it.
 
     @return -1 on invalid disk number/partition index, 0 for MBR disk/partition,
-       1 for GPT, >1 if disk have hybrid partition table (both GPT and MBR) or 
+       1 for GPT, >1 if disk have hybrid partition table (both GPT and MBR) or
        partition is hybrid (located both un MBR and GPT) */
 int   _std dsk_isgpt(u32t disk, long index);
 
 typedef struct {
-   u8t         GUID[16];        ///< disk GUID     
+   u8t         GUID[16];        ///< disk GUID
    u64t       UserFirst;        ///< first usable sector
    u64t        UserLast;        ///< last usable sector
    u64t         Hdr1Pos;
@@ -660,7 +776,7 @@ u32t  _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo);
 /** update GPT disk info.
     Function set new GUID.
     Function allow to change UserFirst/UserLast positions (!), but only if all
-    existing partitions still covered by new UserFirst..UserLast value 
+    existing partitions still covered by new UserFirst..UserLast value
     (else DPTE_NOFREE returned). Set both UserFirst/UserLast to 0 to skip this.
     Hdr1Pos and Hdr2Pos values ignored.
 
@@ -671,7 +787,7 @@ u32t  _std dsk_gptdset(u32t disk, dsk_gptdiskinfo *dinfo);
 
 typedef struct {
    u8t     TypeGUID[16];        ///< partition type GUID
-   u8t         GUID[16];        ///< partition GUID     
+   u8t         GUID[16];        ///< partition GUID
    u64t     StartSector;        ///< Start sector
    u64t          Length;        ///< Length in sectors
    u64t            Attr;        ///< Attributes
@@ -698,7 +814,7 @@ u32t  _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo);
 
 /** init empty hard disk (write GPT partition table).
     @param disk     Disk number.
-    @return 0 on success, or DPTE_* error. DPTE_EMPTY is returned 
+    @return 0 on success, or DPTE_* error. DPTE_EMPTY is returned
             if disk is NOT empty here. */
 u32t  _std dsk_gptinit(u32t disk);
 
@@ -735,7 +851,7 @@ u32t  _std dsk_gptactive(u32t disk, u32t index);
 
 /** search for partition by it`s name.
     @param [in]     guid     GUID to search.
-    @param [in]     guidtype GUID type (GPTN_*). 
+    @param [in]     guidtype GUID type (GPTN_*).
                              For GPTN_PARTTYPE argument first founded
                              partition will be returned.
     @param [in,out] disk     Disk number, init it with 0xFFFFFFFF for all disks

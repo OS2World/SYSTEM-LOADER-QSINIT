@@ -1,0 +1,32 @@
+type = dll
+name = "VHDD"
+
+exports = {
+   _shl_vhdd         = { index = 10   group = "shell"  format="usp"   }
+}
+
+class = {
+   name = qs_emudisk
+   entires = {
+      make    = "ipsu@q"
+      open    = "ips"
+      query   = "ipp&s&*u&*u"
+      read    = "up@qup"
+      write   = "up@qup"
+      compact = "upi"
+      mount   = "@up"
+      disk    = "@up"
+      umount  = "ip"
+      close   = "ip"
+   }
+}
+
+class = {
+   name = qs_emudisk_ext
+   entires = {
+      getgeo  = "upp"
+      setgeo  = "upp"
+      getname = "sp"
+      setro   = "ipi"
+   }
+}

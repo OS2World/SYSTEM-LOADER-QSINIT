@@ -229,7 +229,7 @@ endif
                 mov     _rm16code,cx                            ;
                 sub     dx,cx                                   ; free paragraphs
                 mov     up_free_len,dx                          ; at 9100 segment
-                add     ax,cx                                   ; 
+                add     ax,cx                                   ;
                 mov     up_free_seg,ax                          ; at its seg
 
                 call    _pm_info                                ; check cpu type
@@ -300,7 +300,7 @@ endif
                 cmp     dx,bx                                   ; start below lowmem - 128k?
                 jc      panic_initpm                            ;
 
-                mov     cx,[_filetable.ft_museg]                ; lowest used mem 
+                mov     cx,[_filetable.ft_museg]                ; lowest used mem
                 mov     lo_used_seg,cx                          ; on FSD boot
 
                 mov     cx,[_filetable.ft_cfiles]               ; check ft_cfiles
@@ -316,7 +316,7 @@ endif
                 jnz     @@init_nomini_1                         ;
                 and     ah,not BF_MINIFSD                       ; drop BF_MINIFSD flag
                 and     byte ptr _dd_bootflags,ah               ;
-                and     byte ptr minifsd_flags+1,ah             ; 
+                and     byte ptr minifsd_flags+1,ah             ;
 @@init_nomini_1:
                 test    ah,BF_RIPL                              ; ripl on?
                 jz      @@init_noripl                           ;
@@ -377,11 +377,11 @@ endif
                 mov     _logbufseg,cx                           ; debug output in RM callbacks
 
                 mov     cx,DISKBUF_SIZE SHR PARASHIFT           ; 32k disk i/o buffer
-                call    init_alloc_nohigh                       ; 
+                call    init_alloc_nohigh                       ;
                 mov     _DiskBufRM_Seg,cx                       ; must be BELOW 9100
                 movzx   ecx,cx                                  ; else kernel start
                 shl     ecx,PARASHIFT                           ; will be confused
-                mov     _DiskBufPM,ecx                          ; (he use it as temp storage) 
+                mov     _DiskBufPM,ecx                          ; (he uses it as temp storage)
 
                 test    ah,BF_NOMFSHVOLIO                       ; BPB available?
                 jnz     @@init_noBPB                            ;
