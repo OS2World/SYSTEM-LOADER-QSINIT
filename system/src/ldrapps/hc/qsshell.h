@@ -57,6 +57,12 @@ typedef struct {
     @return string list, must be freed by single free() call */
 str_list* _std str_split(const char *str, const char *separators);
 
+/** split text file to items.
+    @param text         source text file witn \n or \r\n EOLs
+    @param len          length of "text", can be 0 for null-term. string
+    @return string list, must be freed by single free() call */
+str_list* _std str_settext(const char *text, u32t len);
+
 /// create list from array of char*
 str_list* _std str_fromptr(char **list, int size);
 
@@ -103,10 +109,19 @@ str_list* _std str_getenv(void);
 /// get text to single string (must be free() -ed).
 char*     _std str_gettostr(str_list*list, char *separator);
 
-/** calculate string length without embedded ANSI sequences.
-    @param str      source string
-    @return string length without ANSI sequences in it */
-u32t      _std str_length(const char *str);
+/** search for key value in string list.
+    Function searches for key=value string, starting from *pos or 0 if pos=0.
+    Spaces around of '=' is NOT allowed, but all str_ functions always return
+    list without such spaces (even if it present in source INI file, for
+    example).
+    Note, that string without '=' assumed as pure key. I.e. if it matched,
+    pointer to trailing '\0' will be returned as well.
+
+    @param list          source string list
+    @param key           key name to search
+    @param [in,out] pos  start position on enter, founded on exit. Can be 0
+    @return pointer to first character of "value" in founded string or 0 */
+char*     _std str_findkey(str_list *list, const char *key, u32t *pos);
 
 /** parse argument list and set flags from it.
     Example of call:
@@ -123,11 +138,16 @@ u32t      _std str_length(const char *str);
     @param ...      pointers to INT variables to setup
     @return 0 if ret_list==0 else NEW list with removed known arguments,
             this list must be released by free() call. */
-str_list* _std str_parseargs(str_list *lst, u32t firstarg, int ret_list, 
+str_list* _std str_parseargs(str_list *lst, u32t firstarg, int ret_list,
                              char* args, short *values, ...);
 
 /// print str_list to log
 void      _std log_printlist(char *info, str_list*list);
+
+/** calculate string length without embedded ANSI sequences.
+    @param str      source string
+    @return string length without ANSI sequences in it */
+u32t      _std str_length(const char *str);
 
 //===================================================================
 //  environment (shell)
@@ -220,11 +240,15 @@ str_list* _std cmd_shellqall(int ext_only);
 /// help text default color (vio.h required for VIO_COLOR_LWHITE)
 #define CLR_HELP  VIO_COLOR_LWHITE
 
+#define  PRNSEQ_NOPAUSE     (-1)       ///< print without "pause" check
+#define  PRNSEQ_INIT        (1)        ///< init line counter
+#define  PRNSEQ_LOGCOPY     (2)        ///< copy to log until next init
+#define  PRNSEQ_INITNOPAUSE (5)        ///< init & no pause until next init
+
 /** print sequence of strings with "pause" support.
     @param fmt      string to print, without finishing \\n, but
                     can be multitined.
-    @param flags    <0 - no pause, 1 - init counter, 3 - init and copy to log
-                    all strings until next init, 0 - print with pause
+    @param flags    init - PRNSEQ_*, 0 - print with pause, -1 - no pause
     @param color    line color, 0 - default
     @return 1 if ESC was pressed in pause. */
 u32t   __cdecl cmd_printseq(const char *fmt, int flags, u8t color, ...);
@@ -281,9 +305,9 @@ void      _std cmd_shellerr(int errorcode, const char *prefix);
 
 /** add MODE command device handler.
     Note, what if no device handler present at the time of MODE command
-    execution, command will search MODE_DEV_HANDLER environment variable 
+    execution, command will search MODE_DEV_HANDLER environment variable
     (DEV - device name), where module name must be specified and try to
-    load this module permanently. 
+    load this module permanently.
     If no such variable - extcmd.ini will be asked for module name.
 
     Typically, this function must be called from such module at the moment

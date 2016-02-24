@@ -12,24 +12,7 @@
 #include "direct.h"
 
 // is key present? (with argument or not)
-#define key_present(kparm,key) key_present_pos(kparm,key,0)
-
-// is key present? for subsequent search of the same parameter
-char *key_present_pos(str_list *kparm, const char *key, u32t *pos) {
-   u32t ii=pos?*pos:0, len = strlen(key);
-   if (!kparm||ii>=kparm->count) return 0;
-   for (;ii<kparm->count;ii++) {
-      u32t plen = strlen(kparm->item[ii]);
-      if (plen>len+1 && kparm->item[ii][len]=='=' || plen==len)
-         if (strnicmp(kparm->item[ii],key,len)==0) {
-            char *rc=kparm->item[ii]+len;
-            if (*rc=='=') rc++;
-            if (pos) *pos=ii;
-            return rc;
-         }
-   }
-   return 0;
-}
+#define key_present(kparm,key) str_findkey(kparm,key,0)
 
 long get_disk_number(char *str) {
    u32t rc = dsk_strtodisk(str);

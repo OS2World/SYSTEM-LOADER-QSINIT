@@ -1,3 +1,3 @@
-db 'QSinit 0.15, rev 0351, Debug build at 11:10:35 01.08.2015',0,10
-db '@#QS:0.15.0351#@  QSinit loader',0
+db 'QSinit 0.16, rev 0371, Debug build at 19:56:34 29.01.2016',0,10
+db '@#QS:0.16.0371#@  QSinit loader',0
 

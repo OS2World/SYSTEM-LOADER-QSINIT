@@ -41,6 +41,16 @@ unsigned long __stdcall memBlockSize(void *M);
     @return block size or 0 if pointer is incorrect. */
 unsigned long __stdcall memGetObjInfo(void *M,long *Owner,long *Pool);
 
+/** change object`s Owner & Pool.
+    Function is not recommended at all, because many Owner & Pool
+    combinations are reserved and outside code can free this block by
+    batch free functions (memFreePool, memFreeByOwner).
+    @param  M             memory block
+    @param  Owner         new Owner value, cannot be -1
+    @param  Pool          new Pool value, cannot be -1.
+    @return success flag = 1/0. */
+int           __stdcall memSetObjInfo(void *M,long Owner,long Pool);
+
 /// get unique id. Owner is always==-2, and Pool is unique.
 void          __stdcall memGetUniqueID(long *Owner,long *Pool);
 

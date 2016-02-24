@@ -67,9 +67,6 @@ u16t _std sys_tssalloc(void *tssdata, u16t limit) {
    return sel;
 }
 
-u16t get_task(void);
-#pragma aux get_task = "str ax" value [ax];
-
 /** free TSS selector.
     Function will fail if TSS is current task or linked to current task.
     @param   sel           TSS selector
@@ -78,7 +75,7 @@ int _std sys_tssfree(u16t sel) {
    u32t  diff = hlp_segtoflat(0);
    int  svint = sys_intstate(0),
            rc = 0;
-   u16t   ctr = get_task(), 
+   u16t   ctr = get_taskreg(),
          wsel = ctr;
    /* walk over linked tasks ... (but who can create this list??? ;) */
    while (wsel!=sel) {
@@ -115,6 +112,9 @@ static void _std xcpt64(struct xcpt64_data *xd) {
    struct desctab_s sd;
    struct tss_s    t32;
    int  is64 = 1;
+   /* interrupts disabled here by common 64-bit exception handler -
+      until the end of trap screen output, or, at least, until 1st EFI`s
+      console call in native console mode */
    if (sys_selquery(xd->x64_cs,&sd))
       if ((sd.d_attr&D_LONG)==0) is64 = 0;
    // 32-bit struct still used for 64-bit printing too
@@ -166,11 +166,10 @@ void setup_exceptions(int stage) {
       if (tss_data) {
          u16t selzero = get_flatss(),
               selcs   = get_flatcs();
-         int  rc;
          tss08 = (struct tss_s *)((u8t*)tss_data + step);
          tss12 = (struct tss_s *)((u8t*)tss08 + step);
          tss13 = (struct tss_s *)((u8t*)tss12 + step);
-         // this stack used in exception handling
+         // this stack is used in exception handling
          tss_data->tss_esp0  = (u32t)tss_data + step * 4 + TRAP_STACK;
          tss_data->tss_ss0   = selzero;
          tss_data->tss_iomap = sizeof(struct tss_s);
@@ -200,16 +199,15 @@ void setup_exceptions(int stage) {
          trap08_tss = sys_tssalloc(tss08, 0);
          trap12_tss = sys_tssalloc(tss12, 0);
          trap13_tss = sys_tssalloc(tss13, 0);
-      
-         rc = 0;
-         if (trap08_tss) rc += sys_intgate( 8, trap08_tss);
-         if (trap12_tss) rc += sys_intgate(12, trap12_tss);
-         if (trap13_tss) rc += sys_intgate(13, trap13_tss);
-         
-         if (main_tss) sys_settr(main_tss);
-      
-         if (trap08_tss && trap12_tss && trap13_tss && main_tss && rc==3)
-            log_it(2,"task gates on\n");
+
+         if (trap08_tss && trap12_tss && trap13_tss && main_tss) {
+            int rc = 0;
+            rc += sys_intgate( 8, trap08_tss);
+            rc += sys_intgate(12, trap12_tss);
+            rc += sys_intgate(13, trap13_tss);
+            sys_settr(main_tss);
+            if (rc==3) log_it(2,"task gates on\n");
+         }
       }
    }
 }

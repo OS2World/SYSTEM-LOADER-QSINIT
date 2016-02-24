@@ -334,7 +334,7 @@ rmstop_preinit  proc    near                                    ; exit to rm
                 mov     edi,ebp                                 ;
                 mov     ax,ss                                   ; es:[edi] - registers
                 mov     es,ax                                   ;
-                xor     bh,bh                                   ; dpmi call
+                mov     bh,FN30X_PICRESET or FN30X_TIMEROFF     ; dpmi call
                 mov     ax,301h                                 ;
                 int     31h                                     ;
                 ret                                             ; return to caller

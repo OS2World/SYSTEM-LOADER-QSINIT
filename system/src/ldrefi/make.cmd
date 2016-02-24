@@ -26,7 +26,3 @@ spprj -nb qsefi.prj %bldtype% bld\qsefi.mak
 
 rem and build it
 spprj -b -w qsefi.prj %bldtype% %bldarg%
-
-if not exist OS2LDR goto quit
-copy OS2LDR %QS_BIN% >nul
-:quit

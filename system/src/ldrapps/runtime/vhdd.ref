@@ -18,6 +18,7 @@ class = {
       disk    = "@up"
       umount  = "ip"
       close   = "ip"
+      trace   = "vpii"
    }
 }
 

@@ -238,16 +238,20 @@ static int prepare_codepage(fmt_info *fd) {
    fd->spr.codepages  = 1;
    ci = fd->cpi.cpinfo + 0;
    /* randomly select country code for some known pages ;)
-      this is wrong, but at least US, Russia, Thailand, Turkey & Israel will
-      be happy with correct Country/CodePage pair */
+      this is wrong, but at least Russia, US, Greece, various Vikings,
+      Turkey & Israel will be happy with correct Country/CodePage pair */
    switch (codepage) {
       case 437: ci->country =   1; break;
       case 852: ci->country = 421; break;  // Czech used
       case 855: ci->country = 381; break;  // Serbia used
-      case 857: ci->country =  90; break;
-      case 862: ci->country = 972; break;
-      case 866: ci->country =   7; break;
-      case 874: ci->country =  66; break;
+      case 857: ci->country =  90; break;  // Turkey
+      case 861: ci->country = 354; break;  // Iceland
+      case 862: ci->country = 972; break;  // Israel
+      case 863: ci->country =   2; break;  // French Canada
+      case 864: ci->country = 966; break;  // Saudi Arabia used
+      case 865: ci->country =  47; break;  // Norway used
+      case 866: ci->country =   7; break;  // just home :)
+      case 869: ci->country =  30; break;  // Greece
       default : ci->country = 0;
    }
    ci->codepage       = codepage;

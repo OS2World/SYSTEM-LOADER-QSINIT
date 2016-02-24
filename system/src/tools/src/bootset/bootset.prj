@@ -105,5 +105,5 @@ op de '$(name) v$(vershort). $(config) build, $(timestr)'
 *out=$(outname) | nolink | \
      @echo Linking ... | \
      $(ld) @$(&lnk) | \
-     if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >nul | \
+     if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >%(DEVNUL) | \
      copy $(outname) $(exedir) >nul

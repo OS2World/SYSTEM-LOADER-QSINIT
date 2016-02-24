@@ -20,6 +20,7 @@ void setup_cache(void);
 void setup_memory(void);
 void setup_fileio(void);
 void setup_storage(void);
+void setup_hardware(void);
 int  get_ini_parms(void);
 void done_ini(void);
 
@@ -41,6 +42,8 @@ void _std mod_main(void) {
    get_ini_parms();
    // advanced setup of system memory
    setup_memory();
+   // setup some hardware (must be after setup_exceptions(), at least)
+   setup_hardware();
    // call some internals
    setup_cache();
    // install shell commands

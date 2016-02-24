@@ -80,6 +80,7 @@ class TDMgrDialog : public TWalkDiskDialog {
    u8t      action_part[MAX_ACTION];
    u32t    act_disk_cnt,
            act_part_cnt;
+   int          no_vhdd;
 
    enum { actd_mbrboot, actd_clone, actd_init, actd_initgpt, actd_mbrcode,
           actd_restvhdd, actd_updlvm, actd_savevhdd, actd_wipe, actd_writelvm,
@@ -94,6 +95,8 @@ class TDMgrDialog : public TWalkDiskDialog {
    void UpdateActionList(Boolean empty);
    void AddAction(TCollection *list, u8t action);
    void RunCommand(const char *cmd, const char *args);
+protected:
+   virtual void UpdateAll(Boolean rescan = False);
 public:
    TDMgrDialog(int largeBox = 0);
    ~TDMgrDialog();

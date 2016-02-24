@@ -107,7 +107,7 @@ void *_std mod_getfuncptr(u32t module, u32t index);
 //@{
 #define MODFERR_HANDLE       (  1)  ///< bad module handle
 #define MODFERR_SELF         (  2)  ///< trying to free self
-#define MODFERR_SYSTEM       (  3)  ///< trying to system module
+#define MODFERR_SYSTEM       (  3)  ///< trying to free system module
 #define MODFERR_LIBTERM      (  4)  ///< DLL term function denied unloading
 #define MODFERR_EXECINPROC   (  5)  ///< module is exe and mod_exec() not finished
 //@}
@@ -157,7 +157,7 @@ typedef struct {
 /// loaded module internal ref
 typedef struct _module {
    u32t               sign;
-   u32t              flags;    ///< next 3 fields accessed by offset from asm launcher
+   u32t              flags;    ///< next 2 fields accessed by offset from asm launcher
    u32t          start_ptr;    ///< 16/32 bit module start pointer
    u32t          stack_ptr;    ///< 16/32 bit module start pointer
 
@@ -167,7 +167,7 @@ typedef struct _module {
    void          *baseaddr;    ///< base address
    char          *mod_path;    ///< module full path
 
-   struct _module    *prev, 
+   struct _module    *prev,
                      *next;    ///< module list
    struct _module  *impmod[MAX_IMPMOD+1]; ///< zero-term. list of used modules
    mod_export        *exps;    ///< exported functions
@@ -183,10 +183,11 @@ typedef struct _process_context {
    u32t               size;   ///< size of this struct (must be at 0 pos)
    u32t                pid;   ///< process id
    char            *envptr;   ///< env. ptr (can be updated)
+   char           *cmdline;   ///< command line (as module receive in start function)
    module            *self;   ///< current module
    module          *parent;   ///< parent module
    u32t              flags;   ///< internal flags
-   struct 
+   struct
    _process_context  *pctx;   ///< parent process context
 
    u32t          rtbuf[16];   ///< data buffer for runtime data
@@ -203,6 +204,7 @@ typedef struct _process_context {
 #define RTBUF_STCLOCK   5  ///< process start tm_counter()
 #define RTBUF_PUSHDST   6  ///< PUSHD shell command stack
 #define RTBUF_ANSIBUF   7  ///< ANSI command state buffer
+#define RTBUF_PROCDAT   8  ///< process internal data
 //@}
 
 #define PCTX_BIGMEM      0x0001  ///< envptr was hlp_memalloc-ed
@@ -221,6 +223,7 @@ process_context* _std mod_context(void);
 #define MOD_LOADER   0x000080  ///< this module initiate loading process
 #define MOD_NOFIXUPS 0x000100  ///< fixups pre-applied in module
 #define MOD_EXECPROC 0x000200  ///< mod_exec() in process (for exe module)
+#define MOD_SYSTEM   0x000400  ///< "system" module (QSINIT & START only)
 //@}
 
 /// external functions located in "start" module
@@ -247,8 +250,11 @@ typedef struct {
    void    _std (*memFree)(void*);
    /// read file from virtual disk
    void*   _std (*freadfull)(const char *name, unsigned long *bufsize);
-   /// push string to log
-   int     _std (*log_push)(int level, const char *fmt);
+   /** push string to log.
+       @param flags   log flags
+       @param msg     message to save
+       @param time    time label, can be 0 to use current */
+   int     _std (*log_push)(int flags, const char *msg, u32t time);
    /// save data to storage
    void    _std (*sto_save)(const char *entry, void *data, u32t len, int copy);
    /// flush data to storage after rm call
@@ -271,6 +277,9 @@ typedef struct {
        be in loaded list at this time, it can be the one of loading imports
        for someone. */
    void    _std (*mod_loaded)(module *mh);
+   /** throw exception (QSINIT trap screen).
+       Exception, also, can be catched in caller */
+   void    _std (*sys_throw)(u32t num, const char* file, u32t line);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()

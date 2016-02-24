@@ -3,27 +3,23 @@
 // single byte code page support module
 // ChaN`s code from FatFs partially used
 //
-/*  437   U.S. (OEM)
-    720   Arabic (OEM)
-    1256  Arabic (Windows)
-    737   Greek (OEM)
-    1253  Greek (Windows)
-    1250  Central Europe (Windows)
-    775   Baltic (OEM)
-    1257  Baltic (Windows)
-    850   Multilingual Latin 1 (OEM)
-    852   Latin 2 (OEM)
-    1252  Latin 1 (Windows)
-    855   Cyrillic (OEM)
-    1251  Cyrillic (Windows)
-    866   Russian (OEM)
-    857   Turkish (OEM)
-    1254  Turkish (Windows)
-    858   Multilingual Latin 1 + Euro (OEM)
-    862   Hebrew (OEM)
-    1255  Hebrew (Windows)
-    874   Thai (OEM, Windows)
-    1258  Vietnam (OEM, Windows)
+/*  437   U.S.
+    720   Arabic
+    737   Greek
+    771   KBL
+    775   Baltic
+    850   Latin 1
+    852   Latin 2
+    855   Cyrillic
+    857   Turkish
+    860   Portuguese
+    861   Icelandic
+    862   Hebrew
+    863   Canadian French
+    864   Arabic
+    865   Nordic
+    866   Russian
+    869   Greek 2
 */
 
 #include "stdlib.h"
@@ -37,18 +33,18 @@
 
 #include "cptables.h"
 
-#define CPAGES    (21)
+#define CPAGES    (17)
 
-static wchar_t *ctables[] = { Tbl0437, Tbl0720, Tbl0737, Tbl0775, Tbl0850,
-   Tbl0852, Tbl0855, Tbl0857, Tbl0858, Tbl0862, Tbl0866, Tbl0874, Tbl1250,
-   Tbl1251, Tbl1252, Tbl1253, Tbl1254, Tbl1255, Tbl1256, Tbl1257, Tbl1258};
+static wchar_t *ctables[] = { Tbl0437, Tbl0720, Tbl0737, Tbl0771, Tbl0775,
+   Tbl0850, Tbl0852, Tbl0855, Tbl0857, Tbl0860, Tbl0861, Tbl0862, Tbl0863,
+   Tbl0864, Tbl0865, Tbl0866, Tbl0869 };
 
-static u8t     *utables[] = { Upr0437, Upr0720, Upr0737, Upr0775, Upr0850,
-   Upr0852, Upr0855, Upr0857, Upr0858, Upr0862, Upr0866, Upr0874, Upr1250,
-   Upr1251, Upr1252, Upr1253, Upr1254, Upr1255, Upr1256, Upr1257, Upr1258};
+static u8t     *utables[] = { Upr0437, Upr0720, Upr0737, Upr0771, Upr0775,
+   Upr0850, Upr0852, Upr0855, Upr0857, Upr0860, Upr0861, Upr0862, Upr0863,
+   Upr0864, Upr0865, Upr0866, Upr0869 };
 
-static u16t cpages[CPAGES] = { 437, 720, 737, 775, 850, 852, 855, 857, 858,
-   862, 866, 874, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258};
+static u16t cpages[CPAGES] = { 437, 720, 737, 771, 775, 850, 852, 855, 857,
+   860, 861, 862, 863, 864, 865, 866, 869 };
 
 #define CPLIB_SIGN        0x49534C4E          // NLSI
 
@@ -72,13 +68,21 @@ typedef struct {
 } cpconv_data;
 
 wchar_t _std towlower(wchar_t chr) {
-   wchar_t *lwr = memchrw(tbl_upper, chr, UPPER_TABLE_SIZE);
-   return lwr ? tbl_lower[lwr-tbl_upper] : chr;
+  if (chr < 0x80) {
+     return chr>=0x61 && chr<=0x7A ? chr-0x20 : chr;
+  } else {
+     wchar_t *lwr = memchrw(tbl_upper, chr, UPPER_TABLE_SIZE);
+     return lwr ? tbl_lower[lwr-tbl_upper] : chr;
+  }
 }
 
 wchar_t _std towupper(wchar_t chr) {
-   wchar_t *upr = memchrw(tbl_lower, chr, UPPER_TABLE_SIZE);
-   return upr ? tbl_upper[upr-tbl_lower] : chr;
+  if (chr < 0x80) {
+     return chr>=0x61 && chr<=0x7A ? chr-0x20 : chr;
+  } else {
+     wchar_t *upr = memchrw(tbl_lower, chr, UPPER_TABLE_SIZE);
+     return upr ? tbl_upper[upr-tbl_lower] : chr;
+  }
 }
 
 static wchar_t convert(wchar_t *table, wchar_t chr, int dir) {

@@ -67,6 +67,50 @@ u32t  _std vio_msgbox(const char *header, const char *text, u32t flags,
     @return previous ANSI state */
 u32t  _std vio_setansi(int newstate);
 
+#define ANSI_RESET   "\x1B[0m"        ///< reset color to gray
+
+/// @name ANSI text color seqiences
+//@{
+#define ANSI_BLACK     "\x1B[0;30m"   ///< black
+#define ANSI_RED       "\x1B[0;31m"   ///< red
+#define ANSI_GREEN     "\x1B[0;32m"   ///< green
+#define ANSI_BROWN     "\x1B[0;33m"   ///< brown
+#define ANSI_BLUE      "\x1B[0;34m"   ///< blue
+#define ANSI_MAG       "\x1B[0;35m"   ///< magenta
+#define ANSI_CYAN      "\x1B[0;36m"   ///< cyan
+#define ANSI_GRAY      "\x1B[0;37m"   ///< gray
+
+#define ANSI_DGRAY     "\x1B[1;30m"   ///< dark gray
+#define ANSI_LRED      "\x1B[1;31m"   ///< red
+#define ANSI_LGREEN    "\x1B[1;32m"   ///< green
+#define ANSI_YELLOW    "\x1B[1;33m"   ///< yellow
+#define ANSI_LBLUE     "\x1B[1;34m"   ///< light blue
+#define ANSI_LMAG      "\x1B[1;35m"   ///< light magenta
+#define ANSI_LCYAN     "\x1B[1;36m"   ///< light cyan
+#define ANSI_WHITE     "\x1B[1;37m"   ///< white
+//@}
+
+/// @name ANSI background color seqiences
+//@{
+#define ANSI_BG_BLACK  "\x1B[0;40m"   ///< black
+#define ANSI_BG_RED    "\x1B[0;41m"   ///< red
+#define ANSI_BG_GREEN  "\x1B[0;42m"   ///< green
+#define ANSI_BG_BROWN  "\x1B[0;43m"   ///< brown
+#define ANSI_BG_BLUE   "\x1B[0;44m"   ///< blue
+#define ANSI_BG_MAG    "\x1B[0;45m"   ///< magenta
+#define ANSI_BG_CYAN   "\x1B[0;46m"   ///< cyan
+#define ANSI_BG_GRAY   "\x1B[0;47m"   ///< gray
+
+#define ANSI_BG_DGRAY  "\x1B[1;40m"   ///< dark gray
+#define ANSI_BG_LRED   "\x1B[1;41m"   ///< red
+#define ANSI_BG_LGREEN "\x1B[1;42m"   ///< green
+#define ANSI_BG_YELLOW "\x1B[1;43m"   ///< yellow
+#define ANSI_BG_LBLUE  "\x1B[1;44m"   ///< light blue
+#define ANSI_BG_LMAG   "\x1B[1;45m"   ///< light magenta
+#define ANSI_BG_LCYAN  "\x1B[1;46m"   ///< light cyan
+#define ANSI_BG_WHITE  "\x1B[1;47m"   ///< white
+//@}
+
 /// key_getstr() internal data for callback function
 typedef struct {
    u32t        line;     ///< screen line

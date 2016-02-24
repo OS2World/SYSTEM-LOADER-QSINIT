@@ -9,7 +9,7 @@
 
 #pragma pack(1)
 typedef struct {
-   u8t      type; /* near=0/far=1 routine indication also used 
+   u8t      type; /* near=0/far=1 routine indication also used
                      when walking table to flag completed entries */
    u8t      prio; // priority (0-highest 255-lowest)
    u32t      rtn; // routine
@@ -30,7 +30,7 @@ void call_init(u32t rtn);
 extern u8t  _xib_label,_xie_label, // init records
             _yib_label,_yie_label; // fini records
 
-struct {
+static struct {
    int    done;
    u8t   *bptr, *eptr;
 } _wrti[2] = {{-1,&_xib_label,&_xie_label},{-1,&_yib_label,&_yie_label}};

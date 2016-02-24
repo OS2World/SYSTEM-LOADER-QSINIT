@@ -6,8 +6,7 @@
                 include inc/segdef.inc                          ;
                 include inc/efnlist.inc 
 
-                extrn   _call64:near
-                extrn   _call64l:near
+                extrn   _tm_getdateint:near
 
 _DATA           segment
 _DATA           ends
@@ -21,11 +20,7 @@ _TEXT           segment
 ; 64bit part returns 33 bits, just shift it here to make 32 + CF.
                 public  _tm_getdate
 _tm_getdate     proc    near                                    ;
-                push    0                                       ;
-                push    0                                       ;
-                push    EFN_TMGETDATE                           ;
-                call    _call64l                                ;
-                add     esp,12                                  ;
+                call    _tm_getdateint                          ;
                 shrd    eax,edx,1                               ;
                 ret                                             ;
 _tm_getdate     endp

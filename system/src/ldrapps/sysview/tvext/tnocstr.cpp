@@ -33,7 +33,7 @@ int TNoCaseStringCollection::compare( void *key1, void *key2 )
 #endif
 
 #if !defined( __STRING_H )
-#include <String.h>
+#include <string.h>
 #endif
 
 #include "tcombo.h"

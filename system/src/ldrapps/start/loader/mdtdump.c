@@ -10,25 +10,26 @@
 #include "qsinit.h"
 #include "qslog.h"
 #include "qslxfmt.h"
+#include "internal.h"
 
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
 
-void _std log_mdtdump(void) {
+void log_mdtdump_int(printf_function pfn) {
    int ii=2,obj;
-   log_it(2,"== MDT contents ==\n");
-   log_it(2,"* Loaded list:\n");
+   pfn("== MDT contents ==\n");
+   pfn("* Loaded list:\n");
    while (ii--) {
       module *md=ii?mod_list:mod_ilist, *impm;
-      if (!md) log_it(2,"   empty!\n");
+      if (!md) pfn("   empty!\n");
 
       while (md) {
          char      st[256];
          u16t  flatcs = get_flatcs();
          int      len;
-         log_it(2,"\n");
-         log_it(2,"%s, %d objects, base addr: 0x%08X, usage %d\n", md->name,
+         pfn("\n");
+         pfn("%s, %d objects, base addr: 0x%08X, usage %d\n", md->name,
             md->objects,md->baseaddr,md->usage);
-         log_it(2,"  objects:\n");
+         pfn("  objects:\n");
          for (obj=0;obj<md->objects;obj++) {
             u16t objsel = md->obj[obj].sel;
             u32t     fl = md->obj[obj].flags, jj;
@@ -48,17 +49,17 @@ void _std log_mdtdump(void) {
             if (st[len-1]==' ') len--;
 
             strcpy(st+len,")\n");
-            log_it(2,st);
+            pfn(st);
          }
          obj=0; len=0;
          while ((impm=md->impmod[obj++])!=0) {
             if (obj==1) len=sprintf(st,"  uses modules: ");
             len+=sprintf(st+len,"%s ",impm->name);
          }
-         if (len) { log_it(2,"\n"); log_it(2,"%s\n",st); }
+         if (len) { pfn("\n"); pfn("%s\n",st); }
          if (md->exports) {
-            log_it(2,"\n"); 
-            log_it(2,"  exports:\n");
+            pfn("\n"); 
+            pfn("  exports:\n");
             for (obj=0;obj<md->exports;obj++) {
                mod_export *ee=md->exps+obj;
                if ((obj&3)==0) len=sprintf(st,"  ");
@@ -67,18 +68,21 @@ void _std log_mdtdump(void) {
                   ee->address);
                else len+=sprintf(st+len,"%4d.%08X  ",ee->ordinal,ee->address);
 
-               if ((obj&3)==3||obj+1==md->exports) log_it(2,"%s\n",st);
+               if ((obj&3)==3||obj+1==md->exports) pfn("%s\n",st);
             }
          }
 
-         log_it(2,"\n");
+         pfn("\n");
          md=md->next;
       }
 
-
-      if (ii) log_it(2,"* Loading list:\n");
+      if (ii) pfn("* Loading list:\n");
    }
-   log_it(2,"==================\n");
+   pfn("==================\n");
+}
+
+void _std log_mdtdump(void) {
+   log_mdtdump_int(log_printf);
 }
 
 // print memory control table contents (debug)

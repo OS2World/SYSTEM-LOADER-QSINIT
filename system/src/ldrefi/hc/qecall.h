@@ -31,6 +31,8 @@ u64t _std call64l(int function, u32t arg8mask, u32t argcnt, ...);
 #ifdef QS_FN64_INDEX
 /** 64-bit exception common handler function.
     Function can show trap screen or/and modify some values and return.
+    Interrupts is disabled on entering this function.
+    Function executed on static non-reenterable stack, provided by 64-bit part.
     @param xdata     64-bit registers (data can be modified). */
 typedef void _std (*xcpt64proc)(struct xcpt64_data *xdata);
 
@@ -38,6 +40,11 @@ typedef void _std (*xcpt64proc)(struct xcpt64_data *xdata);
     @param cxh    Exception handler function.
     @return return previous handler (or 0 if no one) */
 xcpt64proc _std sys_setxcpt64(xcpt64proc cxh);
+
+/** set 64-bit timer irq handler.
+    @param tmi    Timer interrupt handler function.
+    @return return previous handler (or 0 if no one) */
+xcpt64proc _std sys_tmirq64(xcpt64proc tmi);
 #endif
 
 #ifdef __cplusplus

@@ -92,7 +92,7 @@ static u32t charout_common(char ch, int in_seq) {
          pl_scroll(real_mode, top_ofs+fnt_y, top_ofs, linesm1);
          pos_y--;
          // clear last line in shadow buffer and on screen
-         pl_clear(real_mode, top_ofs+linesm1, fnt_y, m_color[txcolor>>4]);
+         pl_clear(real_mode, 0, top_ofs+linesm1, 0, fnt_y, m_color[txcolor>>4]);
          // update text mode buffer
          memmove(mi->shadow, mi->shadow + m_x*2, tx_ofs);
          memsetw((u16t*)(mi->shadow + tx_ofs), (u16t)txcolor<<8|0x20, m_x);
@@ -121,7 +121,7 @@ u32t _std evio_strout(const char *str) {
 void _std evio_clearscr(void) {
    con_modeinfo *mi = modes + current_mode;
    // fill screen
-   pl_clear(real_mode, top_ofs, fnt_y*m_y, m_color[txcolor>>4]);
+   pl_clear(real_mode, 0, top_ofs, 0, fnt_y*m_y, m_color[txcolor>>4]);
    // fill text buffer
    memsetw((u16t*)mi->shadow, (u16t)txcolor<<8|0x20, m_x*m_y);
    // cursor pos

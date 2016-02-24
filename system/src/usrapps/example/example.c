@@ -94,11 +94,50 @@ int main(int argc,char *argv[]) {
          printf("%d.%d frames per second\n", cnt/10,cnt%10);
          return 0;
       } else
+      if (stricmp(argv[1],"t")==0) {
+         // rdtsc cycles in 55 ms.
+         do {
+            printf("%LX\n", hlp_tscin55ms());
+         } while (key_wait(2)==0);
+         return 0;
+      } else
+      if (stricmp(argv[1],"m")==0 && argc==4) {
+         static const char *cstr[MTRRF_TYPEMASK+1] = { "UC", "WC", "??", "??",
+            "WT", "WP", "WB", "Mixed" };
+         // try to query cache type for memory range
+         u64t addr = strtoull(argv[2],0,16),
+               len = strtoull(argv[3],0,16);
+          
+         u32t   ct = hlp_mtrrsum(addr,len);
+
+         printf("cache type for %09LX..%09LX is %s\n", addr, addr+len-1, cstr[ct]);
+      } else
       if (stricmp(argv[1],"r")==0 && argc==4) {
          // mem hide test
          u64t addr = strtoull(argv[2],0,16),
                len = strtoull(argv[3],0,16);
          sys_markmem(addr, len>>PAGESHIFT, PCMEM_HIDE|PCMEM_USERAPP);
+      } else
+      if (stricmp(argv[1],"c")==0 && (argc==2 || argc==3)) {
+         // mem hide test
+         u32t  cmv = argc==3 ? atoi(argv[2]) : CPUCLK_MAXFREQ, ii, cs;
+
+         if (cmv<1 || cmv>CPUCLK_MAXFREQ) printf("value 1..16 required!\n"); else 
+         for (ii=0; ii<argc-1; ii++) {
+            // setup on 2st pass
+            if (ii==1) {
+               cs = hlp_cmsetstate(cmv);
+               if (cs) printf(ANSI_LRED "setup error %u\n" ANSI_GRAY, cs); else 
+                  printf(ANSI_LGREEN "setup ok\n" ANSI_GRAY);
+            }
+            cs = hlp_cmgetstate();
+
+            if (!cs) printf("current state: not supported\n"); else {
+               cs = 10000/CPUCLK_MAXFREQ*cs;
+               printf("current state: %u.%2.2u%%\n", cs/100, cs%100);
+            }
+         }
+         return 0;
       } else
       if (stricmp(argv[1],"u")==0 && argc==2) {
         // trap screen

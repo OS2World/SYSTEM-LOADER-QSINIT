@@ -208,10 +208,8 @@ and so on; just remember - this is not a BIG OS).
 
       These options also available from Disk Management dialog in SysView app.
 
-      Please note: all of such boot types starts in non-standard environment -
-      low 8 hardware interrupts remapped to 50h and A20 gate is open. Modern
-      systems have no problem with such mode, but old versions of DOS`s himem
-      can hang.
+      Note: all of such boot types starts with A20 gate opened. Modern systems
+      have no problem with it, but oldest versions of DOS`s himem can hang.
 
     * "dmgr pm" command allow to create and delete both primary and logical
       partitions. This functionality is in ALPHA stage!
@@ -361,28 +359,33 @@ qssetup.cmd:
 
       set vesa = off
 
-   (this will break VMTRR too, because it query video memory address in VESA).
+   (this will break VMTRR too, because it queries video memory address in it).
 
-   "Graphic console" is much faster if you turn on Write Combining.
+   "Graphic console" is much faster if you turn on write combining.
+
+   Common syntax of this setup string is:
+     set vesa = on/off [, maxw=..] [, maxh=..] [, nofb]
+
+   NOFB parameter disable using of video memory`s linear frame pointer. This
+cause old bank switching method on VESA and EFI graphic functions usage in
+EFI build.
 
    It is possible to use own font (binary file with 1 bit per pixel - i.e.
 8x16 x 256 chars will be 1 byte (8 bits) x 16 x 256 = 4096 bytes).
+
    And it is possible to add own console modes on base of existing graphic
 modes (read more in "mode /?").
-
-   And - there is some kind of problems with Virtual PC VESA emulation, use
-VBox or hardware PC for this mode :)
 
    4.4 Size of QSINIT.LDI file.
   ------------------------------
 
    Some modules can be removed from QSINIT.LDI archive without affecting
-base functionality (when it must fit to diskette image for CD boot, for
+base functionality (when it must fit into diskette image for CD boot, for
 example).
    cache.dll - required only for r/w caching of FAT volumes (if cruel life
-               forces you to use QSINIT shell as copy utilite ;)
-   cplib.dll - CHCP command, this mode provide code pages for FAT long
-               name and HPFS formatting.
+               forces you to use QSINIT shell as copy utility ;)
+   cplib.dll - CHCP command, this module provides code pages for FAT long
+               names and HPFS formatting.
    vdisk.dll - PAE ramdisk
    vhdd.dll  - VHDD command (commonly not required at all ;)
    msg\sysview.hlp - small help file for SYSVIEW, can be deleted too
@@ -429,19 +432,25 @@ ago).
    all 4Gb.
 
    If QSINIT only loads original IBM`s OS2LDR - problem will stay in place,
-   because it loader-based (i.e. loader prepare system memory for kernel).
+   because it loader-based (i.e. loader prepares system memory for kernel).
 
  * using VMs to test QSINIT.
-   VPC & Vbox works fine, in most cases, with some exceptions:
-   - no graphic console and PAE paging mode in VPC
-   - PAE paging mode in VBox is unstable
-   - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
-     "NOTASK=1" in OS2LDR.INI can be used to prevent using task gates.
+   VPC & Vbox works, in most cases, with some exceptions:
 
-   EFI version works only in QEMU (with TianoCore).
+    - no PAE paging mode in VPC. Hardware virtualization should be off too -
+      it kills host OS in seconds, at least in VirtualPC 2007 on AMD.
+
+    - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
+      Add "NOTASK=1" to OS2LDR.INI to disable task gates in this case.
+
+    - VBox is much better, except PAE paging mode - it looks unstable.
+
+   EFI version works in QEMU only (with TianoCore).
 
  * note, that huge USB HDDs can be non-operable via BIOS, especially on
-   old motherboards. Or only a part of disk can be readed.
+   old motherboards. Only a starting part of disk can be readed, up to 128Gb,
+   with garbage returned above this border. Looks like all ASUS motherboards,
+   before EFI versions, have this bug.
 
   =======================================================================
    7. QSINIT boot details.
@@ -563,18 +572,23 @@ the latest version.
   -----------------------------------------------------------------------
 
    Warp  3  and Merlin (up to FP12) kernels can be loaded as well as Aurora
-type  kernels. But this functionality is not hardly tested. Warp Server SMP
-kernel is not supported (if anyone still need it,  even for playing in VBox
-- just tell me).
-   Kernel version is determined automatically.
+type  kernels.  Memory for such kernels is limited to 1Gb (if anybody knows
+real  limit  -  please, tell me ;) Warp Server SMP kernel is not supported.
+This is possible, but who really need it?
+   Kernel type is determined automatically.
 
    In  OS2LDR.INI  only  DBPORT,  DBCARD, DISKSIZE, NOAF, BAUDRATE, UNZALL,
 PCISCAN_ALL  and  RESETMODE  keys affect QSINIT, any other is used for OS/2
 kernel menu/boot only.
 
-   LETTER,  LOGLEVEL,  NOAF  and  BAUDRATE  can  be  added  both  to kernel
-parameters  line  and  to  "config"  section; DISKSIZE, RESETMODE, USEBEEP,
-UNZALL, DBCARD and PCISCAN_ALL has effect in "config" section only.
+   LETTER,  LOGLEVEL, NOAF, CPUCLOCK, NOMTRR and BAUDRATE can be added both
+to  kernel  parameters  line  and to "config" section; DISKSIZE, RESETMODE,
+USEBEEP,  NOCLOCK,  UNZALL,  DBCARD and PCISCAN_ALL have effect in "config"
+section only.
+
+   VALIMIT option can be used without memory size value, in this case value
+of VIRTUALADDRESSLIMIT in CONFIG.SYS will be used (this is actual for later
+OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
 
  * DISKSIZE  - additional space for qsinit "virtual disk" in kb. Required by
                "kernel browser" option above.
@@ -602,11 +616,14 @@ UNZALL, DBCARD and PCISCAN_ALL has effect in "config" section only.
                drive letter of mounted (to QSINIT!) FAT or HPFS partition.
                I.e. this key can change boot partition to any available FAT or
                HPFS with OS/2 - without reboot.
-               Basically, it designed for booting from PAE RAM disk.
+               Basically, it designed for booting from PAE RAM disk, but works
+               in common case too.
 
  * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
                configurations). It will beep with one tone on first line and
                another tone on any other.
+
+ * NOCLOCK=1 - turn off clock in menus
 
  * LOGLEVEL=0..3 - maximim level of QSINIT log messages to copy to OS/2 kernel
                log. By default - messages is not copied at all.
@@ -618,8 +635,27 @@ UNZALL, DBCARD and PCISCAN_ALL has effect in "config" section only.
 
  * NOMTRR    - do not use MTRR changes, was done in QSINIT for OS/2 boot.
 
+               This key works in partition menu too.
+               This key can be actual for NTLDR`s graphic mode (with menu
+               on national language).
+
  * VIEWMEM   - open memory editor just before starting kernel (when it ready to
                launch).
+
+ * CPUCLOCK=1..16 - setup clock modulation on Intel CPUs. 1 = 6.25% of speed,
+               16 = 100%. On middle aged processors actual step is 12.5% (it
+               will be rounded automatically).
+
+               Clock modulation available on P4 and later CPUs. It can be
+               used to slow down DOS, launched from partition menu, for
+               example. With 12.5% on 3100 MHz Core Duo it shows ~400-600 Mhz
+               in DOS performance tests. This can be usefull for some old
+               games, at least.
+
+               Or you can look how badly you optimized your software code,
+               when boot OS/2 on 1/6 of default frequency.
+
+               This key works both in OS/2 boot and partitions menu.
 
  * CALL=batch_file - call QSINIT batch file just before starting kernel.
                "batch_file" must be a fully qualified path in QSINIT!
@@ -666,12 +702,12 @@ sections, so this is not a problem.
 
    [partition]
    hd0/0 = Boot 1st partition of disk 0
-   hd0/0,bootsect.dos = The same, but use bootsect.dos file as boot sector
+   hd0/0,bootsect.dos = The same but use bootsect.dos file as boot sector
    hd1/0 = Boot 1nd partition of disk 1
-   hd2   = Boot MBR of disk 2
+   hd2   = Boot MBR of disk 2 (with MTRR reset), nomtrr
 
    I.e. syntax:
-   disk/partition [, boot sector file] = menu string
+   disk/partition [, boot sector file] = menu string [, option, option ...]
 
    Partition index can be queried by pressing F7 in menu.
    Boot sector file can be specified by direct QSINIT path or will be searched
@@ -679,6 +715,8 @@ in the root of this partition (FAT/FAT32).
 
    TIMEOUT and USEBEEP parameters will affect this menu too (timeout counter
 occurs on first launch only).
+   Options for boot partition menu can be added to menu line only. Only two
+is supported now: CPUCLOCK and NOMTRR.
 
    Default string number can be placed into "default_partition" key in
 "[config]" section (in the same way with kernel setup):
@@ -691,16 +729,13 @@ occurs on first launch only).
 
    Other differences:
 
- * both IBM and OS/4 OS2LDR checks all HDDs in system for real support of 
-   Int13x API (long disk read). QSINIT verify only boot HDD (to avoid problems
-   with USB devices).
+ * IBM OS2LDR checks all HDDs in system for real support of Int13x API 
+   (long disk read). Such check is not implemented in QSINIT, to avoid
+   problems with huge USB HDDs.
 
  * there is no DBCS boot support in QSINIT (os2dbcs, os2dbcs.fnt loading, etc)
 
  * options SHAREIRQ and DBFLAGS ignored.
-
- * NOLFB option (do not use LFB for VESA logo, was available in older OS/4
-   loader versions) - ignored.
 
  * both IBM and OS/4 OS2LDR use PCI BIOS calls. QSINIT use PCI BIOS only for
    basic info (version and number of buses in system), all scan, read and write
@@ -721,7 +756,7 @@ occurs on first launch only).
 
    QSINIT source code available in SDK archive.
 
-   PXEOS4 package: ftp://212.12.30.18/public/pxeos4-1.130806.zip
+   PXEOS4 package: ftp://212.12.30.18/public/pxeos4-1.130817.zip
      newer versions here: http://moveton.ho.ua/files
 
    Author: dixie, e-dixie@mail.ru

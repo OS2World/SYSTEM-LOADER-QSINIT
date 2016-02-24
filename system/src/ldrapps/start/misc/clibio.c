@@ -113,7 +113,7 @@ void init_stdio(process_context *pq) {
 void setup_fileio(void) {
    process_context* pq = mod_context();
    // init START process handles
-   if (pq) init_stdio(pq); else 
+   if (pq) init_stdio(pq); else
       log_printf("warning! zero process context!\n");
 }
 
@@ -211,7 +211,7 @@ size_t __stdcall START_EXPORT(fread)(void *buf, size_t elsize, size_t nelem, FIL
    if (elsize*nelem==0) { set_errno(EZERO); return 0; }
    readed = 0;
    if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
-      if (elsize!=1) { set_errno(EINVAL); return 0; } else 
+      if (elsize!=1) { set_errno(EINVAL); return 0; } else
       if (ff->fno!=STDIN_FILENO) { set_errno(EACCES); return 0; } else {
          // ask console
          if (!ff->inp) ff->inp = key_getstr(0);
@@ -259,7 +259,7 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
          while (len>0) {
             u32t cpy;
             /* line-based printing to log and binary - to console...
-               This is because log set an individual time mark for every 
+               This is because log set an individual time mark for every
                log_push() message */
             if (ff->fno==STDAUX_FILENO) {
                char *eolp = strchr(cpb, '\n');
@@ -267,10 +267,10 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
                if (eolp) cpy = eolp-cpb+1; else cpy = len;
 
                // print to log and debug COM port separately
-               log_pushb(LOG_MISC, cpb, cpy);
+               log_pushb(LOG_MISC, cpb, cpy, 0);
                for (ii=0; ii<cpy; ii++) {
                   char ch = cpb[ii];
-                  if (ch=='\n' && ii && cpb[ii-1]!='\r') hlp_seroutstr("\n"); 
+                  if (ch=='\n' && ii && cpb[ii-1]!='\r') hlp_seroutstr("\n");
                      else hlp_seroutchar(ch);
                }
             } else {
@@ -392,10 +392,10 @@ int  __stdcall fdetach(FILE *fp) {
    if (!check_pid(ff)) return 1;
    /* do not allow to detach std i/o handles, so all of it will be catched by
       fcloseall() */
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) { 
+   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
       set_errno(ff->lasterr=EBADF);
       return 1;
-   } 
+   }
    ff->pid=0;
    set_errno1(0,ff);
    return 0;
@@ -635,7 +635,7 @@ static int gettempname(char *prefix, char *dir, char *buffer) {
    if (!pq) { set_errno(EFAULT); return 0; }
 
    if (dir) {
-      strcpy(buffer,dir); 
+      strcpy(buffer,dir);
       name = buffer + strlen(buffer);
       if (name[-1]!='\\' && name[-1]!='/') *name++ = '\\';
    } else {

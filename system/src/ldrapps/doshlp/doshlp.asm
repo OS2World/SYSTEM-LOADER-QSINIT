@@ -2,7 +2,7 @@
 ; QSINIT
 ; doshlp code - ugly collection of ancient stuff ;)
 ;
-                .486p
+                .586p
                 include segdef.inc
                 include doshlp.inc
                 include ldrparam.inc
@@ -19,6 +19,11 @@
                 include inc/serial.inc
 
 LOGTMP_SIZE     equ     128
+
+MSR_IA32_CLOCKMODULATION        equ     019Ah
+MSR_AMD_PSTATE_LIMIT            equ     0C0010061h
+MSR_AMD_PSTATE_CONTROL          equ     0C0010062h
+MSR_AMD_PSTATE_STATUS           equ     0C0010063h
 
 PUBLIC_INFO     segment
                 extrn   PublicInfo:LoaderInfoData
@@ -1221,19 +1226,29 @@ DHClrBusyNPX    proc    near                                    ;
 @@dhcnpx_label:
                 pop     eax                                     ;
                 sub     eax,offset @@dhcnpx_label               ;
-                cmp     word ptr [External.MsrTableCnt+eax],0   ;
-                jz      @@dhcnpx_no_msrlist                     ; MSR setup list is empty
-                test    [External.Flags+eax],EXPF_DISCARDED     ;
-                jnz     @@dhcnpx_no_msrlist                     ; is high part alive?
                 pushad                                          ;
                 mov     esi,eax                                 ; doshlp flat
-                mov     edi,eax                                 ;
-                sub     edi,[eax+PublicInfo.DosHlpFlatBase]     ; boothlp flat
-                add     edi,[eax+PublicInfo.LdrHighFlatBase]    ;
+                xor     edx,edx                                 ;
+                movzx   eax,word ptr [External.ClockMod+esi]    ;
+                or      eax,eax                                 ;
+                jz      @@dhcnpx_no_clockmod                    ;
+                test    [External.Flags+esi], EXPF_AMDCPU       ; is it AMD?
+                jnz     @@dhcnpx_no_clockmod                    ;
+                add     al,10h                                  ; set clock modulation
+                mov     ecx,MSR_IA32_CLOCKMODULATION            ; on Intel
+                wrmsr                                           ;
+@@dhcnpx_no_clockmod:                
+                cmp     word ptr [External.MsrTableCnt+esi],dx  ;
+                jz      @@dhcnpx_no_msrlist                     ; MSR setup list is empty
+                test    [External.Flags+esi],EXPF_DISCARDED     ;
+                jnz     @@dhcnpx_no_msrlist                     ; is high part alive?
+                mov     edi,esi                                 ;
+                sub     edi,[esi+PublicInfo.DosHlpFlatBase]     ; boothlp flat
+                add     edi,[esi+PublicInfo.LdrHighFlatBase]    ;
                 lea     eax,[edi+DHMsr_Setup]                   ; setup MSRs
                 call    eax                                     ;
-                popad                                           ;
 @@dhcnpx_no_msrlist:
+                popad                                           ;
                 pop     eax                                     ;
                 ret                                             ;
 DHClrBusyNPX    endp                                            ;

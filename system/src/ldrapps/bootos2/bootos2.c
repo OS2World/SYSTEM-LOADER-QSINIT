@@ -91,6 +91,7 @@ extern struct Disk_BPB BootBPB;
 extern u16t            IODelay;
 extern u32t     paeppd, swcode;
 
+str_list           *config_sys = 0;
 physmem_block         *physmem = 0;
 u32t           physmem_entries = 0;
 u32t             resblock_addr = 0, // reserved memory (log & misc)
@@ -109,6 +110,7 @@ void error_exit(int code, const char *message) {
       hlp_memfree(mfsdptr); mfsdptr=0; 
       mfsdsize = 0;
    }
+   if (config_sys) { free(config_sys); config_sys=0; }
    if (pcidata) { free(pcidata); pcidata=0; }
    if (cmdcall) { free(cmdcall); cmdcall=0; }
    if (hiptbuf) { free(hiptbuf); hiptbuf=0; }
@@ -310,7 +312,7 @@ void load_kernel(module  *mi) {
       our loader, DOSHLP will panic on DHSetDosEnv call */
 
    /* adding arena for OS2DUMP (init located in init2)
-      Create it in any way, because pginit code assume at least one
+      Create it in any way, because pginit code assumes at least one
       invalid block in 1st Mb */
    if (pa) {
       u32t da_size = os2dmp ? dmpsize : PAGESIZE*4;
@@ -1003,6 +1005,27 @@ void *read_file(const char *path, u32t *size, int kernel) {
    return rc;
 }
 
+/// return config.sys as str_list
+str_list *get_config_sys(void) {
+   if (!config_sys) {
+      static int once = 0;
+      char    cfgname[32], *cfgfile;
+      u32t     cfglen;
+      // single try
+      if (once++) return 0;
+
+      snprintf(cfgname, 32, "CONFIG.%s", cfgext?cfgext:"SYS");
+      
+      cfgfile = (char*)read_file(cfgname, &cfglen, 0);
+      if (cfgfile) {
+         config_sys = str_settext(cfgfile, cfglen);
+         hlp_memfree(cfgfile);
+      } else
+         log_printf("Warning! Unable to find \"%s\"!\n", cfgname);
+   }
+   return config_sys;
+}
+
 void load_miscfiles(const char *kernel) {
    char *parmptr;
    // load os2dump
@@ -1169,7 +1192,26 @@ void main(int argc,char *argv[]) {
    efd->InfoSign = EXPDATA_SIGN;
    // pae ram disk physical page or 0 if not present
    efd->HD4Page  = sto_dword(STOKEY_VDPAGE);
+   // save AMD cpu flag
+   if (sys_isavail(SFEA_AMD)) efd->Flags|=EXPF_AMDCPU;
 
+   /* rise up cpu freq to 100% - and leave it in this mode, but only if was
+      no NORESET in "mode sys" command, else - save current clock modulation
+      value for secondary CPUs or get it from CPUCLOCK arg.
+      This must be done before IODelay reading below. */
+   parmptr = key_present("CPUCLOCK");
+   if (!parmptr && !sto_dword(STOKEY_CMMODE)) hlp_cmsetstate(CPUCLK_MAXFREQ); else {
+      u32t value;
+      // set value from CPUCLOCK, but ignore error
+      if (parmptr) hlp_cmsetstate(strtoul(parmptr,0,0));
+      // just read current state then
+      value = hlp_cmgetstate();
+      if (value>0 && value<CPUCLK_MAXFREQ) {
+         efd->ClockMod = value;
+         value = 10000/CPUCLK_MAXFREQ*value;
+         log_printf("cpu clock set to %u.%2.2u%% for OS/2!\n", value/100, value%100);
+      }
+   }
    // check keys
    cfgext  = key_present("CFGEXT");
    if (cfgext) strncpy((char*)&lid->ConfigExt,cfgext,3);
@@ -1212,6 +1254,15 @@ void main(int argc,char *argv[]) {
    parmptr = key_present("VALIMIT");
    if (parmptr) {
       u32t limit = strtoul(parmptr,0,0);
+
+      if (!limit) { // no value or value is 0 - import from CONFIG.SYS
+         str_list *cfg = get_config_sys();
+         if (cfg) {
+            char *lim = str_findkey(cfg, "VIRTUALADDRESSLIMIT", 0);
+            if (lim)    limit = strtoul(lim,0,0);
+            if (!limit) limit = 2048;
+         }
+      }
       if (limit<1024) limit = 1024; else
       if (limit>3072) limit = 3072; 
       lid->VALimit = limit;
@@ -1494,14 +1545,16 @@ void main(int argc,char *argv[]) {
    }
    // loading process is non-destructive until this point
    if (testmode) error_exit(0, "test finished!\n");
-   // copying high part to disk buffer where it will be launched
-   memcpy((char*)hlp_segtoflat(boot_info.diskbuf_seg), hiptbuf, DISKBUF_SIZE);
-   free(hiptbuf); hiptbuf = 0;
    // shutdown QSINIT & micro-FSD
    exit_prepare();
    hlp_fdone();
+   /* copying high part to disk buffer where it will be launched.
+      must be after exit functions, they can use i/o output, really */
+   memcpy((char*)hlp_segtoflat(boot_info.diskbuf_seg), hiptbuf, DISKBUF_SIZE);
+   free(hiptbuf); hiptbuf = 0;
    // boot OS/2 :)
    log_printf("init2\n");
-   hlp_rmcall(MAKEFAR16(boot_info.diskbuf_seg,efd->Init2Ofs),0);
+   exit_restirq(0);
+   hlp_rmcall(MAKEFAR16(boot_info.diskbuf_seg,efd->Init2Ofs), RMC_EXITCALL);
    // we must never reach this point!
 }

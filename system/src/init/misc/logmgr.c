@@ -23,10 +23,12 @@ extern u32t              BaudRate;
 extern u32t             DiskBufPM; // disk buffer address
 extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 static int           in_exit_call = 0;
+static u8t            exit_called = 0;
 volatile exit_callback  *exitlist;
 u32t             FileCreationTime; // custom file creation time (for unzip)
 #ifndef EFI_BUILD
 extern u16t             logbufseg;
+extern u8t                restirq; // restore IRQs flag
 
 // real mode far functions!
 void rmvtimerirq(void);
@@ -44,6 +46,15 @@ void _std cache_ctrl(u32t action, u8t vol);
 /// put message to real mode log delay buffer
 void log_buffer(int level, const char* msg);
 
+/** internal call: exit_prepare() was called or executing just now.
+    @return 0 - for no, 1 - if called already and 2 if you called from
+            exit_handler() callback */
+u32t _std exit_inprocess(void) {
+   if (exit_called) return 2;
+   if (in_exit_call) return 1;
+   return 0;
+}
+
 void _std exit_prepare(void) {
    u32t ii;
 #ifndef EFI_BUILD
@@ -57,7 +68,14 @@ void _std exit_prepare(void) {
 
    for (ii=0;ii<CNT_EXITLIST;ii++)
       if (exitlist[ii]) (*exitlist[ii])();
+   exit_called  = 1;
    in_exit_call = 0;
+}
+
+void _std exit_restirq(int on) {
+#ifndef EFI_BUILD
+   restirq = on?1:0;
+#endif
 }
 
 void _std exit_handler(exit_callback func, u32t add) {
@@ -80,9 +98,9 @@ static u16t check_rate[10] = {150,300,600,1200,2400,4800,9600,19200,38400,57600}
 
 int _std hlp_seroutset(u16t port, u32t baudrate) {
    if (baudrate)
-      if (baudrate==115200 || memchrw(check_rate,baudrate,10)!=0) 
+      if (baudrate==115200 || memchrw(check_rate,baudrate,10)!=0)
          BaudRate = baudrate;
-      else 
+      else
          return 0;
    if (port==0xFFFF) ComPortAddr = 0; else
    if (port) {
@@ -134,7 +152,7 @@ static int _std _log_it(int level, const char *fmt, long *argp) {
    if (!logrmbuf) logrmbuf = (u8t*)hlp_segtoflat(logbufseg);
 #endif
    // print to log or to delay buffer
-   if (mod_secondary) (*mod_secondary->log_push)(level, dst); 
+   if (mod_secondary) (*mod_secondary->log_push)(level, dst, 0);
       else log_buffer(level|LOGIF_DELAY,dst);
    return rc;
 }
@@ -160,16 +178,19 @@ void _std log_flush(void) {
    recursive++;
    /* flush log entries after rm/efi call
       note: logrmpos points to zero in last string, this used to append
-            string in RM */
+            string in RM/EFI part */
    if (logrmpos) {
       u8t *lp = logrmbuf, *ep = logrmbuf+logrmpos;
       while (lp<ep) {
          int  lvl = *lp++;
-         u32t len;
+         u32t len, time;
          if (!lvl) break;
+         // message time
+         time = *(u32t*)lp; lp+=4;
+         // message text
          len = strlen(lp);
 
-         (*mod_secondary->log_push)(lvl,lp);
+         (*mod_secondary->log_push)(lvl,lp,time);
          lp+=len+1;
       }
       logrmpos = 0;
@@ -200,10 +221,10 @@ void sto_save(const char *entry, void *data, u32t len, int copy) {
       for (ii=0;ii<STO_BUF_LEN;ii++) {
          stoinit_entry *se = storage_w+ii;
          if (!se->name[0]) {
-            if (lz<0) lz=ii; 
+            if (lz<0) lz=ii;
          } else
          if (strnicmp(se->name,entry,11)==0)
-            if (!data) { se->name[0]=0; return; } else 
+            if (!data) { se->name[0]=0; return; } else
                { lz=ii; break; }
       }
       if (lz>=0) {

@@ -2,24 +2,25 @@ type = dll
 name = "CONSOLE"
 
 exports = {
-   _con_modeavail          = { index =  2 }            # query mode presence
-   _con_getmode            = { index =  3 }            # get current mode
-   _con_setmode            = { index =  4 }            # set current mode
-   _con_querymode          = { index =  5 }            # query mode list
-   _con_currentmode        = { index =  6 }            # query current mode
-   _con_addtextmode        = { index =  7 }            # add new vconsole mode
+   _con_modeavail   = { index= 2 group="mode"  format="uuu@u"   } # query mode presence
+   _con_getmode     = { index= 3 group="mode"  format="v&*u&*u&@*u" } # get mode
+   _con_setmode     = { index= 4 group="mode"  format="uuu@u"   } # set current mode
+   _con_querymode   = { index= 5 group="mode"  format="p&*u"    } # query mode list
+   _con_currentmode = { index= 6 group="mode"  format="pv"      } # query current mode
+   _con_addtextmode = { index= 7 group="mode"  format="iuuuu"   } # add new vconsole mode
 
-   _con_write              = { index =  10 }           # write to screen
-   _con_read               = { index =  11 }           # read from screen
-   _con_setvgapal          = { index =  12 }           #
-   _con_getvgapal          = { index =  13 }           #
+   _con_write       = { index=10 group="draw"  format="uuuuupu" } # write to screen
+   _con_read        = { index=11 group="draw"  format="uuuuupu" } # read from screen
+   _con_setvgapal   = { index=12 group="draw"  format="vp"      } #
+   _con_getvgapal   = { index=13 group="draw"  format="vp"      } #
+   _con_clear       = { index=14 group="draw"  format="uuuuu@u" } # draw rect
 
-   _con_instshot           = { index =  25 }           # screen shot functions
-   _con_removeshot         = { index =  26 }           #
-   _con_makeshot           = { index =  27 }           #
+   _con_instshot    = { index=25 group="sshot" format="is"      } # screen shot functions
+   _con_removeshot  = { index=26 group="sshot" format="vv"      } #
+   _con_makeshot    = { index=27 group="sshot" format="isi"     } #
 
-   _shl_mkshot             = { index =  30 }           # mkshot shell command
+   _shl_mkshot      = { index=30 group="shell" format="usp"     } # mkshot command
 
-   _con_fontadd            = { index =  35 }           # add/replace font
-   _con_fontavail          = { index =  36 }           # query font presence
+   _con_fontadd     = { index=35 group="font"  format="viip"    } # add/replace font
+   _con_fontavail   = { index=36 group="font"  format="uii"     } # query font presence
 }

@@ -47,7 +47,7 @@ void  _std hlp_memfree(void *addr);
 
 /** realloc region of memory.
     Additional memory is zero-filled
-    @result new/old address */
+    @return new/old address */
 void* _std hlp_memrealloc(void *addr, u32t newsize);
 
 /// query list of constant blocks (internal use only)
@@ -103,7 +103,7 @@ void  _std hlp_finit();
 /** open file.
     In EFI build function read files from \EFI\BOOT dir of EFI system volume.
     @param  name  File name (boot disk root dir only), up to 63 chars.
-    @result -1 on no file, else file size */
+    @return -1 on no file, else file size */
 u32t  _std hlp_fopen(const char *name);
 
 /// read file
@@ -121,7 +121,7 @@ typedef void _std (*read_callback)(u32t percent, u32t readed);
     @param [in]  name     File name
     @param [out] bufsize  Size of file
     @param [in]  cbprint  Callback for process indication, can be 0.
-    @result buffer with file or 0. Buffer must be freed via hlp_memfree() */
+    @return buffer with file or 0. Buffer must be freed via hlp_memfree() */
 void* _std hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint);
 
 /** shutdown entire file i/o.
@@ -136,23 +136,23 @@ void  _std hlp_fdone();
 /** set current dir.
     Set current dir for current or other (if full path specified) drive.
     @param  path   Path to set, can be relative
-    @result success flag (1/0) */
+    @return success flag (1/0) */
 u32t  _std hlp_chdir(const char *path);
 
 /** set current drive
     @param  drive  drive number: 0 - boot disk (FAT boot only), 1 - virtual disk,
                    2-9 - mounted volumes.
-    @result success flag (1/0) */
+    @return success flag (1/0) */
 u32t  _std hlp_chdisk(u8t drive);
 
 /** get current drive.
-    @result disk number as in hlp_chdisk() */
+    @return disk number as in hlp_chdisk() */
 u8t   _std hlp_curdisk(void);
 
 /** get current dir on specified drive.
     @param  drive   drive number: 0 - boot disk (FAT boot only), 1 - virtual disk,
                     2-9 - mounted volumes.
-    @result current dir or 0 */
+    @return current dir or 0 */
 char* _std hlp_curdir(u8t drive);
 
 //===================================================================
@@ -163,7 +163,7 @@ char* _std hlp_curdir(u8t drive);
     @attention hard disks numeration can have holes at the place of
                "removed" disks!
     @param  [out]  floppies - ptr to number of floppy disks, can be 0.
-    @result maximum hdd used number + 1 */
+    @return maximum hdd used number + 1 */
 u32t  _std hlp_diskcount(u32t *floppies);
 
 #define QDSK_FLOPPY      0x080    ///< floppy disk
@@ -189,13 +189,13 @@ typedef struct {
     @param [in]   disk      Disk number.
     @param [out]  sectsize  Size of disk sector, can be 0
     @param [out]  geo       Disk data (optional, can be 0, can return zeroed data)
-    @result number of sectors on disk */
+    @return number of sectors on disk */
 u32t  _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo);
 
 /** return 64bit disk size.
     @param [in]   disk      Disk number.
     @param [out]  sectsize  Size of disk sector, can be 0
-    @result number of sectors on disk */
+    @return number of sectors on disk */
 u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 
 /** read physical disk.
@@ -203,7 +203,7 @@ u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
     @param  sector    Start sector
     @param  count     Number of sectors to read
     @param  data      Buffer for data
-    @result number of sectors was actually readed */
+    @return number of sectors was actually readed */
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
 
 /** write to physical disk.
@@ -214,7 +214,7 @@ u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
     @param  sector    Start sector
     @param  count     Number of sectors to write
     @param  data      Buffer with data
-    @result number of sectors was actually written */
+    @return number of sectors was actually written */
 u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data);
 
 /** is FDD was changed?
@@ -240,8 +240,8 @@ int  _std hlp_fddline(u32t disk);
     @param  flags     Flags value. Use HDM_QUERY to query current mode,
                       HDM_USECHS or HDM_USELBA to set new mode.
                       HDM_EMULATED can only be returned with HDM_QUERY
-                      flag, such disks not accept mode change.
-    @result (HDM_QUERY|current access mode) or 0 on error */
+                      flag, such disks have no mode change support.
+    @return (HDM_QUERY|current access mode) or 0 on error */
 u32t _std hlp_diskmode(u32t disk, u32t flags);
 
 /** try to mount a part of disk as FAT/FAT32 partition.
@@ -249,7 +249,7 @@ u32t _std hlp_diskmode(u32t disk, u32t flags);
     @param  disk      Disk number.
     @param  sector    Start sector of partition
     @param  count     Partition length in sectors
-    @result 1 on success. */
+    @return 1 on success. */
 u32t _std hlp_mountvol(u8t drive, u32t disk, u64t sector, u64t count);
 
 typedef struct {
@@ -284,18 +284,18 @@ typedef struct {
     is not mounted.
 
     @param  info      Buffer for data to fill in, can be 0.
-    @result FAT_* constant */
+    @return FAT_* constant */
 u32t _std hlp_volinfo(u8t drive, disk_volume_data *info);
 
 /** set volume label.
     @param  drive     Drive number: 0..9.
     @param  label     Up to 11 chars of volume label or 0 to clear it.
-    @result 1 on success. */
+    @return 1 on success. */
 u32t _std hlp_vollabel(u8t drive, const char *label);
 
 /** unmount previously mounted partition.
     @param  drive     Drive number: 2..9 only, unmounting of 0,1 is not allowed.
-    @result 1 on success. */
+    @return 1 on success. */
 u32t _std hlp_unmountvol(u8t drive);
 
 /** unmount all QSINIT volumes from specified disk.
@@ -310,11 +310,11 @@ u32t _std hlp_unmountall(u32t disk);
 
 /** allocate selector(s).
     @param  count     Number of selectors (remember - QSINIT GDT is SMALL :))
-    @result base number of 0 */
+    @return base number of 0 */
 u16t  _std hlp_selalloc(u32t count);
 
 /** GDT descriptor setup.
-    @param  selector  GDT offset (i.e. selector ith 0 RPL field)
+    @param  selector  GDT offset (i.e. selector with 0 RPL field)
     @param  base      Base address (physical or current DS based)
     @param  limit     Limit in pages or bytes
     @param  type      Setup flags
@@ -336,12 +336,12 @@ u32t  _std hlp_selsetup(u16t selector, u32t base, u32t limit, u32t type);
          manuals).
     @param [in]  Sel     Selector
     @param [out] Limit   Limit, can be zero.
-    @result 0xFFFFFFFF if failed. */
+    @return 0xFFFFFFFF if failed. */
 u32t  _std hlp_selbase(u32t Sel, u32t *Limit);
 
 /** free selector.
     this function can`t be used to free system selectors (flat cs, ds, etc).
-    @result bool - success flag */
+    @return bool - success flag */
 u32t  _std hlp_selfree(u32t selector);
 
 /** copy Length bytes from Sel:Offset to FLAT:Destination.
@@ -350,7 +350,7 @@ u32t  _std hlp_selfree(u32t selector);
     @param Offset        Source offset
     @param Sel           Source selector
     @param Length        length of data to copy
-    @result number of bytes was copied */
+    @return number of bytes was copied */
 u32t  _std hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length);
 
 /** convert real mode segment to flat address.
@@ -370,12 +370,38 @@ u32t  _std hlp_segtoflat(u16t Segment);
 
 /** real mode function call with arguments.
     @param rmfunc  16 bit far pointer / FLAT addr,
-                   if high word (segment) < 10, then this is FLAT addr in first 640k
-    @param dwcopy  Number of words to copy to real mode stack.
-    @param ...     Whose arguments. Be careful with 32bit push and 16bit args! ;)
+                   if high word (segment) < 10, then this is FLAT addr in
+                   first 640k
+    @param dwcopy  number of words to copy to real mode stack. RMC_* flags can
+                   be ORed here (note, that absence of RMC_EXITCALL in final
+                   QSINIT`s exit can cause real troubles for feature code).
+    @param ...     arguments. Be careful with 32bit push and 16bit args! ;)
 
-    @result real mode dx:ax and OF, SF, ZF, AF, PF, CF flags */
-u32t __cdecl hlp_rmcall(u32t rmfunc,u32t dwcopy,...);
+    @return real mode dx:ax and OF, SF, ZF, AF, PF, CF flags */
+u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
+
+/// @name for dwcopy parameter of hlp_rmcall() and hlp_rmcallreg()
+//@{
+#define RMC_IRET      0x40000000  ///< call function with iret frame
+#define RMC_EXITCALL  0x80000000  ///< exit QSINIT (special logic: PIC reset and so on)
+//@}
+
+// include converted dpmi.inc to get access here
+#ifdef QS_BASE_DPMIDATA
+/** real mode function call with registers and arguments.
+    @param [in]     intnum  call interrupt if intnum = 0..255, use -1 to far
+                            call with cs:ip in regs.
+    @param [in,out] regs    registers. cs:ip must be filled for far call,
+                            ss:sp can be 0 to use DPMI stack.
+    @param [in]     dwcopy  number of words to copy to real mode stack,
+                            RMC_* flags can be ORed here. RMC_IRET assumed for
+                            interrupt call.
+    @param [in]     ...     arguments, be careful with 32bit push and 16bit args.
+
+    @return real mode dx:ax and OF, SF, ZF, AF, PF, CF flags, modified real
+            mode registers in regs */
+u32t __cdecl hlp_rmcallreg(int intnum, rmcallregs_t *regs, u32t dwcopy, ...);
+#endif
 
 #ifdef __WATCOMC__
 #define rmcall(func,...) hlp_rmcall((u32t)&(func),__VA_ARGS__)
@@ -510,6 +536,11 @@ void _std exit_reboot(int warm);
     @see exit_handler() */
 void _std exit_prepare(void);
 
+/** internal call: exit_prepare() was called or executing just now.
+    @return 0 - for no, 1 - if called already and 2 if you called from
+            exit_handler() callback */
+u32t _std exit_inprocess(void);
+
 /// exit QSINIT callback function, called from exit_prepare.
 typedef void (*exit_callback)(void);
 
@@ -517,6 +548,14 @@ typedef void (*exit_callback)(void);
     @param func  Callback ptr
     @param add   bool - add/remove */
 void _std exit_handler(exit_callback func, u32t add);
+
+/** setup PIC reset on QSINIT exit.
+    By default QSINIT restores PIC mapping to 08h/70h (BIOS based version).
+    This call can be used to skip this (leave PIC mapped to 50h/70h).
+    Function works for all exit functions, can be called multiple times
+    before real exit.
+    @param on    Flag - 1=restore default mapping, 0=leave as it is */
+void _std exit_restirq(int on);
 
 #ifdef __cplusplus
 }

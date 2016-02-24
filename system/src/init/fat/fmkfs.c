@@ -62,7 +62,7 @@ FRESULT f_mkfs2 (void) {
 	n_fat = (fmt == FS_FAT12) ? (n_clst * 3 + 1) / 2 + 3 : (n_clst * 2) + 4;
 	n_fat = (n_fat + SS(fs) - 1) / SS(fs);
 	n_rsv = 1;
-	n_dir = (DWORD)N_ROOTDIR * SZ_DIR / SS(fs);
+	n_dir = (DWORD)N_ROOTDIR * SZ_DIRE / SS(fs);
 
 	b_fat = b_vol + n_rsv;				/* FAT area start sector */
 	b_dir = b_fat + n_fat * N_FATS;		/* Directory area start sector */

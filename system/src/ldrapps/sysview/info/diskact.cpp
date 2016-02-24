@@ -11,6 +11,7 @@
 #ifdef __QSINIT__
 #include "qsshell.h"
 #include "vio.h"
+#include "qcl/rwdisk.h"
 #endif
 
 #if !defined( __DISKACT_H )
@@ -267,7 +268,7 @@ TDMgrDialog::TDMgrDialog(int largeBox) :
    TWalkDiskDialog(TRect(4, 2, 76, 21+(largeBox?LARGEBOX_INC:0)), "Disk Management"),
    TWindowInit(TDMgrDialog::initFrame)
 {
-   lst_a=0; lst_e=0; goToDisk=FFFF; goToSector=FFFF64;
+   lst_a=0; lst_e=0; goToDisk=FFFF; goToSector=FFFF64; no_vhdd=1;
    // add 7 to height if screen lines >=32
    largeBox = largeBox? LARGEBOX_INC : 0;
 
@@ -327,6 +328,17 @@ TDMgrDialog::~TDMgrDialog() {
    if (lst_e) { delete lst_e; lst_e = 0; }
 }
 
+void TDMgrDialog::UpdateAll(Boolean rescan) {
+#ifdef __QSINIT__
+   // check VHDD module presence
+   qs_emudisk ed = NEW(qs_emudisk);
+   no_vhdd       = !ed;
+   DELETE(ed);
+#endif
+   TWalkDiskDialog::UpdateAll(rescan);
+}
+
+
 void TDMgrDialog::FreeDiskData() {
    TWalkDiskDialog::FreeDiskData();
    act_disk_cnt = 0;
@@ -373,7 +385,7 @@ void TDMgrDialog::handleEvent( TEvent& event) {
 
 void TDMgrDialog::AddAction(TCollection *list, u8t action) {
    static const char *text[] = {"Boot", "Clone", "Init disk", "Init disk (GPT)",
-      "Replace MBR code", "Restore MBR backup", "Update LVM info", "Save MBR backup",
+      "Replace MBR code", "Restore MBR backup", "Update LVM info", "Backup MBR",
       "Wipe disk", "Write LVM info",
       0,
       "Boot", "Delete", "Format", "Make active", "Mount", "Unmount",
@@ -419,13 +431,13 @@ void TDMgrDialog::UpdatePartList() {
    }
    if (lvme==LVME_EMPTY) {
       AddAction(lst_e, actd_initgpt);
-      AddAction(lst_e, actd_restvhdd);
+      if (!no_vhdd) AddAction(lst_e, actd_restvhdd);
    }
    // LVM info can be fixed
    if (lvme && !badcode && lvme!=LVME_NOINFO) AddAction(lst_e, actd_updlvm);
    // disk is not empty
    if (lvme!=LVME_EMPTY) {
-      AddAction(lst_e, actd_savevhdd);
+      if (!no_vhdd) AddAction(lst_e, actd_savevhdd);
       AddAction(lst_e, actd_wipe);
    }
    // no LVM info at all

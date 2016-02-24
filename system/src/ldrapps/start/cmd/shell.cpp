@@ -166,7 +166,7 @@ static void check_embedded(void) {
 
 u32t shl_extcall(spstr &cmd, TStrings &plist) {
    if (!ext_shell || !ext_shell->IsMember(cmd)) return EINVAL;
-   /* str_getlist() must be used here, because it split spaces around =
+   /* str_getlist() must be used here, because it trim spaces around =
       in parameter list */
    str_list* args = str_getlist(plist.Str);
    int        idx = ext_shell->IndexOf(cmd);
@@ -499,8 +499,8 @@ static u32t cmd_process(spstr ln,session_info *si) {
          module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
                                 (module*)mod_searchload(cmd(), &error);
          if (md) {
-            char *env=envcopy(mod_context(), 0);
-            s32t   rc=mod_exec((u32t)md, env, parm());
+            char *env = envcopy(mod_context(), 0);
+            s32t   rc = mod_exec((u32t)md, env, parm());
             if (rc<0) printf("Unable to launch module \"%s\"\n",cmd());
             free(env);
             mod_free((u32t)md);

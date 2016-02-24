@@ -8,7 +8,8 @@ set libpath=1:\dll;
 set path=1:\;
 set tracepath=1:\msg;
 
-rem verbose build of QSINIT binary set 80x50 on init
+rem verbose build of QSINIT binary sets 80x50 on init and uses console for
+rem debug output, so skip cls/echo below to keep boot log on screen
 set errorlevel = %lines%
 if errorlevel 50 goto dbg
 
@@ -19,6 +20,9 @@ echo . "safe mode" shell                      .
 echo ******************************************
 echo . type "bootmenu" to load menu selection .
 echo . type "help" for shell commands list    .
+if NOT %hosttype%=="EFI" goto efiskip
+echo . type "exit" to return back to UEFI     .
+:efiskip
 echo ******************************************
 :dbg
 cmd

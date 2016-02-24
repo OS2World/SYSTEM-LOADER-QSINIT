@@ -8,10 +8,12 @@
 #include "ksline.h"
 #include "vio.h"
 #include "qsdm.h"
+#include "time.h"
 #include "vioext.h"
 
 #define ML_Y   (1)           ///< vertical menu position
 #define HELP_Y (-2)          ///< offset of help str from the bottom of screen
+#define SLEEP_TIME (20)      ///< key_wait interval
 
 static const char *palette_key = "MENUPALETTE",
                    *msg_header = "Boot menu";
@@ -25,6 +27,7 @@ static char  *kmenu_help = 0,
                *FXaction[12];
 static int      m_inited = 0,
              firstlaunch = 1;
+static int      no_clock = 0;
 
 union {
    u32t pl;
@@ -42,17 +45,27 @@ static void DrawMenuBorder(int line, int chr) {
    vio_writebuf(1,line,78,1,buf,0);
 }
 
-static void DrawMenuHeader(int line, char *str) {
+static void DrawMenuHeader(int line, int clock, char *str) {
    u8t  buf[160], *bptr = buf,
         col = MenuPalette.pa[3]<<4|MenuPalette.pa[3]>>4;
    int  len = strlen(str);
-   if (!len) return;
+   if (!len || len>50) return;
 
    *bptr++=' '; *bptr++=col;
    *bptr++=toupper(*str++); *bptr++=col;
    while (*str) { *bptr++=*str++; *bptr++=col; }
    *bptr++=' '; *bptr++=col;
-   vio_writebuf(74-len,line,bptr-buf>>1,1,buf,0);
+   vio_writebuf((clock?77:(no_clock?74:69))-len,line,bptr-buf>>1,1,buf,0);
+}
+
+static void DrawMenuClock(int line) {
+   char  cstr[16];
+   struct tm  tmd;
+   time_t     now;
+   if (no_clock) return;
+   time(&now); localtime_r(&now, &tmd);
+   snprintf(cstr, 16, "%02u:%02u", tmd.tm_hour, tmd.tm_min);
+   DrawMenuHeader(line, 1, cstr);
 }
 
 static void DrawMenuLine(int line) {
@@ -150,6 +163,8 @@ void InitParameters(void) {
       snprintf(key,12,"F%d",ii+1);
       FXaction[ii] = ini_readstr(menu_ini,"common",key);
    }
+   no_clock = env_istrue("menu_no_clock");
+   if (no_clock<0) no_clock = 0;
 }
 
 void DoneParameters(void) {
@@ -231,6 +246,7 @@ int MenuKernel(char *rcline, int errors) {
 
       vio_clearscr();
       DrawMenuBorder(ML_Y,0xDC);
+      DrawMenuClock(ML_Y);
       for (ii = 1; ii <= kl->count; ii++) {
          DrawMenuLine(ML_Y+ii);
          DrawKernelMenuText(ML_Y+ii, ii, ii == defcfg, kl);
@@ -261,6 +277,7 @@ int MenuKernel(char *rcline, int errors) {
                vio_strout(buf);
                if (timeout <= 0) break;
                if (usebeep) play(5000+5000*(tmwmax-timeout)/tmwmax,60);
+               DrawMenuClock(ML_Y);
             }
          }
          keyh = key>>8;
@@ -318,8 +335,11 @@ int MenuKernel(char *rcline, int errors) {
                   vio_charout(13); VioEmptyLine(); vio_charout(13);
                   vio_strout("\rBoot files preload on\n");
                }
-
-               key  = key_read();
+               // wait next key
+               do {
+                  key  = no_clock ? key_read() : key_wait(SLEEP_TIME);
+                  DrawMenuClock(ML_Y);
+               } while (!key);
                keyh = key>>8;
                keyl = key&0xFF;
                log_printf("key=%04X\n",key);
@@ -429,8 +449,9 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
    if (selected>keys->count) selected = 1;
 
    vio_clearscr();
-   DrawMenuBorder(ML_Y,0xDC);
-   DrawMenuHeader(ML_Y,menu);
+   DrawMenuBorder(ML_Y, 0xDC);
+   DrawMenuHeader(ML_Y, 0, menu);
+   DrawMenuClock (ML_Y);
    for (ii = 1; ii <= keys->count; ii++) {
       DrawMenuLine(ML_Y+ii);
       DrawCommonMenuText(ML_Y+ii, ii, ii == selected, keys, is_menu_item(ii));
@@ -443,9 +464,12 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
 
    ii = 0;
    while (1) {
-      u16t key  = key_read();
+      u16t key  = no_clock ? key_read() : key_wait(SLEEP_TIME);
       u8t  keyh = key>>8,
            keyl = key&0xFF;
+
+      DrawMenuClock(ML_Y);
+      if (!key) continue;
 
       if (keyh==0x48||keyh==0x50||keyh==0x47||keyh==0x4F) {
          int prev=selected, incv=0;
@@ -521,6 +545,7 @@ int MenuPtBoot(char *rcline) {
    
          vio_clearscr();
          DrawMenuBorder(ML_Y,0xDC);
+         DrawMenuClock(ML_Y);
          for (ii = 1; ii <= kl->count; ii++) {
             DrawMenuLine(ML_Y+ii);
             DrawKernelMenuText(ML_Y+ii, ii, ii == defcfg, kl);
@@ -539,11 +564,11 @@ int MenuPtBoot(char *rcline) {
    
          ii = 0;
          while (1) {
-            u8t keyh,keyl;
+            u8t  keyh, keyl;
             // wait timeout
             if (timeout>0) {
                key = key_wait(1);
-   
+
                if (!key) {
                   char buf[128];
                   snprintf(buf, 128, "\rNo selection within %d seconds, boots "
@@ -551,6 +576,7 @@ int MenuPtBoot(char *rcline) {
                   vio_strout(buf);
                   if (timeout <= 0) break;
                   if (usebeep) play(5000+5000*(tmwmax-timeout)/tmwmax,60);
+                  DrawMenuClock(ML_Y);
                }
             }
             keyh = key>>8;
@@ -584,8 +610,11 @@ int MenuPtBoot(char *rcline) {
                            play(400,50); play(800,50);
                         }
                   }
-   
-                  key  = key_read();
+
+                  do {
+                     key  = no_clock ? key_read() : key_wait(SLEEP_TIME);
+                     DrawMenuClock(ML_Y);
+                  } while (!key);
                   keyh = key>>8;
                   keyl = key&0xFF;
                   log_printf("key=%04X\n",key);
@@ -626,12 +655,31 @@ int MenuPtBoot(char *rcline) {
          char errtext[256], *pti, *errpt,
               *dskt = strdup(kl->item[defcfg-1]),
                 *ep = strchr(dskt,'='),
+              *keys = ep ? strchr(ep+1, ',') : 0,
              *rcout = rcline;
          int  index = -1;
          u32t  disk;
          errtext[0] = 0;
-   
+
          if (goedit) strcpy(rcout,"cmd /e "); else rcout[0] = 0;
+
+         /* check for CPUCLOCK=x and NOMTRR keys and put it as common shell
+            commands to the execution line */
+         if (keys) {
+            str_list *largs = str_split(++keys, ",");
+            if (largs->count>0) {
+               char *cmstr = str_findkey(largs, "CPUCLOCK", 0);
+               if (cmstr) {
+                  strcat(rcout,"mode sys cm=");
+                  strcat(rcout,cmstr);
+                  strcat(rcout," noreset & ");
+               }
+               if (str_findkey(largs, "NOMTRR", 0)) strcat(rcout,"mtrr reset & ");
+            }
+
+            free(largs);
+         }
+   
          strcat(rcout,"dmgr mbr ");
          rcout+=strlen(rcout);
    

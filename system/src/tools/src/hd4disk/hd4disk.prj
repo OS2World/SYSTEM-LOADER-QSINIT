@@ -7,28 +7,20 @@ version=0x0001
 1=Release
 
 [vars]
-aa=@wasm
-cc=@wcc
-ld=@wlink
+aa=wasm
+cc=wcc
+ld=wlink
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 ; wdis compiled file immediately, to check watcom code ;)
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name) | \
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name) | \
      @wdis -a -s=$(*cur_name) $*.obj >$*.asm
-
-*dir=$(*cur_name)|.SYMBOLIC|@if not exist $* mkdir $*
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
-
-*cln=clean|.SYMBOLIC|@echo Cleaning ... | \
-     @if exist $(outdir)\*.obj @del $(outdir)\*.obj | \
-     @if exist $(outdir)\*.lst @del $(outdir)\*.lst | \
-     @if exist $(outdir)\*.h @del $(outdir)\*.h | \
-     @if exist $(outdir)\$(name).* @del $(outdir)\$(name).*
 
 aflags=-mf -4p -zq -iinc -i..\..\..\ldrapps\doshlp -fo=
 
@@ -45,6 +37,10 @@ outname=$(name).add
 exedir=%(QS_BIN)
 &lnk=$(outdir)\$(name).lnk
 
+; common for os/2 & win, but absent in linux
+cp=copy
+wipeold=if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >%(DEVNUL)
+
 [vars.*.0]
 ; debug info for checking generated code in wdis
 dbtype=-d2 -ofm
@@ -54,8 +50,11 @@ dbdef=-DDEBUG
 dbtype=-d0 -omrlis
 dbdef=
 
+[vars.linux]
+cp=cp
+wipeold= echo ...
+
 [files]
-$(bld_dir).dir $(outdir).dir clean.cln
 ..\..\..\hc\inc\pagedesc.inc
 ..\..\..\hc\inc\seldesc.inc
 ..\..\..\ldrapps\doshlp\inc\ldrparam.inc
@@ -64,10 +63,17 @@ switch.asm swcall.asm misc.asm pdmake.asm
 strat.c
 
 [make_footer]
-MAKEDIRS : $(bld_dir).dir $(outdir).dir
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : $(**dir) @@wait $(**inc) @@wait $(**asm) $(**c)
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**asm) $(**c)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
 
 # op el - can`t be used in .lnk file, it removes _REL32
 # actually we have no any unusable code in driver ;)
@@ -95,6 +101,6 @@ import DOS32FLATDS DOSCALLS.370
 [config.0,1]
 *out=$(outname) | nolink | \
      @echo Linking ... | \
-     $(ld) @$(&lnk) | lxLite.exe /c:basedev $(outname) > nul | \
-     if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >nul | \
-     copy $(outname) $(exedir) >nul
+     $(ld) @$(&lnk) | lxlite /c:basedev $(outname) >%(DEVNUL) | \
+     $(wipeold) | \
+     $(cp) $(outname) $(exedir) >%(DEVNUL)

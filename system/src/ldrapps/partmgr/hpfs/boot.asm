@@ -3,7 +3,7 @@
 ; HPFS boot code (micro-FSD)
 ;
 ;  * NOT able to load OS/2 1.x kernels (IBM code supports it until now ;))
-;  * uses disk number from DL, not from own BPB!
+;  * uses disk number from DL
 ;  * can read partition on 2Tb border ;) (i.e. only boot sector must have
 ;    32-bit number)
 ;  * incoming names must be in UPPER case. This is bug in original micro-FSD,
@@ -11,6 +11,8 @@
 ;  * size made the same with original micro (12kb, but actually code uses
 ;    only 10 - 2kb for self, 4kb - i/o buffer & 4kb - stack space)
 ;  * not depends on I13X string in memory (boot manager/vpart/airboot presence)
+;  * NTLDR assumes IBM original code and calls second part of it directly
+;    So you can`t put NT 3.51 and OS/2 on the same HPFS volume :)
 ;
                 include inc/qstypes.inc
                 include inc/parttab.inc

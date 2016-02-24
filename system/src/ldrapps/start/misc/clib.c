@@ -184,6 +184,23 @@ s64t  __stdcall strtoll(const char *ptr,char **endptr,int base) {
    return _stol64(ptr,endptr,base,1);
 }
 
+u32t __stdcall str2ulong(const char *str) {
+   while (*str==' ' || *str==' ') str++;
+   while (*str=='0'&&str[1]>='0'&&str[1]<='9') str++;
+   return _stol(str,0,0,0);
+}
+
+s64t __stdcall str2int64(const char *str) {
+   while (*str==' ' || *str==' ') str++;
+   while (*str=='0'&&str[1]>='0'&&str[1]<='9') str++;
+   return _stol64(str,0,0,1);
+}
+
+u64t __stdcall str2uint64(const char *str) {
+   while (*str==' ' || *str==' ') str++;
+   while (*str=='0'&&str[1]>='0'&&str[1]<='9') str++;
+   return _stol64(str,0,0,0);
+}
 
 char* __stdcall strupr(char *str) {
    if (!str) return str; else {
@@ -845,7 +862,8 @@ void __stdcall START_EXPORT(_splitpath)(const char *path, char *drive, char *dir
       path+=2;
    }
    // skip duplicates
-   while (path[1]=='/'||path[1]=='\\') path++;
+   while ((path[0]=='/'||path[0]=='\\') && (path[1]=='/'||path[1]=='\\'))
+      path++;
    rs1=strrchr(path,'\\');
    rs2=strrchr(path,'/');
 

@@ -382,33 +382,35 @@ partition action list.
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 This list contain actions on entire disk. Be cafrefully with all of it:
 
-* "Boot" - boot MGR code of disk disk
+* "Boot" - boot MBR code of this disk
 
 * "Clone" - clone disk structure (and data, optionally). Option available
 only if exist empty disk of appropriate size.
 
-* "Init disk" - write empty partition table to empty disk (i.e. init it to use).
-This action will can also write initial LVM signature.
+* "Init disk" - initialize MBR on empty disk (i.e. prepare it to use).
+This action can optionally write LVM signature.
 
 * "Init disk (GPT)" - write GPT partition table to empty disk (GPT is not
 supported by OS/2, but QSINIT can operate it).
 
 * "Replace MBR code" - replace MBR code to provided by QSINIT. This code is
-compatible with OS/2 boot.
+compatible with OS/2 boot. Option is available for GPT disks too.
 
 * "Restore MBR backup" - restore partition structure from backup image file. Option
-active only when disk is empty (i.e. MBR sector have no 55 AA signature).
+available only when disk is empty, i.e. MBR destroyd (sector have no 55 AA signature).
 
-* "Update LVM info" - update LVM info (option available only if LVM info on disk
+* "Update LVM info" - update LVM info (option available only if LVM tables on disk
 have one or more correctable errors).
 
 * "Save MBR backup" - save partition structure to VHDD image file. This file can
 be used to restore it (when MBR will be damaged). File also can be mounted by
-VHDD command as common QSINIT disk.
+VHDD shell command as QSINIT common disk.
 
 * "Wipe disk" - wipe partition table (ENTIRE DISK!)
 
-* "Write LVM info" - write LVM info to non-LVM disk.
+* "Write LVM info" - write LVM info to non-LVM disk. Option suitable for disks
+smaller than 500Gb, have been prepared in other operating system. Partitions on
+huge disks should be created in OS/2, DSFEE or QSINIT.
 
 .topic DmgrRescan=2081
  Rescan disks ‹
@@ -421,7 +423,7 @@ like update after manual partition table editing in sector editor.
 .topic Calculator=2100
  Calculator ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-This calculator operates only with signed 64-bit integer values.
+This calculator operates only by signed 64-bit integer values.
 
  * ESC - clear
  * "_" - sign change (+/-), decimal mode only
@@ -493,6 +495,13 @@ available.
 .topic FileDlgCommon=2124
  Open/Save dialog‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-To change disk just type A: or B: in file name`s edit line.
+To change disk just type A: or B: (and so on) in file name`s edit line.
+This is QSINIT internal drive letter, not OS/2.
 
-To go to directory directly - type it path in this line too.
+* A: - boot partition (FAT or FAT32, file i/o on HPFS/JFS is not supported)
+
+* B: - small ram disk with QSINIT apps (contents of QSINIT.LDI archive)
+
+* C:..J: - available to mount (use disk management dialog or MOUNT command)
+
+To go directly to directory - type it path in this line too.

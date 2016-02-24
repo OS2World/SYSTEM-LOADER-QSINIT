@@ -33,7 +33,7 @@ TDialog* makeAboutDlg(void) {
 
    control = new TColoredText(TRect(26, 2, 40, 3), verstr, 0x7f);
    dlg->insert(control);
-   control = new TColoredText(TRect(23, 4, 40, 5), "Freeware, 2010-15", 0x7f);
+   control = new TColoredText(TRect(23, 4, 40, 5), "Freeware, 2010-16", 0x7f);
    dlg->insert(control);
    control = new TButton(TRect(30, 6, 40, 8), "O~K~", cmOK, bfDefault);
    dlg->insert(control);

@@ -120,10 +120,10 @@ static u32t _std bm_alloc(void *data, u32t size) {
 
 /** change bitmap size.
     Function will fail on trying to expand external buffer.
-    Expanded space will be zeroed.
     @param  size     new size of bitmap
+    @param  on       state of expanded space (1/0)
     @return zero on error (no memory or external buffer expansion). */
-static u32t _std bm_resize(void *data, u32t size) {
+static u32t _std bm_resize(void *data, u32t size, int on) {
    instance_ret(bm,0);
    if (size==bm->size) return 1;
 
@@ -132,17 +132,21 @@ static u32t _std bm_resize(void *data, u32t size) {
       bm->size = size;
       if (!size) bm->bm = 0;
    } else {
-      if (!size) { 
-         free(bm->bm); bm->bm = 0; 
-         bm->size = 0; 
+      if (!size) {
+         free(bm->bm); bm->bm = 0;
+         bm->size = 0;
       } else {
-         u32t oldsize = bm->size;
-         u8t  *newptr = (u8t*)realloc(bm->bm, Round32(size)>>3);
-         if (!newptr) return 0;
-         bm->bm   = newptr;
+         u32t oldsize = bm->size,
+               nbsize = Round32(size)>>3;
+         // realloc if nessesary
+         if (nbsize != Round32(oldsize)>>3) {
+            u8t *newptr = (u8t*)realloc(bm->bm, nbsize);
+            if (!newptr) return 0;
+            bm->bm = newptr;
+         }
          bm->size = size;
          // clear new bits
-         if (oldsize<size) bm_set(data, 0, oldsize, size - oldsize);
+         if (oldsize<size) bm_set(data, on?1:0, oldsize, size - oldsize);
       }
    }
    return 1;
@@ -161,7 +165,7 @@ static u8t* _std bm_mem(void *data) {
 
 static void _std bm_setall(void *data, int on) {
    instance_void(bm);
-   if (bm->size && bm->bm) 
+   if (bm->size && bm->bm)
       memsetd((u32t*)bm->bm, on?FFFF:0, Round32(bm->size)>>5);
 }
 
@@ -239,7 +243,7 @@ static u32t _std bm_find(void *data, int on, u32t length, u32t hint) {
       u32t   sidx, eidx;
       u8t      bb;
 
-      if (!step) { sidx = hint>>3; eidx = sbyte; } else 
+      if (!step) { sidx = hint>>3; eidx = sbyte; } else
       if (hint) {
          if (length<2) eidx = hint>>3; else {
             eidx = (hint>>3) + (length-2>>3) + 2;
@@ -267,10 +271,10 @@ static u32t _std bm_find(void *data, int on, u32t length, u32t hint) {
             pbb = bb; cbit+= 8;
             if (cbit<eidx*8) {
                get_next_byte();
-            } else 
+            } else
                break;
          } // end loop cbit
-      } else 
+      } else
       if (length<15) {
          u32t  cbit = sidx * 8, rcpos;
          u8t   ppbb = 0xFF,

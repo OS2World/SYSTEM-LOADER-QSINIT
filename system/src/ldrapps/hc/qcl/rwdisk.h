@@ -47,6 +47,19 @@ typedef struct qs_emudisk_s {
    int  _std (*umount )(void);
    /// close image file
    int  _std (*close  )(void);
+
+   /** enable/disable tracing of this disk instance calls.
+       Function not starts actual tracing! It just switches including of
+       these instances into global tracing when it turned on.
+       Undocumented "VHDD trace disk" command can be used in console to
+       turn bitmap tracing ON for this disk.
+
+       @param  self     enable this instance trace (0/1 or -1 to skip setup),
+                        enabled by default.
+       @param  bitmaps  enable internal bitmaps trace (0/1 or -1 to skip setup),
+                        disabled by default.
+    */
+   void _std (*trace  )(int self, int bitmaps);
 } _qs_emudisk, *qs_emudisk;
 
 #endif // VHDD_INTERNALS

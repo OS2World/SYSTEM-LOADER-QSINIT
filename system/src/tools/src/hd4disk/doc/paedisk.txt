@@ -121,9 +121,10 @@
 batch file must be used. SOURCE option of BOOTOS2.EXE is the way to change
 boot partition to another FAT - including PAE RAM disk.
 
-  There is one problem: RAM disk emulated as LAST HDD in system, so if any
-partition with the same LVM drive letter is exist on real HDD - system boot
-will fail.
+  There is one problem: if any partition with the same LVM drive letter
+exists on real HDD - system boot will fail if it will be discovered first.
+To solve this, HD4DISK.ADD must be the *first* ADD driver in CONFIG.SYS -
+before DANIS or AHCI.
 
   Boot disk creation sequence:
 
@@ -167,7 +168,7 @@ will fail.
      On gigabit network it takes 10 seconds to download 30Mb zip with console
      OS/2 installation (without PM).
 
-  9. Menus can be used in the same way as on normal boot - put os2ldr.ini to
+  9. Menus can be used in the same way as on normal boot: put os2ldr.ini to
      the root of disk with ZIP file and fill it with kernel options. Only one
      difference here - "source=c" must be added to [CONFIG] section or lines
      with kernel options.

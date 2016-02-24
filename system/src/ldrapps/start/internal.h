@@ -11,10 +11,13 @@
 #include "qs_rt.h"
 #include "direct.h"
 #include "vioext.h"
+#include "qcl/qsmt.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef int __cdecl (*printf_function)(const char *fmt, ...);
 
 /** trace helper macros.
     @li declare function as START_EXPORT(rmdir)
@@ -95,7 +98,7 @@ extern u32t   no_tgates;
 void  init_stdio(process_context *pq);
 
 /// push len bytes from str to log
-int   log_pushb(int level, const char *str, int len);
+int   log_pushb(int level, const char *str, int len, u32t timemark);
 
 /// vio_strout with ansi filtering
 void  ansi_strout(char *str);
@@ -108,6 +111,15 @@ u32t  getcr4(void);
 #pragma aux getcr3 = "mov eax,cr3";
 #pragma aux getcr4 = "mov eax,cr4";
 #endif
+
+/** get mtlib class instance.
+    Instance is created once and shared over START module, so do not use
+    DELETE on it.
+    @return class instance or 0 if no MTLIB module */
+qs_mtlib get_mtlib(void);
+
+/// custom dump mdt
+void log_mdtdump_int(printf_function pfn);
 
 #ifdef __cplusplus
 }

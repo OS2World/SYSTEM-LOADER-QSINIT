@@ -9,17 +9,34 @@
                 include inc/cmos.inc
                 include inc/debug.inc
 
+                .586
+
 _BSS16          segment
-                public  _IODelay
-                public  _OrgInt50h
-                public  _NextBeepEnd
+                public  _IODelay, _OrgInt50h, _NextBeepEnd
+                public  _countsIn55ms, _rtdsc_present
+                align   4
+_rtdsc_present  db      ?
+                db      ?                                       ; reserved for align
 _IODelay        dw      ?                                       ; i/o delay value
 _OrgInt50h      dd      ?                                       ; old irq0 vector
 _NextBeepEnd    dd      ?                                       ; next end of beep, ticks
+rdtscprev       dq      ?                                       ;
+_countsIn55ms   dq      ?                                       ;
 _BSS16          ends
 
 TEXT16          segment
                 assume  cs:G16, ds:G16, es:nothing, ss:G16
+
+timer_setmode   proc    near
+                call    shortwait                               ;
+                out     PORT_CW,al                              ; program count mode of timer 0
+                xor     al,al                                   ;
+                out     PORT_CNT0,al                            ; set count to 64k
+                nop                                             ;
+                out     PORT_CNT0,al                            ;
+                ret
+timer_setmode   endp
+
 ;
 ; note: this routine is a copy of original IBM code. The reason for this is
 ;       a high sensitivity of several network cards (Intel basically) to the
@@ -29,18 +46,25 @@ TEXT16          segment
 _calibrate_delay proc   far
                 pushf                                           ;
                 cli                                             ; disable interrupts
-                xor     bx,bx                                   ;
+                xor     eax,eax                                 ;
+                mov     dword ptr rdtscprev,eax                 ; zero rdtsc
+                mov     dword ptr rdtscprev+4,eax               ; counters
+                mov     dword ptr _countsIn55ms,eax             ;
+                mov     dword ptr _countsIn55ms+4,eax           ;
 
+                mov     al,SC_READBACK or RB_NOLATCHCNT or CM_CNT0
+                out     PORT_CW,al                              ; save current timer mode
+                in      al,PORT_CNT0                            ;
+                push    ax                                      ;
+ifdef INITDEBUG
+                xor     ah,ah                                   ;
+                dbg16print <"pit0 status: %x",10>,<ax>          ;
+endif
                 mov     al,SC_CNT0 or RW_LSBMSB or CM_MODE2     ; setup largest value
-                out     PORT_CW,al                              ; program count mode of timer 0
-                call    shortwait                               ;
-                mov     ax,bx                                   ;
-                out     PORT_CNT0,al                            ; program timer 0 count
-                call    shortwait                               ;
-                mov     al,ah                                   ;
-                out     PORT_CNT0,al                            ;
+                call    timer_setmode                           ;
 
-                call    shortwait                               ; Snapshot value
+                call    shortwait                               ; Snapshot value 
+                call    shortwait                               ;
                 mov     al,SC_CNT0 or RW_LATCHCNT               ; Latch PIT Ctr 0 command.
                 out     PORT_CW,al                              ;
                 call    shortwait                               ;
@@ -69,6 +93,7 @@ _calibrate_delay proc   far
                 mov     dl,al                                   ;
                 in      al,PORT_CNT0                            ; Read PIT Ctr 0, MSByte.
                 mov     dh,al                                   ;
+                pop     di                                      ; pop saved state
                 popf                                            ;
                 xor     bx,bx                                   ;
                 sub     bx,cx                                   ; bx - snapshot time
@@ -107,6 +132,18 @@ _calibrate_delay proc   far
                 mov     ax,0FFFFh                               ;
 @@latche17:
                 mov     _IODelay,ax                             ; save value for later use
+
+                mov     dx,di                                   ; check original timer
+                and     dl,STATUS_CNTMODE                       ; mode and restore it to
+                cmp     dl,CM_MODE3                             ; mode 3 (who knows? ;))
+                jnz     @@dllp3                                 ;
+
+                pushf                                           ; restore mode 3
+                cli                                             ;
+                mov     al,SC_CNT0 or RW_LSBMSB or CM_MODE3     ;
+                call    timer_setmode                           ;
+                popf
+@@dllp3:
                 ret                                             ;
 _calibrate_delay endp                                           ;
 
@@ -130,7 +167,7 @@ irq0_handler    proc    near                                    ;
                 cli                                             ;
 
                 cmp     dword ptr cs:_NextBeepEnd,0             ; sound playing?
-                jz      @@irq0_quit                             ;
+                jz      @@irq0_rtdsc                            ;
                 push    eax                                     ;
                 push    es                                      ;
                 xor     ax,ax                                   ;
@@ -145,6 +182,32 @@ irq0_handler    proc    near                                    ;
                 and     al,SPEAKER_MASK_OFF                     ;
                 out     SPEAKER_PORT,al                         ;
 @@irq0_soundon:
+                pop     eax                                     ;
+@@irq0_rtdsc:
+                test    cs:_rtdsc_present,1                     ; timer calc
+                jz      @@irq0_quit                             ;
+                push    eax                                     ;
+                push    ecx                                     ;
+                push    edx                                     ;
+                rdtsc                                           ;
+                mov     ecx,eax                                 ;
+                xchg    ecx,dword ptr cs:rdtscprev              ; calc diff between
+                jecxz   @@irq0_rtdsc_zero                       ; rdtscprev and
+                sub     eax,ecx                                 ; current value
+@@irq0_rtdsc_nz:
+                mov     ecx,edx                                 ;
+                xchg    ecx,dword ptr cs:rdtscprev+4            ; and save current
+                sbb     edx,ecx                                 ; as rdtscprev
+                mov     dword ptr cs:_countsIn55ms,eax          ;
+                mov     dword ptr cs:_countsIn55ms+4,edx        ;
+                jmp     @@irq0_rtdsc_exit
+@@irq0_rtdsc_zero:
+                or      ecx,dword ptr cs:rdtscprev+4            ; rdtscprev==0?
+                jnz     @@irq0_rtdsc_nz                         ; if not - continue calc,
+                mov     dword ptr cs:rdtscprev+4,edx            ; else just save new rdtscprev
+@@irq0_rtdsc_exit:
+                pop     edx                                     ;
+                pop     ecx                                     ;
                 pop     eax                                     ;
 @@irq0_quit:
                 popf                                            ;

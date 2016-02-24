@@ -113,6 +113,7 @@ typedef struct {
 #define STOKEY_BASEMEM  "mbase"              ///< address of "sys.mem" base
 #define STOKEY_VDPAGE   "vdisk"              ///< pae disk header page number
 #define STOKEY_VDNAME   "vdhdd"              ///< pae disk readable name
+#define STOKEY_CMMODE   "cm_noreset"         ///< leave cpu modulation as it is on exit
 
 /// cache i/o ioctl
 //@{

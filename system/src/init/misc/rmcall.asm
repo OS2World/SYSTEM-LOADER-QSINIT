@@ -20,6 +20,10 @@
                 extrn   _mfsd_openname:byte                     ;
                 extrn   _mfsd_fsize:dword                       ;
                 extrn   _rmpart_size:word                       ;
+                extrn   _mt_yield:near
+
+RMC_IRET        = 40000000h                                     ; call to iret frame
+RMC_EXITCALL    = 80000000h                                     ; exit from QSINIT
 
 _BSS            segment                                         ;
 save_edi        dd      ?                                       ;
@@ -32,6 +36,7 @@ _BSS            ends                                            ;
 
 _DATA           segment                                         ;
 rmcall32ax      dw      0301h                                   ; dpmi func for rmcall
+rmcall32bx      dw      0                                       ; flags in bx
 _DATA           ends                                            ;
 
 _TEXT           segment
@@ -39,40 +44,43 @@ _TEXT           segment
 
                 extrn   _log_flush:near                         ;
                 extrn   _key_filter:near                        ;
-                public  rmcall32                                ;
-                ; call rm: edx - addr, ecx - number of words in stack
-                ;
+;----------------------------------------------------------------
+; call rm: edx - addr, ecx - number of words in stack
+;
 rmcall32:
                 mov     save_edi,edi                            ;
-                mov     save_esi,esi                            ;
-                mov     save_ebp,ebp                            ;
-                mov     save_ebx,ebx                            ;
                 mov     edi,offset _rm_regs                     ; do not use 32bit offset
-
                 xor     eax,eax                                 ; zero fs, gs
                 mov     dword ptr [edi+rmcallregs_s.r_fs],eax   ;
                 mov     ax,_rm16code                            ;
                 mov     [edi+rmcallregs_s.r_ds],ax              ; set ds to 9100h
                 mov     [edi+rmcallregs_s.r_es],ax              ;
                 mov     [edi+rmcallregs_s.r_ss],ax              ; set ss:sp to own stack,
-
                 mov     ax,_stack16_pos                         ; use saved pointer
                 mov     [edi+rmcallregs_s.r_sp],ax              ; the reason is a tiny model
                                                                 ; of 16 bit code (ss=ds)
                 mov     dword ptr [edi+rmcallregs_s.r_ip],edx   ; cs:ip
+;----------------------------------------------------------------
+; call rm: ecx - number of words in stack
+;          edi - rmcallregs_s, orig. edi saved in save_edi
+rmcall32regs:
+                mov     save_esi,esi                            ;
+                mov     save_ebp,ebp                            ;
+                mov     save_ebx,ebx                            ;
                 pushf                                           ;
                 pop     _rm_regs.r_flags                        ; save flags
-
                 pop     save_ret                                ; return addr
 
-                xor     bh,bh                                   ; dpmi call
-                mov     ax,rmcall32ax                           ;
+                xor     bx,bx                                   ;
+                xchg    bx,rmcall32bx                           ; dpmi call
+                mov     ax,0301h                                ; restore defaults
+                xchg    ax,rmcall32ax                           ;
                 int     31h                                     ;
-                mov     eax,_rm_regs.r_edx                      ; restore dword result
+                mov     eax,[edi+rmcallregs_s.r_edx]            ; restore dword result
                 shl     eax,16                                  ; (dx:ax)
-                mov     ax,word ptr _rm_regs.r_eax              ;
-
-                mov     dx,_rm_regs.r_flags                     ; combine flags
+                mov     ax,word ptr [edi+rmcallregs_s.r_eax]    ;
+                
+                mov     dx,[edi+rmcallregs_s.r_flags]           ; combine flags
                 pushf                                           ;
                 pop     cx                                      ;
                 and     dx,08D5h                                ; use OF, SF, ZF, AF, PF, CF
@@ -80,7 +88,6 @@ rmcall32:
                 or      dx,cx                                   ; preserve other
                 push    dx                                      ;
                 popf                                            ;
-                mov     rmcall32ax, 0301h                       ; restore default rmcall
 
                 mov     edi,save_edi                            ;
                 mov     esi,save_esi                            ;
@@ -93,6 +100,7 @@ rmcall32:
                 call    _log_flush                              ; flushing rm log
                 pop     eax                                     ;
                 popf                                            ;
+                call    _mt_yield                               ;
                 ret                                             ; return to caller
 
 ; convert edx to seg:ofs but panic if it not in 16-bit segments
@@ -167,7 +175,7 @@ _mfs_term       label   near                                    ;
                 mov     edx,_filetable.ft_muTerminate           ;
                 jmp     rmcall32                                ;
 
-;u32t __cdecl hlp_rmcall(u32t rmfunc,u32t dwcopy,...);
+;u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
                 public  _hlp_rmcall                             ;
 _hlp_rmcall     label   near                                    ;
                 pop     save_ret2                               ;
@@ -191,9 +199,41 @@ _hlp_rmcall     label   near                                    ;
                 shr     dx,4                                    ; simple way
                 bswap   edx                                     ;
 @@hrmc_ext:
-                pop     ecx                                     ;
+                pop     ecx                                     ; 
+                call    rmcall_setflags                         ; read flags
                 call    rmcall32                                ;
                 lea     esp,[esp-8]                             ; do not touch flags
+                jmp     [save_ret2]                             ;
+
+rmcall_setflags label   near
+                test    ecx,RMC_EXITCALL                        ; 
+                jz      @@hrmc_f1                               ; set "PIC reset"
+                and     ecx,not RMC_EXITCALL                    ; flag for DPMI call
+                mov     rmcall32bx,(FN30X_PICRESET or FN30X_TIMEROFF) shl 8 ;
+@@hrmc_f1:
+                test    ecx,RMC_IRET                            ;
+                jz      @@hrmc_f2                               ; far call with 
+                and     ecx,not RMC_IRET                        ; iret frame
+                mov     rmcall32ax,0302h                        ;
+@@hrmc_f2:
+                retn
+
+; u32t  __cdecl hlp_rmcallreg(int intnum, rmcallregs_t *regs, u32t dwcopy, ...);
+                public  _hlp_rmcallreg
+_hlp_rmcallreg  label   near
+                pop     save_ret2                               ;
+                pop     edx                                     ; intnum
+                mov     save_edi,edi                            ;
+                pop     edi                                     ; regs
+                pop     ecx                                     ; dwcopy
+                call    rmcall_setflags                         ; read flags
+                or      edx,edx                                 ;
+                js      @@hrmc_reg_far                          ;
+                mov     byte ptr rmcall32bx,dl                  ; int #
+                mov     rmcall32ax,0300h                        ;
+@@hrmc_reg_far:
+                call    rmcall32regs                            ;
+                lea     esp,[esp-12]                            ; do not touch flags
                 jmp     [save_ret2]                             ;
 
 ;u8t __stdcall raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
@@ -216,101 +256,88 @@ _raw_io         label   near                                    ;
                 setc    al                                      ; set al to 1 if failed
                 retn                                            ;
 
-;u16t key_read(void);
-                public  _key_read                               ;
-_key_read       label   near                                    ; read keyboard
-                mov     rmcall32ax, 0300h                       ; change rmcall func
-                push    ebx                                     ;
+;----------------------------------------------------------------
+; call r/m interrupt vector (common code)
+; in: dl = int num
+;  rm ax = ax                rm cx = cx                rm esi = 0
+;  rm bx = high part of eax  rm dx = high part of ecx  rm edi = 0
+rmint_common    label   near
+                mov     rmcall32ax,0300h                        ; change rmcall
+                xor     dh,dh                                   ; func to int
+                mov     rmcall32bx,dx                           ; # in dl
                 mov     edx,offset _rm_regs                     ;
-                mov     bh, 10h                                 ; enhanced key read
-                mov     [edx+rmcallregs_s.r_eax], ebx           ;
-                mov     bl, 16h                                 ; int 16h, ah=0
+                mov     word ptr [edx+rmcallregs_s.r_eax],ax    ;
+                shr     eax,16                                  ;
+                mov     word ptr [edx+rmcallregs_s.r_ebx],ax    ;
+                mov     word ptr [edx+rmcallregs_s.r_ecx],cx    ;
+                shr     ecx,16                                  ;
+                mov     word ptr [edx+rmcallregs_s.r_edx],cx    ;
                 xor     ecx,ecx                                 ;
+                mov     [edx+rmcallregs_s.r_esi],ecx            ;
+                mov     [edx+rmcallregs_s.r_edi],ecx            ;
                 call    rmcall32                                ;
-                pop     ebx                                     ;
+                retn
+
+;u16t key_read_int(void);
+                public  _key_read_int                           ;
+_key_read_int   label   near                                    ; read keyboard
+                mov     dl,16h                                  ; int 16h
+                mov     ah,10h                                  ; enhanced key read
+                call    rmint_common                            ;
                 movzx   eax,ax                                  ;
                 jmp     _key_filter                             ;
 
 ;u8t  key_pressed(void);
                 public  _key_pressed                            ;
 _key_pressed    label   near                                    ; is key pressed?
-                mov     rmcall32ax, 0300h                       ;
-                mov     edx,offset _rm_regs                     ;
-                push    ebx                                     ;
-                mov     bh, 11h                                 ; enhanced key check
-                mov     [edx+rmcallregs_s.r_eax], ebx           ;
-                mov     bl, 16h                                 ; int 16h, ah=1
-                xor     ecx,ecx                                 ;
-                call    rmcall32                                ;
-                pop     ebx                                     ;
+                mov     dl,16h                                  ; int 16h
+                mov     ah,11h                                  ; enhanced key check
+                call    rmint_common                            ;
                 setnz   al                                      ;
                 retn                                            ;
 
 ;u8t  _std key_push(u16t code);
                 public  _key_push                               ;
 _key_push       label   near                                    ; push key press
-                mov     rmcall32ax, 0300h                       ;
-                mov     cx, [esp+4]                             ; scan<<8|key
-                mov     edx,offset _rm_regs                     ;
-                push    ebx                                     ;
-                mov     bh, 05h                                 ;
-                mov     [edx+rmcallregs_s.r_eax], ebx           ;
-                mov     [edx+rmcallregs_s.r_ecx], ecx           ;
-                mov     bl, 16h                                 ; int 16h, ah=05h
-                xor     ecx,ecx                                 ;
-                call    rmcall32                                ;
+                mov     dl,16h                                  ;
+                mov     ah,05h                                  ; int 16h, ah=05h
+                mov     cx,[esp+4]                              ; scan<<8|key
+                call    rmint_common                            ;
                 or      al,al                                   ;
                 setz    al                                      ; 1 on success
-                pop     ebx                                     ;
                 retn    4                                       ;
 
 ;void _std vio_intensity(u8t value);
                 public  _vio_intensity
 _vio_intensity  label   near
-                mov     rmcall32ax, 0300h                       ;
-                push    ebx                                     ;
-                mov     bl, [esp+8]                             ;
-                mov     edx,offset _rm_regs                     ;
-                or      bl,bl                                   ;
-                setz    bl                                      ;
-                mov     [edx+rmcallregs_s.r_eax], 1003h         ;
-                mov     byte ptr [edx+rmcallregs_s.r_ebx], bl   ;
-                mov     bl, 10h                                 ; int 10h
-                xor     ecx,ecx                                 ;
-                call    rmcall32                                ;
-                pop     ebx                                     ;
+                mov     dl,10h                                  ; int 10h
+                mov     ah,[esp+8]                              ; ax=1003h
+                or      ah,ah                                   ;
+                setz    ah                                      ; value for bl
+                bswap   eax                                     ; 
+                mov     ax,1003h                                ;
+                call    rmint_common                            ;
                 retn    4                                       ;
 
 ;u16t int12mem(void);
                 public  _int12mem                               ;
 _int12mem       label   near                                    ; set keyboard rate
-                mov     rmcall32ax, 0300h                       ;
-                push    ebx                                     ;
-                mov     bl, 12h                                 ; int 12h
-                xor     ecx,ecx                                 ;
-                call    rmcall32                                ;
-                pop     ebx                                     ;
+                mov     dl,12h                                  ; int 12h
+                call    rmint_common                            ;
                 retn                                            ;
 
 ;int _std _hlp_fddline(u32t disk);
                 public  _hlp_fddline                            ;
 _hlp_fddline    label   near                                    ; fdd change line test
-                mov     rmcall32ax, 0300h                       ;
-                mov     eax, [esp+4]                            ;
-                push    ebx                                     ;
-                xor     al, 80h                                 ; reverse FDD bit
+                mov     dl,13h                                  ; int 13h
+                mov     ah,16h                                  ; int 13h, ah=16h
+                mov     ecx,[esp+4]                             ;
+                xor     cl,80h                                  ; reverse FDD bit
                 js      @@fddc_noch                             ;
-                cmp     eax,100h                                ; <=7F in al, so will
+                cmp     ecx,100h                                ; <=7F in al, so will
                 jnc     @@fddc_dsknerr                          ; be -1 on exit
-                or      ah,ah                                   ; check high bits in disk
-                mov     edx,offset _rm_regs                     ;
-                mov     bh, 16h                                 ;
-                mov     [edx+rmcallregs_s.r_eax], ebx           ;
-                mov     [edx+rmcallregs_s.r_edx], eax           ;
-                xor     ecx,ecx                                 ;
-                mov     [edx+rmcallregs_s.r_esi], ecx           ;
-                mov     bl, 13h                                 ; int 13h, ah=16h
-                call    rmcall32                                ;
+                shl     ecx,16                                  ; put to dl
+                call    rmint_common                            ;
                 setc    al                                      ;
                 jnc     @@fddc_noch                             ;
                 cmp     ah,al                                   ; ah==0?
@@ -319,7 +346,6 @@ _hlp_fddline    label   near                                    ; fdd change lin
                 neg     al                                      ;
 @@fddc_noch:
                 movsx   eax,al                                  ;
-                pop     ebx                                     ;
                 retn    4                                       ;
 
                 public  rmstop                                  ;
@@ -329,6 +355,7 @@ rmstop          label   near                                    ; exit to rm
                 mov     [edx+rmcallregs_s.r_edx], eax           ;
                 xor     ecx,ecx                                 ;
                 mov     edx,offset panic_initpm_np              ; setup addr
+                mov     rmcall32bx,(FN30X_PICRESET or FN30X_TIMEROFF) shl 8 ; reset all
                 call    make_rmaddr                             ;
                 call    rmcall32                                ; never return
 

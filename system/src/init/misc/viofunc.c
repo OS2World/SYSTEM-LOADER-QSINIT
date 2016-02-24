@@ -5,12 +5,17 @@
 #include "vio.h"
 
 #define TEXTMEM_SEG  0xB800
+extern u64t countsIn55ms;
+extern u32t syslapic;
+extern u8t  rtdsc_present;
 
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
 void _std cache_ctrl(u32t action, u8t vol);
 void _std cpuhlt(void);
-
+void _std mt_yield(void);
+u64t _std hlp_tscread(void);
+u16t _std key_read_int(void);
 // ******************************************************************
 
 // real mode far functions, do not call it directly!
@@ -118,6 +123,23 @@ void _std tm_calibrate(void) {
    log_printf("new delay: %hu\n",IODelay);
 }
 
+u64t _std hlp_tscin55ms(void) {
+   u32t  counter = 0;
+   // start timer rdtsc calculation, if it was not done before
+   if (!rtdsc_present) hlp_tscread();
+   /* we can be the first user or value was reset to 0 in tm_calibrate() call,
+      so waits here until timer irq in real mode calculate it again since
+      one period (55 ms) */
+   while (!countsIn55ms) {
+      if (++counter&1) mt_yield(); else usleep(20000);
+      if (counter>=50) {
+         log_printf("timer error!\n");
+         break;
+      }
+   }
+   return countsIn55ms;
+}
+
 static u8t hltflag = 1;
 
 int _std key_waithlt(int on) {
@@ -141,7 +163,7 @@ u16t _std key_wait(u32t seconds) {
    u32t  btime, diff;
 
    cache_ctrl(CC_IDLE, DISK_LDR);
-   if (key_pressed()) return key_read();
+   if (key_pressed()) return key_read_int();
 
    btime = tm_counter();
    diff  = 0;
@@ -149,7 +171,7 @@ u16t _std key_wait(u32t seconds) {
        if (hltflag) cpuhlt(); else usleep(20000); // 20 ms
        cache_ctrl(CC_IDLE, DISK_LDR);
 
-       if (key_pressed()) return key_read(); else {
+       if (key_pressed()) return key_read_int(); else {
           u32t now = tm_counter();
           if (now != btime) {
               if ((diff+=now-btime)>=18) { seconds--; diff = 0; }
@@ -158,4 +180,9 @@ u16t _std key_wait(u32t seconds) {
        }
    }
    return 0;
+}
+
+u16t _std key_read() {
+   // goes to real mode for a while until MTLIB start
+   return syslapic ? key_wait(x7FFF) : key_read_int();
 }

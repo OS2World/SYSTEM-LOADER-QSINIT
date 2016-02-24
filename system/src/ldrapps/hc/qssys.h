@@ -11,18 +11,34 @@ extern "C" {
 
 #include "qsutil.h"
 
+/// @name result of sys_getint()
+//@{
+#define SINT_TASKGATE    1            ///< vector is task gate
+#define SINT_INTGATE     2            ///< vector is interrupt gate
+#define SINT_TRAPGATE    3            ///< vector is trap gate
+//@}
+
 /** get interrupt vector.
-    Function is not supported on EFI host (always return 0 in vector value).
+    BIOS host returns 48-bit far pointer for interrupt and trap gates
+    and 16-bit tss selector for task gate.
+    EFI host returns 64-bit flat pointer.
+
     @param   [in]  vector  Vector (0..255)
-    @param   [out] addr    Buffer for far 48bit address */
-void     _std sys_getint(u8t vector, u64t *addr);
+    @param   [out] addr    Buffer for address
+    @return vector type (SINT_*) or 0 if failed */
+u32t     _std sys_getint(u8t vector, u64t *addr);
 
 /** set interrupt vector.
-    Function is not supported on EFI host (always return 0).
+    BIOS host uses 48-bit far pointer.
+    EFI host uses 64-bit flat pointer.
+
     @param   [in]  vector  Vector (0..255)
-    @param   [in]  addr    Buffer with far 48bit address
+    @param   [in]  addr    Buffer with address
+    @param   [in]  type    Interrupt type, only SINT_INTGATE and SINT_TRAPGATE
+                           accepted here or 0 to use default type (default means
+                           interrupt gate for PIC vectors only).
     @return boolean success flag (1/0) */
-int      _std sys_setint(u8t vector, u64t *addr);
+int      _std sys_setint(u8t vector, u64t *addr, u32t type);
 
 /** set task gate interrupt handler.
     Function is not supported on EFI host (always return 0).
@@ -85,15 +101,25 @@ int      _std sys_pagemode(void);
     @return 1 if system is in 64-bit mode, else 0 */
 int      _std sys_is64mode(void);
 
-/// @name flags for sys_isavail
+/** get Local APIC address.
+    Despite to constant LAPIC address, this function still usable, because
+    it guarantee check for LAPIC presence and its mapping in paging mode.
+    @return address or 0 */
+void*    _std sys_getlapic(void);
+
+/// @name bit flags for sys_isavail
 //@{
-#define SFEA_PAE     0x00000001            ///< PAE supported?
-#define SFEA_PGE     0x00000002            ///< PGE supported?
-#define SFEA_PAT     0x00000004            ///< PAT supported?
+#define SFEA_PAE     0x00000001            ///< PAE supported
+#define SFEA_PGE     0x00000002            ///< PGE supported
+#define SFEA_PAT     0x00000004            ///< PAT supported
 #define SFEA_CMOV    0x00000008            ///< CMOV instructions (>=P6)
 #define SFEA_MTRR    0x00000010            ///< MTRR present
 #define SFEA_MSR     0x00000020            ///< MSRs present
 #define SFEA_X64     0x00000040            ///< AMD64 present
+#define SFEA_CMODT   0x00000080            ///< clock modulation supported
+#define SFEA_LAPIC   0x00000100            ///< Local APIC available
+#define SFEA_INTEL   0x10000000            ///< CPU is Intel
+#define SFEA_AMD     0x20000000            ///< CPU is AMD
 //@}
 
 /** query some CPU features in more easy way.
@@ -163,7 +189,8 @@ void     _std sys_idtdump(void);
     Copying protected by exception handler.
     Page 0 cannot be a part of source or destination.
     Both source and destination cannot cross 4Gb border.
-    Use hlp_memcpy() for protected copying in first 4Gbs.
+    Use hlp_memcpy() for protected copying in first 4Gbs / with
+    page 0 in source/destination.
 
     @param dst    Destination physical address.
     @param src    Source physical address.

@@ -6,23 +6,22 @@ version=0x0001
 0=Common
 
 [vars]
-aa=@wasm
-cc=@wcc386
-ld=@wlink
+aa=wasm
+cc=wcc386
+ld=wlink
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
-cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
-       -fi=%(appinit_lib)\initdef.h -fo=
+cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) -fo=
 
 cinc=
 ccinc=$(cinc)
@@ -66,6 +65,6 @@ op de '$(name) v$(vershort). $(config) build, $(timestr)'
 
 [config.0]
 *out=$(outname) | nolink | \
-     @echo Linking ... | \
-     $(ld) @$(&lnk) | lxlite $(outname) >nul | \
-     @zip -q -9 -X -S -j %(QS_BIN)\%(QS_ARCH) $(outname)
+     echo Linking ... | \
+     $(ld) @$(&lnk) | lxlite $(outname) >%(DEVNUL) | \
+     zip -q -9 -X -j %(QS_BIN)\%(QS_ARCH) $(outname)

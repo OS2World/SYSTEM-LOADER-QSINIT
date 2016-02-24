@@ -19,7 +19,8 @@ extern "C" {
 #define CON_COLOR_24BIT      0x00500   ///< 16m colors graphic mode (24 bits)
 #define CON_COLOR_32BIT      0x00600   ///< 16m colors graphic mode (32 bits)
 #define CON_EMULATED         0x01000   ///< emulated text mode (info flag only)
-#define CON_SHADOW           0x02000   ///< mode with shadow buffer
+/// mode with shadow buffer (forced on EFI and non-LFB VESA modes)
+#define CON_SHADOW           0x02000
 #define CON_INDEX_MASK       0xF0000   ///< index (0..15) for modes with same size/colors
 //@}
 
@@ -91,6 +92,15 @@ u32t _std con_write(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t pitch);
     @param  pitch  Destination data line length
     @return true if success */
 u32t _std con_read(u32t x, u32t y, u32t dx, u32t dy, void *dst, u32t pitch);
+
+/** Fills rectangle on screen.
+    @param  x      Start x point
+    @param  y      Start y point
+    @param  dx     Number of columns
+    @param  dy     Number of lines
+    @param  color  Color value in current mode color format
+    @return true if success */
+u32t _std con_clear(u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
 /** Set VGA palette.
     @param  pal    768 bytes buffer with palette (RGB RGB ...) */

@@ -283,9 +283,11 @@ static void trace_mhcommon(TraceInfo *mti, int idx, TList &list, int add) {
                mod_fnchain(activelist[idx],cth[ord],APICN_ONENTRY|APICN_FIRSTPOS,hookmain);
             else
                mod_apichain(activelist[idx],ord,APICN_ONENTRY|APICN_FIRSTPOS,hookmain);
+
+            char fmt0 = mti->fmt[fidx][0];
             // add exit hook on non-void result or out parameter
-            if (mti->fmt[fidx][0]!='v' || mti->fmt[fidx].cpos('&')>=0 ||
-               mti->fmt[fidx].cpos('!')>=0)
+            if (fmt0!='V' && (fmt0!='v' || mti->fmt[fidx].cpos('&')>=0 ||
+               mti->fmt[fidx].cpos('!')>=0))
                if (isclass)
                   mod_fnchain(activelist[idx],cth[ord],APICN_ONEXIT,hookmain);
                else
@@ -460,16 +462,17 @@ void trace_unload_hook(module *mh) {
 }
 
 static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) {
-   char *fmt = fmtlist[idx][fidx],
-     *fnname = namelist[idx][fidx], errn=0;
-   int   arg = 0, pos=0,
-        outs = in?strccnt(fmt,'&')+strccnt(fmt,'!'):0, outpcnt = 0;
-   u32t *esp = (u32t*)(info->mc_regs->pa_esp + 4),
-               // buffer for/with otuput values
-      *ehbuf = in && outs? (u32t*)memAlloc(TRACE_OWNER, activelist[idx], 
-               sizeof(u32t)*outs) : (u32t*)info->mc_userdata;
+   char    *fmt = fmtlist[idx][fidx],
+        *fnname = namelist[idx][fidx];
+   int      arg = 0, pos=0,
+          Noout = *fmt=='V',
+           outs = Noout ? 0: strccnt(fmt,'&')+strccnt(fmt,'!'),
+        outpcnt = 0;
+   u32t    *esp = (u32t*)(info->mc_regs->pa_esp + 4),
+                 // buffer for/with output values
+         *ehbuf = in && outs? (u32t*)memAlloc(TRACE_OWNER, activelist[idx], 
+                  sizeof(u32t)*outs) : (u32t*)info->mc_userdata;
 
-   if (*fmt=='e') { errn=1; pos++; }
    strcpy(buf, in?"In : ":"Out: ");
    strcpy(buf+5, fnname);
    buf+=strlen(buf);
@@ -496,7 +499,7 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
       // stored out parameters in the order of presence in call
       u32t *pvalue = !in&&out ? ehbuf+outpcnt++ : 0;
 
-      if (ch=='q') {
+      if (ch=='q'||ch=='I') {
          // must be a ptr for out parameter
          if (pvalue) value = *(u32t*)pvalue; else
          if (in) {
@@ -510,11 +513,11 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
          if (in) value = arg?*esp++:0; else
          if (!arg) value = info->mc_regs->pa_eax;
       }
-      if (in&&out) ehbuf[outpcnt++] = value;
+      if (in&&out&&!Noout) ehbuf[outpcnt++] = value;
       // pointer to value. print (null) if it NUL
       if (ptr&&arg&&(in&&(!out||inout)||pvalue))
          if (!value) ch='s'; else 
-            if (ch=='q') llvalue=*(u64t*)value; else value=*(u32t*)value;
+            if (ch=='q'||ch=='I') llvalue=*(u64t*)value; else value=*(u32t*)value;
 
       *buf = 0;
 
@@ -568,14 +571,20 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
                if (hex) sprintf(buf,"0x%hX",value); else 
                   sprintf(buf,"%hu",value);
             break;
-         case 'q': if (Xor(in,!arg) || pvalue) {
+         case 'I':
+            if (Xor(in,!arg) || pvalue)
+               if (hex) sprintf(buf,"0x%LX",llvalue); else 
+                  sprintf(buf,"%Li",llvalue);
+            break;
+         case 'q': 
+            if (Xor(in,!arg) || pvalue)
                if (hex) sprintf(buf,"0x%LX",llvalue); else 
                   sprintf(buf,"%Lu",llvalue);
-            }
             break;
          case 'p':
             if (Xor(in,!arg) || pvalue) sprintf(buf,"%08X",value);
             break;
+         case 'V':
          case 'v': break;
          case '.': 
             if (in) strcpy(buf,"...");
@@ -583,6 +592,8 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
       }
       
       if (*buf) buf+=strlen(buf);
+      // just result, without out output args
+      if (!in && !arg && !outs) break;
       if (arg) {
          *buf++ = !fmt[pos]?')':',';
       } else {

@@ -137,12 +137,16 @@ static void log_commit(log_header *lp) {
    }
 }
 
-int log_pushb(int level, const char *str, int len) {
+int log_pushb(int level, const char *str, int len, u32t timemark) {
    log_header *lp = log_alloc(len);
    if (lp) {
       memcpy(lp+1,str,len);
       lp->flags = level&(LOGIF_LEVELMASK|LOGIF_DELAY|LOGIF_REALMODE)|LOGIF_USED;
-      log_setdate(lp);
+      if (timemark) {
+         lp->dostime = timemark;
+         lp->flags  |= level&LOGIF_SECOND;
+      } else
+         log_setdate(lp);
    } else
       hlp_seroutstr("<< log is locked, log_push failed >>\n");
    return lp?1:0;
@@ -150,7 +154,12 @@ int log_pushb(int level, const char *str, int len) {
 
 int _std log_push(int level, const char *str) {
    int  len = strlen(str)+1;
-   return log_pushb(level, str, len);
+   return log_pushb(level, str, len, 0);
+}
+
+int _std log_pushtm(int level, const char *str, u32t time) {
+   int  len = strlen(str)+1;
+   return log_pushb(level, str, len, time);
 }
 
 int __cdecl log_it(int level, const char *fmt, ...) {

@@ -68,7 +68,7 @@ typedef struct mod_chaininfo_s {
     module execute mod_exec() until child`s exit).
     Stack exhaustion will cause stop exit chain calling for this ordinal and
     produce warning message to log on every call.
-    Changing of ebp will cause immediate panic (critical data saved in it
+    Altering ebp will cause immediate panic (critical data saved in it
     duaring function call).
 
     By default entry/exit hook appends to the end of chain list for this
@@ -109,8 +109,9 @@ int   _std mod_apichain  (u32t module, u32t ordinal, u32t chaintype, void *handl
 
 /** remove api chain procedure.
     @param  module      Module handle
-    @param  ordinal     Function ordinal, can be 0 for all ordinals
-    @param  chaintype   Type of chaining, can be 0 for all chaining types
+    @param  ordinal     Function ordinal (can be 0 for all ordinals, but such
+                        arg will be denied for QSINIT and START modules).
+    @param  chaintype   Type of chaining, can be 0 for all chaining types.
     @param  handler     Function to remove, can be 0 for all functions of
                         this type
     @return number of removed functions */
@@ -160,7 +161,8 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
     Function return direct pointer to original function (without thunk, used
     to intercept calls).
     Do not query it without CRITICAL needs, because API chaining is used 
-    widely (in cache, trace, graphic console and so on...)
+    widely (in cache, trace, graphic console and so on...). I.e., in many
+    cases direct call will cause system malfunction.
 
     And there is no way to query active APICN_REPLACE replacement for this
     ordinal because it can be unchained at any time and became invalid (for
@@ -173,6 +175,11 @@ void* _std mod_apidirect(u32t module, u32t ordinal);
 
 /// get current pid (does not used seriously)
 u32t  _std mod_getpid(void);
+
+/** get pid of process, executing this EXE module.
+    @param        module  Module handle.
+    @return 0 on no process, module or module is DLL, else - process PID */
+u32t  _std mod_getmodpid(u32t module);
 
 /** query current or parent process module name.
     @param  [out] name    Buffer for name (128 bytes), returned in upper case.

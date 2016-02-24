@@ -34,14 +34,17 @@ void* _std pag_physmap(u64t address, u32t size, u32t flags);
 u32t  _std pag_physunmap(void *address);
 
 /** Turn on PAE paging mode.
-    Operation is not reversable. Use sys_pagemode() to query current mode.
+    Operation is non-reversable. Use sys_pagemode() to query current mode.
+    @attention Function can be called by some system functions like 
+               sys_memhicopy() without any asking. I.e. application should
+               not make any assumptions about current mode.
     @retval 0        on success
     @retval ENODEV   no PAE on this CPU
     @retval EEXIST   mode already on
     @retval ENOSYS   this is EFI host and EFI`s 64-bit paging active */
 int   _std pag_enable(void);
 
-/// Print all active page tables to log (VERY long dump).
+/// Print all active page tables to log (VERY long dump, especially in EFI).
 void  _std pag_printall(void);
 
 #ifdef __cplusplus

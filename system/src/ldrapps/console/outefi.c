@@ -162,6 +162,14 @@ static void _std out_leavemode(void) {
    } while (mi!=modes+current_mode);
 }
 
+static u32t _std out_dirclear(u32t x, u32t y, u32t dx, u32t dy, u32t color) {
+   return call64(EFN_GRFCLEAR, 0, 5, x, y, dx, dy, color)>0 ? 1: 0;
+}
+
+static u32t _std out_dirblit(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t srcpitch) {
+   return call64(EFN_GRFBLIT, 0, 6, x, y, dx, dy, src, srcpitch)>0 ? 1: 0;
+}
+
 static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf, u32t pitch, int write) {
    con_modeinfo *mi = modes+mode;
    if (mode>=mode_cnt) return 0;
@@ -189,65 +197,25 @@ static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf
       if (write && !mi->physmap) {
          u32t   vbpps = BytesBP(mi->bits);
          u8t *membase = mi->shadow + mi->shadowpitch * y + x*vbpps;
-         // copy to screen
-         rc = call64(EFN_GRFBLIT,0,6,x,y,dx,dy,membase,mi->shadowpitch)>0? 1 : 0;
+         // copy to screen without FB pointer
+         rc = out_dirblit(x,y,dx,dy,membase,mi->shadowpitch);
       }
       return rc;
    }
    return 0;
 }
 
-static u32t out_flush(u32t mode, u32t x, u32t y, u32t dx, u32t dy) {
-   con_modeinfo  *mi = modes+mode;
-   if (mode>=mode_cnt) return 0;
-   if (!mi->shadow) return 0;
-   if (x>=mi->width || y>=mi->height) return 0;
-   if (x+dx>mi->width)  dx=mi->width -x;
-   if (y+dy>mi->height) dy=mi->height-y;
-   if (!dx||!dy) return 0;
-   /* common_flush() returns 1 only if both shadow & frame exists, so we
-      finished here, else - trying to blit shadow buffer by EFI call */
-   if (common_flush(mode, x, y, dx, dy)) return 1; else {
-      u32t  vbpps = BytesBP(mi->bits);
-      // copy to screen
-      if (call64(EFN_GRFBLIT, 0, 6, x, y, dx, dy, mi->shadow +
-         y*mi->shadowpitch + x*vbpps, mi->shadowpitch)>0) return 1;
-   }
-   return 0;
-}
-
-static u32t out_scroll(u32t mode, u32t ys, u32t yd, u32t lines) {
-   u32t  rc = 0;
-   if (common_scroll(mode, ys, yd, lines)) {
-      con_modeinfo *mi = modes+mode;
-
-      if (mi->physmap) rc = 1; else 
-         out_flush(mode, 0, yd, mi->width, lines);
-   }
-   return rc;
-}
-
-/// fill number of screen lines by color value
-static u32t out_clear(u32t mode, u32t ypos, u32t lines, u32t color) {
-   u32t  rc = 0;
-   if (common_clear(mode, ypos, lines, color)) {
-      con_modeinfo *mi = modes+mode;
-
-      if (mi->physmap) rc = 1; else
-      if (call64(EFN_GRFCLEAR, 0, 5, 0, ypos, mi->width, lines, color)>0) rc = 1;
-   }
-   return rc;
-}
-
 int plinit_efi(void) {
    pl_setmode   = out_setmode;
    pl_leavemode = out_leavemode;
    pl_copy      = out_copy;
-   pl_flush     = out_flush;
-   pl_scroll    = out_scroll;
-   pl_clear     = out_clear;
+   pl_flush     = common_flush_nofb;
+   pl_scroll    = common_scroll_nofb;
+   pl_clear     = common_clear_nofb;
    pl_addfont   = out_addfonts;
    pl_setup     = out_init;
    pl_close     = out_close;
+   pl_dirclear  = out_dirclear;
+   pl_dirblit   = out_dirblit;
    return 1;
 }

@@ -40,13 +40,13 @@ void main(int argc,char *argv[]) {
    menu_ini = strdup(eptr?eptr:"1:\\menu.ini");
    // reading color & help strings from menu.ini
    InitParameters();
-   // read it here to optimize ugly INI caching in START ;)
+   // read it here to optimize ugly INI caching in START
    if (hlp_hosttype()==QSHT_EFI)
       defmenu = ini_readstr(menu_ini, "common", "def_efi"); else
    if (hlp_boottype()==QSBT_SINGLE)
       defmenu = ini_readstr(menu_ini, "common", "def_single"); 
    /* we have no altered menu name - checking for existence of [kernel] and
-      [partition] sections and switching to partition menu if suitable */
+      [partition] sections and switching to partition menu when suitable */
    if (noextmenu)
       if (!IsMenuPresent("kernel") && IsMenuPresent("partition"))
          strcpy(cmenu,"bootpart");

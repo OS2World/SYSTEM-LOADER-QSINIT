@@ -1,5 +1,6 @@
                 include inc/qstypes.inc                         ;
                 include inc/segdef.inc                          ;
+                include inc/efnlist.inc                         ;
                 .686p
 
 _DATA           segment
@@ -14,6 +15,7 @@ _aboutstr       label   near                                    ;
                 extrn   _logrmpos:word                          ;
                 extrn   xcptret:dword                           ;
 xcpt64handler   dd      0
+tm64handler     dd      0
 _DATA           ends
 
 _TEXT           segment
@@ -23,6 +25,8 @@ _TEXT           segment
                 extrn   _init32:near
                 extrn   _init_physmem:near
                 extrn   _log_flush:near
+                extrn   _mt_yield:near
+
                 public  _exit_pm32, _exit_pm32s, _exit_pm32a
                 public  init32call
 
@@ -116,6 +120,7 @@ _ret64:
                 pop     eax                                     ;
                 pop     edx                                     ;
 @@c64_nolog:
+                call    _mt_yield                               ;
                 ret                                             ;
 _call64         endp
 
@@ -124,8 +129,11 @@ xcpt64entry     proc    near
                 mov     ax,ss                                   ; esp points to temp buffer
                 mov     ds,ax                                   ; allocated by 64-bit part
                 mov     es,ax                                   ;
-                sti                                             ;
-                mov     ecx,xcpt64handler                       ;
+                cmp     dword ptr [esp].x64_number,256          ;
+                cmovnz  ecx,xcpt64handler                       ;
+                jnz     @@xc64_common                           ;
+                mov     ecx,tm64handler                         ;
+@@xc64_common:
                 jecxz   @@xc64_nocall                           ;
                 push    esp                                     ; addr of struct
                 call    ecx                                     ;
@@ -142,6 +150,13 @@ _sys_setxcpt64  proc    near                                    ;
                 xchg    eax,xcpt64handler                       ;
                 ret     4                                       ;
 _sys_setxcpt64  endp                                            ;
+
+                public  _sys_tmirq64                            ;
+_sys_tmirq64    proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                xchg    eax,tm64handler                         ;
+                ret     4                                       ;
+_sys_tmirq64    endp                                            ;
 
 _TEXT           ends
                 end

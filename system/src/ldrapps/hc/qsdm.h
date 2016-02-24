@@ -168,6 +168,8 @@ u32t  _std dsk_copysector(u32t dstdisk, u64t dststart,
 #define DPTE_EXTPOP   0x0044     ///< extended partition is not empty and cannot be deleted
 #define DPTE_INCOMPAT 0x0045     ///< incompatible disks (dsk_clonestruct() - sector size or spt mismatch)
 #define DPTE_CSPACE   0x0046     ///< there is no free space on target disk for clone
+#define DPTE_BOOTPT   0x0047     ///< unable to use boot partition as target
+#define DPTE_UMOUNT   0x0048     ///< failed to unmount destination volume
 #define DPTE_UBREAK   0xFFFC     ///< esc was pressed, operation not complete
 #define DPTE_NOMEMORY 0xFFFD     ///< no memory to process this operation
 #define DPTE_INVARGS  0xFFFE     ///< invalid arguments
@@ -286,7 +288,7 @@ u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
 #define DFME_SSIZE    0x0003     ///< unsupported sector size (>4kb)
 #define DFME_SMALL    0x0004     ///< volume too small to fit filesystem structures
 #define DFME_FTYPE    0x0005     ///< failed to select FAT type (16 or 32)
-#define DFME_UMOUNT   0x0006     ///< failed to unmount volume before format
+#define DFME_UMOUNT   0x0006     ///< failed to unmount destination volume
 #define DFME_MOUNT    0x0007     ///< failed to mount volume after format
 #define DFME_IOERR    0x0008     ///< disk i/o error in system areas
 #define DFME_PTERR    0x0009     ///< disk partition table is invalid

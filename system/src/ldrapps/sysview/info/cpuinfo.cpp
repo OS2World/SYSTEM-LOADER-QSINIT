@@ -54,7 +54,9 @@ TDialog* makeCpuInfoDlg(void) {
    return dlg;
 }
 
-#define CPUID_CNT 9
+#define CPUID_CNT    9
+#define CPUV_INTEL   0
+#define CPUV_AMD     2
 
 static const char *VendorIDs[CPUID_CNT]={"GenuineIntel","UMC UMC UMC ","AuthenticAMD",
   "CyrixInstead","NexGenDriven","CentaurHauls","RiseRiseRise","GenuineTMx86",
@@ -84,7 +86,7 @@ void TSysApp::ExecCpuInfoDlg() {
 
          
    char idstr[32], *str;
-   int  ii;
+   int  ii, vendorNum = -1;
 
    if (!opts_cpuid(0,data)) {
        replace_coltxt(&CpuIdText, "486");
@@ -96,13 +98,16 @@ void TSysApp::ExecCpuInfoDlg() {
        strcpy(str, "Vendor     : ");
        
        for (ii=0;ii<CPUID_CNT;ii++)
-          if (strcmp(VendorIDs[ii],idstr)==0) { strcat(str,VendorStr[ii]); break; }
+          if (strcmp(VendorIDs[ii],idstr)==0) { 
+             strcat(str,VendorStr[vendorNum=ii]); 
+             break; 
+          }
        if (ii>=CPUID_CNT) strcat(str,idstr);
        dl->insert(str);
 
        opts_cpuid(1,data);
-       u32t fi[4];
-       fi[0] = data[2], fi[1] = data[3], fi[2] = 0, fi[3] = 0;
+       u32t fi[5];
+       fi[0] = data[2], fi[1] = data[3], fi[2] = 0, fi[3] = 0, fi[4] = 0;
 
        sprintf(idstr,"%d.%d.%d",data[0]>>8&0xF,data[0]>>4&0xF,data[0]&0xF);
        replace_coltxt(&CpuIdText, idstr);
@@ -141,6 +146,11 @@ void TSysApp::ExecCpuInfoDlg() {
                    memmove(cp,ps,48-ii+1);
              }
              dl->insert(str);
+
+             if (maxlevel>=0x80000007 && vendorNum==CPUV_AMD) {
+                opts_cpuid(0x80000007,data);
+                fi[4] = data[3];
+             }
           }
        }
        str = new char[2]; *str = 0; dl->insert(str);
@@ -160,6 +170,7 @@ void TSysApp::ExecCpuInfoDlg() {
        if (fi[2-1]&CPUID_FI2_SSE2) PUSH_AVAIL("SSE2 ");
        if (fi[4-1]&CPUID_FI4_3DNOWEXT) PUSH_AVAIL("3DNow!+ "); else
        if (fi[4-1]&CPUID_FI4_3DNOW) PUSH_AVAIL("3DNow! ");
+       if (fi[5-1]&CPUID_FI5_PSTATE) PUSH_AVAIL("P-States ");
 
        static u32t batch1[] = { 4,CPUID_FI4_IA64, 2,CPUID_FI2_MMX,
           3,CPUID_FI2_CMPXCHG8B, 1,CPUID_FI1_CMPXCHG16B, 2,CPUID_FI2_FXSR,

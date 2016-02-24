@@ -154,7 +154,7 @@ int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
          if (me->ordinal==ordinal) {
             // 16bit or forward entry - no chain
             if (me->is16 || me->forward) return 0;
-            // data object entry, no thunk was created
+            // data object entry or direct export, no thunk was created
             if (me->address == me->direct) return 0;
             break;
          }
@@ -183,6 +183,11 @@ u32t _std mod_apiunchain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
    u32t rc = 0;
    if (!ordinal) {
       u32t ii = 0;
+      // is it system?
+      if (md->flags&MOD_SYSTEM) {
+         log_it(2,"unchain(all) for system module (%s)!\n", md->name);
+         return 0;
+      }
       while (ii<chlist->count()) {
          ordinal_data *od = (ordinal_data*)chlist->value(ii);
          if (od->od_handle!=md) ii++; else {

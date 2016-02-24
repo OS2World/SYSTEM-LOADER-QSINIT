@@ -26,7 +26,9 @@ lbc=@ref2lbc
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cpp) $(cinc) $(cppflags)$*.obj $(*cur_name)
 
-*ref=$(outdir)\$(*cur_fp).lib|$(*cur_name)| @echo $(*cur_name) | \
+; windows wlib often creates tmp files with the same name on parallel run,
+; so put @@wait here to make it single-CPUed
+*ref=$(outdir)\$(*cur_fp).lib|$(*cur_name) @@wait| @echo $(*cur_name) | \
      $(lbc) as2 $(*cur_name) $(outdir)\__$(*cur_fp).asm $(outdir)\__$(*cur_fp).lbc | \
      $(lib) -b -q -io $* @$(outdir)\__$(*cur_fp).lbc | \
      $(aa) $(ainc) $(aflags)$(outdir)\__$(*cur_fp).obj $(outdir)\__$(*cur_fp).asm | \
@@ -62,6 +64,7 @@ outdir=$(bld_dir)\$(config)
 outname=$(name).lib
 &rsp1=$(outdir)\wlib.rsp
 &rsp2=$(outdir)\wlibs.rsp
+&rsp3=$(outdir)\wlibcpp.rsp
 del=@del
 copy=@copy
 
@@ -71,9 +74,9 @@ copy=cp
 
 [files]
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
-cplib.ref vhdd.ref
-start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace
-init.asm initdll.asm cpproute.asm
+cplib.ref vhdd.ref extcmd.ref mtlib.ref
+start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace console.trace
+init.asm initdll.asm cpproute.asm initdta.asm
 rtcode.c defdll.c cpplib.cpp watcinit.c common.c
 rt\sp_defs.cpp rt\sp_ini.cpp rt\sp_str.cpp rt\qs_rt.cpp
 
@@ -91,7 +94,7 @@ packtrace : .DIRECTORY $(msgdir)
     $(copy) $(outdir)\*.trc $(msgdir) >nul
 
 tracefiles : $(**trace) @@wait packtrace @@wait
-    @zip -q -9 -X -S -D -m %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*
+    @zip -q -9 -X -D -m %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*
 
 #$(**inc) 
 
@@ -99,21 +102,20 @@ clean : .WIPEDIR $(outdir)
     @echo Cleaning $(name)...
 
 [&rsp1]
-$(**c) $(**ref) $(**cpp) $(outdir)\cpproute.obj
+$(**c) $(**ref) $(outdir)\initdta.obj
 
 [&rsp2]
-$(**cpp) 
-$(outdir)\__qsinit.obj $(outdir)\initdll.obj
-$(outdir)\rtcode.obj   $(outdir)\cpproute.obj 
-$(outdir)\watcinit.obj
-$(outdir)\qsinit.lib
+$(outdir)\__qsinit.obj $(outdir)\initdll.obj $(outdir)\rtcode.obj
+$(outdir)\watcinit.obj $(outdir)\qsinit.lib $(outdir)\initdta.obj
 $(**def) 
 
-#$(**asm)
+[&rsp3]
+$(**cpp) $(outdir)\cpproute.obj
 
 [config.0]
 *out=$(outname) | nolink tracefiles | \
      @echo Creating lib... | \
      $(lib) -b -n -q $* @$(&rsp1) | \
      $(lib) -b -n -q imp_st.lib @$(&rsp2) | \
+     $(lib) -b -n -q cpplib.lib @$(&rsp3) | \
      rmdir $(msgdir)

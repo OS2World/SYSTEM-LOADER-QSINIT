@@ -74,7 +74,7 @@ int get_ini_parms(void) {
    // init was saved by pointer, not as data copy
    sto_del(STOKEY_INIDATA);
 
-   /* we have root environment here, so just storing keys for any other 
+   /* we have root environment here, so just storing keys for any other
       feature apps */
    u32t htype = hlp_hosttype();
    if (htype>=QSHT_BIOS && htype<=QSHT_EFI) {
@@ -105,6 +105,9 @@ int get_ini_parms(void) {
          no_tgates = ini->ReadInt(cfg_section,"NOTASK");
          msg_name  = ini->ReadStr(shell_section, "MESSAGES");
          ecmd_name = ini->ReadStr(shell_section, "EXTCOMMANDS");
+         // disable clock in menu
+         rc        = ini->ReadInt(cfg_section,"NOCLOCK");
+         if (rc || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1);
 
          u32t heapflags = ini->ReadInt(cfg_section,"HEAPFLAGS");
          memSetOptions(heapflags&0xF);
@@ -134,17 +137,38 @@ void done_ini(void) {
 }
 
 
+static void init_msg_ini(void) {
+   if (!msg) {
+      TStrings     ht;
+      spstr   secname("help");
+      msg = new_ini(msg_name());
+
+      msg->ReadSection(secname, ht);
+      /* merge strings, ended by backslash. ugly, but allows more friendly
+         editing of msg.ini */
+      l ii=0, lp;
+      while (ii<ht.Count()) {
+         if (ht[ii].trim().lastchar()=='\\') {
+            ht[ii].dellast()+=ht.MergeBackSlash(ii+1,&lp);
+            ht.Delete(ii+1, lp-ii-1);
+         }
+         ii++;
+      }
+      msg->WriteSection(secname, ht, true);
+   }
+}
+
 
 extern "C"
 char* msg_readstr(const char *section, const char *key) {
-   if (!msg) msg = new_ini(msg_name());
+   if (!msg) init_msg_ini();
    spstr ss(msg->ReadString(section,key));
    ss.trim();
    return !ss?0:strdup(ss());
 }
 
 void _std cmd_shellsetmsg(const char *topic, const char *text) {
-   if (!msg) msg = new_ini(msg_name());
+   if (!msg) init_msg_ini();
    msg->WriteString(msg_section, topic, text);
 }
 
@@ -180,7 +204,7 @@ spstr ecmd_readstr(const char *section, const char *key) {
 int ecmd_readsec(const spstr &section, TStrings &lst) {
    if (!ecmd) ecmd = new_ini(ecmd_name());
    ecmd->ReadSection(section,lst);
-   return ecmd->SectionExists(section); 
+   return ecmd->SectionExists(section);
 }
 
 void ecmd_commands(TStrings &rc) {
@@ -283,6 +307,13 @@ str_list* __stdcall str_split(const char *str,const char *separators) {
    return str_getlist(lst.Str);
 }
 
+str_list* _std str_settext(const char *text, u32t len) {
+   TStrings lst;
+   lst.SetText(text,len);
+   for (int ii=0;ii<=lst.Max();ii++) lst[ii].trimright();
+   return str_getlist(lst.Str);
+}
+
 str_list* __stdcall str_splitargs(const char *str) {
    TStrings lst;
    lst.ParseCmdLine(str);
@@ -316,7 +347,7 @@ str_list* _std str_keylist(const char *IniName, const char *Section,
 }
 
 str_list* _std cmd_shellmsgall(str_list**values) {
-   if (!msg) msg = new TINIFile(msg_name());
+   if (!msg) init_msg_ini();
    return get_keylist(msg, "help", values);
 }
 
@@ -385,6 +416,23 @@ str_list* _std str_fromptr(char **list,int size) {
    return str_getlist(lst.Str);
 }
 
+// is key present? for subsequent search of the same parameter
+char *str_findkey(str_list *list, const char *key, u32t *pos) {
+   u32t ii=pos?*pos:0, len = strlen(key);
+   if (!list||ii>=list->count) return 0;
+   for (;ii<list->count;ii++) {
+      u32t plen = strlen(list->item[ii]);
+      if (plen>len+1 && list->item[ii][len]=='=' || plen==len)
+         if (strnicmp(list->item[ii],key,len)==0) {
+            char *rc=list->item[ii]+len;
+            if (*rc=='=') rc++;
+            if (pos) *pos=ii;
+            return rc;
+         }
+   }
+   return 0;
+}
+
 void _std log_printlist(char *info, str_list*list) {
    u32t ii, cnt = list?list->count:0;
    log_printf("%s [%08X, %d items]\n", info?info:"", list, cnt);
@@ -432,7 +480,7 @@ static void _std getlog(log_header *log, void *extptr) {
                ptme = mktime(&dt);
             }
             spstr estr, astr;
-      
+
             if (pli->flags&LOGTF_DATE)
                estr.sprintf("%02d.%02d.%02d ",dt.tm_mday,dt.tm_mon+1,dt.tm_year-100);
             if (pli->flags&LOGTF_TIME) {
@@ -457,9 +505,9 @@ static void _std getlog(log_header *log, void *extptr) {
       }
       int ii,jj;
       const char *eol = pli->flags&LOGTF_DOSTEXT?"\r\n":"\n";
-      
+
       log_it(2, "%d lines of log quered\n", lst.Count());
-      
+
       for (ii=1;ii<lst.Count();ii++)
          // we`re can`t fill entire log for 3 seconds
          if (lst.Objects(ii-1)-lst.Objects(ii)>3) break;
@@ -633,11 +681,11 @@ void splittext(const char *text, u32t width, TStrings &lst) {
    do {
       while (*ps&&strchr(AllowSet,*ps)) {
          register char cr=*ps++;
-         if (cr!=' ') { 
-            lst.Add(spstr()); 
+         if (cr!=' ') {
+            lst.Add(spstr());
             if (lst[ln].lastchar()==' ') lst[ln].dellast();
-            if (cr=='\r'&&*ps=='\n') ps++; 
-            ln++; 
+            if (cr=='\r'&&*ps=='\n') ps++;
+            ln++;
          }
       }
       if (*ps==0) break;
@@ -647,9 +695,9 @@ void splittext(const char *text, u32t width, TStrings &lst) {
       sum = lst[ln]+curr;
       sum.expandtabs(4);
       if (str_length(sum())<width-2) lst[ln]=sum; else {
-         lst.Add(curr); 
-         if (lst[ln].lastchar()==' ') lst[ln].dellast(); 
-         ln++; 
+         lst.Add(curr);
+         if (lst[ln].lastchar()==' ') lst[ln].dellast();
+         ln++;
       }
       if (!carry||pps&&pps[1]==' ') lst[ln]+=' ';
       ps=pps;

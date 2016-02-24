@@ -533,77 +533,77 @@
 #define __INC_TKEYS_H
 #endif
 
-#include <Config.h>
-#include <TTypes.h>
+#include <config.h>
+#include <ttypes.h>
 
 #if defined( __INC_TKEYS_H )
-#include <TKeys.h>
+#include <tkeys.h>
 #endif
 
-#include <Util.h>
+#include <util.h>
 
 #if defined( __INC_TVOBJS_H )
-#include <TVObjs.h>
+#include <tvobjs.h>
 #endif
 
 #if defined( __INC_TOBJSTRM_H )
-#include <TObjStrm.h>
+#include <tobjstrm.h>
 #endif
 
 #if defined( __INC_DRAWBUF_H )
-#include <DrawBuf.h>
+#include <drawbuf.h>
 #endif
 
 #if defined( __INC_OBJECTS_H )
-#include <Objects.h>
+#include <objects.h>
 #endif
 
 #if defined( __INC_SYSTEM_H )
-#include <System.h>
+#include <system.h>
 #endif
 
 #if defined( __INC_MSGBOX_H )
-#include <MsgBox.h>
+#include <msgbox.h>
 #endif
 
 #if defined( __INC_RESOURCE_H )
-#include <Resource.h>
+#include <resource.h>
 #endif
 
 #if defined( __INC_VIEWS_H )
-#include <Views.h>
+#include <views.h>
 #endif
 
 #if defined( __INC_BUFFERS_H )
-#include <Buffers.h>
+#include <buffers.h>
 #endif
 
 #if defined( __INC_DIALOGS_H )
-#include <Dialogs.h>
+#include <dialogs.h>
 #endif
 
 #if defined( __INC_STDDLG_H )
-#include <Stddlg.h>
+#include <stddlg.h>
 #endif
 
 #if defined( __INC_COLORSEL_H )
-#include <Colorsel.h>
+#include <colorsel.h>
 #endif
 
 #if defined( __INC_MENUS_H )
-#include <Menus.h>
+#include <menus.h>
 #endif
 
 #if defined( __INC_TEXTVIEW_H )
-#include <TextView.h>
+#include <textview.h>
 #endif
 
 #if defined( __INC_EDITORS_H )
-#include <Editors.h>
+#include <editors.h>
 #endif
 
 #if defined( __INC_APP_H )
-#include <App.h>
+#include <app.h>
 #endif
 
 #include <tvvo2.h>

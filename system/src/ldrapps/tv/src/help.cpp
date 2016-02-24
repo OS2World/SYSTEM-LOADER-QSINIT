@@ -32,8 +32,8 @@
 #define Uses_TKeys
 #define Uses_TPalette
 #include <tv.h>
-#include "TVHelp.h"
-#include "Util.h"
+#include "tvhelp.h"
+#include "util.h"
 
 #include <string.h>
 #include <limits.h>

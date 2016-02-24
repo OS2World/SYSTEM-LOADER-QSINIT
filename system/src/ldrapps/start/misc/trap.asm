@@ -241,6 +241,7 @@ _trap_handle_64 label   near
                 call    walk_xcpt                               ;
 @@trap64_nocatch:
                 call    _trap_screen_64                         ;
+                sti                                             ;
                 call    _key_read                               ; wait key
                 push    10                                      ; and exit to EFI
                 call    _exit_pm32                              ;
@@ -371,7 +372,7 @@ _sys_exfunc3    endp
 
 ; throw exception
 ;----------------------------------------------------------------
-; void _std sys_exfunc4(sys_xcptype type, const char* file, u32t line);
+; void _std sys_exfunc4(u32t xcptype, const char* file, u32t line);
                 public  _sys_exfunc4
 _sys_exfunc4    proc    near
                 push    eax                                     ; save eax

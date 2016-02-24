@@ -1,7 +1,7 @@
 [project]
 ; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0015
+version=0x0016
 
 [config]
 0=Debug
@@ -16,7 +16,7 @@ cc=wcc386
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
@@ -52,15 +52,15 @@ ainc=-dDEBUG -dINITDEBUG
 
 [files]
 ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc $(ldrsrc)\inc\qsinit.inc
-..\hc\inc\ioint13.inc inc\efnlist.inc ..\hc\inc\parttab.inc
-$(ldrsrc)\inc\dskinfo.inc $(ldrsrc)\inc\qsbinfmt.inc
+..\hc\inc\ioint13.inc inc\efnlist.inc ..\hc\inc\parttab.inc ..\hc\inc\dpmi.inc
+$(ldrsrc)\inc\dskinfo.inc $(ldrsrc)\inc\qsbinfmt.inc $(ldrsrc)\inc\qspdata.inc
 swcode.asm evio.c edisk.c estub.c emem.c etime.c qsexp.asm selmgr.asm
 rtmisc.asm
 $(ldrsrc)\misc\iniparm.c $(ldrsrc)\misc\fileio.c $(ldrsrc)\misc\util.asm
 $(ldrsrc)\zip\puff.c $(ldrsrc)\zip\crc32.c $(ldrsrc)\zip\unzip.c
 $(ldrsrc)\fat\ff.c $(ldrsrc)\misc\mdt.c $(ldrsrc)\misc\membase.c
 $(ldrsrc)\misc\exptable.asm $(ldrsrc)\misc\print.c $(ldrsrc)\misc\logmgr.c
-$(ldrsrc)\misc\wcrt.asm $(ldrsrc)\misc\log.asm
+$(ldrsrc)\misc\wcrt.asm $(ldrsrc)\misc\log.asm $(ldrsrc)\misc\process.c
 $(ldrsrc)\fat\diskio.c $(ldrsrc)\disk1.c $(ldrsrc)\init32.c
 
 [make_footer]
@@ -69,7 +69,7 @@ $(outdir) : .DIRECTORY
 MAKEDIRS : $(outdir)
 
 hello : .SYMBOLIC
-    @echo $(config) EFI build (rev.$(revnum)) ...
+    echo $(config) EFI build - rev.$(revnum) ...
 
 start.asm : $(outdir)\version.inc
 

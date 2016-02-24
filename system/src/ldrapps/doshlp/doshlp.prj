@@ -7,14 +7,11 @@ version=0x0001
 1=LinkExe_Backup
 
 [vars]
-aa=@wasm
-cc=@wcc386
+aa=wasm
+cc=wcc386
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
-
-*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
@@ -28,7 +25,13 @@ ccinc=$(cinc)
 ainc=
 bld_dir=bld
 outdir=$(bld_dir)\$(config)
-outname=$(name).
+outname=$(name)
+del=del
+copy=copy
+
+[vars.linux]
+del=rm
+copy=cp
 
 [vars.*.0]
 &wlnk=$(outdir)\$(name).lnk
@@ -66,7 +69,7 @@ doshlp.def
 
 [&wlnk]
 sys os2v2
-name DOSHLP.
+name $(outname)
 file /[[$(**asm)! !,]]
 order clname PUBINFO
       clname DHCODE
@@ -83,22 +86,23 @@ order clname PUBINFO
       clname BSS NOEMIT
       clname FINI NOEMIT    
       clname STACK NOEMIT
-op map=DOSHLP.MAP
+op map=doshlp.map
 sort global
 op mixed1632
 op nod
+op noext
 op quiet
 op start=DHReboot
 OUTPUT RAW OFF=0x10000
 
 [config.0]
 *out=$(outname) | nolink | \
-     @echo Linking ... | \
+     echo Linking ... | \
      $(ld) @$(&wlnk) | \
-     @mkdir $(osboot) | copy $(outname) $(osboot) >nul | \
-     copy msg\messages.ini $(osboot) >nul | \
-     @zip -q -9 -X -S -D %(QS_BIN)\%(QS_ARCH) $(osboot)\*.* | \
-     del $(osboot)\$(outname) >nul | del $(osboot)\messages.ini >nul | \
+     mkdir $(osboot) | $(copy) $(outname) $(osboot) >%(DEVNUL) | \
+     $(copy) msg\messages.ini $(osboot) >%(DEVNUL) | \
+     zip -q -9 -X -D %(QS_BIN)\%(QS_ARCH) $(osboot)\* | \
+     $(del) $(osboot)\$(outname) >%(DEVNUL) | $(del) $(osboot)\messages.ini >%(DEVNUL) | \
      rmdir $(osboot)
 
 [config.1]

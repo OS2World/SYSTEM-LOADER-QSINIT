@@ -49,15 +49,27 @@ typedef u32t _std (*platform_copy)     (u32t mode, u32t x, u32t y, u32t dx,
 /// scroll screen lines
 typedef u32t _std (*platform_scroll)   (u32t mode, u32t ys, u32t yd, u32t lines);
 /// clear screen lines
-typedef u32t _std (*platform_clear)    (u32t mode, u32t ypos, u32t lines, u32t color);
-/// flush shadow buffer to screenm (if available)
+typedef u32t _std (*platform_clear)    (u32t mode, u32t x, u32t y, u32t dx, u32t dy,
+                                        u32t color);
+/// flush shadow buffer to screen (if available)
 typedef u32t _std (*platform_flush)    (u32t mode, u32t x, u32t y, u32t dx, u32t dy);
-/// install native fonts (actually, only BIOS fonts now);
+/// install native fonts (only BIOS fonts now, actually);
 typedef void _std (*platform_addfonts) (void);
 /// fill mode list array
 typedef void _std (*platform_setup)    (void);
 /// release resourses on module unloading
 typedef void _std (*platform_close)    (void);
+/** optional direct blit call.
+    This call required only if common_flush_nofb() is used as pl_flush
+    (i.e. only when no direct access to video memory).
+    All parameters is verified before this call. */
+typedef u32t _std (*platform_dirblit)  (u32t x, u32t y, u32t dx, u32t dy, void *src,
+                                        u32t srcpitch);
+/** optional direct clear call.
+    This call required only if common_clear_nofb() is used as pl_clear
+    (i.e. only when no direct access to video memory).
+    All parameters is verified before this call. */
+typedef u32t _std (*platform_dirclear) (u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
 extern platform_setmode      pl_setmode;
 extern platform_leavemode  pl_leavemode;
@@ -66,6 +78,8 @@ extern platform_flush          pl_flush;
 extern platform_scroll        pl_scroll;
 extern platform_clear          pl_clear;
 extern platform_addfonts     pl_addfont;
+extern platform_dirblit      pl_dirblit;
+extern platform_dirclear    pl_dirclear;
 extern platform_setup          pl_setup;
 extern platform_close          pl_close;
 
@@ -98,7 +112,7 @@ extern int                 mode_changed;
 extern u32t               current_flags;
 /// list of font arrays
 extern ptr_list                  sysfnt;
-/// usage of "physmap" enabled (EFI only)
+/// usage of "physmap" enabled (EFI) / LFB enabled (BIOS)
 extern u32t              fbaddr_enabled;
 
 
@@ -157,17 +171,31 @@ void evio_newmode();
 void evio_shutdown();
 
 /// common copy to shadow and/or frame buffer if available at least one of them
-u32t common_copy (u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf,
+u32t common_copy      (u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf,
                        u32t pitch, int write);
 
-/// common clear of shadow and/or frame buffer
-u32t common_clear(u32t mode, u32t ypos, u32t lines, u32t color);
+/** common clear of shadow and/or frame buffer.
+    Note that x=0 and dx=0 mean entire line here and in common_clear_nofb() */
+u32t common_clear     (u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color);
+
+/** common clear of shadow and/or frame buffer.
+    "No FB pointer" supported, but requires pl_dirclear for it */
+u32t common_clear_nofb(u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
 /// common scroll screen lines (in shadow and/or frame buffer)
-u32t common_scroll(u32t mode, u32t ys, u32t yd, u32t lines);
+u32t common_scroll    (u32t mode, u32t ys, u32t yd, u32t lines);
+
+/** common scroll screen lines.
+    "No FB pointer" variant. Function calls common_scroll()
+    to scroll shadow and then platform flush to repaint screen */
+u32t common_scroll_nofb(u32t mode, u32t ys, u32t yd, u32t lines);
 
 /// common shadow buffer flush (if both shadow & frame exists)
-u32t common_flush(u32t mode, u32t x, u32t y, u32t dx, u32t dy);
+u32t common_flush      (u32t mode, u32t x, u32t y, u32t dx, u32t dy);
+
+/** common shadow buffer flush (if both shadow & frame exists)
+    "No FB pointer" supported, but requires pl_dirblit for it */
+u32t common_flush_nofb (u32t mode, u32t x, u32t y, u32t dx, u32t dy);
 
 /** fill video memory.
     @param   Dest       start address

@@ -7,6 +7,7 @@
 #include "qsutil.h"
 #include "stdlib.h"
 #include "cache.h"
+#include "qcl/qsedinfo.h"
 
 #undef  ADV_DEBUG
 
@@ -36,7 +37,7 @@ typedef struct {
    u16t          prev;     // previous in chain (not filled in free list)
    u16t          next;     // next in chain
    u16t         snext;     // next in same_size_chain
-   u16t         flags;     // 
+   u16t         flags;     //
    u32t           loc;     // location on disk (in 32k blocks)
    diskinfo      *pdi;     // ptr to disk info for this block
 } blockinfo;
@@ -68,6 +69,7 @@ int          dblevel = 0;
 
 static u32t alloc_disk(u32t disk, diskinfo *di) {
    disk_geo_data gd;
+   qs_extdisk  edsk;
    u32t       bsize;
 #if 0
    if ((disk&QDSK_FLOPPY)!=0 && hlp_fddline(disk)<0) {
@@ -75,6 +77,13 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
       return 0;
    }
 #endif
+   // query cache enabling state in ext. info
+   edsk = hlp_diskclass(disk, 0);
+   if (edsk)
+      if (edsk->state(EDSTATE_QUERY)&EDSTATE_NOCACHE) {
+         log_it(2, "alloc_disk: cache disabled for disk %02X\n", disk);
+         return 0;
+      }
    bsize = hlp_disksize(disk, 0, &gd);
    // bsr will return -1 on 0
    if (bsize) {
@@ -114,7 +123,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
       return 0;
    } else
    if (bsize<2) bsize = 2;
-   if (dblevel>0) 
+   if (dblevel>0)
       log_it(2,"bsize for disk %X - %d kb x 2\n", disk, bsize>>1>>10);
    // array is 2 x 1Mb in size for 2Tb HDD
    // prio   - 1Mb / 2Tb
@@ -138,8 +147,8 @@ void unload_all(void) {
       for (ii=0; ii<cdi_hdds+cdi_fdds; ii++) {
          if (cdi[ii].valid) {
             diskinfo *di = cdi + ii;
-            if (di->prio) 
-               if (di->sysalloc) hlp_memfree(di->prio); 
+            if (di->prio)
+               if (di->sysalloc) hlp_memfree(di->prio);
                   else free(di->prio);
             memset(di, 0, sizeof(diskinfo));
          }
@@ -265,7 +274,7 @@ void _std cc_setsize(void *data, u32t size_mb) {
       u32t availmax;
       // turn off old cache
       if (blocks_total || cache) cc_setsize(data, 0);
-      // check define and calc array`s shift 
+      // check define and calc array`s shift
       a_shift = bsf64(PRIO_ARRAY_STEP);
       if (a_shift<15 || 1<<a_shift!=PRIO_ARRAY_STEP) return;
       a_shift  -= 15;
@@ -305,8 +314,8 @@ void _std cc_setsize(void *data, u32t size_mb) {
          // everything ready - catch read/write
          hlp_runcache(&exptable);
          // and set i/o pririty for FAT areas of mounted volumes
-         for (ii=0; ii<DISK_COUNT; ii++) 
-            if (ii!=DISK_LDR) 
+         for (ii=0; ii<DISK_COUNT; ii++)
+            if (ii!=DISK_LDR)
                if (hlp_volinfo(ii,0)!=FST_NOTMOUNTED) cache_ioctl(ii,CC_MOUNT);
       } else
          log_it(2, "no memory?\n");
@@ -360,7 +369,7 @@ static int expand_free(u32t count) {
          /* drop priority from prioritized block and move it to the end of
             cache queue, else move block to free list */
          if (pbi->flags&BI_PRIO) {
-            pbi->flags&=~BI_PRIO; 
+            pbi->flags&=~BI_PRIO;
             cachehead = pbi->next;
          } else
             free_bi_entry(cachehead,0);
@@ -379,7 +388,7 @@ static int expand_free(u32t count) {
 static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
    // sectors left in block
    u32t sbleft = ((u32t)pos+di->sin32k-1 & ~((1<<di->s32shift)-1)) - (u32t)pos,
-       diskidx = di-cdi<<32-dn_bits, 
+       diskidx = di-cdi<<32-dn_bits,
             rc = 0,
         pos32k = pos>>di->s32shift,
           cpos = pos&(1<<di->s32shift)-1; // offset in 1st 32k-s
@@ -404,14 +413,14 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
          /* search back from current cache head (most of blocks is non-prioritized, so
             they are still ordered in cache list and cachehead give us a hint there to
             start) */
-         pos = memrchrd(cidxa, diskidx|posbm, cachehead); 
+         pos = memrchrd(cidxa, diskidx|posbm, cachehead);
          if (!pos) pos = memrchrd(cidxa+cachehead, diskidx|posbm, blocks_total-cachehead);
 
          if (pos) slblock = pos-cidxa;
          if (slblock) {
             block = slblock;
             if (bi[block].snext)  // >1 in list
-               while (bi[block].loc!=pos32k && bi[block].snext!=slblock) 
+               while (bi[block].loc!=pos32k && bi[block].snext!=slblock)
                   block = bi[block].snext;
             // not found
             if (bi[block].loc!=pos32k) block = 0;
@@ -511,7 +520,7 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
                int  pb = bi[bi[cachehead].prev].prev, ii,
                    pos = sprintf(buf, "cachehead (%d):",cachehead);
                for (ii=0; ii<5; ii++) {
-                  pos+=sprintf(buf+pos, " %s%d%s%s", ii==2?">":"", pb, 
+                  pos+=sprintf(buf+pos, " %s%d%s%s", ii==2?">":"", pb,
                      checkbit(bi[pb].pdi->prio,bi[pb].loc>>a_shift)?"+":"",
                         ii==2?"<":"");
                   pb = bi[pb].next;
@@ -524,7 +533,7 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
          if (pbi) {
             u8t *ptr = cache+(block<<15)+(cpos<<di->sshift);
             // set/update priority flag
-            if (checkbit(di->prio,posbm)) pbi->flags|=BI_PRIO; 
+            if (checkbit(di->prio,posbm)) pbi->flags|=BI_PRIO;
             //log_it(2,"block %d cpos %d ptr %X buf %X sbleft %d\n",block,cpos,ptr,buf,sbleft);
             //log_it(2,"ptr: %16b\n",ptr);
             // copy data
@@ -546,10 +555,10 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
 u32t cache_read(u32t disk, u64t pos, u32t ssize, void *buf) {
    diskinfo *di = cache?get_di(disk):0;
    // wrong disk, pos, size
-   if (!di || !di->enabled || !ssize || pos>=di->sectors || 
+   if (!di || !di->enabled || !ssize || pos>=di->sectors ||
       pos+ssize>di->sectors) return 0;
    // too long op for our`s cache (use more than half of size)
-   if (ssize>>di->s32shift > blocks_total>>1) return 0; 
+   if (ssize>>di->s32shift > blocks_total>>1) return 0;
       else return cache_io(di, pos, ssize, (u8t*)buf, 0);
 }
 
@@ -557,10 +566,13 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
    int   direct = disk&QDSK_DIRECT?1:0;
    diskinfo *di = cache?get_di(disk&~QDSK_DIRECT):0;
    // wrong disk, pos, size
-   if (!di || !di->enabled || !ssize || pos>=di->sectors || 
+   if (!di || !di->enabled || !ssize || pos>=di->sectors ||
       pos+ssize>di->sectors) return 0;
    // too long op for our`s cache (use more than half of size)
-   if (ssize>>di->s32shift > blocks_total>>1) return 0; else {
+   if (ssize>>di->s32shift > blocks_total>>1) {
+      cc_invalidate(0, disk, pos, ssize);
+      return 0; 
+   } else {
       // write first
       u32t rc = hlp_diskwrite(disk|QDSK_DIRECT, pos, ssize, buf);
       // update written part
@@ -571,11 +583,11 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
 }
 
 void cache_ioctl(u8t vol, u32t action) {
-   if (dblevel>1 && action!=CC_IDLE) 
+   if (dblevel>1 && action!=CC_IDLE)
       log_it(2,"cache_ioctl(%d,%d)\n",vol,action);
    switch (action) {
       case CC_MOUNT    : // Mount/Unmount volume
-      case CC_UMOUNT   : { 
+      case CC_UMOUNT   : {
          u64t start;
          u32t  disk, length;
          if (get_sys_area(vol, &disk, &start, &length))
@@ -606,6 +618,7 @@ void _std cc_invalidate_vol(void *data, u8t drive) {
       cc_invalidate(data, info.Disk, info.StartSector, info.TotalSectors);
 }
 
+// warning! it called with data=0 from cache_write() above
 void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
    diskinfo *di = get_di(disk);
    if (di && cache && di->valid) {

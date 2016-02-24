@@ -20,10 +20,10 @@ ld=@wlink
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
 
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+     $(cpp) $(cinc) $(cppflags)$*.obj $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
@@ -47,7 +47,7 @@ spdefs=-DSRT -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_HUGELIST -DNO_RANDOM -DNO_SP_
 ; qs target
 [vars.*.0]
 &lnk0=$(outdir)\$(name).lnk
-cflags=-u__NT__ -u__OS2__ -fi=%(appinit_lib)\initdef.h %(QS_CFLAGS) \
+cflags=-u__NT__ -u__OS2__ -fi=%(QS_MHDR) %(QS_CFLAGS) \
        -ox -i=%(QS_WCCINC) -i=..\partmgr $(cflags_common)
 outdir=$(bld_dir)\$(config)
 
@@ -115,6 +115,7 @@ file /[[$(**cpp)! !,]]
 #file /[[$(**asm)! !,]]
 file %(appinit_lib)\bld\Common\init.obj 
 lib %(appinit_lib)\runtime.lib 
+lib %(appinit_lib)\cpplib.lib
 lib ..\tv\tv.lib 
 lib %(WATCOM)\lib386\plib3s.lib
 op map=$(name).map
@@ -143,9 +144,9 @@ op st=262144
 
 [config.0]
 *out=$(outname) | nolink | \
-     @echo Linking ... | \
-     $(ld) @$(&lnk0) | lxlite $(outname) >nul | \
-     @zip -q -9 -X -S -D %(QS_BIN)\%(QS_ARCH) $(outname) msg\*.HLP
+     echo Linking ... | \
+     $(ld) @$(&lnk0) | lxlite $(outname) >%(DEVNUL) | \
+     zip -q -9 -X -D %(QS_BIN)\%(QS_ARCH) $(outname) msg\*.HLP
 
 [config.1,2]
 *out=$(outname) | nolink | \

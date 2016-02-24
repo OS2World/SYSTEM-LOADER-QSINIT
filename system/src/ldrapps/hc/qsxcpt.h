@@ -47,6 +47,7 @@ typedef enum {
            xcpt_align   = 17,               ///< alignment exception
            xcpt_machine = 18,               ///< machine check exception
            xcpt_simd    = 19,               ///< SSEx exception
+           xcpt_prcerr  = 0xFFFA,           ///< process data structs damaged
            xcpt_exierr  = 0xFFFB,           ///< shared class stack damaged
            xcpt_interr  = 0xFFFC,           ///< exit called in dll module
            xcpt_hookerr = 0xFFFD,           ///< ebp changed in chained call
@@ -101,7 +102,7 @@ typedef struct { u32t reserved[20]; } sys_xcpt;
 void     _std sys_exfunc1(volatile sys_xcpt* except, const char* file, u32t line);
 void     _std sys_exfunc2(volatile sys_xcpt* except);
 void     _std sys_exfunc3(volatile sys_xcpt* except);
-void     _std sys_exfunc4(sys_xcptype type, const char* file, u32t line);
+void     _std sys_exfunc4(u32t xcptype, const char* file, u32t line);
 void     _std sys_exfunc5(volatile sys_xcpt* except, const char* file, u32t line);
 jmp_buf* _std sys_exfunc6(volatile sys_xcpt* except);
 u32t     _std sys_exfunc7(volatile sys_xcpt* except);

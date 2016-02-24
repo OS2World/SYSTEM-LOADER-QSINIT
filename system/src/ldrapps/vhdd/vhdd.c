@@ -44,7 +44,7 @@ static u32t          di_total, di_used;
 
 static void print_diskinfo(void) {
    printf("Size: %s (%LX sectors, %d bytes per sector)\n",
-      dsk_formatsize(di_info.SectorSize, di_info.TotalSectors, 0, 0), 
+      dsk_formatsize(di_info.SectorSize, di_info.TotalSectors, 0, 0),
          di_info.TotalSectors, di_info.SectorSize);
    printf("File: %s (%d sectors total, %d used (%2d%%))\n", di_fpath,
       di_total, di_used, di_used*100/di_total);
@@ -53,7 +53,7 @@ static void print_diskinfo(void) {
 static void mount_action(qs_emudisk dsk, char *prnname) {
    s32t disk = dsk->mount();
    if (disk<0) {
-      printf("Error mouting disk!\n"); 
+      printf("Error mouting disk!\n");
       DELETE(dsk);
    } else {
       printf("File \"%s\" mounted as disk %s\n", prnname, dsk_disktostr(disk,0));
@@ -78,7 +78,7 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
       m_and_m = strcmp(args->item[0],"MM")==0;
 
       if ((strcmp(args->item[0],"CREATE")==0 || strcmp(args->item[0],"MAKE")==0
-         || m_and_m) && args->count>=3) 
+         || m_and_m) && args->count>=3)
       {
          u64t  sectors = 0;
          u32t   sector = args->count>3?str2long(args->item[3]):512;
@@ -97,9 +97,9 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
             qs_emudisk dsk = NEW(qs_emudisk);
             rc = dsk->make(args->item[1], sector, sectors);
             switch (rc) {
-               case EFBIG :printf("Disk too large!\n"); rc=0; 
+               case EFBIG :printf("Disk too large!\n"); rc=0;
                            break;
-               case EEXIST:printf("File \"%s\" already exists!\n", args->item[1]); rc=0; 
+               case EEXIST:printf("File \"%s\" already exists!\n", args->item[1]); rc=0;
                            break;
                case 0     :if (!m_and_m) printf("File ready!\n");
                            break;
@@ -113,7 +113,7 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
          qs_emudisk dsk = NEW(qs_emudisk);
          rc = dsk->open(args->item[1]);
          // compact it on mount
-         if (rc==0) dsk->compact(1);
+         //if (rc==0) dsk->compact(1);
          if (rc==0) mount_action(dsk, args->item[1]); else {
             if (rc==EBADF) {
                printf("File \"%s\" is not an disk image!\n", args->item[1]);
@@ -122,14 +122,19 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
             DELETE(dsk);
          }
       } else
-      if ((strcmp(args->item[0],"INFO")==0 || strcmp(args->item[0],"UMOUNT")==0)
-         && args->count==2) 
+      if ((strcmp(args->item[0],"INFO")==0 || strcmp(args->item[0],"UMOUNT")==0
+         || strcmp(args->item[0],"TRACE")==0) && args->count==2)
       {
          u32t  disk = dsk_strtodisk(args->item[1]);
          if (disk==FFFF) rc = ENODEV; else {
             rc = 0;
             if (disk>=QDSK_FLOPPY) printf("Invalid disk type!\n"); else
             if (!mounted[disk]) printf("Not a VHDD disk!\n"); else
+
+            // "TRACE disk" command (enable internal bitmaps tracing)
+            if (args->item[0][0]=='T') {
+               mounted[disk]->trace(-1,1);
+            } else
             if (args->item[0][0]=='I') {
                rc = mounted[disk]->query(&di_info, di_fpath, &di_total, &di_used);
                if (rc==0) print_diskinfo();

@@ -627,7 +627,7 @@ msg_a20         db      0,0                                        ; 04
 msg_filetab     db      1,'invalid microfsd data.',0               ; 05
 msg_dpmierr     db      1,'protected mode interface error.',0      ; 06
 msg_unperr      db      1,'loader binary is damaged.',0            ; 07
-msg_no32mb      db      1,'at least 24Mb required.',0              ; 08
+msg_no32mb      db      1,'at least 24Mb is required.',0           ; 08
 msg_nothing     db      0,'nothing to do.',0                       ; 09
 msg_mcberr      db      1,'memory allocation error.',0             ; 10
 msg_faterr      db      1,'FAT processing error.',0                ; 11

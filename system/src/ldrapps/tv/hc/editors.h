@@ -492,7 +492,7 @@ inline opstream &operator << (opstream &os, TEditWindow *cl)
 #define __TFindDialogRec
 
 #if !defined( __STRING_H )
-#include <String.h>
+#include <string.h>
 #endif  // __STRING_H
 
 struct TFindDialogRec {
@@ -510,7 +510,7 @@ struct TFindDialogRec {
 #define __TReplaceDialogRec
 
 #if !defined( __STRING_H )
-#include <String.h>
+#include <string.h>
 #endif  // __STRING_H
 
 struct TReplaceDialogRec {

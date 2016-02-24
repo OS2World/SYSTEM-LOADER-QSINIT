@@ -159,7 +159,7 @@ dlg->insert(myInputLine);
 #endif
 
 #if !defined( __STRING_H )
-#include <String.h>
+#include <string.h>
 #endif
 
 #include <ctype.h>

@@ -164,33 +164,33 @@ exports = {
                        }
 
    _fopen            = {
-                         index = 80  group = "clib"    format = "pss"
+                         index = 80  group = "stdio"   format = "pss"
                          expname = "__fopen"
                        }
    _fclose           = {
-                         index = 81  group = "clib"    format = "ip"
+                         index = 81  group = "stdio"   format = "ip"
                          expname = "__fclose"
                        }
    _fread            = {
-                         index = 82  group = "clib"    format = "upuup"
+                         index = 82  group = "stdio"   format = "upuup"
                          expname = "__fread"
                        }
    _fwrite           = {
-                         index = 83  group = "clib"    format = "upuup"
+                         index = 83  group = "stdio"   format = "upuup"
                          expname = "__fwrite"
                        }
-   _ferror           = { index = 84  group = "clib"    format = "ip"    }
-   _feof             = { index = 85  group = "clib"    format = "ip"    }
+   _ferror           = { index = 84  group = "stdio"   format = "ip"    }
+   _feof             = { index = 85  group = "stdio"   format = "ip"    }
    _fseek            = {
-                         index = 86  group = "clib"    format = "ipii"
+                         index = 86  group = "stdio"   format = "ipii"
                          expname = "__fseek"
                        }
-   _ftell            = { index = 87  group = "clib"    format = "up"    }
+   _ftell            = { index = 87  group = "stdio"   format = "up"    }
    _errno            = { index = 88  offset = yes  }                       # int errno
-   _freadfull        = { index = 89  group = "clib"    format = "ps&*u" }
-   _fcloseall        = { index = 90  group = "clib"    format = "iv"    }
+   _freadfull        = { index = 89  group = "stdio"   format = "ps&*u" }
+   _fcloseall        = { index = 90  group = "stdio"   format = "iv"    }
    __chsize          = {
-                         index = 91  group = "clib"    format = "ipu"
+                         index = 91  group = "stdio"   format = "ipu"
                          expname = "___chsize"
                        }
    _atoi64           = { index = 92  group = "string"  format = "@qs"   }
@@ -199,7 +199,7 @@ exports = {
 
    _clearerr         = { index = 95  group = "clib"    format = "vp"    }
    _rewind           = {
-                         index = 96  group = "clib"    format = "vp"
+                         index = 96  group = "stdio"   format = "vp"
                          expname = "__rewind"
                        }
    _setbits          = { index = 97  group = "clib"    format = "vpuu@u" }
@@ -221,8 +221,8 @@ exports = {
                          index =410  group = "clib"    format = "ips."
                          expname = "__fprintf"
                        }
-   _freopen          = { index =411  group = "clib"    format = "pssp"  }
-   _fdopen           = { index =412  group = "clib"    format = "p@is"  }
+   _freopen          = { index =411  group = "stdio"   format = "pssp"  }
+   _fdopen           = { index =412  group = "stdio"   format = "p@is"  }
    _stdin            = { index =413  offset = yes  }
    _stdout           = { index =414  offset = yes  }
    _stderr           = { index =415  offset = yes  }
@@ -234,7 +234,7 @@ exports = {
    _wcscpy           = { index =421  group = "clib"    format = "p&SS"  }
    _wcsncpy          = { index =422  group = "clib"    format = "p&SSu" }
    _getchar          = { index =423  group = "clib"    format = "@iv"   }
-   _getc             = { index =424  group = "clib"    format = "@ip"   }
+   _getc             = { index =424  group = "stdio"   format = "@ip"   }
    _memrchrq         = { index =425  group = "clib"    format = "pp@qu" }
    _memrchrnq        = { index =426  group = "clib"    format = "pp@qu" }
 
@@ -243,11 +243,14 @@ exports = {
                          expname = "__vfprintf"
                        }
    _log_ftdump       = { index =428 }
-   _fputs            = { index =429  group = "clib"    format = "isp"   }
-   _fputc            = { index =430  group = "clib"    format = "iip"   }
-   _isatty           = { index =431  group = "clib"    format = "ip"    }
+   _fputs            = { index =429  group = "stdio"   format = "isp"   }
+   _fputc            = { index =430  group = "stdio"   format = "iip"   }
+   _isatty           = { index =431  group = "stdio"   format = "ip"    }
    _hlp_isdir        = { index =432  group = "clib"    format = "us"    }
-   _fflush           = { index =433  group = "clib"    format = "ip"    }
+   _fflush           = { index =433  group = "stdio"   format = "ip"    }
+   _str2ulong        = { index =434  group = "clib"    format = "us"    }
+   _str2int64        = { index =435  group = "clib"    format = "Is"    }
+   _str2uint64       = { index =436  group = "clib"    format = "qs"    }
 
    # memory manager
 
@@ -272,6 +275,7 @@ exports = {
    _memGetUniqueID   = { index =118  group = "memmgr"  format = "v&*@u&*@u"  }
    _memGetOptions    = { index =119  group = "memmgr"  format = "uv"    }
    _memAllocZ        = { index =120  group = "memmgr"  format = "p@u@uu" }
+   _memSetObjInfo    = { index =121  group = "memmgr"  format = "up@u@u" }
 
    # string lists and ini
 
@@ -294,6 +298,8 @@ exports = {
    _str_parseargs    = { index =450  group = "strlist" format = "ppuisp." }
    _str_secexist     = { index =451  group = "strlist" format = "uss@u" }
    _str_length       = { index =452  group = "vio"     format = "us"    }
+   _str_findkey      = { index =453  group = "strlist" format = "sps!*u" }
+   _str_settext      = { index =454  group = "strlist" format = "psu"   }
 
    # shell
 
@@ -334,6 +340,7 @@ exports = {
    _mod_freethunk    = { index =182  group = "module"  format = "u@up"  }
    _mod_fnchain      = { index =183  }
    _mod_fnunchain    = { index =184  }
+   _mod_getmodpid    = { index =185  group = "module"  format = "@up"   }
 
    _mod_main         = { index =189 }  # do not call THIS! :)
 
@@ -375,7 +382,7 @@ exports = {
    _shl_restart      = { index =224  group = "shell"   format = "usp"   }
    _shl_mkdir        = { index =225  group = "shell"   format = "usp"   }
    _shl_chdir        = { index =226  group = "shell"   format = "usp"   }
-   _shl_mem          = { index =227  group = "shell"   format = "usp"   }
+   # ordinal 227 reserved (moved to EXTCMD)
    _shl_del          = { index =228  group = "shell"   format = "usp"   }
    _shl_beep         = { index =229  group = "shell"   format = "usp"   }
    _shl_rmdir        = { index =230  group = "shell"   format = "usp"   }
@@ -385,13 +392,12 @@ exports = {
    _shl_label        = { index =234  group = "shell"   format = "usp"   }
    _shl_trace        = { index =235  } # tracing trace is a bad idea :)
    _shl_ren          = { index =236  group = "shell"   format = "usp"   }
-   _shl_mtrr         = { index =237  group = "shell"   format = "usp"   }
-   _shl_pci          = { index =238  group = "shell"   format = "usp"   }
+   # ordinals 237-238 reserved (moved to EXTCMD)
    _shl_date         = { index =239  group = "shell"   format = "usp"   }
    _shl_time         = { index =340  group = "shell"   format = "usp"   }
    _shl_msgbox       = { index =341  group = "shell"   format = "usp"   }
    _shl_mode         = { index =342  group = "shell"   format = "usp"   }
-   _shl_log          = { index =343  group = "shell"   format = "usp"   }
+   # ordinal 343 reserved (moved to EXTCMD)
    _shl_attrib       = { index =344  group = "shell"   format = "usp"   }
    _shl_pushd        = { index =345  group = "shell"   format = "usp"   }
    _shl_popd         = { index =346  group = "shell"   format = "usp"   }
@@ -407,6 +413,7 @@ exports = {
    _log_gettext      = { index =243  }
    _log_push         = { index =244  }
    _log_clear        = { index =245  }
+   _log_pushtm       = { index =246  }
 
    # additional vio funcs
 
@@ -466,6 +473,12 @@ exports = {
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
    _hlp_setupmem     = { index =373  group = "system"  format = "@uu*!up@u" }
    _hlp_memcprint    = { index =374  group = "system"  format = "vv"    }
+   _hlp_cmgetstate   = { index =375  group = "system"  format = "uv"    }
+   _hlp_cmsetstate   = { 
+                         index =376  group = "system"  format = "uu"
+                         expname = "__hlp_cmsetstate"
+                       }
+   _hlp_mtrrsum      = { index =377  group = "system"  format = "u@q@q" }
 
    # additional shell
 
@@ -509,9 +522,13 @@ exports = {
    _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
    _sys_is64mode     = { index =386  group = "system"  format = "iv"    }
    _sys_isavail      = { index =387  group = "system"  format = "@u@u"  }
+   _sys_getlapic     = { index =388  group = "system"  format = "pv"    }
 
    # time functions (390..393 was moved back to QSINIT)
    _clock            = { index =394  group = "time"    format = "qv"    }
+
+   _mt_initialize    = { index =500  group = "mt"      format = "uv"    }
+   _mt_active        = { index =501  group = "mt"      format = "uv"    }
 }
 
 class = {
@@ -519,9 +536,9 @@ class = {
    entires = {
       init    = "uppu"
       alloc   = "upu"
-      resize  = "upu"
-      size    = "upv"
-      mem     = "ppv"
+      resize  = "upui"
+      size    = "up"
+      mem     = "pp"
       setall  = "vpi"
       set     = "upiuu"
       check   = "upiuu"

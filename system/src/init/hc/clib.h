@@ -96,6 +96,9 @@ u16t get_flatss(void);
     "mov     eax,ss"       \
     value [ax];
 
+u16t get_taskreg(void);
+#pragma aux get_taskreg = "str ax" value [ax];
+
 u32t ints_enabled(void);
 #pragma aux ints_enabled = \
     "pushfd"               \

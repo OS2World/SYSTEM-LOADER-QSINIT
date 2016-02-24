@@ -4,7 +4,7 @@
 
 PRJNAME = mptable
 CC = @wcc386
-CFLAGS = -4s $(%QS_CFLAGS) $(%QS_WCCINC) -s -mf -oxs -fi=$(%QS_BASE)\ldrapps\runtime\initdef.h
+CFLAGS = -4s $(%QS_CFLAGS) $(%QS_WCCINC) -s -mf -oxs -fi=$(%QS_MHDR)
 
 all : $(PRJNAME).exe
 
@@ -17,8 +17,8 @@ BUILDFILES = mptable.obj
 $(PRJNAME).exe : $(PRJNAME).lnk $(BUILDFILES)
       @echo Linking...
       @wlink @$(PRJNAME).lnk 
-      @lxlite $@ >nul
-      @zip -q -9 -X -S -j $(%QS_BIN)\$(%QS_ARCH) $@
+      @lxlite $@ >$(%DEVNUL)
+      @zip -q -9 -X -j $(%QS_BIN)/$(%QS_ARCH) $@
 
 clean: .SYMBOLIC
       @echo Cleaning ...
@@ -30,8 +30,8 @@ $(PRJNAME).lnk : makefile
       @echo sys os2v2             >$@
       @echo name $(PRJNAME)      >>$@
       @echo file $(BUILDFILES)   >>$@
-      @echo file $(%QS_BASE)\ldrapps\runtime\bld\Common\init.obj>>$@
-      @echo lib $(%QS_BASE)\ldrapps\runtime\runtime.lib>>$@
+      @echo file $(%QS_BASE)/ldrapps/runtime/bld/Common/init.obj>>$@
+      @echo lib $(%QS_BASE)/ldrapps/runtime/runtime.lib>>$@
       @echo op map=$(PRJNAME).map>>$@
       @echo op quiet             >>$@
       @echo op internalrelocs    >>$@

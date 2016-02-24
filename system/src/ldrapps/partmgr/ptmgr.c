@@ -563,7 +563,7 @@ u32t _std dsk_extresize(u32t disk, int atend, int add, u32t size) {
    // flush MBR with new extended pos/size
    rc = dsk_flushquad(disk, 0);
    if (rc) return rc;
-   // LVM will force rescan or we do it by hands ;)
+   // LVM will force rescan or we do it manually ;)
    if (lvmstate!=LVME_NOINFO) lvm_initdisk(disk,0,-1); else
       dsk_ptrescan(disk, 1);
    // return rescan error code

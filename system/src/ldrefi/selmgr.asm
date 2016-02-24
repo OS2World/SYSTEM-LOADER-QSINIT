@@ -169,27 +169,5 @@ _hlp_selalloc   proc    near
                 ret     4                                       ;
 _hlp_selalloc   endp                                            ;
 
-; get interrupt vector
-;----------------------------------------------------------------
-; void _std sys_getint(u8t vector, u64t *addr);
-                public  _sys_getint
-_sys_getint     proc    near                                    ;
-                mov     ecx,[esp+8]                             ; return 0 now
-                jecxz   @@gint_exit                             ;
-                xor     eax,eax                                 ;
-                mov     [ecx],eax                               ;
-@@gint_exit:
-                ret     8                                       ;
-_sys_getint     endp
-
-; set interrupt vector.
-;----------------------------------------------------------------
-; u32t _std sys_setint(u8t vector, u64t *addr);
-                public  _sys_setint
-_sys_setint     proc    near
-                xor     eax,eax                                 ; return error
-                ret     8                                       ;
-_sys_setint     endp
-
 _TEXT           ends
                 end

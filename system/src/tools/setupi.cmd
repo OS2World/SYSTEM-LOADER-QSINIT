@@ -59,8 +59,14 @@ rem GS used for process_info, no watcom libs, structs packed to 1 byte,
 rem inline FP code, unmangled stdcall (runtime functions), favor size
 set QS_CFLAGS=-zz -zl -zls -zq -zp1 -fp5 -fpi87 -zri -os -bt%QS_NAME%
 
+rem special header for main function
+set QS_MHDR=%QS_BASE%\ldrapps\runtime\initdef.h
+
 rem common include key for wcc
 set QS_WCCINC=-i%QS_BASE%\hc -i%QS_APPINC% -i%QS_BASE%\init\hc
+
+rem /dev/null path
+set DEVNUL=nul
 
 rem replace default tooo loong path variable for the link.exe again ;)
 set PATH=%QS_BASE%\tools\t_%BUILD_HERE%;%QS_BASE%\tools;%PATH%;%WATCOM%\BINW;

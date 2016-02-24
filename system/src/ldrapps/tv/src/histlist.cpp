@@ -37,7 +37,7 @@
 //#include <mem.h>
 #endif
 #endif
-#include <stdLib.h>
+#include <stdlib.h>
 
 class HistRec {
 

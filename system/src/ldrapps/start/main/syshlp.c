@@ -17,47 +17,11 @@
 #include "qspage.h"
 #include "efnlist.h"
 #include "qecall.h"
-
-#define MSR_IA32_MTRRCAP             0x00FE
-#define MSR_IA32_EXT_CONFIG          0x00EE
-#define MSR_IA32_TEMPERATURE_TARGET  0x01A2
-#define MSR_IA32_SMRR_PHYSBASE       0x01F2
-#define MSR_IA32_SMRR_PHYSMASK       0x01F3
-#define MSR_IA32_MTRR_PHYSBASE0      0x0200
-#define MSR_IA32_MTRR_PHYSMASK0      0x0201
-#define MSR_IA32_MTRR_PHYSBASE1      0x0202
-#define MSR_IA32_MTRR_PHYSMASK1      0x0203
-#define MSR_IA32_MTRR_PHYSBASE2      0x0204
-#define MSR_IA32_MTRR_PHYSMASK2      0x0205
-#define MSR_IA32_MTRR_PHYSBASE3      0x0206
-#define MSR_IA32_MTRR_PHYSMASK3      0x0207
-#define MSR_IA32_MTRR_PHYSBASE4      0x0208
-#define MSR_IA32_MTRR_PHYSMASK4      0x0209
-#define MSR_IA32_MTRR_PHYSBASE5      0x020A
-#define MSR_IA32_MTRR_PHYSMASK5      0x020B
-#define MSR_IA32_MTRR_PHYSBASE6      0x020C
-#define MSR_IA32_MTRR_PHYSMASK6      0x020D
-#define MSR_IA32_MTRR_PHYSBASE7      0x020E
-#define MSR_IA32_MTRR_PHYSMASK7      0x020F
-#define MSR_IA32_MTRR_PHYSBASE8      0x0210
-#define MSR_IA32_MTRR_PHYSMASK8      0x0211
-#define MSR_IA32_MTRR_PHYSBASE9      0x0212
-#define MSR_IA32_MTRR_PHYSMASK9      0x0213
-#define MSR_IA32_MTRR_FIX64K_00000   0x0250
-#define MSR_IA32_MTRR_FIX16K_80000   0x0258
-#define MSR_IA32_MTRR_FIX16K_A0000   0x0259
-#define MSR_IA32_MTRR_FIX4K_C0000    0x0268
-#define MSR_IA32_MTRR_FIX4K_C8000    0x0269
-#define MSR_IA32_MTRR_FIX4K_D0000    0x026A
-#define MSR_IA32_MTRR_FIX4K_D8000    0x026B
-#define MSR_IA32_MTRR_FIX4K_E0000    0x026C
-#define MSR_IA32_MTRR_FIX4K_E8000    0x026D
-#define MSR_IA32_MTRR_FIX4K_F0000    0x026E
-#define MSR_IA32_MTRR_FIX4K_F8000    0x026F
-#define MSR_IA32_MTRR_DEF_TYPE       0x02FF
+#include "errno.h"
 
 #define FIXED_RANGE_REGS    11
 #define MTRR_SAVE_BUFFER    32
+#define MAX_VAR_RANGE_REGS  10
 
 /** disable interrupts, cache and turn off MTRRs.
     @param [out]     state  State to save - for hlp_mtrrmend() call */
@@ -66,6 +30,15 @@ void _std hlp_mtrrmstart(volatile u32t *state);
     @param [in][out] state  State, returned from hlp_mtrrmstart(),
                             clear it on exit to prevent second call */
 void _std hlp_mtrrmend  (volatile u32t *state);
+
+static u32t       mtrr_regs = 0,
+                 mtrr_flags = 0,
+              cpu_phys_bits = 0,
+                cpu_lim8000 = 0;        // supported 8000xxxx cpuid limit
+static u64t  PHYS_ADDR_MASK = 0,        // supported addr mask for this CPU
+                  apic_phys = 0;
+static u32t      *apic_data = 0;
+static qs_mtlib       mtlib = 0;
 
 // fixed range MTRR registers
 static u16t fixedmtrregs[FIXED_RANGE_REGS] = { MSR_IA32_MTRR_FIX64K_00000,
@@ -105,6 +78,55 @@ u32t _std hlp_setmsrsafe(u32t index, u32t ddlo, u32t ddhi) {
    return rc;
 }
 
+static void init_baseinfo(void) {
+   u32t data[4];
+   if (cpu_phys_bits) return;
+   // called after at least one sys_isavail(), so limit value is ready
+   if (cpu_lim8000>=0x80000008) {
+      // query MAXPHYWID
+      _try_ {
+         hlp_getcpuid(0x80000008,data);
+      }
+      _catch_(xcpt_all) {
+         data[0] = 36;
+      }
+      _endcatch_
+   } else 
+      data[0] = 36;
+   cpu_phys_bits  = data[0] & 0x7F;
+   // it is 0 on PPro, at least -> force to 36
+   if (!cpu_phys_bits) cpu_phys_bits = 36;
+   PHYS_ADDR_MASK = ((u64t)1<<cpu_phys_bits) - 1;
+
+   // has Local APIC?
+   if (sys_isavail(SFEA_LAPIC)) {
+      if (hlp_getmsrsafe(MSR_IA32_APICBASE, data+0, data+1)) {
+         if ((data[0]&0x800)==0) log_it(0, "APIC disabled!\n");
+         apic_phys  = (u64t)data[1]<<32|data[0];
+         apic_phys &= PHYS_ADDR_MASK & ~(u64t)PAGEMASK;
+         // just as second chance
+         if (!apic_phys) apic_phys = 0xFEE00000;
+
+         apic_data  = (u32t*)pag_physmap(apic_phys, PAGESIZE, 0);
+         if (!apic_data) log_it(3, "APIC map err: %LX\n", apic_phys); else {
+            u32t  tmrdiv;
+            log_it(3, "APIC: %X (%08X %08X %08X %08X %08X %08X)\n", apic_data[APIC_APICVER]&0xFF,
+               apic_data[APIC_LVT_TMR], apic_data[APIC_SPURIOUS], apic_data[APIC_LVT_PERF],
+                  apic_data[APIC_LVT_LINT0], apic_data[APIC_LVT_LINT1], apic_data[APIC_LVT_ERR]);
+      
+            tmrdiv = apic_data[APIC_TMRDIV];
+            tmrdiv = (tmrdiv&3 | tmrdiv>>1&4) + 1 & 7;
+            log_it(3, "APIC timer: %u %08X %08X\n", 1<<tmrdiv, apic_data[APIC_TMRINITCNT],
+               apic_data[APIC_TMRCURRCNT]);
+         }
+      }
+   }
+}
+
+void* _std sys_getlapic(void) {
+   // it must be mapped by init_baseinfo() above
+   return apic_data;
+}
 
 u32t _std hlp_getcputemp(void) {
    static int inited = 0;
@@ -168,11 +190,6 @@ u32t _std hlp_getcputemp(void) {
    return 0;
 }
 
-
-static u32t mtrr_regs = 0,
-           mtrr_flags = 0,
-        cpu_phys_bits = 0;
-
 /** query mtrr info.
     @param [out] flags     ptr to mtrr info flags (can be 0)
     @param [out] state     ptr to mtrr current state (can be 0)
@@ -197,15 +214,7 @@ u32t _std hlp_mtrrquery(u32t *flags, u32t *state, u32t *addrbits) {
       mtrr_flags = (data[0]&0x100?MTRRQ_FIXREGS:0) | (data[0]&0x400?MTRRQ_WRCOMB:0) |
          (data[0]&0x800?MTRRQ_SMRR:0);
 
-      _try_ {
-         hlp_getcpuid(0x80000008,data);
-      }
-      _catch_(xcpt_all) {
-         data[0] = 36;
-      }
-      _endcatch_
-      cpu_phys_bits = data[0] & 0x7F;
-      if (cpu_phys_bits<36) cpu_phys_bits=36;
+      if (!cpu_phys_bits) init_baseinfo();
    }
 
    if (state) {
@@ -231,7 +240,7 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state) {
    if (!mtrr_regs) return 0;
    if (reg>=mtrr_regs) return 0;
 
-   if (reg<10) {
+   if (reg<MAX_VAR_RANGE_REGS) {
       u64t base, len;
       int  rc = 1;
       _try_ {
@@ -247,10 +256,10 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state) {
       // log_it(2,"%u: %012LX %012LX\n", reg, base, len);
 
       if (state) *state = (u32t)base & MTRRF_TYPEMASK | ((u32t)(len)&0x800?MTRRF_ENABLED:0);
-      base = base & ~0xFFF & ((u64t)1 << cpu_phys_bits) - 1;
+      base = base & ~0xFFFLL & PHYS_ADDR_MASK;
       if (start) *start = base;
       if (length) {
-         u64t mask = len & ~0xFFF & ((u64t)1 << cpu_phys_bits) - 1, ebase;
+         u64t mask = len & ~0xFFFLL & PHYS_ADDR_MASK, ebase;
          int  left, right;
          // make mask without holes
          left  = bsr64(mask);
@@ -371,14 +380,14 @@ u32t _std START_EXPORT(hlp_mtrrvset)(u32t reg, u64t start, u64t length, u32t sta
             if (st_right<right) return MTRRERR_ADDRTRN;
          }
       }
-      if ((start&0xFFF)!=0 || start>=(u64t)1<<cpu_phys_bits)
+      if ((start&0xFFF)!=0 || start>PHYS_ADDR_MASK)
          return MTRRERR_ADDRESS;
       // incorrect state
       if ((state&MTRRF_TYPEMASK)>MTRRF_WB ||
          (state&~(MTRRF_ENABLED|MTRRF_TYPEMASK))!=0) return MTRRERR_STATE;
       state &= MTRRF_TYPEMASK;
       length = ~(length-1);
-      length&= ((u64t)1 << cpu_phys_bits) - 1;
+      length&= PHYS_ADDR_MASK;
 
       log_it(2,"set MTRR_%d: %012LX-%012LX\n",reg, start+state, length|(enable?0x800:0));
 
@@ -481,6 +490,110 @@ u32t _std START_EXPORT(hlp_mtrrfset)(u32t addr, u32t length, u32t state) {
    return MTRRERR_LENGTH;
 }
 
+
+u32t _std hlp_mtrrsum(u64t start, u64t length) {
+   u32t ctype = FFFF, m_flags, m_state;
+   /* drop any args, which cross 1Mb border (because of BIOS on F000
+      and this split/simplify processing of fixed and variable ranges) */
+   if (start<_1MB && start+length>_1MB) return MTRRF_TYPEMASK;
+   // validate it a bit
+   if (!length || start>PHYS_ADDR_MASK || start+length>PHYS_ADDR_MASK ||
+      start+length<start) return MTRRF_TYPEMASK;
+   // current MTRR state
+   if (!hlp_mtrrquery(&m_flags, &m_state, 0)) return MTRRF_UC;
+   if ((m_state&MTRRS_MTRRON)==0) return MTRRF_UC;
+
+   // process fixed type
+   if (start<_1MB && (m_flags&MTRRQ_FIXREGS) && (m_state&MTRRS_FIXON)) {
+      u32t  c_st = start, c_len = length, ii, idx, 
+          mempos = 0,   inrange = 0;
+
+      for (ii=0; ii<FIXED_RANGE_REGS; ii++) {
+         u32t step = !ii?_64KB:(ii<3?_16KB:_4KB),
+             csize = step*8;
+         if (!inrange)
+            if (mempos+csize>c_st) inrange=1;
+         if (inrange) {
+            u64t bits;
+            if (!hlp_getmsrsafe(fixedmtrregs[ii], (u32t*)&bits, (u32t*)&bits+1))
+               return MTRRF_TYPEMASK; 
+            else
+            for (idx=0; idx<8; idx++) {
+               u32t ct = (u32t)(bits>>(idx<<3)) & MTRRF_TYPEMASK;
+               mempos += step;
+               // skip bits before requested range
+               if (mempos<=c_st) continue;
+               if (ct!=ctype)
+                  if (ctype==FFFF) ctype = ct; else return MTRRF_TYPEMASK;
+               if (mempos>=c_st+c_len) break;
+            }
+         } else
+            mempos += csize;
+         if (mempos>=c_st+c_len) break;
+      }
+   } else {
+      u32t   ii, defct = m_state&MTRRS_DEFMASK, lctype;
+      u64t   ab[MAX_VAR_RANGE_REGS], 
+             am[MAX_VAR_RANGE_REGS], lmask;
+      u8t   act[MAX_VAR_RANGE_REGS];
+      int  rmax, lhi;
+      // align args to page
+      length += start&PAGEMASK;
+      start >>= PAGESHIFT;
+      length  = PAGEROUNDLL(length) >> PAGESHIFT;
+      // bit range of length changes (0..lhi)
+      lhi   = bsr64(length-1);
+      lmask = (1LL<<lhi+1) - 1;
+
+      for (ii=0, rmax=-1; ii<mtrr_regs; ii++) {
+         u64t base, mask, ct;
+         int   err = 0;
+         _try_ {
+            hlp_readmsr(MSR_IA32_MTRR_PHYSBASE0+ii*2, (u32t*)&base, (u32t*)&base+1);
+            hlp_readmsr(MSR_IA32_MTRR_PHYSMASK0+ii*2, (u32t*)&mask, (u32t*)&mask+1);
+         }
+         _catch_(xcpt_all) { err=1; }
+         _endcatch_
+         if (err) return MTRRF_TYPEMASK;
+         // register is off
+         if ((mask&0x800)==0) continue;
+         ct   = (u8t)base & MTRRF_TYPEMASK;
+         base = (base & PHYS_ADDR_MASK) >> PAGESHIFT;
+         mask = (mask & PHYS_ADDR_MASK) >> PAGESHIFT;
+         // our block fits into mask
+         if ((lmask&mask)==0)
+            if ((start&mask)==base && (start+length-1&mask)==base) {
+               if (ctype==FFFF || ctype==MTRRF_WB) ctype = ct; else
+                  ctype = MTRRF_UC;
+               continue;
+            }
+         if (++rmax>MAX_VAR_RANGE_REGS) return MTRRF_TYPEMASK;
+         // collect used regs only
+         act[rmax] = ct;
+         ab [rmax] = base;
+         am [rmax] = mask;
+      }
+      if (rmax<0) return ctype==FFFF?defct:ctype;
+
+      // process every page if block crosses mask borders or mask is non-solid
+      for (ii=0, lctype=ctype; ii<length; ii++) {
+         u64t addr = start+ii;
+         u32t ti, tct = ctype;
+
+         for (ti=0; ti<=rmax; ti++)
+            if ((addr&am[ti])==ab[ti])
+               if (tct==FFFF || tct==MTRRF_WB) tct = act[ti]; else
+                  tct = MTRRF_UC;
+         if (tct==FFFF) tct=defct;
+         if (!ii) lctype = tct; else
+            if (lctype != tct) return MTRRF_TYPEMASK;
+      }
+      ctype = lctype==FFFF?defct:lctype;
+   }
+   return ctype;
+}
+
+
 void _std hlp_mtrrbios(void) {
    if (resetdata) {
       hlp_mtrrapply(biosmtrrs);
@@ -551,7 +664,7 @@ extern u32t _std page0_fptr;
 
 static u32t hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
    _try_ {
-      /* page0 flag here affect SOURCE access in paging mode and
+      /* page0 flag here affects SOURCE access in paging mode and
          SOURCE+DST access in non-paging */
       if (page0) memcpy0(dst,src,length); else memmove(dst,src,length);
       _ret_in_try_(1);
@@ -599,8 +712,9 @@ u32t _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
 u32t _std sys_isavail(u32t flags) {
    static u32t sflags = FFFF;
 
-   if (sflags!=FFFF) return flags&sflags; else {
+   if (sflags==FFFF) {
       u32t   idbuf[4];
+      char  idstr[16];
       hlp_getcpuid(1,idbuf);
       sflags = 0;
       if ((idbuf[3]&CPUID_FI2_PAE))  sflags|=SFEA_PAE;
@@ -609,14 +723,39 @@ u32t _std sys_isavail(u32t flags) {
       if ((idbuf[3]&CPUID_FI2_CMOV)) sflags|=SFEA_CMOV;
       if ((idbuf[3]&CPUID_FI2_MTRR)) sflags|=SFEA_MTRR;
       if ((idbuf[3]&CPUID_FI2_MSR))  sflags|=SFEA_MSR;
+      if ((idbuf[3]&CPUID_FI2_ACPI)) sflags|=SFEA_CMODT;
+      if ((idbuf[3]&CPUID_FI2_APIC)) sflags|=SFEA_LAPIC;
 
       hlp_getcpuid(0x80000000,idbuf);
-      if (idbuf[0]>=0x80000001) {
+      cpu_lim8000 = idbuf[0];
+
+      hlp_getcpuid(0,idbuf);
+       *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[3]; 
+       *((u32t*)idstr+2)=idbuf[2]; idstr[12]=0;
+
+      if (strcmp(idstr,"GenuineIntel")==0) sflags|=SFEA_INTEL; else
+      if (strcmp(idstr,"AuthenticAMD")==0) {
+         sflags|= SFEA_AMD;
+         sflags&=~SFEA_CMODT;
+         /* P-State is OFF: have no modern AMD to test it and no setup in doshlp
+            for secondary cores (they declared as independent by AMD docs).
+            And i don`t want write this FID/VID madness for older CPUs ;) */
+#if 0
+         // query AMD P-State support
+         if (cpu_lim8000>=0x80000007) {
+            hlp_getcpuid(0x80000007,idbuf);
+            if ((idbuf[3]&CPUID_FI5_PSTATE)) sflags|=SFEA_CMODT;
+         }
+#endif
+      }
+
+      if (cpu_lim8000>=0x80000001) {
          hlp_getcpuid(0x80000001,idbuf);
          if ((idbuf[3]&CPUID_FI4_IA64)) sflags|=SFEA_X64;
       }
-      return sflags;
+      log_it(3, "SFEA_* = %08X\n", sflags);
    }
+   return flags&sflags;
 }
 
 int _std sys_is64mode(void) {
@@ -654,7 +793,7 @@ u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
 
    if (hlp_hosttype()==QSHT_EFI) {
       _try_ {
-         call64(EFN_MEMMOVE, 7, 3, dst, src, length);
+         call64(EFN_MEMMOVE, 7, 4, dst, src, length, 0);
       }
       _catch_(xcpt_all) {
          log_it(2,"Exception in sys_memhicopy(%09LX, %09LX, %Ld)\n", dst, src, length);
@@ -715,4 +854,109 @@ u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
       }
    }
    return 1;
+}
+
+static int      clockmod_aerr =  0;
+static int       clockmod_ext  = -1;
+extern u16t __stdcall IODelay;
+
+u32t _std hlp_cmgetstate(void) {
+   u32t  rc, value,
+       info = sys_isavail(SFEA_CMODT|SFEA_AMD);
+   if (clockmod_aerr || (info&SFEA_CMODT)==0) return 0;
+
+   if ((info&SFEA_AMD)) {
+      rc = hlp_getmsrsafe(MSR_AMD_PSTATE_LIMIT, &info, 0);
+      if (!rc) { clockmod_aerr = 1; return 0; }
+      rc = hlp_getmsrsafe(MSR_AMD_PSTATE_STATUS, &value, 0);
+      if (!rc) { clockmod_aerr = 1; return 0; }
+
+      info  = info>>4 & 0xF;
+      value = value&0xF;
+
+      if (16%(info+1)==0) info = 16/(info+1); else info = 1;
+      return 16-value*info;
+   } else {
+      if (clockmod_ext<0) {
+         u32t   idbuf[4];
+         hlp_getcpuid(6,idbuf);
+         // bit 5 in CPUID.06H:EAX
+         clockmod_ext = idbuf[0]&0x20?1:0;
+         log_it(3,"cm = %d\n", 3+clockmod_ext);
+      }
+      rc = hlp_getmsrsafe(MSR_IA32_CLOCKMODULATION, &value, 0);
+      if (!rc) { clockmod_aerr = 1; return 0; }
+
+      return value&0x10 ? value&0xF-(1-clockmod_ext) : CPUCLK_MAXFREQ;
+   }
+}
+
+u32t _std START_EXPORT(hlp_cmsetstate)(u32t state) {
+   u32t info = sys_isavail(SFEA_CMODT|SFEA_AMD), rc;
+
+   if (clockmod_aerr || (info&SFEA_CMODT)==0) return ENODEV;
+   if (!state || state>CPUCLK_MAXFREQ) return EINVAL;
+
+   if ((info&SFEA_AMD)) {
+      rc = hlp_getmsrsafe(MSR_AMD_PSTATE_LIMIT, &info, 0);
+      if (!rc) return ENODEV;
+
+      info = info>>4 & 0xF;
+      if (16%(info+1)==0) info = 16/(info+1); else info = 1;
+
+      rc = hlp_setmsrsafe(MSR_AMD_PSTATE_CONTROL, (CPUCLK_MAXFREQ-state)/info, 0);
+   } else {
+      rc = hlp_cmgetstate();
+
+      if (clockmod_ext<=0) {
+         state = state&~1;
+         if (!state) state = 2;
+      }
+      rc = state==CPUCLK_MAXFREQ ? 0x0E : 0x10 + state;
+      rc = hlp_setmsrsafe(MSR_IA32_CLOCKMODULATION, rc, 0);
+   }
+   if (rc) tm_calibrate();
+   return rc?0:ENODEV;
+}
+
+static void cm_restore(void) {
+   if (!sto_dword(STOKEY_CMMODE)) {
+      u32t state = hlp_cmgetstate();
+      if (state>0 && state<CPUCLK_MAXFREQ) hlp_cmsetstate(CPUCLK_MAXFREQ);
+   }
+}
+
+qs_mtlib get_mtlib(void) {
+   if (!mtlib) {
+      mtlib = NEW(qs_mtlib);
+      // disable trace for this instance
+      if (mtlib) exi_chainset(mtlib, 0);
+   }
+   // this can be NULL if no MTLIB.DLL in LDI archive
+   return mtlib;
+}
+
+u32t _std mt_initialize(void) {
+   qs_mtlib mt = get_mtlib();
+   if (!mt) return ELIBACC;
+   return mt->initialize();
+}
+
+u32t _std mt_active(void) {
+   qs_mtlib mt = get_mtlib();
+   return mt ? mt->active() : 0;
+}
+
+void setup_hardware(void) {
+   if (!sys_isavail(SFEA_CMODT)) log_it(3, "no cm\n"); else {
+      u32t cmv = hlp_cmgetstate();
+      if (!cmv) log_it(3, "failed to read cm\n"); else {
+         if (cmv<CPUCLK_MAXFREQ) {
+            cmv = 10000/CPUCLK_MAXFREQ*cmv;
+            log_it(0, "CPU at %u.%2.2u%%!!!\n", cmv/100, cmv%100);
+         }
+         exit_handler(&cm_restore, 1);
+      }
+   }
+   if (!cpu_phys_bits) init_baseinfo();
 }

@@ -371,6 +371,15 @@ u64t*  __stdcall memrchrnq(const u64t*mem, u64t chr, u32t buflen);
 // exchange data in two memory blocks
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
+/** string to uint. 
+    Unlike strtol() makes only hex & dec convertions, but not octal.
+    Pair str2long() function available in clib.h for int values */
+u32t  __stdcall str2ulong(const char *str);
+/// string to int64. The same as str2ulong()
+s64t  __stdcall str2int64(const char *str);
+/// string to uint64. The same as str2ulong()
+u64t  __stdcall str2uint64(const char *str);
+
 /** safe memcpy.
     Function makes a memmove(), but protected by exception handler.
     Optionally it allow copying from/to page 0 (this page mapped as read-only

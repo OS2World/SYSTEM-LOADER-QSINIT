@@ -7,6 +7,7 @@
 #include "seldesc.h"
 #include "qsinit.h"
 #include "qsbinfmt.h"
+#include "qspdata.h"
 
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
@@ -28,11 +29,14 @@ extern u16t    qsinit_size;
 extern
 MKBIN_HEADER  *pbin_header;
 extern u32t       highbase;     // base of 32bit object
-
+extern pmt_new     mt_init;
+extern pmt_exec    mt_exec;
+extern pmt_exit    mt_fini;
 
 // launch routines
 u32t launch32(module *md, u32t env, u32t cmdline);
 u32t dll32init(module *md, u32t term);
+mt_prcdata* mt_new(process_context *pq);
 int  _std mod_buildexps(module *mh, lx_exe_t *eh);
 
 static u32t mod_makeaddr(module *md, u32t Obj, u32t offset) {
@@ -160,6 +164,7 @@ u32t mod_query(const char *name, u32t searchtype) {
       slf->baseaddr = slf;
       slf->usage    = slf->objects = 1;
       slf->sign     = MOD_SIGN;
+      slf->flags    = MOD_SYSTEM;
       strcpy(slf->name,qsinit_str);
       slf->mod_path = slf->name;
       slf->exps     = (mod_export*)((u8t*)slf + sizeof(module));
@@ -174,7 +179,7 @@ u32t mod_query(const char *name, u32t searchtype) {
       while (*exp!=0xFFFF0000) {
          if (*exp>>16==0xFFFF) {
             auto u32t nord = *exp&0xFFFF;
-            if (nord==0xFFFF) noffs = 1; else ord = nord;
+            if (nord>=0xFFF0) noffs = -(s32t)*exp; else ord = nord;
          } else {
             auto mod_export *eptr = slf->exps+slf->exports;
             // check for zero offset - (re)moved function and ignore it
@@ -183,9 +188,9 @@ u32t mod_query(const char *name, u32t searchtype) {
 
                if (noffs) {
                   eptr->address = eptr->direct;
-                  noffs = 0;
+                  noffs--;
                } else {
-                  u8t *thunk = slf->thunks + ord*EXPORT_THUNK;
+                  u8t    *thunk = slf->thunks + ord*EXPORT_THUNK;
                   eptr->address = (u32t)thunk;
                   *thunk++      = 0xE9;
                   *(u32t*)thunk = eptr->direct - ((u32t)thunk+4);
@@ -352,7 +357,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
 
          rc=0;
          // setup selectors & base addr for objects
-         for (ii=0,selcount=0;ii<eh->e32_objcnt;ii++) {
+         for (ii=0,selcount=0; ii<eh->e32_objcnt; ii++) {
             u16t objsel = 0;
             u32t oflags = ot[ii].o32_flags;
             if (ot[ii].o32_reserved!=2)
@@ -436,23 +441,11 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
 
          log_misc(2, "%s: base %08X start %08X stack %08X\n", md->name, md->baseaddr,
             md->start_ptr, md->stack_ptr);
-       /*
-         e32_itermap;
-         e32_restab;
-         e32_impproc;
-         e32_nrestab;
-         e32_cbnrestab;
-         e32_autodata;
-         e32_instpreload;
-         e32_instdemand;
-         e32_heapsize;
-         e32_stacksize; */
-
       } while (false);
 
       // this module was first in recursive calls, so here we are done
       if (!rc&&md&&(md->flags&MOD_LOADER)!=0) {
-         u32t rci=mod_initterm_all(md,0,FFFF);
+         u32t rci = mod_initterm_all(md,0,FFFF);
          if (!rci) rc=MODERR_INITFAILED; else {
             // drop loader flags
             mod_listflags(mod_ilist,0,MOD_LOADING|MOD_LOADER);
@@ -793,11 +786,14 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    memset(_ctxmem, 0, sizeof(process_context));
    _ctxmem->size   = sizeof(process_context);
    _ctxmem->pid    = lastusedpid++;
+   _ctxmem->cmdline= cmdline;
    _ctxmem->envptr = envseg;
    _ctxmem->self   = md;
    _ctxmem->parent = svctx?svctx->self:0;
    _ctxmem->flags  = mod_secondary?0:PCTX_BIGMEM;
    _ctxmem->pctx   = svctx;
+   // allocates process data
+   _ctxmem->rtbuf[RTBUF_PROCDAT] = (u32t)mt_init(_ctxmem);
 
    // copying env/cmdline data
    if (envlen) memcpy(cmdline,env,envlen); else envlen=2;
@@ -816,7 +812,7 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
       // launch if this was not denied by callback
       if (!rc) {
          log_it(LOG_HIGH,"exec %s\n",md->mod_path);
-         rc = launch32(md,(u32t)envseg,(u32t)cmdline);
+         rc = mt_exec? mt_exec(_ctxmem): launch32(md,(u32t)envseg,(u32t)cmdline);
          
          if (mod_secondary) rc = mod_secondary->exit_cb(_ctxmem, rc);
       }
@@ -829,6 +825,8 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    }
    // is this NOT a first launched module?
    if (svctx) {
+      // free process data
+      mt_fini(_ctxmem);
       // free original env. segment
       if (mod_secondary) mod_secondary->memFree(envseg); else hlp_memfree(envseg);
       // free reallocated env. data
@@ -855,7 +853,8 @@ u32t mod_free(u32t mh) {
    // do not allow to free self while running
    if (pq && pq->self == md) return MODFERR_SELF;
    // block main modules final free
-   if ((md==mod_start || md==mod_self) && md->usage==1) return MODFERR_SYSTEM;
+   if ((md==mod_start || md==mod_self || (md->flags&MOD_SYSTEM)) && md->usage==1)
+      return MODFERR_SYSTEM;
    // dec usage
    if (--md->usage>0) return 0;
    log_printf("unload %s\n",md->mod_path);
@@ -935,7 +934,9 @@ int start_it() {
    // loading START module (this is DLL now, not EXE like it was until rev.287)
    mod_start = (module*)mod_load(MODNAME_START, 0, &err, 0);
    if (!mod_start) return err;
-   // delete START module from ramdisk to save space
+   // mark it as "system"
+   mod_start->flags |= MOD_SYSTEM;
+   // delete START module file from ramdisk to guarantee some free space
    f_unlink(MODNAME_START);
    // query "main" address
    stmain    = mod_findexport(mod_start, 189);

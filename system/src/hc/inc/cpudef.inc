@@ -80,6 +80,9 @@ CPUID_FI4_IA64        = 20000000h        ;/< IA64 Available
 CPUID_FI4_3DNOWEXT    = 40000000h        ;/< 3DNow! ext
 CPUID_FI4_3DNOW       = 80000000h        ;/< 3DNow!
 
+; AMD: eax = 80000007h, edx bits
+CPUID_FI5_TS          = 00000001h        ;/< Temperature sensor
+CPUID_FI5_PSTATE      = 00000080h        ;/< P-state control present
 
 CPU_EFLAGS_CF         = 00000001h        ;/< Carry flag
 CPU_EFLAGS_PF         = 00000004h        ;/< Parity flag
@@ -131,15 +134,58 @@ CPU_CR4_SMXE          = 00004000h        ;/< SMX enabling flag
 CPU_CR4_OSXSAVE       = 00040000h        ;/< another one extended states flag
 
 ; common MSRs
-MSR_IA32_PAT          = 00000277h        ;/< PAT attributes
-MSR_IA32_EFER         = 0C0000080h       ;/< extended feature enables
-MSR_IA32_STAR         = 0C0000081h       ;/< system call target address
-MSR_IA32_LSTAR        = 0C0000082h       ;/< x64 system call target address
-MSR_IA32_FMASK        = 0C0000084h       ;/< system call flag mask
-MSR_IA32_FS_BASE      = 0C0000100h       ;/< x64 FS base address
-MSR_IA32_GS_BASE      = 0C0000101h       ;/< x64 GS base address
-MSR_IA32_R0_GS_BASE   = 0C0000102h       ;/< x64 GS base address
-MSR_IA32_TSC_AUX      = 0C0000103h       ;/< CPU AUX value to RDTSCP
+MSR_IA32_APICBASE           = 001Bh
+MSR_IA32_MTRRCAP            = 00FEh
+MSR_IA32_EXT_CONFIG         = 00EEh
+MSR_IA32_CLOCKMODULATION    = 019Ah
+MSR_IA32_TEMPERATURE_TARGET = 01A2h
+MSR_IA32_SMRR_PHYSBASE      = 01F2h
+MSR_IA32_SMRR_PHYSMASK      = 01F3h
+MSR_IA32_MTRR_PHYSBASE0     = 0200h
+MSR_IA32_MTRR_PHYSMASK0     = 0201h
+MSR_IA32_MTRR_PHYSBASE1     = 0202h
+MSR_IA32_MTRR_PHYSMASK1     = 0203h
+MSR_IA32_MTRR_PHYSBASE2     = 0204h
+MSR_IA32_MTRR_PHYSMASK2     = 0205h
+MSR_IA32_MTRR_PHYSBASE3     = 0206h
+MSR_IA32_MTRR_PHYSMASK3     = 0207h
+MSR_IA32_MTRR_PHYSBASE4     = 0208h
+MSR_IA32_MTRR_PHYSMASK4     = 0209h
+MSR_IA32_MTRR_PHYSBASE5     = 020Ah
+MSR_IA32_MTRR_PHYSMASK5     = 020Bh
+MSR_IA32_MTRR_PHYSBASE6     = 020Ch
+MSR_IA32_MTRR_PHYSMASK6     = 020Dh
+MSR_IA32_MTRR_PHYSBASE7     = 020Eh
+MSR_IA32_MTRR_PHYSMASK7     = 020Fh
+MSR_IA32_MTRR_PHYSBASE8     = 0210h
+MSR_IA32_MTRR_PHYSMASK8     = 0211h
+MSR_IA32_MTRR_PHYSBASE9     = 0212h
+MSR_IA32_MTRR_PHYSMASK9     = 0213h
+MSR_IA32_MTRR_FIX64K_00000  = 0250h
+MSR_IA32_MTRR_FIX16K_80000  = 0258h
+MSR_IA32_MTRR_FIX16K_A0000  = 0259h
+MSR_IA32_MTRR_FIX4K_C0000   = 0268h
+MSR_IA32_MTRR_FIX4K_C8000   = 0269h
+MSR_IA32_MTRR_FIX4K_D0000   = 026Ah
+MSR_IA32_MTRR_FIX4K_D8000   = 026Bh
+MSR_IA32_MTRR_FIX4K_E0000   = 026Ch
+MSR_IA32_MTRR_FIX4K_E8000   = 026Dh
+MSR_IA32_MTRR_FIX4K_F0000   = 026Eh
+MSR_IA32_MTRR_FIX4K_F8000   = 026Fh
+MSR_IA32_PAT                = 0277h      ;/< PAT attributes
+MSR_IA32_MTRR_DEF_TYPE      = 02FFh
+
+MSR_IA32_EFER               = 0C0000080h ;/< extended feature enables
+MSR_IA32_STAR               = 0C0000081h ;/< system call target address
+MSR_IA32_LSTAR              = 0C0000082h ;/< x64 system call target address
+MSR_IA32_FMASK              = 0C0000084h ;/< system call flag mask
+MSR_IA32_FS_BASE            = 0C0000100h ;/< x64 FS base address
+MSR_IA32_GS_BASE            = 0C0000101h ;/< x64 GS base address
+MSR_IA32_R0_GS_BASE         = 0C0000102h ;/< x64 GS base address
+MSR_IA32_TSC_AUX            = 0C0000103h ;/< CPU AUX value to RDTSCP
+MSR_AMD_PSTATE_LIMIT        = 0C0010061h ;
+MSR_AMD_PSTATE_CONTROL      = 0C0010062h ;
+MSR_AMD_PSTATE_STATUS       = 0C0010063h ;
 
 ;MSR_IA32_EFER
 MSR_EFER_SYSCALL      = 00000001h        ;/< syscall enable
@@ -154,5 +200,34 @@ MSR_PAT_WT            = 004h             ;
 MSR_PAT_WP            = 005h             ;
 MSR_PAT_WB            = 006h             ;
 MSR_PAT_UCSTRONG      = 007h             ;
+
+; APIC offsets (in dwords!)
+APIC_APICID           = (0020h / 4)      ;
+APIC_APICVER          = (0030h / 4)      ;/< APIC version
+APIC_TASKPRIO         = (0080h / 4)      ;/< task priority register
+APIC_CPUPRIO          = (00A0h / 4)      ;/< processor priority register
+APIC_EOI              = (00B0h / 4)      ;
+APIC_LDR              = (00D0h / 4)      ;
+APIC_DFR              = (00E0h / 4)      ;
+APIC_SPURIOUS         = (00F0h / 4)      ;
+APIC_ISR_TAB          = (0100h / 4)      ;/< interrupt in-service register
+APIC_TMR_TAB          = (0180h / 4)      ;/< trigger mode register
+APIC_IRR_TAB          = (0200h / 4)      ;/< interrupt request register
+APIC_ESR              = (0280h / 4)      ;/< error status register
+APIC_ICRL             = (0300h / 4)      ;
+APIC_ICRH             = (0310h / 4)      ;
+APIC_LVT_TMR          = (0320h / 4)      ;
+APIC_LVT_THERM        = (0340h / 4)      ;
+APIC_LVT_PERF         = (0340h / 4)      ;
+APIC_LVT_LINT0        = (0350h / 4)      ;
+APIC_LVT_LINT1        = (0360h / 4)      ;
+APIC_LVT_ERR          = (0370h / 4)      ;
+APIC_TMRINITCNT       = (0380h / 4)      ;
+APIC_TMRCURRCNT       = (0390h / 4)      ;
+APIC_TMRDIV           = (03E0h / 4)      ;
+APIC_DISABLE          = 10000h           ;/< mask and disable int reg value
+APIC_SW_ENABLE        = 00100h           ;
+APIC_PENDING          = 01000h           ;/< interrupt pending
+APIC_DEF_ADDR         = 0FEE00000h       ;
 
 ;cc #endif // QS_BASE_CPUIDINFO

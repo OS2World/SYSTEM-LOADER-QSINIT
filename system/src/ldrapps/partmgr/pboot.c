@@ -2,13 +2,13 @@
 // QSINIT
 // partition management: mbr & boot sector code
 //
+#include "dpmi.h"              // must be before qsutil.h
 #include "stdlib.h"
 #include "qslog.h"
 #include "qsshell.h"
 #include "errno.h"
 #include "qsdm.h"
 #include "vio.h"
-#include "dpmi.h"
 #include "pscan.h"
 #include "hpfs/hpfs.h"         // for HPFSSEC_SUPERB only
 
@@ -121,17 +121,6 @@ int dsk_wipevbs(u32t disk, u64t sector) {
    return rc;
 }
 
-void runmbr(struct rmcallregs_s *regs);
-#ifdef __WATCOMC__
-#pragma aux runmbr = \
-   "mov   ax,301h"   \
-   "xor   bx,bx"     \
-   "xor   ecx,ecx"   \
-   "int   31h"       \
-   parm  [edi]       \
-   modify [eax ebx ecx];
-#endif // __WATCOMC__
-
 int _std exit_bootmbr(u32t disk, u32t flags) {
    if (hlp_hosttype()==QSHT_EFI) return ENOSYS; else
    if (disk&(QDSK_FLOPPY|QDSK_VOLUME)) return EINVAL; else {
@@ -167,7 +156,7 @@ int _std exit_bootmbr(u32t disk, u32t flags) {
       vio_clearscr();
       exit_prepare();
       hlp_fdone();
-      runmbr(&regs);
+      hlp_rmcallreg(-1, &regs, RMC_EXITCALL);
    }
    return 0;
 }
@@ -197,7 +186,7 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
          // use safe memcpy
          if (!hlp_memcpy(vbr_buffer, sector, sectsize, 0)) return EFAULT;
          bstype = dsk_datatype(vbr_buffer, sectsize, disk, start==0);
-      } else 
+      } else
          bstype = dsk_sectortype(disk, start, vbr_buffer);
 
       if (bstype==DSKST_ERROR) return EIO;
@@ -237,6 +226,12 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
          u32t *p_i13x = (u32t*)hlp_segtoflat(0x3000);
          *p_i13x = 0x58333149;
       }
+      /* makes Boot Manager happy:
+         this signature (in 7C00+200) forces it to use disk number from dl */
+      {
+         struct Disk_MBR *mbr = (struct Disk_MBR*)hlp_segtoflat(MBR_LOAD_ADDR+sectsize >> 4);
+         mbr->MBR_Reserved    = 0xCC33;
+      }
       // place to 0:07C00
       memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, br, sectsize);
       // setup DPMI
@@ -247,7 +242,7 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
       vio_clearscr();
       exit_prepare();
       hlp_fdone();
-      runmbr(&regs);
+      hlp_rmcallreg(-1, &regs, RMC_EXITCALL);
    }
    return 0;
 }
@@ -260,7 +255,7 @@ u32t _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0) {
       struct Boot_Record    *btw = (struct Boot_Record *)sectordata;
       struct Boot_RecordF32 *btd = (struct Boot_RecordF32 *)sectordata;
       u32t rc;
-      
+
       do {
          if (mbr->MBR_Signature==0xAA55) {
             u16t bps  = btw->BR_BPB.BPB_BytePerSect;
@@ -290,7 +285,7 @@ u32t _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0) {
             rc = bpb?DSKST_BOOTBPB:DSKST_BOOT;
          } else {
             struct Disk_GPT *pt = (struct Disk_GPT *)sectordata;
-      
+
             if (pt->GPT_Sign==GPT_SIGNMAIN && pt->GPT_PtEntrySize==GPT_RECSIZE &&
                pt->GPT_HdrSize>=sizeof(struct Disk_GPT)) rc = DSKST_GPTHEAD;
             else
@@ -510,9 +505,9 @@ int dsk_printbpb(u32t disk, u64t sector) {
    } else {
       strncpy(fstype,(char*)&br->BR_EBPB.EBPB_FSType,8);
       if (!*fstype) {
-         if (strncmp(br->BR_OEM,"NTFS",4)==0) 
+         if (strncmp(br->BR_OEM,"NTFS",4)==0)
             { strcpy(fstype,"NTFS"); IsLong = 1; } else
-         if (strnicmp(br->BR_OEM,"EXFAT",5)==0) 
+         if (strnicmp(br->BR_OEM,"EXFAT",5)==0)
             { strcpy(fstype,"exFAT"); IsLong = 1; }
       }
       SectPerFat = br->BR_BPB.BPB_SecPerFAT;
@@ -533,8 +528,8 @@ int dsk_printbpb(u32t disk, u64t sector) {
       shellprn("    Sect Per Track        %5d         Heads                 %5d",
          br->BR_BPB.BPB_SecPerTrack, br->BR_BPB.BPB_Heads) ||
       shellprn("    Hidden Sectors     %08X         Total Sectors (L)  %08X",
-         br->BR_BPB.BPB_HiddenSec, br->BR_BPB.BPB_TotalSecBig) || 
-      IsLong && shellprn("    Total Sectors (Q)  %012LX", 
+         br->BR_BPB.BPB_HiddenSec, br->BR_BPB.BPB_TotalSecBig) ||
+      IsLong && shellprn("    Total Sectors (Q)  %012LX",
          ((struct Boot_RecordNT*)br)->BR_NT_TotalSec))
       return EINTR;
    return 0;

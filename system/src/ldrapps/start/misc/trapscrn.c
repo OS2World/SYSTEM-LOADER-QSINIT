@@ -43,7 +43,8 @@ static char *trapinfo1="EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfoE="R14=%016LX  R15=%016LX  RBP=%016LX",
             *trapinfoF="DR6=%08X DR7=%08X ",
             *trapinfoG="CR3=%016LX  GS.=%016LX  FS.=%016LX",
-            *trapinfoH="RIP=%016LX  RSP=%016LX";
+            *trapinfoH="RIP=%016LX  RSP=%016LX",
+            *trapinfoI="Check failure for module \"%s\", PID %d";
 
 static char *trapname[19]={"Divide Error Fault", "Step Fault", "",
    "Breakpoint Trap", "Overflow Trap", "BOUND Range Exceeded Fault",
@@ -52,8 +53,9 @@ static char *trapname[19]={"Divide Error Fault", "Step Fault", "",
    "General Protection Fault", "Page Fault", "", "FPU Floating-Point Error",
    "Alignment Check Fault", "Machine Check Abort"};
 
-static char *softname[4]={"Exception stack broken", "Exit hook failed",
-   "Unsupported exit() in dll module", "Shared class list damaged"};
+static char *softname[5]={"Exception stack broken", "Exit hook failed",
+   "Unsupported exit() in dll module", "Shared class list damaged",
+   "Process data structures damaged"};
 
 void draw_border(u32t x,u32t y,u32t dx,u32t dy,u32t color) {
    u32t ii,jj;
@@ -123,11 +125,20 @@ static void reset_video(void) {
    vio_clearscr();
 }
 
+static void stop_timer(void) {
+   u32t *apic = (u32t*)sys_getlapic();
+   if (apic) apic[APIC_LVT_TMR] = APIC_DISABLE;
+}
+
 static const char *get_trap_name(struct tss_s *ti) {
    if (ti->tss_reservdbl<19) return trapname[ti->tss_reservdbl]; else
-   if (ti->tss_reservdbl>=xcpt_exierr)
+   if (ti->tss_reservdbl>=xcpt_prcerr)
       return softname[xcpt_invalid-ti->tss_reservdbl];
    return "";
+}
+
+static const char *get_fnline_fmt(struct tss_s *ti) {
+   return ti->tss_reservdbl==xcpt_prcerr?trapinfoI:trapinfo5;
 }
 
 static void get_flags_str(char *str, u32t flags) {
@@ -143,6 +154,7 @@ static void get_flags_str(char *str, u32t flags) {
 void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    u32t   height = 11;
 
+   stop_timer();
    reset_video();
 
    combuf[0] = '\n';
@@ -175,7 +187,7 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    trap_out(buffer);
    vio_setshape(0x20,0);
    if (file) {
-      snprintf(buffer, PRNBUF_SIZE, trapinfo5, file, line);
+      snprintf(buffer, PRNBUF_SIZE, get_fnline_fmt(ti), file, line);
       vio_setpos(10,3);
       trap_out(buffer);
    }
@@ -224,6 +236,7 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
    u32t   height = 14, b_gs[2], b_fs[2];
    char *exctext = "";
 
+   stop_timer();
    reset_video();
 
    combuf[0] = '\n';
@@ -281,12 +294,12 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
       u32t   pass;
       hlp_seroutstr(combuf);
       for (pass=0; pass<2; pass++) {
-         u8t  buffer[28];
+         u8t  buffer[32];
          u32t   rdok = sys_memhicopy((u32t)& buffer, pass?xd->x64_rsp:
-                                     xd->x64_rip, 28);
+                                     xd->x64_rip, 32);
          snprintf(combuf, COMBUF_SIZE, pass?"RSP ":"RIP ");
          if (rdok)
-            snprintf(combuf+4, COMBUF_SIZE-4, pass?"%7lb":"%28b", buffer);
+            snprintf(combuf+4, COMBUF_SIZE-4, pass?"%8lb":"%28b", buffer);
          else
             strcpy(combuf+4, "access error");
          strncat(combuf, "\n", COMBUF_SIZE);

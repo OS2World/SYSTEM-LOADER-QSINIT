@@ -1,0 +1,50 @@
+type = dll
+name = "ZLIB"
+
+exports = {
+   _zlibVersion       = { index =  1  group="zbase"  format="sv"        }
+   _zlibCompileFlags  = { index =  2  group="zbase"  format="@uv"       }
+   
+   _deflateInit_      = { index = 10  group="zbase"  format="ipisi"     }
+   _inflateInit_      = { index = 11  group="zbase"  format="ipsi"      }
+   _deflateInit2_     = { index = 12  group="zbase"  format="ipiiiiisi" }
+   _inflateInit2_     = { index = 13  group="zbase"  format="ipisi"     }
+   _inflateBackInit_  = { index = 14  group="zbase"  format="ipipsi"    }
+   _deflate           = { index = 15  group="zbase"  format="ipi"       }
+   _inflate           = { index = 16  group="zbase"  format="ipi"       }
+   _deflateEnd        = { index = 17  group="zbase"  format="ip"        }
+   _inflateEnd        = { index = 18  group="zbase"  format="ip"        }
+
+   # deflate optional
+   _deflateSetDictionary = 
+                        { index = 20  group="zdopt"  format="ippu"      }
+   _deflateCopy       = { index = 21  group="zdopt"  format="ipp"       }
+   _deflateReset      = { index = 22  group="zdopt"  format="ip"        }
+   _deflateParams     = { index = 23  group="zdopt"  format="ipii"      }
+   _deflateTune       = { index = 24  group="zdopt"  format="ipiiii"    }
+   _deflateBound      = { index = 25  group="zdopt"  format="upu"       }
+   _deflatePending    = { index = 26  group="zdopt"  format="ip&*u&*i"  }
+   _deflatePrime      = { index = 27  group="zdopt"  format="ipii"      }
+   _deflateSetHeader  = { index = 28  group="zdopt"  format="ipp"       }
+
+   # inflate optional
+   _inflateSetDictionary =
+                        { index = 30  group="ziopt"  format="ippu"      }
+   _inflateGetDictionary =
+                        { index = 31  group="ziopt"  format="ipp&*u"    }
+   _inflateSync       = { index = 32  group="ziopt"  format="ip"        }
+   _inflateCopy       = { index = 33  group="ziopt"  format="ipp"       }
+   _inflateReset      = { index = 34  group="ziopt"  format="ip"        }
+   _inflateReset2     = { index = 35  group="ziopt"  format="ipi"       }
+   _inflatePrime      = { index = 36  group="ziopt"  format="ipii"      }
+   _inflateMark       = { index = 37  group="ziopt"  format="@up"       }
+   _inflateGetHeader  = { index = 38  group="ziopt"  format="ipp"       }
+   _inflateBack       = { index = 39  group="ziopt"  format="ippppp"    }
+   _inflateBackEnd    = { index = 40  group="ziopt"  format="ip"        }
+
+   # high level
+   _compress          = { index = 50  group="ztop"   format="ip*!upu"   }
+   _compress2         = { index = 51  group="ztop"   format="ip*!upui"  }
+   _compressBound     = { index = 52  group="ztop"   format="uu"        }
+   _uncompress        = { index = 53  group="ztop"   format="ip*!upu"   }
+}

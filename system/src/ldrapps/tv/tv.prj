@@ -16,18 +16,17 @@ ld=@wlink
      $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cc) $(cinc) $(cflags)$* $(*cur_name)
+     $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
 
 *cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
-     $(cpp) $(cinc) $(cppflags)$* $(*cur_name)
+     $(cpp) $(cinc) $(cppflags)$*.obj $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
-cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
-       -fi=%(appinit_lib)\initdef.h -DMAXSTR=1024 \
+cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) -DMAXSTR=1024 \
        -u__OS2__ -u__NT__ -u__MSDOS__ -u__DOS32__ \
        -i=hc -DNO_TV_STREAMS -DNT_CDECL= -fo=
 
@@ -52,17 +51,17 @@ $(outdir) : .DIRECTORY
 MAKEDIRS : $(outdir)
 
 hello : .SYMBOLIC
-    @echo Building $(name)...
+    echo Building $(name)...
 
 nolink : MAKEDIRS hello @@wait $(**c) $(**cpp)
 
 clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
-    @echo Cleaning $(name)...
+    echo Cleaning $(name)...
 
 [&rsp1]
 $(**c) $(**cpp)
 
 [config.0]
 *out=$(outname) | nolink | \
-     @echo Creating lib... | \
+     echo Creating lib... | \
      $(lib) -b -n -q $* @$(&rsp1)

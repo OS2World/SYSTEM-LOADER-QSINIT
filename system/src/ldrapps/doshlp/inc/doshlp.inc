@@ -74,6 +74,7 @@ EDDTabOfs       dw      ?                                       ; offset of edd 
 DFTabOfs        dw      ?                                       ; offset of disk flags
 Pswcode         dw      ?                                       ; offset of swcode variable
 Ppaeppd         dw      ?                                       ; offset of paeppd variable
+ClockMod        dw      ?                                       ; clock modulation value
 ExportFixupData ends
 
 ; ExportFixupData.Flags bits
@@ -83,6 +84,7 @@ EXPF_DISCARDED  equ     4                                       ; Boot part was 
 EXPF_TWODSKBOOT equ     8                                       ; Two disk boot
 EXPF_FULLCABLE  equ    10h                                      ; COM port full cable option active
 EXPF_COMINITED  equ    20h                                      ; COM port inited at least once
+EXPF_AMDCPU     equ    40h                                      ; this is AMD CPU
 
 KernelAccess    struc                                           ;
 ; AllocGDT call:                                                ;

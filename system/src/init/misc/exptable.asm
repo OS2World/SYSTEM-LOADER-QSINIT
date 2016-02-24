@@ -155,6 +155,8 @@
                 extrn   _hlp_seroutset  :near
                 extrn   _vio_intensity  :near
                 extrn   _sys_setcr3     :near
+                extrn   _sys_tmirq32    :near
+                extrn   _sys_tmirq64    :near
                 extrn   _sys_settr      :near
                 extrn   _mod_apidirect  :near
                 extrn   _mod_findexport :near
@@ -204,6 +206,15 @@
                 extrn   _sys_selquery   :near
                 extrn   _hlp_setcpinfo  :near
                 extrn   _hlp_diskstruct :near
+                extrn   _exit_restirq   :near
+                extrn   _hlp_rmcallreg  :near
+                extrn   _sys_rmtstat    :near
+                extrn   _mt_yield       :near
+                extrn   _sys_setyield   :near
+                extrn   _hlp_tscread    :near
+                extrn   _hlp_tscin55ms  :near
+                extrn   _exit_inprocess :near
+                extrn   _mt_setextcb    :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -212,6 +223,12 @@ endm
 
 next_is_offset macro                                            ;
                 dd      0FFFFFFFFh                              ;
+endm
+
+next_offsets macro cnt                                          ; must be <16
+                db      0 - cnt                                 ;
+                db      0FFh                                    ;
+                dw      0FFFFh                                  ;
 endm
 
 ; export table. up to 254 exports.
@@ -223,11 +240,11 @@ _DATA           segment
 _exptable_data:
                 nextord <1>                                     ;
                 dd      offset _exit_pm32                       ;
-                dd      0                                       ; rmcall32 was here
+                dd      offset _hlp_rmcallreg                   ;
                 dd      offset _hlp_rmcall                      ;
                 dd      offset _int12mem                        ;
                 next_is_offset                                  ;
-                dd      offset _aboutstr                        ;
+                dd      offset _aboutstr                        ; *
                 dd      offset _hlp_querybios                   ;
                 dd      offset _exit_pm32s                      ;
                 dd      offset _sys_setcr3                      ;
@@ -243,9 +260,10 @@ _exptable_data:
                 dd      offset _sto_init                        ;
                 dd      offset _hlp_seroutset                   ;
                 dd      offset _log_vprintf                     ;
+                dd      offset _hlp_tscread                     ; #19
 ;----------------------------------------------------------------
-                nextord <20>                                    ;
-                dd      offset _hlp_memalloc                    ;
+;                nextord <20>                                    ;
+                dd      offset _hlp_memalloc                    ; #20
                 dd      offset _hlp_memfree                     ;
                 dd      offset _hlp_memrealloc                  ;
                 dd      offset _hlp_memavail                    ;
@@ -348,19 +366,17 @@ _exptable_data:
                 nextord <120>                                   ;
                 dd      offset _int15mem                        ;
                 dd      offset _exit_poweroff                   ;
-                dd      0                                       ;
+                dd      offset _exit_restirq                    ;
                 dd      0                                       ;
                 next_is_offset                                  ;
-                dd      offset _BootBPB                         ;
+                dd      offset _BootBPB                         ; *
                 dd      offset _hlp_runcache                    ;
                 dd      offset _exit_reboot                     ;
                 dd      offset _exit_restart                    ;
-                next_is_offset                                  ;
-                dd      offset _minifsd_ptr                     ;
-                next_is_offset                                  ;
-                dd      offset _IODelay                         ;
-                next_is_offset                                  ;
-                dd      offset _page0_fptr                      ;
+                next_offsets <3>                                ;
+                dd      offset _minifsd_ptr                     ; *
+                dd      offset _IODelay                         ; *
+                dd      offset _page0_fptr                      ; *
                 dd      offset _exit_prepare                    ;
                 dd      offset _exit_handler                    ;
                 dd      offset _hlp_boottype                    ;
@@ -384,6 +400,13 @@ _exptable_data:
                 dd      offset _sys_seldesc                     ;
                 dd      offset _sys_selquery                    ;
                 dd      offset _sys_setxcpt64                   ;
+                dd      offset _sys_tmirq32                     ;
+                dd      offset _sys_tmirq64                     ;
+                dd      offset _sys_rmtstat                     ;
+                dd      offset _mt_yield                        ;
+                dd      offset _sys_setyield                    ;
+                dd      offset _exit_inprocess                  ;
+                dd      offset _mt_setextcb                     ;
 ;----------------------------------------------------------------
                 nextord <160>                                   ;
                 dd      offset _mod_load                        ;
@@ -391,12 +414,10 @@ _exptable_data:
                 dd      offset _mod_getfuncptr                  ;
                 dd      offset _mod_exec                        ;
                 dd      offset _mod_free                        ;
-                next_is_offset                                  ;
-                dd      offset _mod_secondary                   ;
-                next_is_offset                                  ;
-                dd      offset _mod_list                        ;
-                next_is_offset                                  ;
-                dd      offset _mod_ilist                       ;
+                next_offsets <3>                                ;
+                dd      offset _mod_secondary                   ; *
+                dd      offset _mod_list                        ; *
+                dd      offset _mod_ilist                       ; *
                 dd      offset _mod_listadd                     ;
                 dd      offset _mod_listdel                     ;
                 dd      offset _mod_listlink                    ;
@@ -423,6 +444,8 @@ _exptable_data:
                 dd      offset _vio_beepactive                  ;
                 dd      offset _tm_setdate                      ;
                 dd      offset _tm_calibrate                    ;
+                dd      0                                       ;
+                dd      offset _hlp_tscin55ms                   ;
 ;----------------------------------------------------------------
                 nextord <200>                                   ;
                 dd      offset _vio_getshape                    ;
@@ -434,7 +457,7 @@ _exptable_data:
                 dd      offset _vio_writebuf                    ;
                 dd      offset _vio_readbuf                     ;
                 next_is_offset                                  ;
-                dd      offset _vio_ttylines                    ;
+                dd      offset _vio_ttylines                    ; *
 ;----------------------------------------------------------------
                 nextord <210>                                   ;
                 dd      offset _hlp_diskcount                   ;
@@ -452,14 +475,15 @@ _exptable_data:
                 dd      offset _hlp_diskstruct                  ;
 ;----------------------------------------------------------------
                 nextord <230>                                   ;
-                dd      offset __U8D                            ;
-                dd      offset __I8D                            ;
-                dd      offset __U8RS                           ;
-                dd      offset __U8LS                           ;
-                dd      offset __I8RS                           ;
-                dd      offset __I8LS                           ;
-                dd      offset __U8M                            ;
-                dd      offset __I8M                            ;
+                next_offsets <8>                                ;
+                dd      offset __U8D                            ; * all __int64
+                dd      offset __I8D                            ; * ops are not
+                dd      offset __U8RS                           ; * chunked
+                dd      offset __U8LS                           ; *
+                dd      offset __I8RS                           ; *
+                dd      offset __I8LS                           ; *
+                dd      offset __U8M                            ; *
+                dd      offset __I8M                            ; *
                 dd      offset __prt_common                     ;
                 dd      offset _wcslen                          ;
                 dd      offset _memsetq                         ;

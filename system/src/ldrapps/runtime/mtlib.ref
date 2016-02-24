@@ -1,0 +1,15 @@
+type = dll
+name = "MTLIB"
+
+exports = {
+   _mt_createthread     = { index = 10  group="mt"     format="up@up"   }
+   _mt_exitthread       = { index = 11  group="mt"     format="Vu"      }
+}
+
+class = {
+   name = "qs_mtlib"
+   entires = {
+      initialize   = "up"
+      state        = "up"
+   }
+}

@@ -49,10 +49,11 @@ _vio_beep       proc near
                 and     al,SPEAKER_MASK_OFF                     ;
                 out     SPEAKER_PORT,al                         ;
 @@vbeep_nosound:
-                mov     al,10110110b                            ; timer 2/LSB/MSB/binary
+                mov     al,SC_CNT2 or RW_LSBMSB or CM_MODE3     ; timer 2/LSB/MSB/binary
                 out     PORT_CW,al                              ;
                 mov     eax,TIMERFREQ                           ;
                 div     esi                                     ; divide to frequency
+                and     al,0FEh                                 ; mask odd value
                 out     PORT_CNT2,al                            ; write to timer
 
                 xor     edx,edx                                 ;

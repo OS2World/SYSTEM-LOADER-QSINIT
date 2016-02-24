@@ -18,6 +18,7 @@
 
                 extrn   _strlen:near                            ;
                 extrn   _vio_charout:near                       ;
+                extrn   _tm_getdate:near                        ;
 
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
@@ -152,7 +153,7 @@ _log_buffer     proc    near                                    ;
 @@lb_logmsg     =  8                                            ;
                 push    [esp+@@lb_logmsg]                       ;
                 call    _strlen                                 ;
-                mov     ecx,LOGBUF_SIZE-3                       ;
+                mov     ecx,LOGBUF_SIZE-3-4                     ;
                 movzx   edx,_logrmpos                           ;
                 sub     ecx,edx                                 ;
                 jc      @@lb_putfailed                          ;
@@ -166,11 +167,19 @@ _log_buffer     proc    near                                    ;
                 jz      @@logbuf_start                          ; no, skip final zero
                 inc     edi                                     ; from previous line
 @@logbuf_start:
-                mov     eax,[esp+@@lb_loglevel+4]               ; log flags
+                push    ecx                                     ; get current time
+                call    _tm_getdate                             ;
+                pop     ecx                                     ;
+                mov     edx,[esp+@@lb_loglevel+4]               ; log flags
+                jnc     @@logbuf_oddsecond                      ;
+                or      dl,4                                    ; LOGIF_SECOND
+@@logbuf_oddsecond:
                 inc     ecx                                     ;
                 push    esi                                     ;
                 mov     esi,[esp+@@lb_logmsg+8]                 ;
-                stosb                                           ; copying message
+                mov     [edi],dl                                ; copying message
+                inc     edi                                     ;
+                stosd                                           ;
             rep movsb                                           ;
                 sub     edi,_logrmbuf                           ;
                 dec     edi                                     ; last 0 is not

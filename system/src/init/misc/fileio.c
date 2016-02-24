@@ -1,3 +1,7 @@
+//
+// QSINIT
+// volume / micro-FSD api file i/o
+//
 #include "clib.h"
 #include "qsint.h"
 #include "qsinit.h"

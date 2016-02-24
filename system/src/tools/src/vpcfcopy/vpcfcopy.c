@@ -7,6 +7,7 @@
 #include "ffconf.h"
 #undef  _USE_LFN
 #define _USE_LFN 0
+#undef  _WIN32
 #include "ff.h"
 #include "diskio.h"
 #include <sys/stat.h>

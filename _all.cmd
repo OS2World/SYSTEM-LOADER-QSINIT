@@ -5,7 +5,7 @@
 @echo off
 
 if exist system\src\setup.cmd goto installed
-rem actually, user must prepare it
+rem actually, user should prepare it
 copy system\src\setup.cmd.template system\src\setup.cmd > nul
 :installed
 

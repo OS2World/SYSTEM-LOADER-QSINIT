@@ -16,13 +16,16 @@
                 extrn   _gdt_lowest:word                        ; lowest usable selector
                 extrn   _page0_fptr:dword                       ;
 ifndef EFI_BUILD
-                extrn   _syscr3    :dword                       ;
-                extrn   _syscr4    :dword                       ;
-                extrn   _systr     :word                        ;
+                extrn   _syscr3      :dword                     ;
+                extrn   _syscr4      :dword                     ;
+                extrn   _systr       :word                      ;
+                extrn   apic_tmr_rcnt:word                      ;
+                extrn   apic_tmr_reoi:word                      ;
+                extrn   _rtdsc_present:byte                     ;
 else
-                extrn   setseldesc :near                        ;
-                extrn   getseldesc :near                        ;
-                extrn   selfree    :near                        ;
+                extrn   setseldesc   :near                      ;
+                extrn   getseldesc   :near                      ;
+                extrn   selfree      :near                      ;
 endif
                 extrn   _vio_bufcommon:near                     ;
 
@@ -38,6 +41,7 @@ else
                 public  _pbin_header                            ;
 _pbin_header    dd      0                                       ;
 endif
+yield_func      dd      0                                       ;
 _DATA           ends                                            ;
 
 _TEXT           segment
@@ -630,37 +634,90 @@ _hlp_selalloc   endp                                            ;
 
 ; get interrupt vector
 ;----------------------------------------------------------------
-; void _std sys_getint(u8t vector, u64t *addr);
+; u32t _std sys_getint(u8t vector, u64t *addr);
                 public  _sys_getint
 _sys_getint     proc    near
                 push    ebx                                     ;
-                mov     ax,0204h                                ;
-                mov     bl,[esp+8]                              ;
-                int     31h                                     ; get interrupt
-                mov     ebx,[esp+12]                            ;
+                push    edi                                     ;
+                pushfd                                          ;
+                cli                                             ;
+
+                movzx   ebx,byte ptr [esp+16]                   ; vector
+                lea     edi,[ebx*8]                             ;
+                sub     esp,8                                   ;
+                sidt    [esp]                                   ;
+                add     edi,[esp].lidt_base                     ; descriptor addr
+                add     esp,8                                   ; in edi
+
+                movzx   eax,[edi].g_access                      ;
+                and     al,3                                    ;
+                cmp     al,1                                    ; task gate?
+                jz      @@sgint_taskgate                        ;
+                push    eax                                     ;
+                mov     ax,0204h                                ; get interrupt
+                int     31h                                     ; in this way because of
+                pop     eax                                     ; special int 3 handling
                 movzx   ecx,cx                                  ;
+                jmp     @@sgint_exit                            ;
+@@sgint_taskgate:
+                xor     ecx,ecx                                 ;
+                movzx   edx,word ptr [edi+2].g_handler          ; get tss selector
+@@sgint_exit:
+                mov     ebx,[esp+20]                            ; "addr" in ebx
                 mov     [ebx],edx                               ;
                 mov     [ebx+4],ecx                             ;
+
+                popfd                                           ;
+                pop     edi                                     ;
                 pop     ebx                                     ;
                 ret     8                                       ;
 _sys_getint     endp
 
 ; set interrupt vector.
 ;----------------------------------------------------------------
-; u32t _std sys_setint(u8t vector, u64t *addr);
+; int _std sys_setint(u8t vector, u64t *addr, u32t type);
                 public  _sys_setint
 _sys_setint     proc    near
-                mov     edx,[esp+8]                             ;
+                movzx   ecx,byte ptr [esp+12]                   ; for jecxz below
+                cmp     cl,1                                    ;
+                setnz   al                                      ; task gate? then error
+                jz      @@sgint_exit2                           ;
+                cmp     cl,4                                    ; > SINT_TRAPGATE
+                setc    al                                      ;
+                jnc     @@sgint_exit2                           ;
+                mov     edx,[esp+8]                             ; addr in edx
+                pushfd                                          ;
+                cli                                             ;
                 push    ebx                                     ;
+                push    ecx                                     ;
+
                 mov     ax,0205h                                ;
-                mov     bl,[esp+8]                              ;
+                mov     bl,[esp+16]                             ; vector
                 mov     cx,[edx+4]                              ;
                 mov     edx,[edx]                               ;
                 int     31h                                     ; set interrupt
-                setnc   al                                      ;
-                movzx   eax,al                                  ;
+                pop     ecx                                     ;
                 pop     ebx                                     ;
-                ret     8                                       ;
+                jc      @@sgint_exit1                           ; error?
+                jecxz   @@sgint_exit1                           ; default type?
+
+                movzx   edx,byte ptr [esp+8]                    ; set gate type
+                shl     edx,3                                   ;
+                sub     esp,8                                   ;
+                sidt    [esp]                                   ;
+                add     edx,[esp].lidt_base                     ; descriptor addr
+                add     esp,8                                   ; in ebx
+
+                mov     al,[edx].g_access                       ; update descriptor
+                and     al,not 3                                ; type
+                or      al,cl                                   ;
+                mov     [edx].g_access,al                       ; CF cleared here
+@@sgint_exit1:
+                setnc   al                                      ;
+                popfd                                           ; enable interrupts
+@@sgint_exit2:
+                movzx   eax,al                                  ;
+                ret     12                                      ;
 _sys_setint     endp
 endif ; EFI_BUILD
 
@@ -816,7 +873,7 @@ _sys_intstate   proc    near                                    ;
                 pop     eax                                     ;
                 shr     eax,9                                   ;
                 and     eax,1                                   ;
-                cmp     dword ptr [esp],0                       ;
+                cmp     dword ptr [esp+4],0                     ;
                 jz      @@fxints_off                            ;
                 sti                                             ;
                 ret     4                                       ;
@@ -919,6 +976,11 @@ _sys_intgate    endp
 
 ;----------------------------------------------------------------
 ;u32t launch32(module *md,u32t env,u32t cmdline);
+;----------------------------------------------------------------
+; warning! any pushes here after pushfd are assumed by MTLIB code!
+; this stack structure used to catch/replace existing modules exiting
+; duaring MTLIB activation.
+;
                 public  _launch32
 _launch32       proc    near
 @@md            =  4                                            ;
@@ -930,15 +992,17 @@ _launch32       proc    near
                 push    esi                                     ;
                 push    edi                                     ;
                 push    ebp                                     ;
+                pushfd                                          ;
 
-                mov     esi,[esp+16+@@md]                       ;
-                mov     ecx,[esp+16+@@env]                      ;
-                mov     edx,[esp+16+@@cmdline]                  ;
+                mov     esi,[esp+20+@@md]                       ;
+                mov     ecx,[esp+20+@@env]                      ;
+                mov     edx,[esp+20+@@cmdline]                  ;
 
                 xor     eax,eax                                 ;
                 xor     ebx,ebx                                 ;
                 xor     edi,edi                                 ;
 
+                push    offset @@l32exit                        ;
                 mov     ebp,esp                                 ; switching to the
                 mov     esp,[esi+12]                            ; app stack
                 push    ebp                                     ;
@@ -964,12 +1028,14 @@ _launch32       proc    near
                 add     cx,SEL_INCR                             ; restore ds/es
                 mov     es,cx                                   ;
                 mov     ds,cx                                   ;
-                cld                                             ;
-                sti                                             ;
                 xor     cx,cx                                   ; reset fs/gs
                 mov     fs,cx                                   ;
                 mov     gs,cx                                   ;
-
+                ret                                             ; go to next line
+@@l32exit:
+                popfd                                           ; but mtlib jumps
+                cld                                             ; here directly
+                sti                                             ;
                 pop     ebp                                     ;
                 pop     edi                                     ;
                 pop     esi                                     ;
@@ -1231,9 +1297,19 @@ msr_avail       proc    near
                 call    _hlp_getcpuid                           ; cpu id
                 add     esp,12                                  ;
                 pop     ecx                                     ;
+                test    al,1                                    ;
+                jz      @@msrchk_ret                            ;
+
+                test    ecx,CPUID_FI2_TSC                       ; set rdtsc too
+                jz      @@msrchk_msr                            ;
+                or      msr_supported,4                         ;
+ifndef EFI_BUILD
+                mov     _rtdsc_present,1                        ;
+endif
+@@msrchk_msr:
                 test    ecx,CPUID_FI2_MSR                       ;
                 jz      @@msrchk_ret                            ;
-                or      msr_supported,al                        ;
+                or      msr_supported,1                         ;
 @@msrchk_ret:
                 setnz   al                                      ;
                 popfd                                           ;
@@ -1281,6 +1357,30 @@ _hlp_writemsr   proc    near
 _hlp_writemsr   endp
 
 ;----------------------------------------------------------------
+; u64t _std hlp_tscread(void);
+                public  _hlp_tscread
+_hlp_tscread    proc    near                                    ;
+                pushfd                                          ;
+                cli                                             ;
+@@rdtsc_rep:
+                test    msr_supported,4                         ; present?
+                jnz     @@rdtsc_avail                           ;
+                test    msr_supported,2                         ; first time call?
+                jz      @@rdtsc_486                             ;
+                call    msr_avail                               ;
+                jmp     @@rdtsc_rep                             ;
+@@rdtsc_avail:
+                rdtsc                                           ;
+                popfd                                           ;
+                ret                                             ;
+@@rdtsc_486:
+                xor     eax,eax                                 ;
+                xor     edx,edx                                 ;
+                popfd                                           ;
+                ret                                             ;
+_hlp_tscread    endp                                            ;
+
+;----------------------------------------------------------------
 ; void _std cpuhlt(void);
                 public  _cpuhlt
 _cpuhlt         proc    near                                    ;
@@ -1323,6 +1423,43 @@ _sys_settr      proc    near                                    ;
 _sys_settr      endp
 
 ;----------------------------------------------------------------
+; u32t _std sys_rmtstat(void);
+                public  _sys_rmtstat
+_sys_rmtstat    proc    near                                    ;
+                xor     eax,eax                                 ; 
+ifndef EFI_BUILD
+                xchg    ax,apic_tmr_rcnt                        ; read counters
+                rol     eax,16                                  ; and zero it
+                xchg    ax,apic_tmr_reoi                        ;
+endif
+                ret                                             ;
+_sys_rmtstat    endp                                            ;
+
+; void _std mt_yield(void);
+;----------------------------------------------------------------
+; preserve flags because called from rmcall exit.
+; i.e. this is pure thread switiching point, which saves all.
+                public  _mt_yield                               ;
+_mt_yield       proc    near                                    ;
+                push    ecx                                     ;
+                mov     ecx,yield_func                          ;
+                jecxz   @@mtyield_no_cb                         ;
+                call    ecx                                     ;
+@@mtyield_no_cb:
+                pop     ecx                                     ;
+                ret                                             ;
+_mt_yield       endp                                            ;
+
+;----------------------------------------------------------------
+;void* _std sys_setyield(void *func);
+                public  _sys_setyield                           ;
+_sys_setyield   proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                xchg    yield_func,eax                          ; cli this op!
+                ret     4                                       ;
+_sys_setyield   endp                                            ;
+
+;----------------------------------------------------------------
 ;u32t _std hlp_hosttype(void);
                 public  _hlp_hosttype
 _hlp_hosttype   proc    near                                    ;
@@ -1345,8 +1482,9 @@ _call64         proc    near                                    ;
                 ret                                             ;
 _call64         endp                                            ;
 
-                public  _sys_setxcpt64                          ;
+                public  _sys_setxcpt64, _sys_tmirq64            ;
 _sys_setxcpt64  proc    near                                    ;
+_sys_tmirq64    label   near                                    ;
                 xor     eax,eax                                 ;
                 ret                                             ;
 _sys_setxcpt64  endp                                            ;

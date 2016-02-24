@@ -1,8 +1,18 @@
-Setup:
+Setup under OS/2 and Windows:
    1. set WATCOM=....  in path
    2. copy src\setup.cmd.template src\setup.cmd
    3. edit src\setup.cmd
    4. if QS is not in the root, update Doxyfile INPUT (optional)
+
+Setup under Linux:
+   1. install Open Watcom 1.9 (install hanged on my 64-bit Ubuntu, but works
+      fine when just copied from 32-bit linux).
+   2. call _setmod.sh - to set exec attr on all batches & executables
+   3. make sure you have 32-bit libc on 64-bit system (else spprj module will
+      fail).
+   4. cp src\setup.sh.template src\setup.sh
+   5. edit src\setup.sh (both WATCOM & QS_ROOT vars)
+   6. all .cmd-s below have .sh pair for it
 
 Build:
    _all.cmd                        - build all
@@ -35,13 +45,15 @@ Source tree:
    system\src\ldrapps\hc           - headers (exports) of all common modules
    system\src\ldrapps\runtime      - app/dll startup code and def/lib files
    system\src\ldrapps\bootmenu     - boot menu
-   system\src\ldrapps\bootos2      - load and start OS/2 kernel
+   system\src\ldrapps\bootos2      - OS/2 kernel loading
    system\src\ldrapps\cache        - disk i/o cache
    system\src\ldrapps\cmd          - command processor
    system\src\ldrapps\console      - advanced console support
    system\src\ldrapps\doshlp       - doshlp (binary file)
+   system\src\ldrapps\extcmd       - several large shell commands
+   system\src\ldrapps\mtlib        - something still uncomplete :)
    system\src\ldrapps\partmgr      - partition management module
-   system\src\ldrapps\start        - START module
+   system\src\ldrapps\start        - START module (second part of QSINIT core)
    system\src\ldrapps\sysview      - UI app (req. Turbo Vision)
    system\src\ldrapps\tv           - Turbo Vision
    system\src\ldrapps\vdisk        - PAE ram disk support module

@@ -8,23 +8,36 @@ TStrings src, dst, repops, repc, types;
 
 const char *OP_DELIM = " \t+-*/()";
 
-spstr replaceops(spstr str) {
-  l wrds=str.words(OP_DELIM), ii;
-  for (ii=1;ii<=wrds;ii++) {
-    l idx=repops.IndexOf(str.word(ii,OP_DELIM).upper());
-    if (idx>=0) str.replaceword(ii,OP_DELIM,repc[idx]());
-  }
-  for (ii=1;ii<=wrds;ii++)
-    if (str.word(ii,OP_DELIM).upper()=="SIZE"&&ii<wrds) {
-       spstr type(str.word(ii+1,OP_DELIM)), tmp;
-       if (types.IndexOfName(type)>=6) type.insert("struct ",0);
+spstr replaceops(spstr str, d line, const char *fname) {
+   l wrds=str.words(OP_DELIM), ii;
+   for (ii=1;ii<=wrds;ii++) {
+      spstr wrdi = str.word(ii,OP_DELIM).upper();
+      l idx=repops.IndexOf(wrdi);
 
-       tmp = str.word(ii,OP_DELIM).lower(); tmp+= "of";
-       str.replaceword(ii,OP_DELIM,tmp());
-       tmp.sprintf("(%s)", type());
-       str.replaceword(ii+1,OP_DELIM,tmp());
-    }
-  return str;
+      if (idx>=0) str.replaceword(ii, OP_DELIM, repc[idx]()); else
+      if (isdigit(wrdi[0])) {
+         char suffix = toupper(wrdi.lastchar()), *eptr;
+         int    base = suffix=='H'?16:(suffix=='B'?2:10);
+         if (base!=10) wrdi.dellast();
+         d     value = strtoul(wrdi(), &eptr, base);
+
+         if (eptr-wrdi() < wrdi.length())
+            printf("WARNING: integer error, line %d, file \"%s\"\n", line, fname);
+         wrdi.sprintf(base!=10?"0x%8.8X":"%d", value);
+         str.replaceword(ii, OP_DELIM, wrdi());
+      }
+   }
+   for (ii=1;ii<=wrds;ii++)
+      if (str.word(ii,OP_DELIM).upper()=="SIZE"&&ii<wrds) {
+          spstr type(str.word(ii+1,OP_DELIM)), tmp;
+          if (types.IndexOfName(type)>=6) type.insert("struct ",0);
+
+          tmp = str.word(ii,OP_DELIM).lower(); tmp+= "of";
+          str.replaceword(ii,OP_DELIM,tmp());
+          tmp.sprintf("(%s)", type());
+          str.replaceword(ii+1,OP_DELIM,tmp());
+      }
+   return str;
 }
 
 spstr &trimc(spstr &str) {
@@ -140,9 +153,8 @@ int main(int argc,char *argv[]) {
               printf("WARNING: integer error, line %d, file \"%s\"\n",ll,argv[1]);
             }
             dst[dst.Max()]+=spstr().sprintf(base!=10?"0x%8.8X":"%d",value);
-          } else {
-            dst[dst.Max()]+=replaceops(str(ps,65535));
-          }
+          } else
+            dst[dst.Max()]+=replaceops(str(ps,65535), ll, argv[1]);
         }
       } else
       if (!in_macro&&type=="STRUC") {
@@ -242,7 +254,7 @@ int main(int argc,char *argv[]) {
           if (dup) rc+=spstr().sprintf("[%d]",dup); else
           if (duptext.length()) {
             rc+="[";
-            rc+=replaceops(duptext);
+            rc+=replaceops(duptext, ll, argv[1]);
             rc+="]";
           }
           rc+=";";

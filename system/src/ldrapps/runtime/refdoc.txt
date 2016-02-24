@@ -35,8 +35,10 @@
                u - unsigned
                h - unsigned short
                q - unsigned long long
+               I - signed long long (__int64)
                p - pointer
                v - void (for result/no args only, use "p" for void*)
+               V - disable exit hook (no result/exit printing, for result only)
                S - wchar_t*
                C - wchar_t
 

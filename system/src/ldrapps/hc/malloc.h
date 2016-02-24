@@ -33,6 +33,18 @@ void *realloc_stub(void *block,unsigned long newsize,char *file,int line) {
   :memAlloc(__LINE__&MAXFILELINEMASK|0xFFFFE000,(long)__FILE__,size))
 #endif // __cplusplus
 
+/// change heap block info to file/line value
+#define __set_block_info(p) \
+   memSetObjInfo(p,__LINE__&MAXFILELINEMASK|0xFFFFE000,(long)__FILE__);
+
+/** set block string info.
+    string will be visible in heap dump as a "file name".
+    @param  str     string, must be valid until end of use.
+    @param  info    misc info value, 0...8191 */
+#define __set_block_string(p, str, info) \
+   memSetObjInfo(p,info|0xFFFFE000,(long)str);
+
 #endif // malloc
 
 #endif // QSINIT_MALLOC
+

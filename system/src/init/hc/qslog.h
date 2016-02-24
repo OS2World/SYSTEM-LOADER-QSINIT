@@ -25,7 +25,7 @@ u16t  _std  hlp_seroutinfo(u32t *baudrate);
 /** set debug serial port parameters.
     @param port       COM port address. use 0 for previous value, 0xFFFF to
                       disable debug COM port output.
-    @param baudrate   use 0 for previos value, else valid baud rate 
+    @param baudrate   use 0 for previos value, else valid baud rate
     @return 1 on success, 0 on invalid baud rate (port addr can`t be checked) */
 int   _std  hlp_seroutset (u16t port, u32t baudrate);
 
@@ -33,16 +33,28 @@ int   _std  hlp_seroutset (u16t port, u32t baudrate);
 int __cdecl log_printf(const char *fmt, ...);
 
 /** print to log/serial port.
-    @param level    Priority (0..3)
-    @param fmt      Printf format string 
+    @param level      priority (0..3)
+    @param fmt        printf format string
     @return standard vsnprintf result value */
 int __cdecl log_it(int level, const char *fmt, ...);
 
-/** push string to directly to log.
-    @param level    Priority (0..3)
-    @param str      String to put
+/** push string directly into log.
+    @param level      priority (0..3)
+    @param str        string to put
     @return success flag */
 int   _std  log_push(int level, const char *str);
+
+/** push string directly into log (with own time mark).
+    Note, that saving string into log causes request of current time
+    from system. On some rare ops this can cause malfunction of
+    current actions, "time" parameter allow to specify time mark
+    directly to solve this trouble.
+
+    @param level      log flags (priority and LOGIF_SECOND)
+    @param str        string to put
+    @param time       time mark (can be 0 to get current)
+    @return success flag */
+int   _std  log_pushtm(int level, const char *str, u32t time);
 
 /// dump MDT table
 void  _std  log_mdtdump(void);
@@ -112,7 +124,7 @@ typedef void _std (*log_querycb)(log_header *log, void *extptr);
 /** query log.
     Log output is blocked until cbproc exit, data in
     log is NOT sorted by time.
-    @param cbproc  Callback proc to read log. 
+    @param cbproc  Callback proc to read log.
     @param extptr  App data for cbproc call */
 void   _std log_query(log_querycb cbproc, void *extptr);
 
@@ -121,7 +133,7 @@ void   _std log_flush(void);
 
 #endif // LOG_INTERNAL
 
-/** process hotkeys for dump actions. 
+/** process hotkeys for dump actions.
     @attention function defined here, but located in START module
     @return 0 if key is not hotkey */
 int    _std log_hotkey(u16t key);

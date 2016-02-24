@@ -13,7 +13,7 @@
 ;u16t key_wait(u32t seconds);
           EFN_KEYWAIT       =  2                                ;
 ;u32t tm_counter(void);
-          EFN_TMCOUNTER     =  3                                ;
+          EFN_TMCOUNTER     =  3                                ; not used
 ;u64t tm_getdate(void);
           EFN_TMGETDATE     =  4                                ;
 ;void tm_setdate(u32t dostime);
@@ -72,10 +72,12 @@
 ;u32t XcptOn(void);
 ; return 0 in safe mode (not supported), else 1 (success)
           EFN_XCPTON        = 31                                ;
-;void hlp_memmove(void *dst, void *src, u64t length);
+;void hlp_memmove(void *dst, void *src, u64t length, u32t usecli);
           EFN_MEMMOVE       = 32                                ;
+;u32t TimerIrqsOn(u8t tmr_vector, u8t spr_vector);
+          EFN_TIMERIRQON    = 33                                ;
 
-          EFN_FUNCCOUNT     = 33                                ;
+          EFN_FUNCCOUNT     = 34                                ;
 
 
 console_mode    struc

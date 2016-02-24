@@ -212,7 +212,7 @@ public:
 
   /// accept both UNIX & normal text
   void SetText(const char*,l len=0);
-  /// special CSV multiline support. \r act as soft-CR and ignored, \n\r only used as CR.
+  /// special CSV multiline support. \n act as soft-CR and ignored, \n\r only used as CR.
   void SetCSVText(const char*,l len=0);
 
   spstr MergeBackSlash(l FromPos=0,l *LastPos=0,const char *separator=0) const;
@@ -227,8 +227,8 @@ public:
     return LL;
   }
 #ifndef NO_LOADSAVESTRINGS
-  Bool LoadFromFile(const char*,Bool is_csv=false);
-  Bool SaveToFile(const char*);
+  Bool LoadFromFile(const char*, Bool is_csv=false);
+  Bool SaveToFile(const char*, Bool unixmode=false);
 #endif
 
   Bool IsMember(const spstr str) { return Str.IndexOf(str)>=0; }
@@ -1048,11 +1048,11 @@ Bool Strings<L>::LoadFromFile(const char *FName,Bool is_csv) {
 }
 
 template <class L>
-Bool Strings<L>::SaveToFile(const char *FName) {
+Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) {
   d rf=fOpen(FName,"wbd+s+");
   Bool res=false;
   if (rf) {
-    spstr txt=GetTextToStr();
+    spstr txt=GetTextToStr(unixmode?"\n":"\r\n");
     res=fWrite(rf,(const ptr)(txt()),txt.length())==(size_t)txt.length();
     fClose(rf);
   }
@@ -1076,11 +1076,11 @@ Bool Strings<L>::LoadFromFile(const char *FName,Bool is_csv) {
 }
 
 template <class L>
-Bool Strings<L>::SaveToFile(const char *FName) {
+Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) {
   FILE *rf=fopen(FName,"wb");
   Bool res=false;
   if (rf) {
-    spstr txt=GetTextToStr();
+    spstr txt=GetTextToStr(unixmode?"\n":"\r\n");
     res=fwrite((const ptr)(txt()),1,txt.length(),rf)==(size_t)txt.length();
     fclose(rf);
   }

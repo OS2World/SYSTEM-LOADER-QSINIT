@@ -27,7 +27,7 @@ int           textonly =  0;
 u32t       modelimit_x =  0,
            modelimit_y =  0,
       enabled_modemask = 0x5F,
-        fbaddr_enabled =  1; // force physmap=0 (EFI only)
+        fbaddr_enabled =  1; // "physmap" enabled (EFI) / LFB enabled (BIOS)
 u32t       graph_modes =  0; // number of available graphic modes
 u32t        mode_limit =  0; // size of modeinfo array (it ptr assumed as const)
 
@@ -38,6 +38,8 @@ platform_flush         pl_flush = 0;
 platform_scroll       pl_scroll = 0;
 platform_clear         pl_clear = 0;
 platform_addfonts    pl_addfont = 0;
+platform_dirblit     pl_dirblit = 0;
+platform_dirclear   pl_dirclear = 0;
 platform_setup         pl_setup = 0;
 platform_close         pl_close = 0;
 
@@ -228,6 +230,21 @@ u32t _std con_write(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t pitch) {
    if (y+dy>mi->height) dy=mi->height-y;
    // copying memory
    return pl_copy(current_mode, x, y, dx, dy, src, pitch, 1);
+}
+
+u32t _std con_clear(u32t x, u32t y, u32t dx, u32t dy, u32t color) {
+   con_modeinfo *mi;
+   if (current_mode<0) return 0;
+   // mode info
+   mi = modes + current_mode;
+   // drop bad coordinates
+   if ((long)x<0||(long)y<0||(long)dx<0||(long)dy<0) return 0;
+   // is rect inside screen?
+   if (x>=mi->width || y>=mi->height) return 0;
+   if (x+dx>mi->width)  dx=mi->width -x;
+   if (y+dy>mi->height) dy=mi->height-y;
+   // clear memory
+   return pl_clear(current_mode, x, y, dx, dy, color);
 }
 
 u32t _std con_read(u32t x, u32t y, u32t dx, u32t dy, void *dst, u32t pitch) {

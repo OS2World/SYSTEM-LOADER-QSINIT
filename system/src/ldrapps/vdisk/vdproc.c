@@ -13,7 +13,7 @@
 
 #define MAP_SIZE                  (_8MB)
 #define PAGE_SIZE                 (_2MB)
-// read size, that MUST fit into mapped MAP_SIZE area, aligned to PAGE_SIZE
+// read size, which SHOULD fit into mapped MAP_SIZE area, aligned to PAGE_SIZE
 #define READ_IN_TIME              ((MAP_SIZE-PAGE_SIZE)/512 - 8)
 
 static HD4_Header   *cdh = 0;   ///< active disk header
@@ -58,7 +58,7 @@ static u32t io(u32t disk, u64t sector, u32t count, void *data, int write) {
             /* do not unmap areas below end of ram at all (because it was not
                mapped actually), for any other (must be only above 4Gb areas)
                use 8Mb map space */
-            if (eaddr<=(u64t)endofram) 
+            if (eaddr<=(u64t)endofram)
                ptr = (char*)pag_physmap(addr, bytes + ofs, 0);
             else {
                // unmap not matched 8Mb area
@@ -77,7 +77,7 @@ static u32t io(u32t disk, u64t sector, u32t count, void *data, int write) {
             }
 
             if (ptr)
-               if (write) memcpy(ptr + ofs, data, bytes); 
+               if (write) memcpy(ptr + ofs, data, bytes);
                   else memcpy(data, ptr + ofs, bytes);
 
             if (!ptr) return svcount - count;
@@ -117,10 +117,10 @@ static void fill_header(u32t pages) {
 
       while (cdh->h4_cyls*cdh->h4_spt*cdh->h4_heads < cdhsize) {
          if (cdh->h4_spt<63) {
-            cdh->h4_spt   = (cdh->h4_spt   + 1 & 0xF0) * 2 - 1; continue; 
+            cdh->h4_spt   = (cdh->h4_spt   + 1 & 0xF0) * 2 - 1; continue;
          }
          if (cdh->h4_heads<255) {
-            cdh->h4_heads = (cdh->h4_heads + 1 & 0xF0) * 2 - 1; continue; 
+            cdh->h4_heads = (cdh->h4_heads + 1 & 0xF0) * 2 - 1; continue;
          }
          break;
       }
@@ -129,7 +129,7 @@ static void fill_header(u32t pages) {
       cdh->h4_pages    = pages;
       cdh->h4_tabofs   = sizeof(HD4_Header);
       cdh->h4_tabsize  = 1;
-      
+
       cde      = (HD4_TabEntry*)(cdh+1);
       cdecount = 0;
    }
@@ -161,11 +161,11 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
                usize = csize;
          }
       }
-      if (!rc) rc = vol_formatfs(vol, flags&VFDF_HPFS?"HPFS":"FAT", 
+      if (!rc) rc = vol_formatfs(vol, flags&VFDF_HPFS?"HPFS":"FAT",
           DFMT_ONEFAT|DFMT_QUICK, usize, 0);
       // un-format FAT32 formatted partition
       if (!rc && (flags&VFDF_NOFAT32)!=0) wipe_fat32bs(vol);
-      
+
    }
    // set LVM drive letter
    if (*pl_rc==0 && letter && (isalpha(letter) || letter=='*'))
@@ -174,7 +174,7 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
 }
 
 
-u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags, 
+u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                         u32t divpos, char letter1, char letter2,
                         u32t *disk)
 {
@@ -212,7 +212,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          }
       }
       if (pe->start<_4GBLL && pe->pages>=_1MB>>PAGESHIFT && (owner==PCMEM_FREE
-         || owner==PCMEM_QSINIT)) 
+         || owner==PCMEM_QSINIT))
       {
          u32t pages = pe->pages;
          lopages   += pages;
@@ -238,7 +238,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          minsize <<= 20 - PAGESHIFT;
          if (hipages<minsize) {
             if (hipages+lopages<minsize) {
-               log_printf("min %d pages, but avail: lo %d, high %d\n", 
+               log_printf("min %d pages, but avail: lo %d, high %d\n",
                   minsize, lopages, hipages);
                rc = ENOMEM;
                break;
@@ -267,7 +267,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
             if (rc) break;
          }
          if (!sys_pagemode()) { rc=ENODEV; break; }
-   
+
          // walk over high memory
          for (ii=0; ii<mem->count(); ii++) {
             u64t  addr = mem->value(ii);
@@ -282,7 +282,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                if (pages>hipages) pages = hipages;
                // mark memory as used by ram disk
                res = sys_markmem(addr, pages, PCMEM_RAMDISK);
-               if (res) 
+               if (res)
                   log_printf("warning! mark failed, addr %LX - %d\n", addr, res);
                // map header on first block
                if (!cdh) {
@@ -333,7 +333,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                   addr += pages - lopages << PAGESHIFT;
                   reserved = hlp_memreserve(addr, lopages<<PAGESHIFT);
                   if (!reserved) {
-                     log_printf("Failed to reserve: %08X, %d pages\n", 
+                     log_printf("Failed to reserve: %08X, %d pages\n",
                         (u32t)addr, lopages);
                      break;
                   }
@@ -347,7 +347,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                   Here we hide memory from OS/2. For QSINIT block use PCMEM_QSINIT
                   owner - because sys_markmem will deny any other */
                res = sys_markmem(addr, pages, (used?PCMEM_QSINIT:PCMEM_RAMDISK)|PCMEM_HIDE);
-               if (res) 
+               if (res)
                   log_printf("warning! mark failed, addr %LX - %d\n", addr, res);
                // map header on first block
                if (!cdh) {
@@ -439,7 +439,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
             if (!d_rc) d_rc = make_partition(0, flags, letter1, &l_rc);
             /* second partition processing */
             if (divpos) {
-               d_rc = dsk_ptalign(chdd, 0, 100, DPAL_CHSSTART|DPAL_CHSEND|DPAL_PERCENT, 
+               d_rc = dsk_ptalign(chdd, 0, 100, DPAL_CHSSTART|DPAL_CHSEND|DPAL_PERCENT,
                   &start, &size);
                if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
                // format partition & assign LVM drive letter
@@ -564,7 +564,7 @@ static u32t _std dopt_setgeo(void *data, disk_geo_data *geo) {
 
    // check CHS (at least minimal)
    if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
-      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders * 
+      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
          geo->Heads * geo->SectOnTrack > geo->TotalSectors) return EDERR_INVARG;
    // copy CHS
    cdh->h4_cyls  = geo->Cylinders;
@@ -593,17 +593,17 @@ static char* _std dopt_getname(void *data) {
    return sprintf_dyn("PAE ram disk. %u low, %u high pages", seclo>>3, sechi>>3);
 }
 
-static int _std dopt_setro(void *data, int state) {
+static u32t _std dopt_state(void *data, u32t state) {
    doptdata *dp = (doptdata*)data;
-   // not implemented now
-   return 0;
+   // set r/o is not supported, cache denied for this disk
+   return EDSTATE_NOCACHE;
 }
 
 static void *qs_ramdisk_list[] = { dopt_getgeo, dopt_setgeo, dopt_getname,
-   dopt_setro };
+   dopt_state };
 
 void register_class(void) {
-   if (!classid_ext) 
+   if (!classid_ext)
       classid_ext = exi_register("qs_ramdisk_ext", qs_ramdisk_list,
          sizeof(qs_ramdisk_list)/sizeof(void*), sizeof(doptdata),
             dopt_init, dopt_done, 0);

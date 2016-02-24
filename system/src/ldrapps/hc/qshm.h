@@ -26,11 +26,45 @@ u32t _std hlp_getmsrsafe(u32t index, u32t *ddlo, u32t *ddhi);
     @return bool - success flag */
 u32t _std hlp_setmsrsafe(u32t index, u32t ddlo, u32t ddhi);
 
+/** return rdtsc counter value.
+    Note, that QSINIT support started on 486DX and this function will
+    always return 0 on 486 ;) */
+u64t _std hlp_tscread(void);
+
+/** return number of rdtsc cycles in 55 ms.
+    On EFI host value is constant between tm_calibrate() calls and VERY
+    inaccurate.
+    On BIOS host value calulated in real time - every 55 ms and function
+    can cause a delay if called immediately after tm_calibrate().
+
+    Now this value must be nearly constant, because not clock modulation
+    setup nor mtrr changes cannot affect rdtsc counter, but possible
+    future implementation of AMD Pstates - can ;)
+
+    @return 0 on 486 or timer error, else - value */
+u64t _std hlp_tscin55ms(void);
 
 /** query cpu temperature.
     Function read Intel CPUs digital sensor value from MSR.
     @return current cpu temperature, in degrees, or 0 if not supported */
 u32t _std hlp_getcputemp(void);
+
+/** query cpu clock modulation.
+    @return value      in range of 1..16 for every 6.25% of cpu clock or 0 on error
+    (no clock modulation in CPU) */
+u32t _std hlp_cmgetstate(void);
+
+#define CPUCLK_MINFREQ       1    ///< lower possible freqency
+#define CPUCLK_AVERAGE       8    ///<  50% speed
+#define CPUCLK_MAXFREQ      16    ///< 100% speed
+
+/** set cpu clock modulation.
+    Function calls tm_calibrate() on success.
+    @param  state      1..16 - new clock modulation value.
+    @retval 0          on success
+    @retval ENODEV     no clock modulation on this CPU
+    @retval EINVAL     invalid argument */
+u32t _std hlp_cmsetstate(u32t state);
 
 
 /// @name hlp_mtrrquery() flags
@@ -76,7 +110,7 @@ u32t _std hlp_mtrrquery(u32t *flags, u32t *state, u32t *addrbits);
     @return MTRRERR_* value */
 u32t _std hlp_mtrrstate(u32t state);
 
-/// @name hlp_mtrrread() state parameter
+/// @name hlp_mtrrvread() state parameter
 //@{
 #define MTRRF_TYPEMASK  0x0007    ///< cache type mask
 #define MTRRF_UC        0x0000    ///< uncacheable
@@ -114,6 +148,17 @@ u32t _std hlp_mtrrvset(u32t reg, u64t start, u64t length, u32t state);
     @param [out] state     array of [MTRR_FIXEDMAX] cache types
     @return number of filled entries or 0 on invalid parameter/no mtrr */
 u32t _std hlp_mtrrfread(u32t *start, u32t *length, u32t *state);
+
+/** return real cache type for specified area (based on MTRR values).
+    This value is determined by Intel rules and both fixed and variable range
+    MTRR registers. Function takes in mind MTRR state too (i.e. if MTRR is off
+    you will recieve UC type).
+    Note, that function denies request, which cross 1Mb border (phys 0x100000).
+    @param start      start address
+    @param length     block length
+    @return cache type (MTRRF_*) or MTRRF_TYPEMASK value if area is invalid or
+            multiple cache types used over it */
+u32t _std hlp_mtrrsum(u64t start, u64t length);
 
 /** setup fixed range mtrr registers.
     Function split addr and length to multiple fixed length registers.

@@ -12,19 +12,20 @@
 extern "C" {
 #endif
 
-/* this is not real existing shared class.
-   "qs_extdisk" is a typedef for it, every "emulated disk" can be supplied
-   with class internally and this class must be compatible with "qs_extdisk".
+/** Extended disk info shared class.
+    This is not really existing shared class.
+    "qs_extdisk" is a typedef for it, every "emulated disk" can be supplied
+    with class internally and this class must be compatible with "qs_extdisk".
 
-   I.e. if hlp_diskclass() returns a valid pointer - then it can be used to
-   manage this disk. */
+    I.e. if hlp_diskclass() returns a valid pointer - then it can be used to
+    manage this disk. */
 
 typedef struct qs_extdisk_s {
-   /** get disk geometry. 
+   /** get disk geometry.
        @param  [out] geo    disk info data.
        @return 0 on success, else EDERR_* error value value */
    u32t  _std (*getgeo)(disk_geo_data *geo);
-   /** set disk geometry. 
+   /** set disk geometry.
        Function can support changing of CHS for emulated disks, this used in
        "dmgr clone" command.
        @param  geo          disk info data.
@@ -33,18 +34,25 @@ typedef struct qs_extdisk_s {
    /** get printable disk info.
        @return printable string (must be free()-ed) or 0 if no info. */
    char* _std (*getname)(void);
-   /** set read-only state.
-       Function can ignore this action.
-       @param state         new state (1 - r/o, 0 - r/w, -1 - query only)
-       @return previous (current with state=-1 arg) disk r/o state or -1 
-               on error */
-   int   _std (*setro)(int state);
+   /** query/set disk state.
+       Function can ignore anything except EDSTATE_QUERY.
+       @param state         new state or query call (with EDSTATE_QUERY)
+       @return current state */
+   u32t  _std (*state)(u32t state);
 } _qs_extdisk, *qs_extdisk;
 
-#define EDERR_NOSUPP     0x0001    ///< operation is not supported
-#define EDERR_INVDISK    0x0002    ///< disk is in invalid state (unmounted?)
-#define EDERR_INVARG     0x0003    ///< invalid argument
-#define EDERR_IOERR      0x0004    ///< disk i/o error
+
+/// @name qs_extdisk->state in/out value
+//@{
+#define EDSTATE_QUERY 0x80000000   ///< query current state flags
+#define EDSTATE_RO        0x0001   ///< disk is r/o
+#define EDSTATE_NOCACHE   0x0002   ///< disk i/o is not cached by default
+//@}
+
+#define EDERR_NOSUPP      0x0001   ///< operation is not supported
+#define EDERR_INVDISK     0x0002   ///< disk is in invalid state (unmounted?)
+#define EDERR_INVARG      0x0003   ///< invalid argument
+#define EDERR_IOERR       0x0004   ///< disk i/o error
 
 /** query additional interface for this disk.
     @param disk      disk number

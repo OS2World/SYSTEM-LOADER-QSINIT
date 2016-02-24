@@ -169,9 +169,9 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       fatsize  += ii / fatcnt; // expand FAT size
       loc_data += ii;
       loc_dir  += ii;
-#endif
       log_it(2, "Aligned: FAT size=%d, pos %010LX, Data pos %010LX\n",
          fatsize, loc_fat, loc_data);
+#endif
    }
    // determine number of clusters and final check of validity of the FAT type
    clusters = (di.TotalSectors - reserved - fatsize * fatcnt - dirsize) / unitsize;

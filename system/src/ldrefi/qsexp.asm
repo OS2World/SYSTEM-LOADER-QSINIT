@@ -61,6 +61,7 @@ _reserved_db    db      0
 _qs_bootlen     dq      0
 _qs_bootstart   dq      0
 _qd_bootdisk    dd      0
+_countsIn55ms   dq      0
 exp64_tab_end   label   near
 
                 public  _memblocks, _availmem, _phmembase, _highbase
@@ -69,7 +70,7 @@ exp64_tab_end   label   near
                 public  _pbin_header, _IODelay, _sel64, _ofs64
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
                 public  _vio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
-                public  _qd_bootdisk
+                public  _qd_bootdisk, _countsIn55ms
 
 _DATA           ends
                 end

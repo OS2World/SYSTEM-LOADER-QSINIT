@@ -1,4 +1,4 @@
-#include "..\..\..\hc\qslxfmt.h"
+#include "../../../hc/qslxfmt.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>

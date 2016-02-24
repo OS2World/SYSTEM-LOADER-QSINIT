@@ -11,19 +11,21 @@
 ;    * no fixups in code
 ;
 ; 2. boot sector: _bsect16
+;    * can load and run IBM os2ldr directly, without os2boot.
+;    * supports both fdd & hdd boot
 ;    * load FAT12/16 by FAT chains, not contigous files only.
-;    * support both fdd & hdd boot
 ;    * load file to 2000:0, use 0:7E00 for directory and 1000:0 for FAT cache
 ;    * no fixups in code, but assume 0:7C00 as location
-;    * can load and run IBM os2ldr directly, without os2boot.
-;    * use disk number from DL, not from own BPB!
+;    * uses disk number from DL
+;    * checks file attribute for Vol & Dir
 ;
 ; 3. boot sector: _bsect32
 ;    * load FAT32 by FAT chains, not contigous files only.
 ;    * load file to 2000:0, use 1000:0 for directory and FAT cache
 ;    * no fixups in code, but assume 0:7C00 as location
-;    * use disk number from DL, not from own BPB!
-;    * check "active FAT copy" bits as windows boot sector do.
+;    * uses disk number from DL
+;    * checks file attribute for Vol & Dir
+;    * checks "active FAT copy" bits as windows boot sector do.
 ;    * can read partition on 2Tb border ;) (i.e. only boot sector must have
 ;      32-bit number)
 ;
@@ -45,6 +47,9 @@
 ;      BPB in boot sector and update "Hidden Sectors" value in it.
 ;    * no fixups in code
 ;
+; tools\bootset.exe compilation assumes FAT sector at 200h and FAT32 at 400h
+; when makes headers with boot sector code.
+;
                 include inc/qstypes.inc
                 include inc/parttab.inc
 
@@ -58,7 +63,6 @@
                 BOOT_SEG     = 2000h
                 FAT_LOAD_SEG = 1000h
                 MIN_FAT16    = 4086
-                FAT32_MAXSEG = 7000h
 
 PARTMGR_CODE    segment byte public USE16 'CODE'
                 assume  cs:PARTMGR_CODE,ds:PARTMGR_CODE,es:nothing,ss:nothing
@@ -252,7 +256,7 @@ _bsect16:
 @@bt_w_err1:    db      'No '
 _bsect16_name:
                 db      'QSINIT     ',0                         ;
-@@bt_w_err2:    db      'Disk i/o error',0                      ;
+@@bt_w_err2:    db      'Read error!',0                         ;
 @@bt_w_start:
                 mov     bp,LOC_7C00h                            ;
                 xor     esi,esi                                 ;
@@ -300,19 +304,23 @@ _bsect16_name:
                 and     cl,1                                    ;
                 mov     @@bt_w_i13x,cl                          ;
 @@bt_w_findname:
-                mov     bx,LOC_7E00h SHR PARASHIFT              ;
+                push    LOC_7E00h SHR PARASHIFT                 ;
+                pop     es                                      ;
                 movzx   eax,@@bt_w_rootpos                      ;
-                mov     cl,@@bt_w_rootscnt                      ;
+                mov     ch,@@bt_w_rootscnt                      ;
                 call    @@bt_w_read                             ;
 
                 xor     ax,ax                                   ; root dir
                 mov     dx,[bp+BOOT_OEM_LEN].BPB_RootEntries    ;
 @@bt_w_namecmp:
                 mov     di,ax                                   ;
-                mov     cx,11                                   ;
+                mov     cl,11                                   ; ch=0 here
                 lea     si,@@bt_w_bootname                      ;
            repe cmpsb                                           ;
-                jz      @@bt_w_namefound                        ;
+                jnz     @@bt_w_namenext                         ;
+                test    byte ptr es:[di],18h                    ; check for vol
+                jz      @@bt_w_namefound                        ; & dir
+@@bt_w_namenext:
                 add     ax,20h                                  ;
                 dec     dx                                      ;
                 jnz     @@bt_w_namecmp                          ;
@@ -323,7 +331,7 @@ _bsect16_name:
                 push    si                                      ; for retf below
                 push    es                                      ;
 @@bt_w_fileloop:
-                mov     bx,si                                   ;
+                mov     es,si                                   ;
                 mov     @@bt_w_curclus,dx                       ;
                 dec     dx                                      ; read
                 dec     dx                                      ; cluster
@@ -331,7 +339,7 @@ _bsect16_name:
                 mov     cl,@@bt_w_clshift                       ;
                 shl     eax,cl                                  ;
                 add     eax,@@bt_w_datapos                      ;
-                mov     cl,[bp+BOOT_OEM_LEN].BPB_SecPerClus     ;
+                mov     ch,[bp+BOOT_OEM_LEN].BPB_SecPerClus     ;
                 call    @@bt_w_read                             ;
 
                 shr     bx,PARASHIFT                            ;
@@ -353,13 +361,13 @@ _bsect16_name:
                 movzx   ecx,[bp+BOOT_OEM_LEN].BPB_BytePerSect   ;
                 div     ecx                                     ;
                 add     ax,[bp+BOOT_OEM_LEN].BPB_ResSectors     ;
-                mov     bx,FAT_LOAD_SEG                         ;
-                mov     es,bx                                   ;
+                push    FAT_LOAD_SEG                            ;
+                pop     es                                      ;
                 cmp     ax,@@bt_w_fatpos                        ;
                 push    dx                                      ;
                 jz      @@bt_w_nic_ready                        ;
                 mov     @@bt_w_fatpos,ax                        ;
-                mov     cl,2                                    ;
+                mov     ch,2                                    ;
                 call    @@bt_w_read                             ;
 @@bt_w_nic_ready:
                 pop     bx                                      ;
@@ -376,7 +384,7 @@ _bsect16_name:
                 jz      @@bt_w_nic_odd12
                 shr     edx,4                                   ;
 @@bt_w_nic_odd12:
-                and     dx,0FFFh                                ;
+                and     dh,0Fh                                  ;
                 cmp     dx,0FF8h                                ;
 ;----------------------------------------------------------------
 ;                ret
@@ -410,15 +418,14 @@ _bsect16_name:
                 int     19h                                     ;
 ;----------------------------------------------------------------
 ; read sector
-; in    : eax - start, cl - count, bx - seg to place data
+; in    : eax - start, ch - count, es - seg to place data
 ; save  : si, di, ds, ch
-; return: cl=0, es=seg, bx=offset to the end of data
+; return: ch=0, es=seg, bx=offset to the end of data
 @@bt_w_read:
                 add     eax,[bp+BOOT_OEM_LEN].BPB_HiddenSec     ;
-                mov     es,bx                                   ;
                 xor     bx,bx                                   ;
 @@bt_w_sloop:
-                mov     ch,NUM_RETRIES                          ;
+                mov     cl,NUM_RETRIES                          ;
 @@bt_w_rloop:
                 pushad                                          ;
                 mov     di,sp                                   ;
@@ -437,7 +444,7 @@ _bsect16_name:
 @@bt_w_read_done:
                 add     bx,[bp+BOOT_OEM_LEN].BPB_BytePerSect    ;
                 inc     eax                                     ;
-                dec     cl                                      ;
+                dec     ch                                      ; count--
                 jnz     @@bt_w_sloop                            ;
                 ret                                             ;
 @@bt_w_no_ext_read:
@@ -460,7 +467,7 @@ _bsect16_name:
                 popad                                           ; esp restored here
                 jnc     @@bt_w_read_done                        ;
 @@bt_w_read_err:
-                dec     ch                                      ; # retries
+                dec     cl                                      ; # retries
                 jnz     @@bt_w_rloop                            ;
                 jmp     @@bt_w_readerr                          ;
 @@bt_w_end:
@@ -564,16 +571,18 @@ _bsect32_name:
                 mov     cx,11                                   ;
                 lea     si,@@bt_d_bootname                      ;
            repe cmpsb                                           ;
-                jz      @@bt_d_namefound                        ;
+                jnz     @@bt_d_namenext                         ;
+                test    byte ptr es:[di],18h                    ; check for vol
+                jz      @@bt_d_namefound                        ; & dir
+@@bt_d_namenext:
                 inc     dx                                      ; + dir size
                 inc     dx                                      ;
                 cmp     bx,dx                                   ; last segment?
                 jnz     @@bt_d_namecmp                          ;
                 jmp     @@bt_d_nofile                           ;
 @@bt_d_namefound:
-                push    word ptr es:[di+9]                      ;
-                push    word ptr es:[di+15]                     ;
-                pop     edx                                     ; 1st cluster
+                mov     edx,es:[di+7]                           ; hi bytes \ 1st
+                mov     dx,es:[di+15]                           ; lo bytes / cluster
                 mov     si,BOOT_SEG                             ;
                 push    si                                      ; for retf below
 
@@ -589,7 +598,7 @@ _bsect32_name:
 ; out : si - end segment
 ; save & return : the same as read sector + es, bx destroyd
 @@bt_d_fileloop:
-                mov     bx,si                                   ;
+                mov     es,si                                   ;
                 mov     @@bt_d_curclus,edx                      ;
                 dec     edx                                     ; read
                 dec     edx                                     ; cluster
@@ -602,8 +611,6 @@ _bsect32_name:
 
                 shr     bx,PARASHIFT                            ;
                 add     si,bx                                   ;
-                cmp     si,FAT32_MAXSEG                         ;
-                jnc     @@bt_d_nofile                           ;
                 call    @@bt_d_next_in_chain                    ;
                 jc      @@bt_d_fileloop                         ;
                 ret
@@ -621,8 +628,8 @@ _bsect32_name:
                 push    dx                                      ;
                 mov     dx,[bp+BOOT_OEM_LEN].BPB_ResSectors     ; add it here to prevent
                 add     eax,edx                                 ; 0 in @@bt_d_fatpos
-                mov     bx,FAT_LOAD_SEG                         ;
-                mov     es,bx                                   ;
+                push    FAT_LOAD_SEG                            ;
+                pop     es                                      ;
                 cmp     eax,@@bt_d_fatpos                       ;
                 jz      @@bt_d_nic_ready                        ;
                 mov     @@bt_d_fatpos,eax                       ;
@@ -662,15 +669,14 @@ _bsect32_name:
                 jmp     @@bt_d_err_msg                          ;
 ;----------------------------------------------------------------
 ; read sector
-; in    : eax - start, cl - count, bx - seg to place data
-; save  : si, di, ds, ch
+; in    : eax - start, cl - count, es - seg to place data
+; save  : si, di, ds
 ; return: cl=0, es=seg, bx=offset to the end of data
 @@bt_d_read:
                 push    edx                                     ;
                 xor     edx,edx                                 ;
                 add     eax,[bp+BOOT_OEM_LEN].BPB_HiddenSec     ;
                 adc     dl,dl                                   ; 2Tb ;)
-                mov     es,bx                                   ;
                 xor     bx,bx                                   ;
 @@bt_d_sloop:
                 mov     ch,NUM_RETRIES                          ;
@@ -691,6 +697,8 @@ _bsect32_name:
 @@bt_d_read_done:
                 add     bx,[bp+BOOT_OEM_LEN].BPB_BytePerSect    ;
                 inc     eax                                     ;
+                setz    ch                                      ; 2Tb border
+                add     dl,ch                                   ; inc
                 dec     cl                                      ;
                 jnz     @@bt_d_sloop                            ;
                 pop     edx                                     ;

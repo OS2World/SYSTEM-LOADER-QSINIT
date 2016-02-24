@@ -31,8 +31,8 @@
 #define Uses_TRect
 #include <tv.h>
 
-#include "HelpBase.h"
-#include "Util.h"
+#include "helpbase.h"
+#include "util.h"
 
 
 #include <string.h>

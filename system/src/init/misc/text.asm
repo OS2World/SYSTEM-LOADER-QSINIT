@@ -7,10 +7,12 @@
                 include inc/qsinit.inc
                 include inc/qstypes.inc
 
+                extrn   _page0_fptr:dword
+
 _B8000          equ     0B8000h
 
 _DATA           segment
-                public  _text_col, _max_x, _max_y, _page0_fptr  ;
+                public  _text_col, _max_x, _max_y               ;
                 public  _vio_ttylines                           ;
 _vio_ttylines   dd      0                                       ;
 _pagesize       dw      0                                       ;
@@ -22,12 +24,6 @@ _text_col       dw      07h                                     ;
 crt_port        dw      3D4h                                    ;
 shape           dw      0                                       ;
 tabstr          db      "    ",0                                ;
-; in non-paged mode FLAT DS have no 0 page.
-; in paged mode, no 0 page in page table, it mapped separately.
-; so, this is a page 0 access far32 pointer for moment of use,
-; this value updated by START module when it turns on PAE
-_page0_fptr     dd      0                                       ;
-                dd      SELZERO                                 ;
 _DATA           ends
 
 _TEXT           segment

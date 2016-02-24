@@ -21,6 +21,8 @@
 #include "start_ord.h"
 #include "internal.h"
 #include "qsclass.h"
+#include "qsxcpt.h"
+#include "qspdata.h"
 
 extern u16t  _std IODelay;
 extern u32t  M3BufferSize;
@@ -31,7 +33,6 @@ extern FILE     **pstdout,
 // decompression routines
 u32t _std DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
 u32t _std DecompressM3(u32t DataLen, u8t* Src, u8t *Dst, u8t *Buffer);
-int  _std log_push(int level, const char *str);
 void _std log_memtable(void*, void*, u8t*, u32t*, u32t);
 /// reset ini file cache
 void  reset_ini_cache(void);
@@ -315,7 +316,7 @@ void _std mod_freeexps(module *mh) {
    mh->exports=0;
    // free exports, not used below
    if (mh->exps) { free(mh->exps); mh->exps=0; }
-   /* unchain ordinals first, because it rebuild thunks internally, 
+   /* unchain ordinals first, because it rebuild thunks internally,
       then free thunks ;) */
    mod_apiunchain((u32t)mh,0,0,0);
    if (mh->thunks) { free(mh->thunks); mh->thunks=0; }
@@ -368,11 +369,20 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
    return rc;
 }
 
+u32t _std mod_getmodpid(u32t module) {
+   process_context *pq = mod_context();
+   while (pq) {
+      if ((u32t)pq->self==module) return pq->pid;
+      pq = pq->pctx;
+   }
+   return 0;
+}
+
 mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
    &mod_buildexps, &mod_searchload, &mod_unpack1, &mod_unpack2, &mod_unpack3,
-   &mod_freeexps, &memAlloc, &memRealloc, &memFree, &freadfull, &log_push,
+   &mod_freeexps, &memAlloc, &memRealloc, &memFree, &freadfull, &log_pushtm,
    &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
-   &hlp_memcpy, &mod_loaded};
+   &hlp_memcpy, &mod_loaded, &sys_exfunc4};
 
 extern module*_std _Module;
 

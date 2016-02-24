@@ -13,14 +13,17 @@
                 include inc/debug.inc
                 include inc/basemac.inc
                 include inc/vbedata.inc
-
+                include inc/cpudef.inc
 
 DATA16          segment                                         ;
                 extrn   _logbufseg:word                         ;
                 extrn   _DiskBufRM_Seg:word                     ;
-                public  _ComPortAddr                            ;
-                public  _BaudRate                               ;
-                public  _logrmbuf, _logrmpos                    ;
+                extrn   _syslapic:dword                         ;
+                extrn   _apic_tmr_vnum:byte                     ;
+                public  _ComPortAddr, _BaudRate, _state_rec_len ;
+                public  _logrmbuf, _logrmpos, _page0_fptr       ;
+                public  rm_timer_ofs, rm_spur_ofs               ;
+                public  apic_tmr_rcnt, apic_tmr_reoi            ;
                 align   4                                       ;
 _logrmbuf       dd      0                                       ;
 _BaudRate       dd      BD_115200                               ; current dbport baud rate
@@ -31,6 +34,22 @@ ifdef INITDEBUG
 vio_out_proc    dw      offset printchar_rm                     ; vio prn char for
                 dw      offset printchar_pm                     ; RM and PM
 endif
+rm_timer_ofs    dw      offset rm_timer                         ;
+rm_spur_ofs     dw      offset rm_spurious                      ;
+apic_tmr_rcnt   dw      0                                       ; counters
+apic_tmr_reoi   dw      0                                       ;
+
+mini_gdt        desctab_s <0,0,0,0,0,0>                         ;
+                desctab_s <0FFFFh,0,0,D_DATA0,D_DBIG or D_GRAN4K or D_AVAIL or 0Fh,0>
+mini_gdt_ptr    dw      $-mini_gdt-1, offset mini_gdt, 0, 0     ;
+
+; in non-paged mode FLAT DS have no 0 page.
+; in paged mode, zero page mapped as r/o, and separately as r/w.
+; This is page 0 access actual far32 pointer, this value updated
+; by START module when it turns on PAE.
+_page0_fptr     dd      0                                       ;
+                dd      SELZERO                                 ;
+_state_rec_len  dw      size tss_s                              ;
 DATA16          ends                                            ;
 
 _BSS16          segment
@@ -41,6 +60,8 @@ _storage_w_end  label   near                                    ;
 _mfsd_openname  db      MFSD_NAME_LEN dup(?)                    ;
 _mfsd_fsize     dd      ?                                       ;
 _BSS16          ends
+
+                extrn   enablea20:near                          ;
 
 ;================================================================
 ;
@@ -238,7 +259,7 @@ _biostest       endp
 ;----------------------------------------------------------------
 ; in : [sp+4] = 02 - suspend, 03 - power off
 ; out: exit
-                public  _poweroffpc 
+                public  _poweroffpc
 _poweroffpc     proc    far
                 mov     bp,sp                                   ;
                 mov     ax,5300h                                ;
@@ -384,7 +405,7 @@ _seroutchar_w   proc    near                                    ;
                 jz      @@serout16_exit                         ;
                 push    di                                      ;
                 mov     di,cs:_logrmpos                         ;
-                cmp     di,LOGBUF_SIZE-5                        ; rm buffer is full?
+                cmp     di,LOGBUF_SIZE-5-4                      ; rm buffer is full?
                 jnc     @@serout16_logskip                      ;
                 push    es                                      ;
                 mov     es,cs:_logbufseg                        ;
@@ -395,8 +416,15 @@ _seroutchar_w   proc    near                                    ;
                 jnz     @@serout16_logadd                       ;
                 inc     di                                      ; skip 0
 @@serout16_firstline:
-                mov     byte ptr es:[di],32h                    ; flags + level
-                inc     di                                      ;
+                xchg    ah,al                                   ;
+                mov     al,32h                                  ; flags + level
+                stosb                                           ;
+                xor     al,al                                   ; save zero time
+                stosb                                           ; (we have troubles
+                stosb                                           ; with current time
+                stosb                                           ; on EFI host only)
+                stosb                                           ;
+                xchg    ah,al                                   ;
 @@serout16_logadd:
                 stosb                                           ;
                 mov     byte ptr es:[di],0                      ; end of string
@@ -545,6 +573,82 @@ sto_save_w      proc    near
                 popad                                           ;
                 ret                                             ;
 sto_save_w      endp
+
+;
+; set FS to big real selector
+;----------------------------------------------------------------
+; actually, this is crazy thing - we enabling A20 inside interrupt :)
+;
+; but there is only one bugaboo, who can disable it - IBM`s PXE
+; loader, which calls int 15h functions for memory cache i/o
+;
+rmflat_fs       proc    near
+                pushad                                          ;
+                call    enablea20                               ;
+                xor     eax,eax                                 ;
+                or      ax,word ptr cs:mini_gdt_ptr+4           ; prepare GDT address
+                jnz     @@rmf_gdtready                          ;
+                mov     ax,cs                                   ; we`re always above
+                shl     eax,4                                   ; 1000h, so use 3rd
+                add     dword ptr cs:mini_gdt_ptr+2,eax         ; word as a flag
+@@rmf_gdtready:
+                lgdt    fword ptr cs:mini_gdt_ptr               ; set PM
+                mov     eax,cr0                                 ;
+                or      al,CPU_CR0_PE                           ;
+                and     eax,not (CPU_CR0_PG or CPU_CR0_AM)      ;
+                mov     cr0,eax                                 ;
+                jmp     $+2                                     ;
+                mov     bx,8                                    ; loads FS
+                mov     fs,bx                                   ;
+                and     al,not CPU_CR0_PE                       ; and exit back
+                mov     cr0,eax                                 ;
+                popad                                           ;
+                ret                                             ;
+rmflat_fs       endp
+
+;
+; APIC timer RM vector ;)
+;----------------------------------------------------------------
+; install it actually, because no way to disable interrupt at 100%.
+; Accepted interrupt can wait in IRR while we`re switching to RM, for
+; example - and masking do nothing with it. Next it will crash VBox
+; where high RM vectors are zero and stops timer on common BIOS with
+; single iret without EOI.
+;
+                assume  ds:nothing, es:nothing, ss:nothing      ;
+rm_timer        proc    near                                    ;
+                push    eax                                     ;
+                cli                                             ;
+                mov     eax,cs:_syslapic                        ;
+                or      eax,eax                                 ;
+                jz      @@rmt_irq_noapic                        ;
+                push    fs                                      ;
+                call    rmflat_fs                               ;
+                push    ebx                                     ;
+                push    ecx                                     ;
+                movzx   ebx,cs:_apic_tmr_vnum                   ;
+                mov     ecx,ebx                                 ;
+                and     cl,1Fh                                  ; check ISR bit
+                shr     ebx,1                                   ; before sending
+                and     bl,0F0h                                 ;
+                bt      dword ptr fs:[eax+APIC_ISR_TAB*4+ebx],ecx ; EOI
+                jnc     @@rmt_irq_notours                       ;
+                xor     ebx,ebx                                 ;
+                inc     cs:apic_tmr_reoi                        ; eoi counter
+                mov     fs:[eax+APIC_EOI*4],ebx                 ;
+@@rmt_irq_notours:
+                inc     cs:apic_tmr_rcnt                        ; total counter
+                pop     ecx                                     ;
+                pop     ebx                                     ;
+                pop     fs                                      ;
+@@rmt_irq_noapic:
+                pop     eax                                     ;
+                iret                                            ;
+rm_timer        endp                                            ;
+
+rm_spurious     proc   near
+                iret
+rm_spurious     endp
 
 TEXT16          ends
                 end

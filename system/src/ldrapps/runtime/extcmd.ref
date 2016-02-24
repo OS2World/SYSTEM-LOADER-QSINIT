@@ -1,0 +1,9 @@
+type = dll
+name = "EXTCMD"
+
+exports = {
+   _shl_mem          = { index = 10  group = "shell"   format = "usp"   }
+   _shl_mtrr         = { index = 11  group = "shell"   format = "usp"   }
+   _shl_pci          = { index = 12  group = "shell"   format = "usp"   }
+   _shl_log          = { index = 13  group = "shell"   format = "usp"   }
+}

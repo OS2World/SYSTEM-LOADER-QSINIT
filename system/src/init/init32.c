@@ -18,7 +18,7 @@
 #include "parttab.h"
 #include "filetab.h"
 u32t                  qs16base; // base addr of 16-bit part
-extern 
+extern
 MKBIN_HEADER        bin_header;
 extern u16t      DiskBufRM_Seg; // and segment (exported)
 extern struct Disk_BPB BootBPB; // boot disk BPB
@@ -33,7 +33,7 @@ extern u16t         LdrRstCode, // save/restore os2ldr entry data for restart
            dd_bpbofs,dd_bpbseg,
          dd_rootofs,dd_rootseg,
                 dd_firstsector;
-extern 
+extern
 struct filetable_s   filetable;
 #else
 extern u32t        qd_bootdisk;
@@ -50,9 +50,9 @@ extern u16t       puff_bufsize; // memory size need by puff.c
 extern void          *puff_buf; // and pointer for it
 extern u16t    physmem_entries; // number of entries in physmem
 extern physmem_block   physmem[PHYSMEM_TABLE_SIZE];
-extern 
+extern
 mod_addfunc     *mod_secondary; // secondary function table, from "start" module
-extern 
+extern
 cache_extptr      *cache_eproc; // cache module callbacks
 extern u8t*              ExCvt; // FatFs OEM case conversion
 extern u8t*          mount_buf; // buffer for hlp_mountvol()
@@ -174,7 +174,7 @@ void exit_restart(char *loader) {
             if (rootlen%bpb->BPB_BytePerSect) nsec++;
             /* read boot volume FAT12/16 root dir sectors and copy it to
                original place */
-            if (hlp_diskread(QDSK_VOLUME|DISK_BOOT, bpb->BPB_ResSectors + 
+            if (hlp_diskread(QDSK_VOLUME|DISK_BOOT, bpb->BPB_ResSectors +
                bpb->BPB_FATCopies*bpb->BPB_SecPerFAT, nsec, btr+1)==nsec)
                   rc = (*mod_secondary->memcpysafe)((char*)hlp_segtoflat(dd_rootseg)+
                      dd_rootofs, btr+1, rootlen, 1);
@@ -197,7 +197,7 @@ void exit_restart(char *loader) {
    // and call restart code
    exit_prepare();
 
-   rmcall(LdrRstCode,0);
+   rmcall(LdrRstCode, RMC_EXITCALL);
 #else
    log_printf("exit_restart() is unsupported!\n");
 #endif // EFI_BUILD

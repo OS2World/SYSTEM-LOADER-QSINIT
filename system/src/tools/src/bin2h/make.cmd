@@ -23,6 +23,8 @@ set PATH=%PATH_ORG%;%PATH%
 
 rem creating dirs (else spprj will fail to write misc files before build)
 spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
+rem writing makefile for reference
+rem spprj -nb %prjname%.prj 0 bld\%prjname%.mak
 rem and build it
 spprj -b -bl -w -es %toolprjkey% %prjname%.prj %bldtype% %bldarg%
 

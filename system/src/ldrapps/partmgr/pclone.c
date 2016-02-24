@@ -4,6 +4,8 @@
 //
 #include "pscan.h"
 #include "stdlib.h"
+#include "direct.h"
+#include "errno.h"
 #include "lvm.h"
 #include "qcl/qsedinfo.h"
 
@@ -327,10 +329,14 @@ static int _std break_copy(void *info) {
 u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk, 
    u32t srcindex, read_callback cbprint, u32t flags)
 {
-   hdd_info  *hS, *hD;
-   u32t        rc, ii, dflags;
-   u64t    spos, slen, dpos, dlen;
-   u8t   stype, dtype;
+   hdd_info          *hS, *hD;
+   u32t            rc, dflags, 
+             hidden_upd, svol;
+   u64t      spos, slen, dpos,
+                         dlen;
+   u8t           stype, dtype;
+   struct Boot_Record     *br;
+
    if (dstdisk==srcdisk && dstindex==srcindex) return DPTE_INVARGS;
    hS = get_by_disk(srcdisk);
    hD = get_by_disk(dstdisk);
@@ -355,14 +361,24 @@ u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
    // may be sometimes later ;)
    if (slen>=_4GBLL) return DPTE_LARGE;
 
+   /* check destination - is it mounted?
+      deny boot partition and unmount any other */
+   svol = dsk_ismounted(dstdisk, dpos);
+   if (svol==QDSK_VOLUME) return DPTE_BOOTPT;
+   if (svol&QDSK_VOLUME) 
+      if (!hlp_unmountvol(svol&QDSK_DISKMASK)) return DPTE_UMOUNT;
+
    dlen = dsk_copysector(dstdisk, dpos, srcdisk, spos, slen, cbprint, 
                          flags&DCLD_NOBREAK?0:break_copy, 0, &rc);
    if (dlen<slen) return rc;
-   rc = 0;
+
+   rc = 0; hidden_upd = 0; 
+   br = 0;
    // update target partition`s BPB
    if ((flags&DCLD_SKIPBPB)==0) {
-      struct Boot_Record *br = (struct Boot_Record*)malloc(MAX_SECTOR_SIZE);
-      u32t stype = dsk_sectortype(dstdisk, dpos, (u8t*)br);
+      u32t  bstype;
+      br     = (struct Boot_Record*)malloc(MAX_SECTOR_SIZE);
+      bstype = dsk_sectortype(dstdisk, dpos, (u8t*)br);
       /* NOT touching total number of sectors in BPB here because of two
          reasons:
          * NTFS/ExFat have own 8 byte field at offset 72 and half-compatible
@@ -370,35 +386,93 @@ u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
          * some hypotetic code can depends on this value (i.e. check some
            FS structures and so on) 
          So, updating HiddenSectors & CHS values only (if it possible). */
-      if (stype==DSKST_BOOTFAT || stype==DSKST_BOOTBPB) {
-          disk_geo_data  geo;
-          u32t   wrt = 0, nv = dpos>=_4GBLL ? FFFF : dpos;
-          /* destination is logical partition - we must query hidden sectors
-             value in special way */
-          if ((dflags&DPTF_PRIMARY)==0)
-             dsk_ptquery(dstdisk, dstindex, 0, 0, 0, 0, &nv);
-          // CHS changed?
-          if (dsk_getptgeo(dstdisk, &geo)==0) {
-             if (br->BR_BPB.BPB_SecPerTrack != geo.SectOnTrack) {
-                br->BR_BPB.BPB_SecPerTrack = geo.SectOnTrack;
-                wrt++;
-             }
-             if (br->BR_BPB.BPB_Heads != geo.Heads) {
-                br->BR_BPB.BPB_Heads = geo.Heads;
-                wrt++;
-             }
-          }
-          if (nv!=br->BR_BPB.BPB_HiddenSec) {
-             br->BR_BPB.BPB_HiddenSec = nv;
-             wrt++;
-          }
-          // update BPB
-          if (wrt)
-             if (!hlp_diskwrite(dstdisk, dpos, 1, br)) rc = DPTE_ERRWRITE;
+      if (bstype==DSKST_BOOTFAT || bstype==DSKST_BOOTBPB) {
+         disk_geo_data  geo;
+         u32t   wrt = 0, nv = dpos>=_4GBLL ? FFFF : dpos;
+         /* destination is logical partition - we must query hidden sectors
+            value in special way */
+         if ((dflags&DPTF_PRIMARY)==0)
+            dsk_ptquery(dstdisk, dstindex, 0, 0, 0, 0, &nv);
+         // CHS changed?
+         if (dsk_getptgeo(dstdisk, &geo)==0) {
+            if (br->BR_BPB.BPB_SecPerTrack != geo.SectOnTrack) {
+               br->BR_BPB.BPB_SecPerTrack = geo.SectOnTrack;
+               wrt++;
+            }
+            if (br->BR_BPB.BPB_Heads != geo.Heads) {
+               br->BR_BPB.BPB_Heads = geo.Heads;
+               wrt++;
+            }
+         }
+         if (nv!=br->BR_BPB.BPB_HiddenSec) {
+            br->BR_BPB.BPB_HiddenSec = nv;
+            wrt++; 
+            // flag for boot.ini update below (it must be non-zero)
+            hidden_upd = bstype==DSKST_BOOTFAT ? nv : 0;
+         }
+         // update BPB
+         if (wrt)
+            if (!hlp_diskwrite(dstdisk, dpos, 1, br)) rc = DPTE_ERRWRITE;
       }
    }
    // change partition type on MBR disks (and ignore result of this action)
    if (dsk_isgpt(dstdisk,-1)==0 && stype!=dtype)
       dsk_setpttype(dstdisk, dstindex, stype);
+
+   // update boot sectors, listed in boot.ini on FAT/FAT32 ;)
+   if (hidden_upd) {
+      u8t vol = 0;
+      // mounts destination temporary and checks boot.ini, but ignore any errors
+      if (vol_mount(&vol, dstdisk, dstindex)==0) {
+         u32t vt = hlp_volinfo(vol, 0);
+         if (vt==FST_FAT12 || vt==FST_FAT16 || vt==FST_FAT32) {
+            char    path[12];
+            str_list  *oslst;
+            sprintf(path, "%c:\\BOOT.INI", vol+'A');
+
+            oslst = str_keylist(path, "operating systems", 0);
+            if (oslst) {
+               u32t ii;
+               for (ii=0; ii<oslst->count; ii++) {
+                  if (strnicmp(oslst->item[ii], "C:\\", 3)==0) {
+                     char *bsp = sprintf_dyn("%c:\\%s", vol+'A', oslst->item[ii][3]
+                                             ? oslst->item[ii]+3 : "BOOTSECT.DOS");
+                     dir_t  fi;
+                     u16t  err = _dos_stat(bsp, &fi);
+                     if (!err) {
+                        if (fi.d_size == hD->info.SectorSize) {
+                           FILE *fb;
+                           // drop read-only for a while
+                           if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,_A_ARCH);
+                           // update sector
+                           fb = fopen(bsp, "r+b");
+                           if (!fb) err = errno; else {
+                              if (fread(br,1,fi.d_size,fb)==fi.d_size) {
+                                 br->BR_BPB.BPB_HiddenSec = hidden_upd;
+                                 rewind(fb);
+                                 if (fwrite(br,1,fi.d_size,fb)!=fi.d_size) err = errno;
+                              } else err = errno;
+                              fclose(fb);
+                              if (!err) log_printf("\"%s\" updated\n", bsp);
+                           }
+                           // restore attributes
+                           if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,fi.d_attr);
+                        } else
+                           log_printf("\"%s\" size mismatch (%u bytes)\n", bsp,
+                              hD->info.SectorSize);
+                     }
+                     if (err) log_printf("error %h on updating \"%s\"\n", err, bsp);
+                     free(bsp);
+                  }
+               }
+               free(oslst);
+            }
+         }
+         hlp_unmountvol(vol);
+      }
+   }
+   // free sector buffer
+   if (br) free(br);
+
    return rc;
 }

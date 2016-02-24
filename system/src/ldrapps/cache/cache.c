@@ -47,7 +47,7 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
       } else
       if (stricmp(fp,"INFO")==0) {
          u32t hdds, fdds, ii;
-         static const char *msg_str[3] = {"not possible", "off", "on"};
+         static const char *msg_str[3] = {"impossible", "off", "on"};
 
          printf(" Cache state: ");
          shellprc(blocks_total?VIO_COLOR_LGREEN:VIO_COLOR_LRED,"%s",
@@ -96,7 +96,7 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
    return EINVAL;
 }
 
-static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio, 
+static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio,
    cc_enable, cc_invalidate, cc_invalidate_vol, cc_stat};
 
 // data is not used and no any signature checks in this class
@@ -105,7 +105,7 @@ typedef struct {
 } cc_data;
 
 u32t _std cc_setsize_str(void *data, const char *size) {
-   if (stricmp(size,"OFF")==0) { cc_setsize(data, 0); return 1; } 
+   if (stricmp(size,"OFF")==0) { cc_setsize(data, 0); return 1; }
       else
    if (isdigit(size[0])) {
       char *errptr = 0;
@@ -142,22 +142,22 @@ void on_exit(void) {
 
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
-      if (mod_query(selfname,MODQ_LOADED|MODQ_NOINCR)) {
+      if (mod_query(selfname, MODQ_LOADED|MODQ_NOINCR)) {
          vio_setcolor(VIO_COLOR_LRED);
-         printf("%s already loaded!\n",selfname);
+         printf("%s already loaded!\n", selfname);
          vio_setcolor(VIO_COLOR_RESET);
          return 0;
       }
-      exit_handler(&on_exit,1);
-      cmd_shelladd("CACHE",shl_cache);
-
       classid = exi_register("qs_cachectrl", methods_list,
-         sizeof(methods_list)/sizeof(void*), sizeof(cc_data), 
+         sizeof(methods_list)/sizeof(void*), sizeof(cc_data),
             cc_init, cc_done, 0);
       if (!classid) {
          log_printf("unable to register class!\n");
          return 0;
       }
+      exit_handler(&on_exit, 1);
+      cmd_shelladd("CACHE", shl_cache);
+
       lib_ready = 1;
    } else {
       if (classid)

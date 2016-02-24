@@ -8,6 +8,7 @@ name = "QSINIT"
 
 exports = {
   _exit_pm32       = { index=1 }                                  # exit(error)
+  _hlp_rmcallreg   = { index=2  group="system" format="uip@u." }  # RM call with regs
   _hlp_rmcall      = { index=3 }                                  # RM function call
   _int12mem        = { index=4 }                                  # call int 12h
   _aboutstr        = { index=5  offset=yes }                      # qsinit version/build string
@@ -27,6 +28,7 @@ exports = {
   _sto_init        = { index=16 }                                 # storage support
   _hlp_seroutset   = { index=17 group="system" format="i@hu" }    # change serial parameters
   _log_vprintf     = { index=18 }                                 # vprintf to log
+  _hlp_tscread     = { index=19 }                                 # safe rdtsc call
 
   _hlp_memalloc    = { index=20 }                                 # global malloc
   _hlp_memfree     = { index=21 }                                 # global free
@@ -71,60 +73,61 @@ exports = {
   _f_setlabel      = { index=63 group="fatfs"  format="bs"    }   # set volume label
   _hlp_setcpinfo   = { index=64 group="fatfs"  format="v*h"   }   # oem conversion setup
 
-  _snprintf        = { index=70 group="string" format="i&sus." }  # clib
-  _memset          = { index=72 group="clib"   format="pp@cu" }   #
-  _strncmp         = { index=73 group="string" format="issu"  }   #
-  _strnicmp        = { index=74 group="string" format="issu"  }   #
-  _strlen          = { index=75 group="string" format="us"    }   #
-  _strncpy         = { index=76 group="string" format="p&ssu" }   #
-  _strcpy          = { index=77 group="string" format="p&ss"  }   #
-  _strchr          = { index=78 group="string" format="ssc"   }   #
-  _memcpy          = { index=79 group="clib"   format="pppu"  }   #
+  _snprintf        = { index=70 group="string"  format="i&sus." } # clib
+  _memset          = { index=72 group="clib"    format="pp@cu" }  #
+  _strncmp         = { index=73 group="string"  format="issu"  }  #
+  _strnicmp        = { index=74 group="string"  format="issu"  }  #
+  _strlen          = { index=75 group="string"  format="us"    }  #
+  _strncpy         = { index=76 group="string"  format="p&ssu" }  #
+  _strcpy          = { index=77 group="string"  format="p&ss"  }  #
+  _strchr          = { index=78 group="string"  format="ssc"   }  #
+  _memcpy          = { index=79 group="clib"    format="pppu"  }  #
   _toupper         = { index=80 }                                 #
-  _memchrnb        = { index=81 group="clib"   format="pp@cu" }   #
-  _memchrw         = { index=82 group="clib"   format="pp@hu" }   #
-  _memchrnw        = { index=83 group="clib"   format="pp@hu" }   #
-  _memchrd         = { index=84 group="clib"   format="pp@uu" }   #
-  _memchrnd        = { index=85 group="clib"   format="pp@uu" }   #
-  _memmove         = { index=86 group="clib"   format="pppu"  }   #
+  _memchrnb        = { index=81 group="clib"    format="pp@cu" }  #
+  _memchrw         = { index=82 group="clib"    format="pp@hu" }  #
+  _memchrnw        = { index=83 group="clib"    format="pp@hu" }  #
+  _memchrd         = { index=84 group="clib"    format="pp@uu" }  #
+  _memchrnd        = { index=85 group="clib"    format="pp@uu" }  #
+  _memmove         = { index=86 group="clib"    format="pppu"  }  #
   _tolower         = { index=87 }                                 #
-  _memchr          = { index=88 group="clib"   format="pp@cu" }   #
-  __vsnprintf      = { index=89 group="string" format="i&susp" }  #
-  _usleep          = { index=90 group="clib"   format="vu"    }   #
-  _memsetw         = { index=91 group="clib"   format="pp@hu" }   #
-  _memsetd         = { index=92 group="clib"   format="pp@uu" }   #
+  _memchr          = { index=88 group="clib"    format="pp@cu" }  #
+  __vsnprintf      = { index=89 group="string"  format="i&susp" } #
+  _usleep          = { index=90 group="clib"    format="vu"    }  #
+  _memsetw         = { index=91 group="clib"    format="pp@hu" }  #
+  _memsetd         = { index=92 group="clib"    format="pp@uu" }  #
   __longjmp        = { index=93 }                                 #
   __setjmp         = { index=94 }                                 #
-  _str2long        = { index=95 group="string" format="is"    }   #
-  __itoa           = { index=96 group="clib"   format="sipi"  }   #
-  __itoa64         = { index=97 group="clib"   format="s@qpi" }   #
-  __utoa           = { index=98 group="clib"   format="supi"  }   #
-  __utoa64         = { index=99 group="clib"   format="sqpi"  }   #
+  _str2long        = { index=95 group="string"  format="is"    }  #
+  __itoa           = { index=96 group="clib"    format="sipi"  }  #
+  __itoa64         = { index=97 group="clib"    format="s@qpi" }  #
+  __utoa           = { index=98 group="clib"    format="supi"  }  #
+  __utoa64         = { index=99 group="clib"    format="sqpi"  }  #
 
   _vio_charout     = { index=100 }                                # print char
   _vio_strout      = { index=101 }                                # print string
-  _vio_clearscr    = { index=102 group="vio"   format="vv"    }   # clear screen
+  _vio_clearscr    = { index=102 group="vio"    format="vv"    }  # clear screen
   _vio_setpos      = { index=103 }                                # set cursor position
-  _vio_setshape    = { index=104 group="vio"   format="v@b@b" }   # set cursor shape
+  _vio_setshape    = { index=104 group="vio"    format="v@b@b" }  # set cursor shape
   _vio_setcolor    = { index=105 }                                # set output color
-  _vio_setmode     = { index=106 group="vio"   format="vu"    }   # set text mode
-  _vio_resetmode   = { index=107 group="vio"   format="vv"    }   # reset mode to 80x25
+  _vio_setmode     = { index=106 group="vio"    format="vu"    }  # set text mode
+  _vio_resetmode   = { index=107 group="vio"    format="vv"    }  # reset mode to 80x25
   _vio_getmode     = { index=108 }                                # query current text mode
-  _vio_beep        = { index=109 group="vio"   format="vhu"   }   # speaker sound
+  _vio_beep        = { index=109 group="vio"    format="vhu"   }  # speaker sound
  
-  _zip_open        = { index=110 group="zip"   format="ippu"  }   # open zip
-  _zip_close       = { index=111 group="zip"   format="vp"    }   # close zip
-  _zip_nextfile    = { index=112 group="zip"   format="ip&*s&*u" } # seek next file
-  _zip_readfile    = { index=113 group="zip"   format="pp"    }   # unpack file from zip
-  _crc32           = { index=114 group="zip"   format="@u@upu" }  # crc32
-  _zip_isok        = { index=115 group="zip"   format="ip"    }   # check last result
-  _zip_unpacked    = { index=116 group="zip"   format="up&*u" }   # get total zip size
-  _unpack_zip      = { index=117 group="zip"   format="i@cpu" }   # unpack zip to virtual disk
+  _zip_open        = { index=110 group="zip"    format="ippu"  }  # open zip
+  _zip_close       = { index=111 group="zip"    format="vp"    }  # close zip
+  _zip_nextfile    = { index=112 group="zip"    format="ip&*s&*u" } # seek next file
+  _zip_readfile    = { index=113 group="zip"    format="pp"    }  # unpack file from zip
+  _crc32           = { index=114 group="zip"    format="@u@upu" } # crc32
+  _zip_isok        = { index=115 group="zip"    format="ip"    }  # check last result
+  _zip_unpacked    = { index=116 group="zip"    format="up&*u" }  # get total zip size
+  _unpack_zip      = { index=117 group="zip"    format="i@cpu" }  # unpack zip to virtual disk
 
   _int15mem        = { index=120 }                                # get full ACPI memory table
   _exit_poweroff   = { index=121 }                                # power off the system
+  _exit_restirq    = { index=122 group="system" format="vi"    }  # set IRQ restore flag
   _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
-  _hlp_runcache    = { index=125 group="disk"  format="up" }      # install cache handler
+  _hlp_runcache    = { index=125 group="disk"   format="up"    }  # install cache handler
   _exit_reboot     = { index=126 }                                # reboot system
   _exit_restart    = { index=127 }                                # restart another loader
   _boot_info       = { index=128 offset = yes }                   # internal, for OS/2 boot
@@ -136,21 +139,28 @@ exports = {
   _hlp_getcpuid    = { index=134 }                                # cpuid call
   _hlp_readmsr     = { index=135 }                                # read msr call
   _hlp_writemsr    = { index=136 }                                # write msr call
-  _sys_intstate    = { index=137 group="system" format="ii" }     # get/set interrupt state
+  _sys_intstate    = { index=137 group="system" format="ii"    }  # get/set interrupt state
   _hlp_hosttype    = { index=138 }                                # query host env. type
   _call64          = { index=139 }                                # call 64-bit part on EFI host
 
-  _hlp_selalloc    = { index=140 group="system" format="@hu" }    # allocate selectors
-  _hlp_selfree     = { index=141 group="system" format="u@h" }    # free selector
+  _hlp_selalloc    = { index=140 group="system" format="@hu"   }  # allocate selectors
+  _hlp_selfree     = { index=141 group="system" format="u@h"   }  # free selector
   _hlp_selsetup    = { index=142 group="system" format="u@h@u@u@u" } # setup selector
   _hlp_selbase     = { index=143 }                                # query selector base & limit
   _hlp_segtoflat   = { index=145 }                                # convert RM segment to flat
-  _sys_getint      = { index=146 group="system" format="vb&@*q" } # get interrupt vector
-  _sys_setint      = { index=147 group="system" format="ib@*q" }  # set interrupt vector
+  _sys_getint      = { index=146 group="system" format="ub&@*q" } # get interrupt vector
+  _sys_setint      = { index=147 group="system" format="ib@*qu" } # set interrupt vector
   _sys_intgate     = { index=148 group="system" format="ib@h"  }  # set interrupt gate
   _sys_seldesc     = { index=149 group="system" format="i@h@*q" } # set descriptor
   _sys_selquery    = { index=150 group="system" format="i@h@*&q" } # get descriptor
-  _sys_setxcpt64   = { index=151 group="system" format="pp" }     # setup exceptions on EFI host
+  _sys_setxcpt64   = { index=151 group="system" format="pp"    }  # setup exceptions on EFI host
+  _sys_tmirq32     = { index=152 group="system" format="upbb"  }  # LAPIC timer setup
+  _sys_tmirq64     = { index=153 group="system" format="pp"    }  # timer irq on EFI host
+  _sys_rmtstat     = { index=154 }                                # internal timer irq counters
+  _mt_yield        = { index=155 }                                # yields CPU to other threads
+  _sys_setyield    = { index=156 group="system" format="pp"    }  # set mt_yield callback
+  _exit_inprocess  = { index=157 group="system" format="uv"    }  # is exit in process?
+  _mt_setextcb     = { index=158 group="system" format="vp"    }  # internal (mtlib support)
 
   _mod_load        = { index=160 }                                # load module
   _mod_unpackobj   = { index=161 }                                # unpack module object
@@ -171,42 +181,44 @@ exports = {
 
   _key_read        = { index=180 }                                # read character
   _key_pressed     = { index=181 }                                # is character pressed?
-  _key_speed       = { index=182 group="vio" format="vbb" }       # set keyboard rate/delay
+  _key_speed       = { index=182 group="vio"    format="vbb" }    # set keyboard rate/delay
   _key_status      = { index=183 }                                # get sys key status
   _key_wait        = { index=184 }                                # wait key with delay
-  _key_push        = { index=185 group="vio" format="b@h" }       # push key to keyboard buffer
-  _key_waithlt     = { index=186 group="vio" format="ii" }        # wait method setup
-  _key_getspeed    = { index=187 group="vio" format="v&*b&*b" }   # get keyboard rate/delay
+  _key_push        = { index=185 group="vio"    format="b@h" }    # push key to keyboard buffer
+  _key_waithlt     = { index=186 group="vio"    format="ii" }     # wait method setup
+  _key_getspeed    = { index=187 group="vio"    format="v&*b&*b" } # get keyboard rate/delay
 
   _tm_counter      = { index=190 }                                # bios timer counter value
   _tm_getdate      = { index=191 }                                # query cmos date/time
   _vio_beepactive  = { index=192 }                                # is beep active now
   _tm_setdate      = { index=193 }                                # set cmos date/time
   _tm_calibrate    = { index=194 }                                # calibrate i/o delay
+  # 195 removed (_tm_setiodelay)
+  _hlp_tscin55ms   = { index=196 group="system" format="@qv" }    # rtdsc cycles in 55 ms
 
-  _vio_getshape    = { index=200 group="vio" format="@hv" }       # get cursor shape
+  _vio_getshape    = { index=200 group="vio"    format="@hv" }    # get cursor shape
   _vio_getpos      = { index=201 }                                # get cursor pos
   _vio_getmodefast = { index=202 }                                # the same (internal)
-  _vio_defshape    = { index=203 group="vio" format="vb" }        # set cursor shape
-  _vio_intensity   = { index=204 group="vio" format="vb" }        # select intensity or blink
-  _vio_setmodeex   = { index=205 group="vio" format = "iuu" }     # set text mode
+  _vio_defshape    = { index=203 group="vio"    format="vb" }     # set cursor shape
+  _vio_intensity   = { index=204 group="vio"    format="vb" }     # select intensity or blink
+  _vio_setmodeex   = { index=205 group="vio"    format = "iuu" }  # set text mode
   _vio_writebuf    = { index=206 group="vio" }                    # buffer -> text screen
   _vio_readbuf     = { index=207 group="vio" }                    # text screen -> buffer
   _vio_ttylines    = { index=208 offset = yes }                   # global count of printed lines
 
-  _hlp_diskcount   = { index=210 group="disk"  format="u&*u"  }   # physical disk access
-  _hlp_disksize    = { index=211 group="disk"  format="u@u&*up" } #
-  _hlp_diskread    = { index=212 group="disk"  format="u@u@qup" } #
-  _hlp_diskwrite   = { index=213 group="disk"  format="u@u@qup" } #
-  _hlp_diskmode    = { index=214 group="disk"  format="u@u@u" }   #
-  _hlp_fddline     = { index=215 group="disk"  format="i@u"   }   #
-  _hlp_diskadd     = { index=216 group="disk"  format="@ip"   }   #
-  _hlp_diskremove  = { index=217 group="disk"  format="i@u"   }   #
-  _hlp_mountvol    = { index=218 group="disk"  format="u@c@u@qq"} # mount/unmount FAT/FAT32
-  _hlp_unmountvol  = { index=219 group="disk"  format="u@c"   }   #
-  _hlp_volinfo     = { index=220 group="disk"  format="u@cp"  }   # mounted volume info
-  _hlp_disksize64  = { index=221 group="disk"  format="q@u&*u" }  #
-  _hlp_diskstruct  = { index=222 group="disk"  format="p@up"  }   #
+  _hlp_diskcount   = { index=210 group="diskio" format="u&*u"  }  # physical disk access
+  _hlp_disksize    = { index=211 group="disk"   format="u@u&*up" } #
+  _hlp_diskread    = { index=212 group="diskio" format="u@u@qup" } #
+  _hlp_diskwrite   = { index=213 group="diskio" format="u@u@qup" } #
+  _hlp_diskmode    = { index=214 group="disk"   format="u@u@u" }  #
+  _hlp_fddline     = { index=215 group="disk"   format="i@u"   }  #
+  _hlp_diskadd     = { index=216 group="disk"   format="@ip"   }  #
+  _hlp_diskremove  = { index=217 group="disk"   format="i@u"   }  #
+  _hlp_mountvol    = { index=218 group="disk"   format="u@c@u@qq"} # mount/unmount FAT/FAT32
+  _hlp_unmountvol  = { index=219 group="disk"   format="u@c"   }  #
+  _hlp_volinfo     = { index=220 group="disk"   format="u@cp"  }  # mounted volume info
+  _hlp_disksize64  = { index=221 group="disk"   format="q@u&*u" } #
+  _hlp_diskstruct  = { index=222 group="disk"   format="p@up"  }  #
 
   __U8D            = { index=230 }                                # watcom int64 support
   __I8D            = { index=231 }                                # and more of clib

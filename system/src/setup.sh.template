@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# ----------------------------------------------------
+# setup WATCOM env var and QS root here
+# ----------------------------------------------------
+#
+export WATCOM=/home/usr/OW
+export QS_ROOT=/home/usr/QS
+
+. $QS_ROOT/system/src/tools/setupi.sh
+
+# note that svn revision appends here in QS_SDK archive compilation only
+export svnrev=0371

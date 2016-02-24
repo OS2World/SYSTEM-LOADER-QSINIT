@@ -25,15 +25,15 @@ typedef struct bit_map_s {
    u32t    _std (*init   )(void *bmp, u32t size);
    /** init bitmap with internally allocated buffer.
        Bitmap will be zeroed after allocation, buffer size aligned to dword.
-       @param  size     size of bitmap (in bits!)
+       @param  size     size of bitmap (in bits!, zero to free buffer).
        @return zero on error (no memory) */
    u32t    _std (*alloc  )(u32t size);
    /** change bitmap size.
        Function will fail on trying to expand external buffer.
-       Expanded space will be zeroed.
-       @param  size     new size of bitmap
+       @param  size     new size of bitmap (zero to free buffer).
+       @param  on       state of expanded space (1/0)
        @return zero on error (no memory or external buffer expansion). */
-   u32t    _std (*resize )(u32t size);
+   u32t    _std (*resize )(u32t size, int on);
    /// return bitmap size (in bits!).
    u32t    _std (*size   )(void);
    /// return bitmap buffer
