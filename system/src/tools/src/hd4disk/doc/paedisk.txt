@@ -24,7 +24,8 @@
   FAT32 (depends on size). This can be altered by RAMDISK command keys or
   manual partition creation by DMGR command.
 
-  You can put swap file to this disk`s partition :)
+  You can put swap file to this disk`s partition :) (with exception of FAT32,
+  FAT32.IFS has no swap support).
 
   ADD driver works fine on Warp 3 (at least, with FP43).
 
@@ -114,6 +115,11 @@
   For more details QSINIT / OS/4 loader log must be turned on
   (driver prints some messages to it).
 
+  Note, what if you are using HPFS386 - is it better to turn off its lazy
+writer for ramdisk volume in hpfs386.ini, for ex.:
+      [lazywriter]
+      lazy       = *: ON
+      lazy       = v: OFF
 
   And, finally, you can BOOT from PAE RAM disk :)
 

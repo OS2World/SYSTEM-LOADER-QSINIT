@@ -6,7 +6,6 @@
 #include "qsutil.h"
 #include "memmgr.h"
 #include "internal.h"
-#include "malloc.h"
 #include "qsshell.h"
 #include "qsxcpt.h"
 #include "vio.h"
@@ -22,7 +21,9 @@ void setup_fileio(void);
 void setup_storage(void);
 void setup_hardware(void);
 int  get_ini_parms(void);
+void setup_fio(void);
 void done_ini(void);
+void mem_init(void);
 
 void _std mod_main(void) {
    // init static classes and variables
@@ -30,17 +31,21 @@ void _std mod_main(void) {
    // init global exception handler
    setup_exceptions(0);
    // init memory manager
-   memInit();
-   // init log & storage, must be called before mod_secondary export
+   mem_init();
+   /* init log & storage
+      - must be called before mod_secondary export */
    setup_log();
    setup_storage();
+   // file i/o, uses storage at least, and provides system file i/o for everybody
+   setup_fio();
    // export minor LE/LX loader code, missing in QSINIT
    setup_loader();
    // setup std file i/o
    setup_fileio();
    // get some parameters from ini and copy ini file to 1:
    get_ini_parms();
-   // advanced setup of system memory
+   /* advanced setup of system memory
+      - must be after memInit() & setup_loader() (mod_secondary for QSINIT) */
    setup_memory();
    // setup some hardware (must be after setup_exceptions(), at least)
    setup_hardware();

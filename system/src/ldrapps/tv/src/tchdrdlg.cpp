@@ -38,7 +38,7 @@
 #include <ctype.h>
 #include <string.h>
 #ifdef __QSINIT__
-#include <qsutil.h>
+#include <qsio.h>
 #endif
 
 TChDirDialog::TChDirDialog(ushort opts, ushort histId) :
@@ -143,7 +143,7 @@ void TChDirDialog::setUpDialog() {
 static int changeDir(const char *path) {
    if (path[1] == ':')
 #ifdef __QSINIT__
-      hlp_chdisk(toupper(path[0]) - 'A');
+      io_setdisk(toupper(path[0]) - 'A');
 #elif defined(__WATCOMC__)
    {
       unsigned int total;

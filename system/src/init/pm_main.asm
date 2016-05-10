@@ -24,6 +24,7 @@ LOADER          ends                                            ;
 _TEXT           segment                                         ;
                 extrn   _init32:near                            ;
                 extrn   _exit_prepare:near                      ;
+                extrn   _mt_swlock:near                         ;
                 extrn   vio_charout:near                        ;
                 extrn   vio_init:near                           ; text mode prn init/done
                 extrn   vio_done:near                           ;
@@ -47,6 +48,8 @@ _exit_pm32s:
                 call    vio_charout                             ; print eol
                 mov     al,10                                   ;
                 call    vio_charout                             ;
+; lock it finally! _exit_prepare makes this, but here we duplicate for safeness
+                call    _mt_swlock                              ;
                 call    vio_done                                ;
                 pop     ebx                                     ; rc
 ifdef INITDEBUG

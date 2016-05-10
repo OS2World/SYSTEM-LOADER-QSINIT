@@ -20,7 +20,8 @@
                 extrn   _mfsd_openname:byte                     ;
                 extrn   _mfsd_fsize:dword                       ;
                 extrn   _rmpart_size:word                       ;
-                extrn   _mt_yield:near
+                extrn   _mt_swlock:near                         ;
+                extrn   _mt_swunlock:near                       ;
 
 RMC_IRET        = 40000000h                                     ; call to iret frame
 RMC_EXITCALL    = 80000000h                                     ; exit from QSINIT
@@ -93,14 +94,16 @@ rmcall32regs:
                 mov     esi,save_esi                            ;
                 mov     ebp,save_ebp                            ;
                 mov     ebx,save_ebx                            ;
-
+; restore all static vars before flushing rm log, because we can be be
+; recursive from log_flush()
                 push    [save_ret]                              ;
-                pushf                                           ; restore all static
-                push    eax                                     ; vars before
-                call    _log_flush                              ; flushing rm log
+                pushf                                           ;
+                push    eax                                     ;
+                call    _log_flush                              ;
                 pop     eax                                     ;
+; unlock it and reschedule
+                call    _mt_swunlock                            ;
                 popf                                            ;
-                call    _mt_yield                               ;
                 ret                                             ; return to caller
 
 ; convert edx to seg:ofs but panic if it not in 16-bit segments
@@ -127,6 +130,7 @@ _mfs_open       label   near                                    ;
                 push    edx                                     ;
                 mov     ecx,4                                   ;
                 mov     edx,_filetable.ft_muOpen                ; function ptr
+                call    _mt_swlock                              ;
                 call    rmcall32                                ;
                 add     esp,8                                   ;
                 ret
@@ -139,6 +143,7 @@ _strm_open      label   near                                    ;
                 push    edx                                     ;
                 mov     ecx,2                                   ;
                 mov     edx,_filetable.ft_resofs                ; function ptr
+                call    _mt_swlock                              ;
                 call    rmcall32                                ;
                 add     esp,4                                   ;
                 ret
@@ -150,6 +155,7 @@ _mfs_read       label   near                                    ;
                 mov     word ptr [esp+8],0                      ;
                 mov     ecx,6                                   ; number of dw to copy
                 mov     edx,_filetable.ft_muRead                ; function ptr
+                call    _mt_swlock                              ;
                 jmp     rmcall32                                ;
 
 ;u16t __cdecl strm_read(u32t buf, u16t readsize);
@@ -159,6 +165,7 @@ _strm_read      label   near                                    ;
                 mov     word ptr [esp+4],0                      ;
                 mov     ecx,3                                   ; number of dw to copy
                 mov     edx,_filetable.ft_reslen                ; function ptr
+                call    _mt_swlock                              ;
                 jmp     rmcall32                                ;
 
 ;u32t __cdecl mfs_close(void);
@@ -166,6 +173,7 @@ _strm_read      label   near                                    ;
 _mfs_close      label   near                                    ;
                 xor     ecx,ecx                                 ;
                 mov     edx,_filetable.ft_muClose               ;
+                call    _mt_swlock                              ;
                 jmp     rmcall32                                ;
 
 ;u32t __cdecl mfs_term(void);
@@ -173,11 +181,13 @@ _mfs_close      label   near                                    ;
 _mfs_term       label   near                                    ;
                 xor     ecx,ecx                                 ;
                 mov     edx,_filetable.ft_muTerminate           ;
+                call    _mt_swlock                              ;
                 jmp     rmcall32                                ;
 
 ;u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
                 public  _hlp_rmcall                             ;
 _hlp_rmcall     label   near                                    ;
+                call    _mt_swlock                              ;
                 pop     save_ret2                               ;
                 pop     edx                                     ;
                 cmp     edx,0A0000h                             ; value < A0000?
@@ -221,6 +231,8 @@ rmcall_setflags label   near
 ; u32t  __cdecl hlp_rmcallreg(int intnum, rmcallregs_t *regs, u32t dwcopy, ...);
                 public  _hlp_rmcallreg
 _hlp_rmcallreg  label   near
+                call    _mt_swlock                              ; yes, twice!
+                call    _mt_swlock                              ;
                 pop     save_ret2                               ;
                 pop     edx                                     ; intnum
                 mov     save_edi,edi                            ;
@@ -234,12 +246,17 @@ _hlp_rmcallreg  label   near
 @@hrmc_reg_far:
                 call    rmcall32regs                            ;
                 lea     esp,[esp-12]                            ; do not touch flags
-                jmp     [save_ret2]                             ;
+                push    save_ret2                               ;
+                pushfd                                          ;
+                call    _mt_swunlock                            ;
+                popfd                                           ;
+                ret                                             ;
 
 ;u8t __stdcall raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
                 public  _raw_io                                 ;
 _raw_io         label   near                                    ;
                 pop     eax                                     ; return addr
+                call    _mt_swlock                              ;
                 mov     edx,offset _rm_regs                     ;
                 pop     ecx                                     ;
                 sub     ecx,_qs16base                           ; pop esi (must be in DGROUP!)
@@ -262,6 +279,7 @@ _raw_io         label   near                                    ;
 ;  rm ax = ax                rm cx = cx                rm esi = 0
 ;  rm bx = high part of eax  rm dx = high part of ecx  rm edi = 0
 rmint_common    label   near
+                call    _mt_swlock                              ;
                 mov     rmcall32ax,0300h                        ; change rmcall
                 xor     dh,dh                                   ; func to int
                 mov     rmcall32bx,dx                           ; # in dl
@@ -348,10 +366,10 @@ _hlp_fddline    label   near                                    ; fdd change lin
                 movsx   eax,al                                  ;
                 retn    4                                       ;
 
-                public  rmstop                                  ;
-rmstop          label   near                                    ; exit to rm
-                mov     edx,offset _rm_regs                     ;
-                mov     [edx+rmcallregs_s.r_eax], ebx           ;
+                public  rmstop                                  ; exit to rm
+rmstop          label   near                                    ;
+                mov     edx,offset _rm_regs                     ; _mt_swlock already
+                mov     [edx+rmcallregs_s.r_eax], ebx           ; called in exit_pm32
                 mov     [edx+rmcallregs_s.r_edx], eax           ;
                 xor     ecx,ecx                                 ;
                 mov     edx,offset panic_initpm_np              ; setup addr

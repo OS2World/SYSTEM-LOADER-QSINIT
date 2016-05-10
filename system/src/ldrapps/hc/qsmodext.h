@@ -78,6 +78,9 @@ typedef struct mod_chaininfo_s {
     must use APICN_FIRSTPOS flag (it is better for trace to be the 1st in
     entry list and last in exit).
 
+    Entry/exit hooks calling occurs in MT locked state (i.e. thread switching
+    is blocked). This, also, mean what they should not be too long.
+
     @param  info    Call info.
     @return 1 to process next chain, 0 to stop chain list processing */
 typedef int _std (*mod_chainfunc)(mod_chaininfo *info);
@@ -173,7 +176,7 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
     @return pointer to function code or 0. */
 void* _std mod_apidirect(u32t module, u32t ordinal);
 
-/// get current pid (does not used seriously)
+/// get current process pid
 u32t  _std mod_getpid(void);
 
 /** get pid of process, executing this EXE module.
@@ -198,6 +201,8 @@ char *_std mod_getname(u32t module, char *buffer);
 
 /// dump process tree to log
 void  _std mod_dumptree(void);
+/// dump single process context to log
+void  _std log_dumppctx(process_context* pq);
 
 #ifdef __cplusplus
 }

@@ -8,13 +8,28 @@
 #include "qsutil.h"
 #include "qsint.h"
 #include "qsstor.h"
-#include "fat/ff.h"
 #include "stdlib.h"
 #include "qsinit_ord.h"
 #include "seldesc.h"
 #include "qsmodext.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 #include "dskinfo.h"
+#include "parttab.h"
+
+static cache_extptr *cache_eproc = 0;
+
+/* entry/exit thunks are always called in locked state - so we`re safe now in
+   both functions and cache_ctrl(), who uses cache_eproc var inside lock too */
+static int _std catch_cacheptr(mod_chaininfo *info) {
+   cache_extptr *fptr = *(cache_extptr **)(info->mc_regs->pa_esp+4);
+   if (fptr && fptr->entries!=3) {
+      log_it(2, "Invalid runcache() (%08X)\n", fptr);
+   } else {
+      log_it(2, "hlp_runcache(%08X)\n", fptr);
+      cache_eproc = fptr;
+   }
+   return 1;
+}
 
 static int _std catch_diskremove(mod_chaininfo *info) {
    u32t disk = *(u32t*)(info->mc_regs->pa_esp+4);
@@ -29,36 +44,15 @@ static int _std catch_diskremove(mod_chaininfo *info) {
 void setup_cache(void) {
    u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
    if (qsinit)
-      if (mod_apichain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove))
-         return;
+      if (mod_apichain(qsinit, ORD_QSINIT_hlp_runcache, APICN_ONENTRY, catch_cacheptr) &&
+         mod_apichain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove))
+            return;
    log_it(2, "failed to catch!\n");
 }
 
-u32t _std hlp_vollabel(u8t drive, const char *label) {
-   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
-   FATFS   **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
-
-   if (extvol && drive<_VOLUMES) {
-      vol_data  *vdta = extvol+drive;
-      FATFS     *fdta = extdrv[drive];
-      // mounted & FAT?
-      if (drive<=DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
-         char lb[14];
-         lb[0] = drive+'0';
-         lb[1] = ':';
-         if (label) {
-            strncpy(lb+2,label,12);
-            lb[13] = 0;
-         } else
-            lb[2] = 0;
-         if (f_setlabel(lb)==FR_OK) {
-            // drop file label cache to make read it again
-            vdta->serial = 0;
-            return 1;
-         }
-      }
-   }
-   return 0;
+// cache ioctl (must be used inside MT lock only!)
+void cache_ctrl(u8t vol, u32t action) {
+   if (cache_eproc) (*cache_eproc->cache_ioctl)(vol,action);
 }
 
 /** query disk text name.
@@ -69,7 +63,7 @@ char* _std dsk_disktostr(u32t disk, char *buffer) {
    static char buf[8];
    if (!buffer) buffer = buf;
    if (disk&QDSK_FLOPPY) snprintf(buffer, 8, "fd%d", disk&QDSK_DISKMASK); else
-   if (disk&QDSK_VOLUME) snprintf(buffer, 8, "%c:", '0'+(disk&QDSK_DISKMASK)); else
+   if (disk&QDSK_VOLUME) snprintf(buffer, 8, "%c:", 'A'+(disk&QDSK_DISKMASK)); else
    if ((disk&QDSK_DISKMASK)==disk)
       snprintf(buffer, 8, "hd%d", disk&QDSK_DISKMASK);
          else { *buffer=0; return 0; }
@@ -138,20 +132,23 @@ u32t _std hlp_unmountall(u32t disk) {
 
 qs_extdisk _std hlp_diskclass(u32t disk, const char *name) {
    struct qs_diskinfo *di = hlp_diskstruct(disk, 0);
-   if (!di) return 0;
-   if (!di->qd_extptr) return 0; else 
-   // "name" is for extension, now only "qs_extdisk" supported
-   if (name && strcmp(name,"qs_extdisk")) return 0; else {
-      u32t id = exi_classid(di->qd_extptr), mcnt;
-      if (!id) return 0;
-      mcnt = exi_methods(id);
-      // can`t check compat., but at least, can compare number of methods!
-      if (mcnt == sizeof(_qs_extdisk)/sizeof(void*)) 
-         return (qs_extdisk)di->qd_extptr;
-      else {
-         // something was supplied with other number of methods?
-         log_it(2, "wrong extptr for disk %03X (%d funcs)\n", disk, mcnt);
-         return 0;
+   qs_extdisk       rcptr = 0;
+
+   mt_swlock();
+   di = hlp_diskstruct(disk, 0);
+   if (di && di->qd_extptr)
+      // "name" is for extension, now only "qs_extdisk" supported
+      if (!name || strcmp(name,"qs_extdisk")==0) {
+         u32t id = exi_classid(di->qd_extptr), mcnt;
+         if (id) {
+            mcnt = exi_methods(id);
+            // can`t check compat., but at least, can compare number of methods!
+            if (mcnt == sizeof(_qs_extdisk)/sizeof(void*)) 
+               rcptr = (qs_extdisk)di->qd_extptr;
+            else // something was supplied with other number of methods?
+               log_it(2, "wrong extptr for disk %03X (%d funcs)\n", disk, mcnt);
+         }
       }
-   }
+   mt_swunlock();
+   return rcptr;
 }

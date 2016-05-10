@@ -1,0 +1,89 @@
+[project]
+name=mtlib
+version=0x0001
+
+[config]
+0=Common
+
+[vars]
+aa=@wasm
+cc=@wcc386
+ld=@wlink
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cinc) $(cflags) -fo=$*.obj $(*cur_name)
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /tq /p1
+
+*ord=$(outdir)\$(*cur_fp)_ord.h|$(*cur_pref).ref| @echo $(*cur_name) | \
+     ref2lbc ord $(*cur_pref).ref $@
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_BASE)\ldrefi -i=%(QS_BASE)\init -fo=
+
+cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) \
+     -i=%(QS_BASE)\ldrefi\hc -i=$(outdir)
+
+dlldir=dll
+cinc=
+ccinc=$(cinc)
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name).dll
+&lnk=$(outdir)\$(name).lnk
+del=del
+copy=copy
+
+[vars.linux]
+del=rm
+copy=cp
+
+[files]
+..\runtime\qsinit.ord ..\runtime\start.ord
+..\..\ldrefi\inc\efnlist.inc ..\..\hc\inc\seldesc.inc
+..\..\init\inc\qspdata.inc ..\..\hc\inc\cpudef.inc
+mtlib.c timer.asm tmproc.c process.c procutil.asm sched.c thread.c
+
+[make_footer]
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo Building $(name)...
+
+nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c) $(**asm)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
+
+[&lnk]
+sys os2v2_dll
+name $(outname)
+file /[[$(**c)! !,]]
+file /[[$(**asm)! !,]]
+file %(appinit_lib)\bld\Common\initdll.obj
+lib %(appinit_lib)\runtime.lib
+op map=$(name).map
+sort global
+op togglerelocs
+op quiet
+op el
+op nod
+op osname=%(QS_NAME)
+op de '$(name) v$(vershort). $(config) build, $(timestr)'
+anonymousexport=$(outdir)\$(name).lbc
+
+[config.0]
+*out=$(outname) | nolink | \
+     echo Linking ... | \
+     ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
+     $(ld) @$(&lnk) | lxlite $(outname) >%(DEVNUL) | \
+     mkdir $(dlldir) | $(copy) $(outname) $(dlldir) >%(DEVNUL) | \
+     zip -q -9 -X -D %(QS_BIN)\%(QS_ARCH) $(dlldir)\*.* | \
+     $(del) $(dlldir)\$(outname) >%(DEVNUL) | \
+     rmdir $(dlldir)

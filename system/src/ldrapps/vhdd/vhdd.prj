@@ -68,6 +68,7 @@ op togglerelocs
 op quiet
 op el
 op nod
+op statics
 op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc

@@ -4,32 +4,37 @@
 ;
 
                 include inc/segdef.inc
-                include inc/seldesc.inc
                 include inc/qstypes.inc
+                include inc/qspdata.inc
                 include inc/serial.inc
                 include inc/dpmi.inc
                 include inc/vbedata.inc
                 include inc/cpudef.inc
                 include inc/lowports.inc
 
-                extrn   _IODelay   :word                        ;
-                extrn   _gdt_lowest:word                        ; lowest usable selector
-                extrn   _page0_fptr:dword                       ;
+                extrn   _IODelay      :word                     ;
+                extrn   _gdt_lowest   :word                     ; lowest usable selector
+                extrn   _page0_fptr   :dword                    ;
+                extrn   _mt_new       :near                     ;
+                extrn   _mt_exit      :near                     ;
+                extrn   _ExCvt        :dword                    ;
 ifndef EFI_BUILD
-                extrn   _syscr3      :dword                     ;
-                extrn   _syscr4      :dword                     ;
-                extrn   _systr       :word                      ;
-                extrn   apic_tmr_rcnt:word                      ;
-                extrn   apic_tmr_reoi:word                      ;
+                extrn   _syscr3       :dword                    ;
+                extrn   _syscr4       :dword                    ;
+                extrn   _systr        :word                     ;
+                extrn   apic_tmr_rcnt :word                     ;
+                extrn   apic_tmr_reoi :word                     ;
                 extrn   _rtdsc_present:byte                     ;
 else
-                extrn   setseldesc   :near                      ;
-                extrn   getseldesc   :near                      ;
-                extrn   selfree      :near                      ;
+                extrn   setseldesc    :near                     ;
+                extrn   getseldesc    :near                     ;
+                extrn   selfree       :near                     ;
 endif
                 extrn   _vio_bufcommon:near                     ;
 
 _DATA           segment                                         ;
+                public  _cp_num                                 ;
+_cp_num         dw      0                                       ; current code page
 cpuid_supported db      0                                       ;
 msr_supported   db      2                                       ; bit 2 = init me
 ifdef EFI_BUILD
@@ -41,7 +46,10 @@ else
                 public  _pbin_header                            ;
 _pbin_header    dd      0                                       ;
 endif
-yield_func      dd      0                                       ;
+                align   4                                       ;
+                public  _mt_exechooks                           ;
+_mt_exechooks   mt_proc_cb_s <offset _mt_new, 0, offset _mt_exit, 0, 0, 0, 0, 0>
+
 _DATA           ends                                            ;
 
 _TEXT           segment
@@ -277,41 +285,59 @@ _strnicmp       proc near
 @@len           = 12                                            ;
 
                 push    esi                                     ;
-                mov     ecx, [esp+4+@@len]                      ;
+                mov     ecx,[esp+4+@@len]                       ;
                 push    edi                                     ;
-                mov     esi, [esp+8+@@str1]                     ;
+                mov     esi,[esp+8+@@str1]                      ;
                 push    ds                                      ;
-                mov     edi, esi                                ;
+                mov     edi,esi                                 ;
                 pop     es                                      ;
-                xor     eax, eax                                ;
+                xor     eax,eax                                 ;
           repne scasb                                           ;
-                sub     edi, esi                                ;
-                mov     ecx, edi                                ;
-                mov     edi, [esp+8+@@str2]                     ;
+                sub     edi,esi                                 ;
+                mov     ecx,edi                                 ;
+                mov     edi,[esp+8+@@str2]                      ;
+
+                push    ebx                                     ; is code page
+                xor     ebx,ebx                                 ; loaded?
+                or      bx,_cp_num                              ;
+                jz      @@nic_cmp_loop                          ;
+                mov     ebx,_ExCvt                              ; upper 128 table
 @@nic_cmp_loop:
                 lodsb                                           ;
                 call    @@nic_upper_al                          ;
-                mov     ah, al                                  ;
-                mov     al, es:[edi]                            ;
+                mov     ah,al                                   ;
+                mov     al,es:[edi]                             ;
                 inc     edi                                     ;
                 call    @@nic_upper_al                          ;
-                cmp     ah, al                                  ;
+                cmp     ah,al                                   ;
                 loope   @@nic_cmp_loop                          ;
-                mov     eax, 0                                  ;
+                mov     eax,0                                   ;
                 jz      @@nic_rcok                              ;
-                sbb     eax, eax                                ;
-                sbb     eax, 0FFFFFFFFh                         ;
+                sbb     eax,eax                                 ;
+                sbb     eax,0FFFFFFFFh                          ;
 @@nic_rcok:
+                pop     ebx                                     ;
                 pop     edi                                     ;
                 pop     esi                                     ;
                 ret     12                                      ;
 @@nic_upper_al:
-                cmp     al, 61h                                 ;
-                jc      @@nic_upper_ok                          ;
-                cmp     al, 7Bh                                 ;
-                jnc     @@nic_upper_ok                          ;
-                sub     al, 20h                                 ;
-@@nic_upper_ok:
+                cmp     al,61h                                  ; 'A'..'Z'
+; looks like unknown bug in qemu`s x64 mode:
+; if @@nic_upper_nonAZ target here - _strnicmp will always fail
+; bug caused by "or ebx,ebx" presence below, why - who knows.
+                jc      @@nic_upper_exit                        ;
+                cmp     al,7Bh                                  ;
+                jnc     @@nic_upper_nonAZ                       ;
+                sub     al,20h                                  ;
+                ret                                             ;
+@@nic_upper_nonAZ:
+                or      ebx,ebx                                 ;
+                jz      @@nic_upper_exit                        ;
+                cmp     al,80h                                  ; <80h
+                jc      @@nic_upper_exit                        ;
+                sub     al,80h                                  ; we have cp and
+                xlat                                            ; upper char
+@@nic_upper_exit:
                 ret                                             ;
 _strnicmp       endp                                            ;
 
@@ -615,6 +641,51 @@ _wcslen         proc near
                 pop     edi                                     ;
                 ret     4                                       ;
 _wcslen         endp                                            ;
+
+;----------------------------------------------------------------
+;u32t  __stdcall mt_safedadd(u32t *src, u32t value);
+                public  _mt_safedadd
+_mt_safedadd    proc    near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+           lock xadd    [ecx],eax                               ; guarantee the
+                add     eax,[esp+8]                             ; SAME value
+                ret     8                                       ;
+_mt_safedadd    endp
+;----------------------------------------------------------------
+;u32t  __stdcall mt_safedand(u32t *src, u32t value);
+;u32t  __stdcall mt_safedor (u32t *src, u32t value);
+;u32t  __stdcall mt_safedxor(u32t *src, u32t value);
+                public  _mt_safedand, _mt_safedor, _mt_safedxor
+_mt_safedand    proc    near
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+           lock and     [ecx],eax                               ;
+@@mtsd_exit:
+                mov     eax,[ecx]                               ;
+                ret     8                                       ;
+_mt_safedor     label   near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+           lock or      [ecx],eax                               ;
+                jmp     @@mtsd_exit                             ;
+_mt_safedxor    label   near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+           lock xor     [ecx],eax                               ;
+                jmp     @@mtsd_exit                             ;
+_mt_safedand    endp
+
+;----------------------------------------------------------------
+;u32t  __stdcall mt_cmpxchgd(u32t *src, u32t value, u32t cmpvalue);
+                public  _mt_cmpxchgd                            ;
+_mt_cmpxchgd    proc    near                                    ;
+                mov     edx,[esp+4]                             ;
+                mov     ecx,[esp+8]                             ;
+                mov     eax,[esp+12]                            ;
+           lock cmpxchg [edx],ecx                               ;
+                ret     12                                      ;
+_mt_cmpxchgd    endp                                            ;
 
 ifndef EFI_BUILD
 ; allocate selectors
@@ -1145,6 +1216,10 @@ __setjmp        endp
 
 ;----------------------------------------------------------------
 ; void  __stdcall _longjmp (jmp_buf env, int return_value);
+;
+; note, that task gate exception handler uses TARGET esp as stack
+; pointer. I.e. entry stack will be overwritten after esp change.
+;
                 public  __longjmp
 __longjmp       proc    near
 @@env           =  4                                            ;
@@ -1426,7 +1501,7 @@ _sys_settr      endp
 ; u32t _std sys_rmtstat(void);
                 public  _sys_rmtstat
 _sys_rmtstat    proc    near                                    ;
-                xor     eax,eax                                 ; 
+                xor     eax,eax                                 ;
 ifndef EFI_BUILD
                 xchg    ax,apic_tmr_rcnt                        ; read counters
                 rol     eax,16                                  ; and zero it
@@ -1436,31 +1511,54 @@ endif
 _sys_rmtstat    endp                                            ;
 
 ; void _std mt_yield(void);
+; void _std mt_swunlock(void);
 ;----------------------------------------------------------------
-; preserve flags because called from rmcall exit.
+; preserve all, except flags, because called asm code too.
 ; i.e. this is pure thread switiching point, which saves all.
-                public  _mt_yield                               ;
+                public  _mt_yield, _mt_swunlock                 ;
 _mt_yield       proc    near                                    ;
                 push    ecx                                     ;
-                mov     ecx,yield_func                          ;
+@@mtyield_yield:
+                mov     ecx,_mt_exechooks.mtcb_yield            ;
                 jecxz   @@mtyield_no_cb                         ;
                 call    ecx                                     ;
 @@mtyield_no_cb:
                 pop     ecx                                     ;
                 ret                                             ;
+_mt_swunlock    label   near                                    ;
+                push    ecx                                     ;
+                mov     ecx,_mt_exechooks.mtcb_glock            ;
+                jecxz   @@mtyield_no_cb                         ;
+           lock dec     _mt_exechooks.mtcb_glock                ;
+                jnz     @@mtyield_no_cb                         ;
+                jmp     @@mtyield_yield                         ;
 _mt_yield       endp                                            ;
 
+; void _std mt_swlock(void);
 ;----------------------------------------------------------------
-;void* _std sys_setyield(void *func);
-                public  _sys_setyield                           ;
-_sys_setyield   proc    near                                    ;
-                mov     eax,[esp+4]                             ;
-                xchg    yield_func,eax                          ; cli this op!
-                ret     4                                       ;
-_sys_setyield   endp                                            ;
+; preserve all, but flags
+                public  _mt_swlock
+_mt_swlock      proc    near                                    ;
+                xchg    eax,[esp]                               ;
+                mov     _mt_exechooks.mtcb_llcaller,eax         ;
+           lock inc     _mt_exechooks.mtcb_glock                ;
+                xchg    eax,[esp]                               ;
+                ret                                             ;
+_mt_swlock      endp                                            ;
 
 ;----------------------------------------------------------------
-;u32t _std hlp_hosttype(void);
+; process_context* _std mod_context(void);
+                public  _mod_context
+_mod_context    proc    near                                    ;
+                pushfd                                          ;
+                cli                                             ;
+                mov     eax,_mt_exechooks.mtcb_ctxmem           ;
+                popfd                                           ;
+                ret                                             ;
+_mod_context    endp                                            ;
+
+;----------------------------------------------------------------
+; u32t _std hlp_hosttype(void);
                 public  _hlp_hosttype
 _hlp_hosttype   proc    near                                    ;
                 xor     eax,eax                                 ;
@@ -1491,7 +1589,7 @@ _sys_setxcpt64  endp                                            ;
 endif
 
 ;----------------------------------------------------------------
-;void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
+; void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
                 public  _vio_writebuf
 _vio_writebuf   proc    near                                    ;
                 pop     eax                                     ;
@@ -1501,7 +1599,7 @@ _vio_writebuf   proc    near                                    ;
 _vio_writebuf   endp                                            ;
 
 ;----------------------------------------------------------------
-;void _std vio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
+; void _std vio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
                 public  _vio_readbuf
 _vio_readbuf    proc    near                                    ;
                 pop     eax                                     ;
@@ -1515,6 +1613,7 @@ ifndef EFI_BUILD
                 public  _make_reboot
 _make_reboot    proc    near                                    ;
 @@reboot_warm   =  4                                            ;
+                call    _mt_swlock                              ;
                 cli                                             ;
                 xor     eax,eax                                 ;
                 or      eax,[esp+@@reboot_warm]                 ;

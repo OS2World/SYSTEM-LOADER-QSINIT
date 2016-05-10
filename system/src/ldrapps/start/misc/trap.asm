@@ -4,10 +4,14 @@
 ;
                 .486p
 
-                include inc/seldesc.inc
                 include inc/dpmi.inc
                 include inc/qsinit.inc
                 include inc/cpudef.inc
+                include inc/qspdata.inc
+
+                extrn   _mt_swlock:near                         ;
+                extrn   _mt_swunlock:near                       ;
+                extrn   _mt_exechooks:mt_proc_cb_s              ;
 
 xcpt_rec_sign   = 54504358h                                     ;
 xcpt_cmask      = 0FFFFh                                        ;
@@ -80,6 +84,8 @@ _except_init    proc    near                                    ;
                 push    ebx                                     ;
                 push    edi                                     ; setup exception
                 push    esi                                     ; handlers
+                mov     eax,offset xcpt_top                     ; 
+                mov     _mt_exechooks.mtcb_pxcpttop,eax         ; save ptr into mtdata
                 mov     esi,offset trap_table                   ;
                 xor     edi,edi                                 ;
 @@excpt_set_loop:
@@ -153,6 +159,9 @@ task_trap       label   near                                    ;
                 xor     ecx,ecx                                 ;
                 mov     fs,cx                                   ;
                 mov     gs,cx                                   ;
+
+                call    _mt_swlock                              ; we have ds, call lock
+
                 pop     ecx                                     ; exception number
                 mov     [eax+tss_s.tss_reservdbl],cx            ;
                 pop     ecx                                     ;
@@ -170,6 +179,9 @@ common_trap     label   near                                    ;
                 add     ax,SEL_INCR                             ; QSINIT make flat
                 push    ds                                      ; selector in this way
                 mov     ds,ax                                   ;
+
+                call    _mt_swlock                              ; we have ds, call lock
+
                 mov     [trap_data.tss_es],es                   ;
                 pop     es                                      ;
                 mov     [trap_data.tss_ds],es                   ;
@@ -226,8 +238,12 @@ cad_wait        label   near                                    ;
                 jmp     @@trap_loop                             ;
 
 ; ---------------------------------------------------------------
+; this point called with disabled interrupts and foreign stack
+; (special buffer, allocated by EFI part)
+;
                 public  _trap_handle_64
 _trap_handle_64 label   near
+                call    _mt_swlock                              ; lock it
                 mov     ecx,dr6                                 ;
                 mov     [eax+tss_s.tss_esp1],ecx                ;
                 mov     ecx,dr7                                 ;
@@ -250,6 +266,8 @@ _trap_handle_64 label   near
 ; walk exception stack
 ; ---------------------------------------------------------------
 ; in: eax = trap_data*, ecx = sys_xcpt*
+; function must be called after mt_lock++, it dec it on success
+; exception handling
 walk_xcpt       proc    near
                 movzx   edx,[eax].tss_reservdbl                 ;
                 mov     edi,ecx                                 ;
@@ -269,8 +287,9 @@ walk_xcpt       proc    near
                 jnz     @@walk_xcpt_taskret                     ;
 @@walk_xcpt_longjmp:
                 clts                                            ;
-                push    1                                       ;
-                push    edx                                     ;
+                call    _mt_swunlock                            ; unlock mt, it calls
+                push    1                                       ; mt_yeild, so we must
+                push    edx                                     ; by safe at this point
                 call    __longjmp                               ;
 @@walk_xcpt_parent:
                 mov     edi,[edi].xcpt_nextrec                  ; next record
@@ -283,16 +302,17 @@ walk_xcpt       proc    near
 @@walk_xcpt_taskret:
                 add     cx,SEL_INCR                             ;
                 mov     fs,cx                                   ;
-                xor     ecx,ecx                                 ;
-                mov     [eax].tss_backlink,cx                   ; zero task flag
                 mov     fs:[0].tss_eip,offset @@walk_xcpt_longjmp
                 mov     fs:[0].tss_edx,edx                      ;
                 mov     fs:[0].tss_cs,cs                        ;
-                mov     fs:[0].tss_ds,ds                        ;
-                mov     fs:[0].tss_es,ds                        ;
-                mov     fs:[0].tss_ss,ss                        ;
-                mov     edx,fs:[0].tss_esp0                     ; this must be main_tss
-                mov     fs:[0].tss_esp,edx                      ;
+                mov     fs:[0].tss_ds,ds                        ; here we get ss:esp
+                mov     fs:[0].tss_es,ds                        ; from longjmp buffer,
+                mov     cx,[edx].r_ss                           ; this is ugly, but thread safe
+                mov     fs:[0].tss_ss,cx                        ; (we unlocked BEFORE longjmp,
+                mov     ecx,[edx].r_eax                         ; so we cannot use static
+                mov     fs:[0].tss_esp,ecx                      ; stack as it was earlier)
+                xor     ecx,ecx                                 ;
+                mov     [eax].tss_backlink,cx                   ; zero task flag
                 mov     fs,cx                                   ;
                 mov     esp,[eax].tss_esp0                      ;
                 pushfd                                          ; someone can drop it
@@ -396,6 +416,7 @@ _sys_exfunc4    endp
                 public  _sys_exfunc5
 _sys_exfunc5    proc    near
                 call    check_sign                              ;
+                call    _mt_swlock                              ; mt lock
                 mov     ecx,xcpt_top                            ; go to parent
                 mov     eax,offset trap_data                    ;
                 call    walk_xcpt                               ;

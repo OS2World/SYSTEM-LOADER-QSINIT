@@ -55,7 +55,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
             if (!rc && (zipstat.d_attr&_A_SUBDIR)) rc = EISDIR;
             if (rc) {
                rc = get_errno();
-               if (!quiet) cmd_shellerr(rc, errname());
+               if (!quiet) cmd_shellerr(EMSG_CLIB, rc, errname());
             }
          }
 
@@ -88,7 +88,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
             }
             if (!zdata) {
                rc = frombp||fromstor?ENOENT:get_errno();
-               if (!quiet) cmd_shellerr(rc, errname());
+               if (!quiet) cmd_shellerr(EMSG_CLIB, rc, errname());
                break;
             }
             zip_open(&zip, zdata, zsize);
@@ -239,6 +239,6 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }

@@ -6,42 +6,19 @@
 #define QSINIT_MODULE
 
 #include "qstypes.h"
+#include "qserr.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/// @name mod_load loading error codes
-//@{
-#define MODERR_NOT_LX        (  1)  ///< not LE/LX
-#define MODERR_FLAGS         (  2)  ///< bad module flags
-#define MODERR_EMPTY         (  3)  ///< empty module (no start address, etc)
-#define MODERR_UNSUPPORTED   (  4)  ///< unsupported feature (export by name, etc)
-#define MODERR_BROKENFILE    (  5)  ///< broken file
-#define MODERR_NOSELECTOR    (  6)  ///< no free selector
-#define MODERR_OBJLOADERR    (  7)  ///< object load error
-#define MODERR_INVPAGETABLE  (  8)  ///< invalid page table
-#define MODERR_NOEXTCODE     (  9)  ///< additional code not loaded
-#define MODERR_MODLIMIT      ( 10)  ///< too many imported modules
-#define MODERR_BADFIXUP      ( 11)  ///< invalid fixup
-#define MODERR_NOORDINAL     ( 12)  ///< there is no required ordinal
-#define MODERR_ITERPAGEERR   ( 13)  ///< decompress error
-#define MODERR_BADEXPORT     ( 14)  ///< invalid entry table entry
-#define MODERR_INITFAILED    ( 15)  ///< DLL module init proc return 0
-#define MODERR_CRCERROR      ( 16)  ///< CRC error in delayed module unzipping
-#define MODERR_EXPLIMIT      ( 17)  ///< too manu exports ("start" module only)
-#define MODERR_READERROR     ( 18)  ///< disk read error
-#define MODERR_START16       ( 19)  ///< start object can`t be 16 bit
-#define MODERR_STACK16       ( 20)  ///< stack object can`t be 16 bit
-//@}
-
 /** load module.
-    @param path   Full path to module (else 1:\\ assumed)
-    @param flags  Must be 0.
-    @param error  Error code.
-    @param extdta Must be 0.
+    @param       path    Full path to module (else 1:\\ assumed)
+    @param       flags   Must be 0.
+    @param [out] error   Error code, can be 0
+    @param       extdta  Must be 0.
     @return module handle or 0 */
-u32t  _std mod_load(char *path, u32t flags, u32t *error, void *extdta);
+u32t  _std mod_load(char *path, u32t flags, qserr *error, void *extdta);
 
 /** exec module.
     low level exec function.
@@ -103,31 +80,26 @@ u32t  _std mod_query(const char *name, u32t flags);
     @return function pointer or 0 */
 void *_std mod_getfuncptr(u32t module, u32t index);
 
-/// @name mod_free error codes
-//@{
-#define MODFERR_HANDLE       (  1)  ///< bad module handle
-#define MODFERR_SELF         (  2)  ///< trying to free self
-#define MODFERR_SYSTEM       (  3)  ///< trying to free system module
-#define MODFERR_LIBTERM      (  4)  ///< DLL term function denied unloading
-#define MODFERR_EXECINPROC   (  5)  ///< module is exe and mod_exec() not finished
-//@}
-
 /** free and unload module.
     Function will decrement usage counter until one, then tries to unload
     module. If module is current process, system module or DLL term function
     returned 0 - mod_free() returns error (module will stay in place and
     fully functional).
-
-    @param  module  Module handle.
-    @return error code or 0 on success */
+    @param  module            Module handle.
+    @retval E_MOD_HANDLE      Bad module handle
+    @retval E_MOD_FSELF       Trying to free self
+    @retval E_MOD_FSYSTEM     Trying to free system module
+    @retval E_MOD_LIBTERM     DLL term function denied unloading
+    @retval E_MOD_EXECINPROC  Module is exe and mod_exec() in progress
+    @retval E_OK              on success */
 u32t  _std mod_free(u32t module);
 
 // internal structures ---------------------------------------------------
 #ifdef MODULE_INTERNAL
 #include "qslxfmt.h"
+#include "qsutil.h"
 
 #define MOD_SIGN      0x484D5351   // QSMH - module struct check signature
-#define MAX_PATH      260          //
 #define MAX_IMPMOD    32           // max. number of imported modules in LE/LX
 #define MAX_EXPSTART  512          // max. number of exports in "start" module
 
@@ -196,34 +168,40 @@ typedef struct _process_context {
 
 /// @name process_context.rtbuf indexes (internal)
 //@{
-#define RTBUF_TMPNAME   0  ///< tmpname next used index
-#define RTBUF_STDIN     1  ///< stdio file handle
-#define RTBUF_STDOUT    2  ///< stdout file handle
-#define RTBUF_STDERR    3  ///< stderr file handle
-#define RTBUF_STDAUX    4  ///< stdaux file handle
-#define RTBUF_STCLOCK   5  ///< process start tm_counter()
-#define RTBUF_PUSHDST   6  ///< PUSHD shell command stack
-#define RTBUF_ANSIBUF   7  ///< ANSI command state buffer
-#define RTBUF_PROCDAT   8  ///< process internal data
+#define RTBUF_TMPNAME          0         ///< tmpname next used index
+#define RTBUF_STDIN            1         ///< stdio file handle
+#define RTBUF_STDOUT           2         ///< stdout file handle
+#define RTBUF_STDERR           3         ///< stderr file handle
+#define RTBUF_STDAUX           4         ///< stdaux file handle
+#define RTBUF_STCLOCK          5         ///< process start tm_counter()
+#define RTBUF_PUSHDST          6         ///< PUSHD shell command stack
+#define RTBUF_ANSIBUF          7         ///< ANSI command state buffer
+#define RTBUF_PROCDAT          8         ///< process internal data
 //@}
 
-#define PCTX_BIGMEM      0x0001  ///< envptr was hlp_memalloc-ed
-#define PCTX_ENVCHANGED  0x0002  ///< envptr was changed by runtime
+#define PCTX_BIGMEM            0x0001    ///< envptr was hlp_memalloc-ed
+#define PCTX_ENVCHANGED        0x0002    ///< envptr was changed by runtime
+
+#ifndef QSMEMOWNER_MODLDR
+#define QSMEMOWNER_MODLDR      0x4243444D
+#define QSMEMOWNER_COPROCESS   0x42434F50
+#define QSMEMOWNER_COTHREAD    0xFFFFD000
+#endif
 
 /** return current executed module process context */
 process_context* _std mod_context(void);
 
 /// @name module.flags values
 //@{
-#define MOD_LIBRARY  0x000004  ///< module is dll
-#define MOD_LOADING  0x000008  ///< module is in loading list
-#define MOD_INITDONE 0x000010  ///< dll init/term done flags
-#define MOD_TERMDONE 0x000020  ///<
-#define MOD_IMPDONE  0x000040  ///< all imported modules was unloaded
-#define MOD_LOADER   0x000080  ///< this module initiate loading process
-#define MOD_NOFIXUPS 0x000100  ///< fixups pre-applied in module
-#define MOD_EXECPROC 0x000200  ///< mod_exec() in process (for exe module)
-#define MOD_SYSTEM   0x000400  ///< "system" module (QSINIT & START only)
+#define MOD_LIBRARY            0x000004  ///< module is dll
+#define MOD_LOADING            0x000008  ///< module is in loading list
+#define MOD_INITDONE           0x000010  ///< dll init/term done flags
+#define MOD_TERMDONE           0x000020  ///<
+#define MOD_IMPDONE            0x000040  ///< all imported modules was unloaded
+#define MOD_LOADER             0x000080  ///< this module initiate loading process
+#define MOD_NOFIXUPS           0x000100  ///< fixups pre-applied in module
+#define MOD_EXECPROC           0x000200  ///< mod_exec() in process (for exe module)
+#define MOD_SYSTEM             0x000400  ///< "system" module (QSINIT & START only)
 //@}
 
 /// external functions located in "start" module
@@ -243,11 +221,11 @@ typedef struct {
    /// module unloading callback (free export table)
    void    _std (*mod_freeexps)(module *mh);
    /// heap alloc
-   void*   _std (*memAlloc)(long Owner, long Pool, u32t Size);
+   void*   _std (*mem_alloc)(long Owner, long Pool, u32t Size);
    /// heap realloc
-   void*   _std (*memRealloc)(void*, u32t);
+   void*   _std (*mem_realloc)(void*, u32t);
    /// heap free
-   void    _std (*memFree)(void*);
+   void    _std (*mem_free)(void*);
    /// read file from virtual disk
    void*   _std (*freadfull)(const char *name, unsigned long *bufsize);
    /** push string to log.
@@ -280,6 +258,16 @@ typedef struct {
    /** throw exception (QSINIT trap screen).
        Exception, also, can be catched in caller */
    void    _std (*sys_throw)(u32t num, const char* file, u32t line);
+   /// hlp_volinfo moved to START, but used by exit_restart()
+   u32t    _std (*hlp_volinfo)(u8t drive, disk_volume_data *info);
+   /// just _fullpath
+   qserr   _std (*fullpath)(char *buffer, const char *path, u32t size);
+   /// get current directory of active process (string is malloc-ed)
+   char*   _std (*getcurdir)(void);
+   /// delete file
+   qserr   _std (*unlink)(const char *path);
+   /// batch free
+   u32t    _std (*mem_freepool)(long Owner, long Pool);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()
@@ -296,11 +284,11 @@ typedef struct {
 
 /// @name modobj_extreq flags
 //@{
-#define MODUNP_ALT_FIXADDR    0x0001   ///< use mod_object.fixaddr for fixups
-#define MODUNP_FINDEXPORT     0x0002   ///< call *findexport instead of std search
-#define MODUNP_FINDEXPORTFX   0x0004   ///< call *applyfixup for imported functions
-#define MODUNP_APPLYFIXUP     0x0008   ///< call *applyfixup for all fixups
-#define MODUNP_OBJLOADED      0x0010   ///< call *objloaded
+#define MODUNP_ALT_FIXADDR     0x0001    ///< use mod_object.fixaddr for fixups
+#define MODUNP_FINDEXPORT      0x0002    ///< call *findexport instead of std search
+#define MODUNP_FINDEXPORTFX    0x0004    ///< call *applyfixup for imported functions
+#define MODUNP_APPLYFIXUP      0x0008    ///< call *applyfixup for all fixups
+#define MODUNP_OBJLOADED       0x0010    ///< call *objloaded
 //@}
 
 /** load and unpack objects

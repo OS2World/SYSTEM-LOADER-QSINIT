@@ -2,7 +2,7 @@
 ; QSINIT "start" module
 ; subset of C library functions
 ;
-                .486p
+                .586p
 
 CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
@@ -21,7 +21,7 @@ _memcmp         proc    near
                 mov     ecx,[esp+8+@@length]                    ;
                 xor     eax,eax                                 ;
            repe cmpsb                                           ;
-                jz      short @@memcmp_ok                       ;
+                jz      @@memcmp_ok                             ;
                 sbb     eax, eax                                ;
                 sbb     eax, 0FFFFFFFFh                         ;
 @@memcmp_ok:
@@ -47,7 +47,7 @@ _bcmp           proc    near
                 mov     eax,esi                                 ;
                 mov     ecx,[esp+8+@@length]                    ;
            repe cmpsb                                           ;
-                jnz     short @@bcmp_diff                       ;
+                jnz     @@bcmp_diff                             ;
                 mov     esi,eax                                 ;
 @@bcmp_diff:
                 sub     eax,esi                                 ;
@@ -214,6 +214,18 @@ _patch_binary   endp                                            ;
 
 
 ;----------------------------------------------------------------
+;int  __stdcall bsf32(u32t value);
+                public  _bsf32
+_bsf32          proc    near
+@@bsfd_value    =  4                                            ;
+                bsf     eax,dword ptr [esp+@@bsfd_value]        ;
+                jnz     @@bsfd_done                             ;
+                or      eax,-1                                  ;
+@@bsfd_done:
+                ret     4                                       ;
+_bsf32          endp                                            ;
+
+;----------------------------------------------------------------
 ;int  __stdcall bsf64(u64t value);
                 public  _bsf64
 _bsf64          proc    near
@@ -229,6 +241,18 @@ _bsf64          proc    near
 @@bsfq_done:
                 ret     8                                       ;
 _bsf64          endp                                            ;
+
+;----------------------------------------------------------------
+;int  __stdcall bsr32(u32t value);
+                public  _bsr32
+_bsr32          proc    near
+@@bsrd_value    =  4                                            ;
+                bsr     eax,dword ptr [esp+@@bsrd_value]        ;
+                jnz     @@bsrd_done                             ;
+                or      eax,-1                                  ;
+@@bsrd_done:
+                ret     4                                       ;
+_bsr32          endp                                            ;
 
 ;----------------------------------------------------------------
 ;int  __stdcall bsr64(u64t value);
@@ -634,6 +658,73 @@ _wcsncpy        proc near
                 pop     esi                                     ;
                 ret     12                                      ;
 _wcsncpy        endp
+
+;----------------------------------------------------------------
+;u64t  __stdcall mt_safeqadd(u64t *src, u64t value);
+;u64t  __stdcall mt_safeqand(u64t *src, u64t value);
+;u64t  __stdcall mt_safeqor (u64t *src, u64t value);
+;u64t  __stdcall mt_safeqxor(u64t *src, u64t value);
+                public  _mt_safeqadd
+                public  _mt_safeqand, _mt_safeqor, _mt_safeqxor
+_mt_safeqadd    proc    near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+                mov     edx,[esp+12]                            ;
+                pushfd                                          ;
+                cli                                             ;
+                add     eax,[ecx]                               ;
+                adc     edx,[ecx+4]                             ;
+@@mtsq_exit:
+                mov     [ecx],eax                               ;
+                mov     [ecx+4],edx                             ;
+                popfd                                           ;
+                ret     12                                      ;
+_mt_safeqand    label   near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+                mov     edx,[esp+12]                            ;
+                pushfd                                          ;
+                cli                                             ;
+                and     eax,[ecx]                               ;
+                and     edx,[ecx+4]                             ;
+                jmp     @@mtsq_exit                             ;
+_mt_safeqor     label   near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+                mov     edx,[esp+12]                            ;
+                pushfd                                          ;
+                cli                                             ;
+                or      eax,[ecx]                               ;
+                or      edx,[ecx+4]                             ;
+                jmp     @@mtsq_exit                             ;
+_mt_safeqxor    label   near                                    ;
+                mov     ecx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+                mov     edx,[esp+12]                            ;
+                pushfd                                          ;
+                cli                                             ;
+                xor     eax,[ecx]                               ;
+                xor     edx,[ecx+4]                             ;
+                jmp     @@mtsq_exit                             ;
+_mt_safeqadd    endp
+
+;----------------------------------------------------------------
+;u64t  __stdcall mt_cmpxchgq(u64t *src, u64t value, u64t cmpvalue);
+                public  _mt_cmpxchgq                            ;
+_mt_cmpxchgq    proc    near                                    ;
+                push    edi                                     ;
+                push    ebx                                     ;
+
+                mov     edi,[esp+12]                            ;
+                mov     ecx,[esp+16]                            ;
+                mov     ebx,[esp+20]                            ;
+                mov     eax,[esp+24]                            ;
+                mov     edx,[esp+28]                            ;
+           lock cmpxchg8b [edi]                                 ;
+                pop     ebx                                     ;
+                pop     edi                                     ;
+                ret     20                                      ;
+_mt_cmpxchgq    endp                                            ;
 
 ;----------------------------------------------------------------
 ;void* __stdcall memcpy0(void *dst, void *src, u32t length);

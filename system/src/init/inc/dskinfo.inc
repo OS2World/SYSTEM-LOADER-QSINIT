@@ -43,6 +43,8 @@ qs_diskinfo     ends
 
 ;cc /** query/update internal disk info.
 ;cc     Function is for internal use only!
+;cc     Must be called inside MT lock (because it returns internal disk data
+;cc     and have no locks inside).
 ;cc     @param  disk       Disk number.
 ;cc     @param  qdi        Disk information struct, can be 0 to query only.
 ;cc     @return current disk info structure or 0 if one of args is invalid */

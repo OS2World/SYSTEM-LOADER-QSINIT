@@ -17,6 +17,7 @@
 #include "qspage.h"
 #include "efnlist.h"
 #include "qecall.h"
+#include "qserr.h"
 #include "errno.h"
 
 #define FIXED_RANGE_REGS    11
@@ -39,6 +40,9 @@ static u64t  PHYS_ADDR_MASK = 0,        // supported addr mask for this CPU
                   apic_phys = 0;
 static u32t      *apic_data = 0;
 static qs_mtlib       mtlib = 0;
+u8t               in_mtmode = 0;
+
+extern char _std   aboutstr[];
 
 // fixed range MTRR registers
 static u16t fixedmtrregs[FIXED_RANGE_REGS] = { MSR_IA32_MTRR_FIX64K_00000,
@@ -91,7 +95,7 @@ static void init_baseinfo(void) {
          data[0] = 36;
       }
       _endcatch_
-   } else 
+   } else
       data[0] = 36;
    cpu_phys_bits  = data[0] & 0x7F;
    // it is 0 on PPro, at least -> force to 36
@@ -113,7 +117,7 @@ static void init_baseinfo(void) {
             log_it(3, "APIC: %X (%08X %08X %08X %08X %08X %08X)\n", apic_data[APIC_APICVER]&0xFF,
                apic_data[APIC_LVT_TMR], apic_data[APIC_SPURIOUS], apic_data[APIC_LVT_PERF],
                   apic_data[APIC_LVT_LINT0], apic_data[APIC_LVT_LINT1], apic_data[APIC_LVT_ERR]);
-      
+
             tmrdiv = apic_data[APIC_TMRDIV];
             tmrdiv = (tmrdiv&3 | tmrdiv>>1&4) + 1 & 7;
             log_it(3, "APIC timer: %u %08X %08X\n", 1<<tmrdiv, apic_data[APIC_TMRINITCNT],
@@ -505,7 +509,7 @@ u32t _std hlp_mtrrsum(u64t start, u64t length) {
 
    // process fixed type
    if (start<_1MB && (m_flags&MTRRQ_FIXREGS) && (m_state&MTRRS_FIXON)) {
-      u32t  c_st = start, c_len = length, ii, idx, 
+      u32t  c_st = start, c_len = length, ii, idx,
           mempos = 0,   inrange = 0;
 
       for (ii=0; ii<FIXED_RANGE_REGS; ii++) {
@@ -516,7 +520,7 @@ u32t _std hlp_mtrrsum(u64t start, u64t length) {
          if (inrange) {
             u64t bits;
             if (!hlp_getmsrsafe(fixedmtrregs[ii], (u32t*)&bits, (u32t*)&bits+1))
-               return MTRRF_TYPEMASK; 
+               return MTRRF_TYPEMASK;
             else
             for (idx=0; idx<8; idx++) {
                u32t ct = (u32t)(bits>>(idx<<3)) & MTRRF_TYPEMASK;
@@ -533,7 +537,7 @@ u32t _std hlp_mtrrsum(u64t start, u64t length) {
       }
    } else {
       u32t   ii, defct = m_state&MTRRS_DEFMASK, lctype;
-      u64t   ab[MAX_VAR_RANGE_REGS], 
+      u64t   ab[MAX_VAR_RANGE_REGS],
              am[MAX_VAR_RANGE_REGS], lmask;
       u8t   act[MAX_VAR_RANGE_REGS];
       int  rmax, lhi;
@@ -656,7 +660,7 @@ u32t _std hlp_mtrrbatch(void *buffer) {
 }
 
 /** memcpy with SS segment as source & destination.
-    I.e., function have access to 1st page in non-paging mode. 
+    I.e., function have access to 1st page in non-paging mode.
     Actually this memmove, not memcpy. */
 void* _std memcpy0(void *dst, const void *src, u32t length);
 // 48-bit ptr to page 0, but we use only offset here
@@ -693,7 +697,7 @@ u32t _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
       if (dstv < PAGESIZE) {
          u32t upto4 = dstv+length > PAGESIZE ? PAGESIZE-dstv : length;
 
-         if (!hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1)) 
+         if (!hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1))
             return 0;
          dstv   += upto4; dst = (void*)dstv;
          srcv   += upto4;
@@ -730,7 +734,7 @@ u32t _std sys_isavail(u32t flags) {
       cpu_lim8000 = idbuf[0];
 
       hlp_getcpuid(0,idbuf);
-       *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[3]; 
+       *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[3];
        *((u32t*)idstr+2)=idbuf[2]; idstr[12]=0;
 
       if (strcmp(idstr,"GenuineIntel")==0) sflags|=SFEA_INTEL; else
@@ -805,9 +809,9 @@ u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
       u64t         adr[2];
       int           hi[2];
 
-      if (src<_4GBLL && dst<_4GBLL) 
+      if (src<_4GBLL && dst<_4GBLL)
          return hlp_memcpy((void*)(u32t)dst, (void*)(u32t)src, length, 0) ? 1 : 0;
-      if (!in_pagemode) 
+      if (!in_pagemode)
          if (!pag_enable()) return 0;
 
       hi[0] = (adr[0]=src)>=_4GBLL;
@@ -926,6 +930,12 @@ static void cm_restore(void) {
    }
 }
 
+void* malloc_local(u32t size) {
+   void *rc = malloc(size);
+   if (rc) mem_localblock(rc);
+   return rc;
+}
+
 qs_mtlib get_mtlib(void) {
    if (!mtlib) {
       mtlib = NEW(qs_mtlib);
@@ -938,13 +948,41 @@ qs_mtlib get_mtlib(void) {
 
 u32t _std mt_initialize(void) {
    qs_mtlib mt = get_mtlib();
-   if (!mt) return ELIBACC;
+   if (!mt) return E_SYS_NOFILE;
+   // note, what we callbacked to mt_startcb() below duaring this call
    return mt->initialize();
 }
 
 u32t _std mt_active(void) {
    qs_mtlib mt = get_mtlib();
    return mt ? mt->active() : 0;
+}
+
+/// get tid stub, will be replaced by MTLIB on its load.
+u32t _std START_EXPORT(mt_getthread)(void) {
+   return 1;
+}
+
+/** callback from MT lib - MT mode is ready.
+    Called at the end of mt_initialize() - before returning to user, so
+    we have fully functional threading here, but still no threads :) */
+void _std mt_startcb(void) {
+   // we need this pointer too ;)
+   if (!mtlib) get_mtlib();
+   in_mtmode = 1;
+}
+
+u32t _std sys_queryinfo(u32t index, void *outptr) {
+   switch (index) {
+      case QSQI_VERSTR: {
+         u32t len = strlen(aboutstr)+1;
+         if (outptr) memcpy(outptr, aboutstr, len);
+         return len;
+      }
+      case QSQI_TLSPREALLOC:
+         return QTLS_MAXSYS+1;
+   }
+   return 0;
 }
 
 void setup_hardware(void) {

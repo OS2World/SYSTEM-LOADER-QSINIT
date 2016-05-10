@@ -99,6 +99,7 @@ static wchar_t convert(wchar_t *table, wchar_t chr, int dir) {
    return cc;
 }
 
+// note, that this and next functions called under cli!
 static u16t _std ff_convert(u16t src, int to_unicode) {
    if (!cpcur) return src>=0x80?0:src;
    return convert(ctables[cpidx], src, to_unicode);
@@ -146,6 +147,7 @@ u16t* _std cpconv_cplist(void *data) {
    u16t* rc = (u16t*)malloc((CPAGES+1)*2);
    memcpy(rc, &cpages, CPAGES*2);
    rc[CPAGES] = 0;
+   mem_localblock(rc);
    return rc;
 }
 
@@ -227,7 +229,7 @@ u32t _std shl_chcp(const char *cmd, str_list *args) {
                return 0;
       }
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 

@@ -316,7 +316,10 @@ int main(int argc, char *argv[]) {
          for (ii=0; ii<exl->Count(); ii++)
             if ((*exl)[ii].trim().length() && exl->Objects(ii)) {
                TTreeList *edat = (TTreeList*)exl->Objects(ii);
-               Bool  is_offset = IsValueOn(*edat, "offset");
+               Bool  is_offset = IsValueOn(*edat, "offset"),
+                    is_private = IsValueOn(*edat, "noimplib");
+
+               if (is_private) continue;
 
                spstr func((*exl)[ii].trim()), mfunc;
                mfunc = ipfx + func;
@@ -363,6 +366,10 @@ int main(int argc, char *argv[]) {
          for (ii=0; ii<exl->Count(); ii++)
             if ((*exl)[ii].trim().length() && exl->Objects(ii)) {
                TTreeList *edat = (TTreeList*)exl->Objects(ii);
+               Bool is_private = imode ? IsValueOn(*edat, "noimplib") : 0;
+
+               if (is_private) continue;
+
                spstr expname;
                if (!imode)   expname = edat->Value("expname").trim().unquote();
                if (!expname) expname = (*exl)[ii].trim();

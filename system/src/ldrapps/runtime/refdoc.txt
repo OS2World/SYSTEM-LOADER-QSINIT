@@ -9,12 +9,18 @@
   "Exports" section (one per file) contain list of functions to import/export
   from module. Data fields:
 
-    * offset = yes  - direct export/import, without creating asm thunk
-                      (flag must be used for any exported data).
+    * offset   = yes - direct export/import, without creating asm thunk
+                       (flag must be used for any exported data).
 
-    * expname = ... - function name in module (alternative name for export lib)
+    * expname  = ... - function name in module (alternative name for export
+                       lib)
 
-    * group = ...   - trace group (use "trace on ..." to trace this group calls)
+    * noimplib = yes - do not insert entry into import libraries (i.e. make
+                       private module entry, function name is used only for
+                       building module itself and not published)
+
+    * group    = ... - trace group (use "trace on ..." to trace this group
+                       calls)
 
     * trace format string:
 

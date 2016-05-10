@@ -168,6 +168,8 @@ public:
   void   SetGPTType(u32t disk, u32t index);
   void   LVMRename(u32t disk, u32t index);
   void   OpenHelp(ushort goHelpCtx, int dlgmode = 0);
+  /// return 1 on success, -1 on cancel pressed in "format" mode.
+  int    SetCodepage(int format);
 
   // count number of system(numbered) windows (editor windows is NOT system)
   int    CountSysWindows();
@@ -215,6 +217,7 @@ public:
 #define MSGA_TURNPAE       (8)
 #define MSGA_PTEMPTY       (9)
 #define MSGA_ACTIVEGPT    (10)
+#define MSGA_FMTCPSERR    (11)
 
 #define MSGI_DONE          (0)
 #define MSGI_SRCHNOTFOUND  (1)

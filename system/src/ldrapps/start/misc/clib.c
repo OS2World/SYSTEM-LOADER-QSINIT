@@ -4,7 +4,8 @@
 //
 #include "stdlib.h"
 #include "stdarg.h"
-#include "fat/ff.h"
+#include "qserr.h"
+#include "qsio.h"
 #include "errno.h"
 #include "qsutil.h"
 #include "direct.h"
@@ -13,11 +14,22 @@
 #include "internal.h"
 #include "limits.h"
 
-/* must be exported as _errno. But all such exports can`t be used directly in
-   START, because of linker madness */
-int __stdcall errno=EZERO;
-void set_errno(int errno_new) { errno=errno_new; }
-int  get_errno(void) { return errno; }
+static int common_errno = 0;
+
+int* __stdcall _get_errno(void) {
+   if (!in_mtmode) return &common_errno; else {
+      u64t    *vaddr;
+      qs_mtlib    mt = get_mtlib();
+      // return thread local errno storage if it available
+      if (mt->tlsaddr(QTLS_ERRNO,&vaddr)) return &common_errno; else
+         return (int*)vaddr;
+   }
+}
+
+// translated to _get_errno() call
+int set_errno(int errv) { errno = errv; return errv; }
+
+int get_errno(void) { return errno; }
 
 int __stdcall atoi(const char *ptr) {
    register int value;
@@ -56,7 +68,7 @@ double __stdcall atof(const char *ptr) {
 char* __stdcall strdup(const char *str) {
    u32t len=str?strlen(str):0;
    if (!str) return 0; else {
-      char *rc = (char*)malloc(len+1);
+      char *rc = (char*)malloc_local(len+1);
       if (len) strcpy(rc,str); else *rc=0;
       return rc;
    }
@@ -226,12 +238,12 @@ char* __stdcall strcat(char *dst, const char *src) {
 char* __stdcall strcat_dyn(char *dst, const char *src) {
    int slen = src?strlen(src)+1:0,
        dlen = 0;
-   if (!dst) dst = (char*)malloc(slen+10); else {
+   if (!dst) dst = (char*)malloc_local(slen+10); else {
       dlen = strlen(dst);
-      if (memBlockSize(dst)<dlen+slen+1) dst = (char*)realloc(dst,dlen+slen+10);
+      if (mem_blocksize(dst)<dlen+slen+1) dst = (char*)realloc(dst,dlen+slen+10);
    }
    if (slen) memcpy(dst+dlen,src,slen); else
-   if (!dlen) *dst = 0;
+      if (!dlen) *dst = 0;
    return dst;
 }
 
@@ -269,15 +281,17 @@ int __cdecl sprintf(char *buf, const char *format, ...) {
    u32t sz;
    va_list arglist;
    va_start(arglist,format);
-   sz=_vsnprintf(buf,65536,format,arglist);
+   // ugly, isn`t it? ;)
+   sz = _vsnprintf(buf,65536,format,arglist);
    va_end(arglist);
    return sz;
 }
 
 void __stdcall perror(const char *prefix) {
+   u32t value = get_errno();
    printf(prefix);
    printf(": ");
-   cmd_shellerr(errno,0);
+   cmd_shellerr(EMSG_CLIB, value, 0);
 }
 
 u32t __stdcall strccnt(const char *str, char ch) {
@@ -355,10 +369,10 @@ int __stdcall abs(int value) {
 }
 
 static void swap(register u8t *s1, register u8t *s2, int nn) {
-   for (++nn, --s1,--s2; --nn;) { 
-      register u8t tmp = *++s1; 
-      *s1 = *++s2; 
-      *s2 = tmp; 
+   for (++nn, --s1,--s2; --nn;) {
+      register u8t tmp = *++s1;
+      *s1 = *++s2;
+      *s2 = tmp;
    }
 }
 
@@ -366,7 +380,7 @@ void __stdcall qsort(void *base, size_t num, size_t width,
    int __stdcall (*compare)(const void *, const void *))
 {
    if (num>1) {
-      size_t iCnt = num, 
+      size_t iCnt = num,
           iOffset = iCnt/2;
       while (iOffset) {
          size_t iLimit = iCnt-iOffset, iRow, iSwitch;
@@ -375,214 +389,169 @@ void __stdcall qsort(void *base, size_t num, size_t width,
             for (iRow=0; iRow<iLimit; iRow++) {
                u8t *fp1 = (u8t*)base + iRow*width,
                    *fp2 = fp1 + iOffset*width;
-               if ((*compare)(fp1,fp2)>0) { 
+               if ((*compare)(fp1,fp2)>0) {
                   swap(fp1, fp2, width);
-                  iSwitch = iRow; 
+                  iSwitch = iRow;
                }
             }
          } while (iSwitch);
          iOffset = iOffset/2;
       }
-   } 
+   }
 }
 
-int __stdcall START_EXPORT(chdir)(const char *path) {
-   char namebuf[_MAX_PATH];
-   u8t     chd = hlp_curdisk(), setd;
-   FRESULT err;
-   pathcvt(path,namebuf);
+int qserr2errno(qserr errv) {
+   switch (errv) {
+      case E_OK               :return 0;
+      case E_SYS_DONE         :return EALREADY;
+      case E_SYS_NOMEM        :return ENOMEM;
+      case E_SYS_NOFILE       :
+      case E_SYS_NOPATH       :return ENOENT;
+      case E_SYS_EXIST        :return EEXIST;
+      case E_SYS_ACCESS       :return EACCES;
+      case E_SYS_FILES        :return EMFILE;
+      case E_SYS_SHARE        :return EAGAIN;
+      case E_SYS_TIMEOUT      :return EBUSY;
+      case E_SYS_UNSUPPORTED  :return ENOLCK;
+      case E_SYS_INVNAME      :
+      case E_SYS_INCOMPPARAMS :
+      case E_SYS_INVPARM      :
+      case E_SYS_INVOBJECT    :
+      case E_SYS_ZEROPTR      :
+      case E_DSK_BADVOLNAME   :
+      case E_SYS_INVHTYPE     :
+      case E_SYS_DISKMISMATCH :
+      case E_SYS_INVTIME      :return EINVAL;
+      case E_SYS_LONGNAME     :return ENAMETOOLONG;
+      case E_SYS_FSLIMIT      :return EFBIG;
+      case E_SYS_BUFSMALL     :return ERANGE;
+      case E_SYS_PRIVATEHANDLE:return EPERM;
+      case E_SYS_SEEKERR      :return ESPIPE;
+      case E_SYS_DELAYED      :return EINPROGRESS;
 
-   if (namebuf[1]==':') {
-      setd = namebuf[0]-'0';
-      if (!hlp_chdisk(setd)) { errno=ENOENT; return -1; }
+      case E_DSK_IO           :return EIO;
+      case E_DSK_NOTREADY     :
+      case E_DSK_WP           :return EROFS;
+      case E_DSK_UNCKFS       :return ENOMNT;
+      case E_DSK_NOTMOUNTED   :return ENOMNT;
    }
-   if (!hlp_chdir(namebuf)) { errno=ENOENT; return -1; }
-   if (namebuf[1]==':') hlp_chdisk(chd);
+   return ERANGE;
+}
 
-   errno=EZERO;
-   return 0;
+int set_errno_qserr(u32t err) { 
+   int rc = qserr2errno(err);
+   set_errno(rc);
+   return rc;
 }
 
 char* __stdcall START_EXPORT(getcwd)(char *buf,size_t size) {
-   char *fp = hlp_curdir(hlp_curdisk());
-   int  len;
-   if (!fp) return 0;
-   len = strlen(fp);
-   if (buf && size<len+3) { errno=ERANGE; return 0; }
+   qserr err = io_curdir(buf, size);
+   if (err) set_errno_qserr(err);
+   return err?0:buf;
+}
 
-   if (!buf) buf=(char*)malloc(len+3);
-   if (fp[1]==':') {
-      strcpy(buf,fp);
-      *buf+='A'-'0';
-   } else {
-      buf[0] = 'A'+hlp_curdisk();
-      buf[1] = ':';
-      strcpy(buf+2,fp);
-   }
-   errno=EZERO;
-   return buf;
+int __stdcall START_EXPORT(chdir)(const char *path) {
+   qserr err = io_chdir(path);
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
 int __stdcall START_EXPORT(mkdir)(const char *path) {
-   if (!path || !*path) errno=EINVAL; else {
-      char namebuf[_MAX_PATH], *cp;
-      FRESULT rc;
-      pathcvt(path,namebuf);
-      // fix name
-      cp = namebuf;
-      do {
-         cp = strchr(cp,'/');
-         if (cp) *cp='\\';
-      } while (cp);
-      // create path.
-      cp = strchr(namebuf,'\\');
-      while (cp) {
-         *cp  = 0;
-         rc   = f_mkdir(namebuf);
-         *cp++= '\\';
-         if (rc!=FR_EXIST && rc!=FR_OK) break;
-         cp = strchr(cp,'\\');
-      }
-      // final target
-      if (!cp) rc = f_mkdir(namebuf);
-
-      if (rc==FR_OK) { errno=EZERO; return 0; }
-      set_errno2(rc);
-   }
-   return -1;
+   qserr err = io_mkdir(path);
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
 int __stdcall START_EXPORT(rmdir)(const char *path) {
-   if (!path) errno=EINVAL; else {
-      char namebuf[_MAX_PATH];
-      FRESULT err;
-      pathcvt(path,namebuf);
-      err = f_unlink(namebuf);
-      if (err==FR_OK) { errno=EZERO; return 0; }
-      set_errno2(err);
-   }
-   return -1;
+   qserr err = io_rmdir(path);
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
 #define STAT_SIGN   (0x52494452)
 
 typedef struct {
-   u32t     sign;
-   DIR       dir;
-   int      call;   // call type - 1 = opendir, 2 = _dos_findfirst
-   u16t    attrs;
-   char     mask[_MAX_PATH+1];
+   u32t            sign;
+   dir_handle        dh;
+   io_direntry_info  de;
+   int             call;   // call type - 1 = opendir, 2 = _dos_findfirst
+   u16t           attrs;
+   char         dirpath[QS_MAXPATH+1];
+   char            mask[QS_MAXPATH+1];
 } StatInfo;
 
-#define checkret_direrr(x,calltype)         \
-   StatInfo *si=(StatInfo*)(fp->d_sysdata); \
-   if (!si||si->sign!=STAT_SIGN||si->call!=calltype) { errno=EINVAL; return x; }
+#define checkret_direrr(x,calltype)           \
+   StatInfo *si = (StatInfo*)(fp->d_sysdata); \
+   if (!si || si->sign!=STAT_SIGN || si->call!=calltype) \
+      { set_errno(EINVAL); return x; }
 
-dir_t* __stdcall START_EXPORT(opendir)(const char*dpath) {
-   FRESULT  err;
-   u32t     len = sizeof(dir_t)+strlen(dpath)+2+sizeof(StatInfo);
-   dir_t    *rc = (dir_t*)malloc(len);
-   StatInfo *si = (StatInfo*)(rc+1);
-   memZero(rc);
-   rc->d_openpath = (char*)(si+1);
-   // recode "A:-Z:" path to "0:-3:\"
-   pathcvt(dpath,rc->d_openpath);
+dir_t* __stdcall START_EXPORT(opendir)(const char *dpath) {
+   qserr      err;
+   u32t       len = sizeof(dir_t) + sizeof(StatInfo);
+   dir_t      *rc = (dir_t*)calloc(len,1);
+   StatInfo   *si = (StatInfo*)(rc+1);
+   rc->d_openpath = si->dirpath;
+   // set process as block owner
+   mem_localblock(rc);
 
-   err = f_opendir(&(si->dir),rc->d_openpath);
-   if (err!=FR_OK) {
-      //log_it(2,"opendir(%s)=%d\n",rc->d_openpath,err);
+   err = io_fullpath (si->dirpath, dpath, QS_MAXPATH+1);
+   if (!err) err = io_diropen(si->dirpath, &si->dh);
+   if (err) {
       free(rc);
-      set_errno2(err);
+      set_errno_qserr(err);
       return 0;
    }
+   strcat(si->dirpath, "\\");
    rc->d_sysdata = si;
    si->sign      = STAT_SIGN;
    si->call      = 1;
-   errno = EZERO;
    return rc;
 }
 
 dir_t* __stdcall START_EXPORT(readdir)(dir_t *fp) {
-   char     lfn[_MAX_PATH+1];
-   FRESULT  err;
-   FILINFO  fid;
+   qserr      err;
    checkret_direrr(0,1);
 
-   fid.lfname = lfn;
-   fid.lfsize = _MAX_PATH;
-   lfn[0] = 0;
+   err = io_dirnext(si->dh, &si->de);
+   if (err) { set_errno_qserr(err); return 0; }
 
-   err = f_readdir(&(si->dir),&fid);
-   if (err!=FR_OK||!fid.fname[0]) {
-      set_errno2(err);
-      return 0;
-   }
-   fp->d_size   = fid.fsize;
-   fp->d_date   = fid.fdate;
-   fp->d_time   = fid.ftime;
-   fp->d_crdate = fid.cdate;
-   fp->d_crtime = fid.ctime;
-   fp->d_attr   = fid.fattrib;
-   if (*fid.lfname) strncpy(fp->d_name,fid.lfname,NAME_MAX+1);
-      else strncpy(fp->d_name,fid.fname,13);
-   errno = EZERO;
+   fp->d_size   = si->de.size;
+   fp->d_wtime  = io_iototime(&si->de.wtime);
+   fp->d_ctime  = io_iototime(&si->de.ctime);
+   fp->d_attr   = si->de.attrs;
+   strcpy(fp->d_name, si->de.name);
    return fp;
 }
 
 int __stdcall START_EXPORT(closedir)(dir_t *fp) {
-   FRESULT  err;
+   qserr      err;
    checkret_direrr(EINVAL,1);
-   err = f_closedir(&(si->dir));
-   if (err) set_errno2(err);
+   err = io_dirclose(si->dh);
+   if (err) set_errno_qserr(err);
+   fp->d_sysdata = 0;
+   si->sign      = 0;
    free(fp);
    return err?1:0;
 }
 
-u16t __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
-   FILINFO fi;
-   FRESULT err;
-   char namebuf[_MAX_PATH+1], lfn[_MAX_PATH+1];
-   if (!fp) return errno=EINVAL;
-   pathcvt(path,namebuf);
-   memset(fp,0,sizeof(dir_t));
-   fi.lfname = lfn;
-   fi.lfsize = _MAX_PATH;
-   lfn[0] = 0;
+qserr __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
+   io_handle_info  hi;
+   qserr          err;
+   if (!path||!fp) { set_errno(EINVAL); return E_SYS_INVPARM; }
 
-   err = f_stat(namebuf,&fi);
-   if (err!=FR_OK) {
-      char  extbuf[_MAX_EXT];
-      FRESULT err2;
-      DIR       dt;
-      err2   = f_opendir(&dt,namebuf);
-      if (err2!=FR_OK) {
-         set_errno2(err);
-         return errno;
-      }
-      _splitpath(namebuf,0,0,fp->d_name,extbuf);
-      strcat(fp->d_name,extbuf);
-      fp->d_attr   = _A_SUBDIR;
-      f_closedir(&dt);
-   } else {
-      fp->d_size   = fi.fsize;
-      fp->d_date   = fi.fdate;
-      fp->d_time   = fi.ftime;
-      fp->d_crdate = fi.cdate;
-      fp->d_crtime = fi.ctime;
-      fp->d_attr   = fi.fattrib;
+   err = io_pathinfo(path, &hi);
+   if (err) set_errno_qserr(err); else {
+      fp->d_wtime = io_iototime(&hi.wtime);
+      fp->d_ctime = io_iototime(&hi.ctime);
+      fp->d_size  = hi.size;
+      fp->d_attr  = hi.attrs;
 
-      if (*fi.lfname) {
-         strncpy(fp->d_name,fi.lfname,NAME_MAX+1);
-         fp->d_name[NAME_MAX] = 0;
-      } else {
-         strncpy(fp->d_name,fi.fname,13);
-         fp->d_name[12] = 0;
-      }
+      if (io_fullpath(fp->d_name, path, NAME_MAX+1)) fp->d_name[0] = 0;
+      fp->d_name[NAME_MAX] = 0;
+      fp->d_openpath = &fp->d_name[NAME_MAX];
+      fp->d_sysdata  = 0;
    }
-   fp->d_openpath = &fp->d_name[NAME_MAX];
-   fp->d_sysdata  = 0;
-   errno = EZERO;
-   return 0;
+   return err;
 }
 
 int __stdcall START_EXPORT(_matchpattern)(const char *pattern, const char *str) {
@@ -591,8 +560,8 @@ int __stdcall START_EXPORT(_matchpattern)(const char *pattern, const char *str) 
    if (!str) return 0;
 
    for (;;++str) {
-      char strc =toupper(*str);
-      char patternc=toupper(*pattern++);
+      char strc     = toupper(*str);
+      char patternc = toupper(*pattern++);
       switch (patternc) {
          case 0:
             return strc==0;
@@ -624,7 +593,7 @@ int __stdcall START_EXPORT(_matchpattern)(const char *pattern, const char *str) 
    }
 }
 
-/* this code must be wrong in many cases, but it`s used as first time 
+/* this code must be wrong in many cases, but it`s used as first time
    implementation */
 int __stdcall _replacepattern(const char *frompattern, const char *topattern,
                               const char *from, char *to)
@@ -680,7 +649,7 @@ int __stdcall _replacepattern(const char *frompattern, const char *topattern,
                   if (strchr("*?",*to++=*topattern++)) return 0;
             }
          }
-      } else { 
+      } else {
          if (reppc=='*') {
             int   len = -1;
             char *pos = strpbrk(frompattern,"*?");
@@ -701,150 +670,105 @@ int __stdcall _replacepattern(const char *frompattern, const char *topattern,
    return 1;
 }
 
-u16t __stdcall START_EXPORT(_dos_findfirst)(const char *path, u16t attributes, dir_t *fp) {
-   int      len;
-   FRESULT  err;
-   char b_drv[_MAX_DRIVE], b_dir[_MAX_DIR],
-        b_nam[_MAX_FNAME], b_ext[_MAX_EXT];
-   StatInfo *si   = (StatInfo*)malloc(sizeof(StatInfo)+strlen(path)+2);
-   memZero(si);
-   fp->d_openpath = (char*)(si+1);
-   si->call       = 2;
-   si->attrs      = attributes;
-   // recode A:-Z: path to 0:-3:
-   pathcvt(path,fp->d_openpath);
-
-   _splitpath(fp->d_openpath,b_drv,b_dir,b_nam,b_ext);
-   strcpy(fp->d_openpath,b_drv);
-   strcat(fp->d_openpath,b_dir);
-   len = strlen(fp->d_openpath);
-   // remove trailing / \ else FAT code will fail
-   if (len>3 && fp->d_openpath[1]==':' && (fp->d_openpath[len-1]=='\\' || fp->d_openpath[len-1]=='/'))
-      fp->d_openpath[len-1] = 0;
-
-   strcpy(si->mask,b_nam);
-   strcat(si->mask,b_ext);
-
-   //log_printf("_dos_findfirst(%s%s,%04X,%08X)\n",fp->d_openpath,si->mask,si->attrs,fp);
-
-   err = f_opendir(&(si->dir),fp->d_openpath);
-   if (err!=FR_OK) {
+qserr __stdcall START_EXPORT(_dos_findfirst)(const char *path, u16t attributes, dir_t *fp) {
+   StatInfo *si = (StatInfo*)calloc(sizeof(StatInfo),1);
+   qserr    err = io_fullpath(si->dirpath, path, QS_MAXPATH+1);
+   if (!err) {
+      char *cp = strrchr(si->dirpath, '\\');
+      if (!cp) {
+         strcpy(si->mask, si->dirpath);
+         si->dirpath[0] = 0;
+      } else {
+         strcpy(si->mask, ++cp);
+         *cp = 0;
+      }
+      err = io_diropen(si->dirpath, &si->dh);
+   }
+   if (err) {
       free(si);
-      //log_printf("_dos_findfirst error %d\n",err);
-      set_errno2(err);
+      set_errno_qserr(err);
       return err;
    }
-   si->sign       = STAT_SIGN;
+   fp->d_openpath = si->dirpath;
    fp->d_sysdata  = si;
-
+   si->sign       = STAT_SIGN;
+   si->call       = 2;
+   si->attrs      = attributes;
+   // set process as block owner
+   mem_localblock(si);
    return _dos_findnext(fp);
 }
 
-u16t __stdcall START_EXPORT(_dos_findclose)(dir_t *fp) {
-   FRESULT  err;
-   checkret_direrr(FR_INVALID_PARAMETER,2);
-   err = f_closedir(&(si->dir));
-   if (err) set_errno2(err);
+qserr __stdcall START_EXPORT(_dos_findclose)(dir_t *fp) {
+   qserr      err;
+   checkret_direrr(E_SYS_INVPARM,2);
+   err = io_dirclose(si->dh);
+   if (err) set_errno_qserr(err);
    fp->d_sysdata = 0;
    si->sign      = 0;
    free(si);
    return err;
 }
 
-u16t __stdcall START_EXPORT(_dos_findnext)(dir_t *fp) {
-   char     lfn[_MAX_PATH+1];
-   FRESULT  err;
-   FILINFO   fi;
-   checkret_direrr(FR_INVALID_PARAMETER,2);
-   fi.lfname = lfn;
-   fi.lfsize = _MAX_PATH;
-   lfn[0] = 0;
+qserr __stdcall START_EXPORT(_dos_findnext)(dir_t *fp) {
+   checkret_direrr(E_SYS_INVPARM,2);
 
    while (true) {
-      char *nameptr;
-      err     = f_readdir(&(si->dir),&fi);
-      nameptr = *fi.lfname?fi.lfname:fi.fname;
-      // error?
-      if (err!=FR_OK||!*nameptr) {
-         if (err==FR_OK) err=FR_NO_FILE;
-         set_errno2(err);
-         return err;
-      }
+      qserr err = io_dirnext(si->dh, &si->de);
+      if (err) { set_errno_qserr(err); return err; }
       // filter by subdir flag only
-      if (((si->attrs&_A_SUBDIR)==0||(fi.fattrib&AM_DIR)!=0) && _matchpattern(si->mask,nameptr)) {
-         fp->d_size   = fi.fsize;
-         fp->d_date   = fi.fdate;
-         fp->d_time   = fi.ftime;
-         fp->d_crdate = fi.cdate;
-         fp->d_crtime = fi.ctime;
-         fp->d_attr   = fi.fattrib;
-
-         if (*fi.lfname) {
-            strncpy(fp->d_name,fi.lfname,NAME_MAX+1);
-         } else {
-            strncpy(fp->d_name,fi.fname,13);
-            fp->d_name[12] = 0;
-         }
-         fp->d_name[NAME_MAX] = 0;
-         // point it to \0
-         fp->d_openpath = &fp->d_name[NAME_MAX];
+      if (((si->attrs&_A_SUBDIR)==0 || (si->de.attrs&IOFA_DIR)!=0) &&
+         _matchpattern(si->mask,si->de.name)) 
+      {
+         fp->d_size     = si->de.size;
+         fp->d_wtime    = io_iototime(&si->de.wtime);
+         fp->d_ctime    = io_iototime(&si->de.ctime);
+         fp->d_attr     = si->de.attrs;
+         fp->d_openpath = si->dirpath;
+         strcpy(fp->d_name, si->de.name);
          break;
       }
    }
-   errno = EZERO;
    return 0;
 }
 
-u32t  __stdcall _dos_getdiskfree(unsigned drive, diskfree_t *dspc) {
-   static char path[12] = "0:\\";
-   FATFS *pfat = 0;
-   DWORD nclst = 0;
-   if (!dspc) { errno=EINVAL; return 1; }
+qserr __stdcall _dos_getdiskfree(unsigned drive, diskfree_t *dspc) {
+   disk_volume_data vi;
+   qserr           err;
 
-   drive   = !drive?hlp_curdisk():drive-1;
-   path[0] = '0'+drive;
-   if (f_getfree(path,&nclst,&pfat)!=FR_OK) { errno=EINVAL; return 1; }
+   drive = !drive?io_curdisk():drive-1;
+   err   = io_volinfo(drive, &vi);
+   if (err) { set_errno_qserr(err); return err; }
 
-   dspc->total_clusters      = hlp_disksize(QDSK_VOLUME|drive,0,0)/pfat->csize;
-   dspc->avail_clusters      = nclst;
-   dspc->sectors_per_cluster = pfat->csize;
-   dspc->bytes_per_sector    = pfat->ssize;
+   dspc->total_clusters      = vi.ClTotal;
+   dspc->avail_clusters      = vi.ClAvail;
+   dspc->sectors_per_cluster = vi.ClSize;
+   dspc->bytes_per_sector    = vi.SectorSize;
    return 0;
 }
 
 int __stdcall unlink(const char *path) {
-   char namebuf[_MAX_PATH];
-   FRESULT err;
-   pathcvt(path,namebuf);
-   err = f_unlink(namebuf);
-   if (err==FR_OK) { errno=EZERO; return 0; }
-   set_errno2(err);
-   return -1;
+   qserr err = io_remove(path);
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
-
 int __stdcall START_EXPORT(rename)(const char *oldname, const char *newname) {
-   char nbold[_MAX_PATH], nbnew[_MAX_PATH];
-   FRESULT err;
-   pathcvt(oldname,nbold);
-   pathcvt(newname,nbnew);
-   err = f_rename(nbold,nbnew[1]==':'?nbnew+2:nbnew);
-   if (err==FR_OK) { errno=EZERO; return 0; }
-   set_errno2(err);
-   return -1;
+   qserr err = io_move(oldname, newname);
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
 void __stdcall _dos_getdrive(unsigned *drive) {
-   u8t drv = hlp_curdisk();
-   if (drive) *drive = drv+1;
+   if (drive) *drive = io_curdisk()+1;
 }
 
 void __stdcall _dos_setdrive(unsigned drive, unsigned *total) {
-   if (drive) hlp_chdisk(drive-1);
+   if (drive) io_setdisk(drive-1);
    if (total) {
-      u8t drv = 1;
-      while (hlp_curdir(drv)) drv++;
-      *total = drv;
+      u8t lmount = 1;
+      io_ismounted(1, &lmount);
+      *total = lmount+1;
    }
 }
 
@@ -882,69 +806,13 @@ void __stdcall START_EXPORT(_splitpath)(const char *path, char *drive, char *dir
 }
 
 char* __stdcall START_EXPORT(_fullpath)(char *buffer, const char *path, size_t size) {
-   char tmp[_MAX_PATH+1], *str=tmp;
-   u32t plen = path?strlen(path):0;
-   if (plen>=_MAX_PATH-3) { errno = ERANGE; return 0; }
-
-   if (path&&path[1]==':') {
-      strcpy(tmp,path);
-      if (tmp[0]>='0'&&tmp[0]<='9') tmp[0]+='A'-'0';
-         else tmp[0]=toupper(tmp[0]);
-   } else
-   if (!path||path[0]!='/'&&path[0]!='\\') {
-      u32t mplen;
-      getcwd(tmp,_MAX_PATH+1);
-      mplen = strlen(tmp);
-      if (tmp[mplen-1]!='\\') { strcat(tmp,"\\"); mplen++; }
-      if (mplen+plen+1>=_MAX_PATH) { errno = ERANGE; return 0; }
-      strcat(tmp,path);
-   } else {
-      tmp[0] = 'A'+hlp_curdisk();
-      tmp[1] = ':';
-      tmp[2] = '\\';
-      strcpy(tmp+3,path+1);
+   qserr err;
+   char  *rc = io_fullpath_int(buffer, path, size, &err);
+   if (err) {
+      // log_it(2, "_fullpath(%08X,%s,%u) -> %08X\n", buffer, path, size, err);
+      set_errno_qserr(err);
    }
-   if (!buffer) buffer = (char*)malloc(size = _MAX_PATH+1);
-   buffer[0]=0;
-
-   do {
-      str=strpbrk(str,"/.\\");
-      if (!str) break;
-      switch (*str) {
-         case '.':
-            if (*(str-1)=='\\') {
-               u32t idx=1,dbl;
-               if ((dbl=str[1]=='.')!=0) idx++; //  /./  /.\ /../ /..\\ /. /..
-               if (str[idx]=='/'||str[idx]=='\\'||!str[idx]) {
-                  char *ps=str-1;
-                  if (dbl&&str>tmp+1) { // "/../path" work as "/path"
-                     ps=str-2;
-                     while (ps!=tmp&&*ps!='\\') ps--;
-                  }
-                  memmove(ps,str+idx,strlen(str+idx)+1);
-                  str=ps-1;
-               }
-            } else
-            if (str[1]==0) *str=0;
-            break;
-         case '/': *str='\\';
-         case '\\':
-            if (str!=tmp)
-               if (*(str-1)=='\\')
-                  memmove(str,str+1,strlen(str+1)+1);
-            break;
-      }
-   } while (*++str);
-
-   if (tmp[1]==':'&&tmp[2]==0) strcat(tmp,"\\");
-
-   if (size<strlen(tmp)+1) {
-      errno = ERANGE;
-      return 0;
-   } else {
-      strcpy(buffer,tmp);
-      return buffer;
-   }
+   return err?0:rc;
 }
 
 #define allmask(mask) (!mask||*mask==0||strcmp(mask,"*")==0||strcmp(mask,"*.*")==0)
@@ -952,23 +820,24 @@ char* __stdcall START_EXPORT(_fullpath)(char *buffer, const char *path, size_t s
 static long readtree(const char *Dir, const char *Mask, dir_t **info,
    long owner, long pool, int subdirs, _dos_readtree_cb callback, void *cbinfo)
 {
-   long  count, all=allmask(Mask), rc=0, ii;
-   dir_t *iout, *rdh, *rdi;
-   // we're will NOT alloc 300 bytes in stack recursively ;)
-   char *nm = (char*)malloc(NAME_MAX+1),
-        *np = all?0:strupr(strdup(Mask)), *dptr;
+   long   count, all=allmask(Mask), rc=0, ii;
+   dir_t  *iout, *rdh, *rdi;
+   qserr   errv;
+   // it is a bad idea to alloc 300 bytes in stack recursively ;)
+   char     *nm = (char*)malloc(QS_MAXPATH+1),
+            *np = all?0:strupr(strdup(Mask)), *dptr;
    /* log_printf("readtree(%s,%s,%08X,%08X,%08X,%i,%08X,%08X)\n",Dir,Mask,info,
        owner,pool,subdirs,callback,cbinfo); */
-   if (!owner) memGetUniqueID(&owner,&pool);
+   if (!owner) mem_uniqueid(&owner, &pool);
    // convert name and save it for dir_t.d_openpath
-   dptr = (char*)memAlloc(owner,pool,strlen(Dir)+3);
-   pathcvt(Dir,dptr);
-
+   dptr  = (char*)mem_alloc(owner, pool, QS_MAXPATH+1);
+   errv  = io_fullpath(dptr, Dir, QS_MAXPATH+1);
+   if (!errv) strcat(dptr, "\\");
    *info = 0;
    iout  = 0;
    ii    = 0;
-   rdh   = opendir(dptr);
    count = 0;
+   rdh   = !errv?opendir(dptr):0;
    if (rdh) {
       do {
          rdi = readdir(rdh);
@@ -991,8 +860,8 @@ static long readtree(const char *Dir, const char *Mask, dir_t **info,
                   }
                   // alloc memory
                   if (count+2>=ii) {
-                     if (!ii) iout = (dir_t*)memAlloc(owner,pool,(ii=128)*sizeof(dir_t));
-                        else iout = (dir_t*)memRealloc(iout,(ii*=2)*sizeof(dir_t));
+                     if (!ii) iout = (dir_t*)mem_alloc(owner,pool,(ii=128)*sizeof(dir_t));
+                        else iout = (dir_t*)mem_realloc(iout,(ii*=2)*sizeof(dir_t));
                   }
                   memcpy(iout+count,rdi,sizeof(dir_t));
                   iout[count].d_sysdata  = 0;
@@ -1016,7 +885,7 @@ static long readtree(const char *Dir, const char *Mask, dir_t **info,
             if (nm[--tmp]=='\\') nm[tmp]='/';
             if (nm[tmp]!='/') strcat(nm+tmp,"/");
             strcat(nm+tmp,iout[ii].d_name);
-            nestcnt=readtree(nm,Mask,&iout2,owner,pool,1,callback,cbinfo);
+            nestcnt = readtree(nm,Mask,&iout2,owner,pool,1,callback,cbinfo);
             if (nestcnt<0) { rc=-1; break; } // stopped in nest dir
             rc+=nestcnt;
             iout[ii].d_sysdata = iout2;
@@ -1034,34 +903,36 @@ u32t  __stdcall START_EXPORT(_dos_readtree)(const char *dir, const char *mask,
    if (!info&&!callback) return 0; else {
       long rc;
       dir_t *iout = 0;
+      // reset it to not confuse by previous error & zero count
+      set_errno(0);
       rc = dir?readtree(dir,mask,&iout,0,0,subdirs,callback,cbinfo):0;
-      if (!info||rc<=0) {
-         int sverr = errno;
+      if (!info || rc<=0) {
          _dos_freetree(iout);
-         iout  = 0;
-         errno = sverr;
+         iout = 0;
       }
       if (info) *info = iout;
       return rc<0?0:rc;
    }
 }
 
-int  __stdcall START_EXPORT(_dos_freetree)(dir_t *info) {
+qserr __stdcall START_EXPORT(_dos_freetree)(dir_t *info) {
    long  Owner,Pool;
-   if (!info) return errno=EINVAL;
+   if (!info) return E_SYS_INVPARM;
    // memmgr block?
-   if (!memGetObjInfo(info,&Owner,&Pool)) return errno=EINVAL;
+   if (!mem_getobjinfo(info,&Owner,&Pool)) return E_SYS_INVPARM;
    // check memGetUniqueID`s owner to prevent free() opendir`s dir_t
-   if (Owner==-2) memFreePool(Owner,Pool); else return errno=EINVAL;
-   return errno=EZERO;
+   if (Owner==-2) mem_freepool(Owner,Pool); else return E_SYS_INVPARM;
+   return 0;
 }
 
 int __stdcall START_EXPORT(_access)(const char *path, int mode) {
-   dir_t  fd;
-   if (path)
-      if (!_dos_stat(path,&fd)) { errno=EZERO; return 0; }
-   errno=ENOENT;
-   return -1;
+   io_handle_info hi;
+   qserr         err = io_pathinfo(path, &hi);
+   if (!err)
+      if ((mode&W_OK) && (hi.attrs&IOFA_READONLY) ||
+         (hi.attrs&IOFA_DIR) && (mode&(W_OK|R_OK|X_OK))) err = E_SYS_ACCESS;
+   if (err) set_errno_qserr(err);
+   return err?-1:0;
 }
 
 char* __stdcall tmpdir(char *buffer) {
@@ -1091,63 +962,59 @@ char* __stdcall tmpdir(char *buffer) {
    return 0;
 }
 
-u16t __stdcall START_EXPORT(_dos_setfileattr)(const char *path, unsigned attributes) {
-   if (!path||(attributes&(_A_VOLID|_A_SUBDIR))!=0) return errno=EINVAL;
-   else {
-      char namebuf[_MAX_PATH];
-      FRESULT err;
-      pathcvt(path,namebuf);
-      err = f_chmod(namebuf,attributes,AM_RDO|AM_ARC|AM_SYS|AM_HID);
-      if (err==FR_OK) { errno=EZERO; return 0; }
-      set_errno2(err);
-      return errno;
+qserr __stdcall START_EXPORT(_dos_setfileattr)(const char *path, unsigned attributes) {
+   if (!path||(attributes&(_A_VOLID|_A_SUBDIR))!=0)  { 
+      set_errno(EINVAL);
+      return E_SYS_INVPARM;
+   } else {
+      io_handle_info  hi;
+      qserr          err;
+      hi.attrs = attributes;
+      err      = io_setinfo(path, &hi, IOSI_ATTRS);
+
+      if (err) set_errno_qserr(err);
+      return err;
    }
 }
 
-u16t __stdcall START_EXPORT(_dos_getfileattr)(const char *path, unsigned *attributes) {
-   dir_t  fd;
+qserr __stdcall START_EXPORT(_dos_getfileattr)(const char *path, unsigned *attributes) {
+   io_handle_info  hi;
+   qserr          err;
    if (attributes) *attributes = 0;
-   if (!attributes||!path) return errno=EINVAL;
-   if (!_dos_stat(path,&fd)) {
-      *attributes = fd.d_attr;
-      errno=EZERO;
-      return 0;
+   if (!attributes||!path) { set_errno(EINVAL); return E_SYS_INVPARM; }
+
+   err = io_pathinfo(path, &hi);
+   if (err) set_errno_qserr(err); else *attributes = hi.attrs;
+   return err;
+}
+
+qserr __stdcall START_EXPORT(_dos_setfiletime)(const char *path, u32t dostime, int type) {
+   io_handle_info  hi;
+   u32t           flv = 0;
+   time_t         tmv;
+   qserr          err;
+   if (!path||!type||(type&~(_DT_MODIFY|_DT_CREATE)))
+      { set_errno(EINVAL); return E_SYS_INVPARM; }
+
+   tmv = dostimetotime(dostime);
+   if (type&_DT_MODIFY) { io_timetoio (&hi.wtime, tmv); flv|=IOSI_WTIME; }
+   if (type&_DT_CREATE) { io_timetoio (&hi.ctime, tmv); flv|=IOSI_CTIME; }
+   err = io_setinfo(path, &hi, flv);
+
+   if (err) set_errno_qserr(err);
+   return err;
+}
+
+qserr __stdcall START_EXPORT(_dos_getfiletime)(const char *path, u32t *dostime, int type) {
+   io_handle_info  hi;
+   qserr          err;
+   if (!path||!dostime||!type||(type&~(_DT_MODIFY|_DT_CREATE)))
+      { set_errno(EINVAL); return E_SYS_INVPARM; }
+
+   err = io_pathinfo(path, &hi);
+   if (err) set_errno_qserr(err); else {
+      time_t tmv = io_iototime(type&_DT_CREATE?&hi.ctime:&hi.wtime);
+      *dostime   = timetodostime(tmv);
    }
-   return errno;
+   return err;
 }
-
-u16t __stdcall START_EXPORT(_dos_setfiletime)(const char *path, u32t dostime, int type) {
-   char namebuf[_MAX_PATH];
-   FRESULT  err;
-   FILINFO   fi;
-   dir_t     fd;
-   if (!path||!type||(type&~(_DT_MODIFY|_DT_CREATE))) return errno=EINVAL;
-   // one of types is zero? read old value
-   if ((type^(_DT_MODIFY|_DT_CREATE)))
-      if (_dos_stat(path,&fd)) return errno;
-
-   pathcvt(path,namebuf);
-   fi.fdate = type&_DT_MODIFY ? dostime>>16   :fd.d_date;
-   fi.ftime = type&_DT_MODIFY ? (WORD)dostime :fd.d_time;
-   fi.cdate = type&_DT_CREATE ? dostime>>16   :fd.d_crdate;
-   fi.ctime = type&_DT_CREATE ? (WORD)dostime :fd.d_crtime;
-
-   err = f_utime(namebuf,&fi);
-   if (err==FR_OK) { errno=EZERO; return 0; }
-   set_errno2(err);
-   return errno;
-}
-
-u16t __stdcall START_EXPORT(_dos_getfiletime)(const char *path, u32t *dostime, int type) {
-   dir_t  fd;
-   if (!path||!dostime||!type||(type&~(_DT_MODIFY|_DT_CREATE))) 
-      return errno=EINVAL;
-   if (!_dos_stat(path,&fd)) {
-      errno=EZERO;
-      return type&_DT_CREATE ? ((u32t)fd.d_crdate)<<16|fd.d_crtime :
-         ((u32t)fd.d_date)<<16|fd.d_time;
-   }
-   if (!errno) errno=ENOENT;
-   return errno;
-}
-

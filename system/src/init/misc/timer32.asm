@@ -18,7 +18,9 @@ _BSS            ends
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
-                extrn   _usleep:near
+                extrn   _usleep:near                            ;
+                extrn   _mt_swlock:near                         ;
+                extrn   _mt_swunlock:near                       ;
 
 ;----------------------------------------------------------------
 ;void _std vio_beep(u16t freq, u32t ms);
@@ -109,9 +111,10 @@ bin2cmos        proc    near                                    ;
                 ret                                             ;
 bin2cmos        endp                                            ;
 
-;----------------------------------------------------------------
 ; u32t _std tm_getdate(void);
-;
+;----------------------------------------------------------------
+; function looks safe because time growing is linear and cmos i/o
+; is under cli
                 public  _tm_getdate                             ;
 _tm_getdate     proc    near                                    ;
                 mov     edx,ss:[BIOS_TICS]                      ; update cmos time
@@ -125,7 +128,7 @@ _tm_getdate     proc    near                                    ;
                 xor     eax,eax                                 ;
                 xor     ecx,ecx                                 ;
                 clc                                             ; clear CF for
-                pushf                                           ; result
+                pushfd                                          ; result
                 cli                                             ;
                 mov     al,CMOS_CENT or NMI_MASK                ;
                 call    cmos2bin                                ;
@@ -180,7 +183,7 @@ _tm_getdate     proc    near                                    ;
                 mov     lastgt_value,ecx                        ;
                 mov     lastgt_tick,edx                         ;
                 mov     eax,ecx                                 ;
-                popf                                            ;
+                popfd                                           ;
                 ret                                             ;
 @@tmgtme_err:
                 mov     ecx,40210000h                           ; return 1-1-2012
@@ -194,10 +197,11 @@ _tm_getdate     endp                                            ;
 _tm_setdate     proc near
 @@dostime       =  4                                            ;
                 mov     ecx,[esp+@@dostime]                     ;
+                call    _mt_swlock                              ;
                 cmosset CMOS_REG_B                              ; disable updates
                 mov     al,CMOS_B_DENY                          ;
                 out     CMOS_DATA,al                            ;
-                pushf                                           ;
+                pushfd                                          ;
 @@tmsd_waitupd:
                 cli                                             ;
                 cmosset CMOS_REG_A                              ;
@@ -241,11 +245,12 @@ _tm_setdate     proc near
                 mov     ah,cl
                 mov     al,CMOS_CENT or NMI_MASK                ;
                 call    bin2cmos                                ;
-                popf                                            ;
+                popfd                                           ;
                 cmosset <CMOS_REG_B or NMI_MASK>                ; enable updates
                 mov     al,CMOS_B_NORM                          ;
                 out     CMOS_DATA,al                            ;
                 cmosreset                                       ;
+                call    _mt_swunlock                            ;
                 ret     4                                       ;
 _tm_setdate     endp
 

@@ -68,16 +68,13 @@ void setup_memory(void) {
    /* query range, used by common memory manager: membase..membase+availmem-1,
       hlp_memavail makes an additional check of memory structs */
    hlp_memavail(0, &availmem);
-   // parse full E820 list, but copying data from disk buffer first
-   AcpiMemInfo *rtbl = int15mem();
+   // parse full E820 list
+   AcpiMemInfo *tbl = hlp_int15mem();
 
    acnt = 0;
-   while (rtbl[acnt].LengthLow || rtbl[acnt].LengthHigh) acnt++;
+   while (tbl[acnt].LengthLow || tbl[acnt].LengthHigh) acnt++;
    if (acnt) {
-      AcpiMemInfo *tbl = new AcpiMemInfo[acnt];
       u32t        mcnt = 0;
-
-      memcpy(tbl, rtbl, sizeof(AcpiMemInfo)*acnt);
       // allocate array (one for possible 4Gb border-cross and one for 1st Mb)
       pcmem.SetCount(acnt+2);
       // 640 kb
@@ -117,7 +114,6 @@ void setup_memory(void) {
             }
          }
       }
-      delete tbl;
       pcmem.SetCount(mcnt);
    } else {
       // no E820, get physmem from initial parsing (here must be int15 88/E8)
@@ -132,6 +128,7 @@ void setup_memory(void) {
          pcmem[ii].owner = PCMEM_FREE;
       }
    }
+   free(tbl);
    // search for lowest border of usable memory in first 4Gbs
    maxmap4g = _1MB;
    for (ii = 0; ii<pcmem.Count(); ii++) {
@@ -153,7 +150,7 @@ void setup_memory(void) {
          pcmem[ii].flags|= MEM_DIRECT;
          pcmem[ii].owner = PCMEM_QSINIT;
       } else
-      if (start<maxmap4g && pcmem[ii].owner==PCMEM_FREE) 
+      if (start<maxmap4g && pcmem[ii].owner==PCMEM_FREE)
          pcmem[ii].flags |= MEM_DIRECT;
    }
    // dump to log
@@ -184,7 +181,7 @@ void _std hlp_memcprint(void) {
 
 pcmem_entry* _std sys_getpcmem(int freeonly) {
    if (!pcmem.Count()) return 0;
-   pcmem_entry *rc = (pcmem_entry*)malloc((pcmem.Count()+1)*sizeof(pcmem_entry));
+   pcmem_entry *rc = (pcmem_entry*)malloc_local((pcmem.Count()+1)*sizeof(pcmem_entry));
    u32t ii=0, ti=0;
    for (; ii<pcmem.Count(); ii++) {
       u64t start = pcmem[ii].start;
@@ -536,6 +533,8 @@ static void insert_block_b(vmem_entry &nb) {
 }
 
 void* pag_physmap(u64t address, u32t size, u32t flags) {
+   MTLOCK_THIS_FUNC _lk;
+
    if (!in_pagemode) {
       if (address>(u64t)FFFF) return 0;
       if (address+size>(u64t)FFFF+1) return 0;
@@ -631,6 +630,8 @@ void* pag_physmap(u64t address, u32t size, u32t flags) {
 }
 
 u32t pag_physunmap(void *address) {
+   MTLOCK_THIS_FUNC _lk;
+
    u32t zero = hlp_segtoflat(0),
         addr = (u32t)address - zero;
    // fake unmap of common memory

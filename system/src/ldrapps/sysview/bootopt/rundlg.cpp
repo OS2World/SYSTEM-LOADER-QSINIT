@@ -3,8 +3,6 @@
 #define Uses_TFileDialog
 
 #include <tv.h>
-#include "qsconst.h"
-
 #include "diskedit.h"
 #include "rundlg.h"
 

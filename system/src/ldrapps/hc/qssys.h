@@ -192,15 +192,30 @@ void     _std sys_idtdump(void);
     Use hlp_memcpy() for protected copying in first 4Gbs / with
     page 0 in source/destination.
 
-    @param dst    Destination physical address.
-    @param src    Source physical address.
-    @param length Number of bytes to copy
+    @param   dst        Destination physical address.
+    @param   src        Source physical address.
+    @param   length     Number of bytes to copy
     @return success flag (1/0) */
 u32t     _std sys_memhicopy(u64t dst, u64t src, u64t length);
 
+/** query QSINIT internal parameters.
+    @param   index      Parameter index (QSQI_*).
+    @param   outptr     Ptr to buffer for string values, can be 0
+                        to query size only.
+    @return size of parameter in "outptr" or parameter value 
+            (depends on index) or 0 on invalid index */
+u32t     _std sys_queryinfo(u32t index, void *outptr);
+
+/// index values for sys_queryinfo()
+//@{
+#define QSQI_VERSTR       0x0000    ///< version string
+#define QSQI_TLSPREALLOC  0x0010    ///< number of constantly used TLS entries
+//@}
+
+
 /// flags for hlp_setupmem()
 //@{
-#define SETM_SPLIT16M  0x0001 // split memory block at 16M border
+#define SETM_SPLIT16M     0x0001    ///< split memory block at 16M border
 //@}
 
 /** setup system memory usage (for OS/2 boot basically).

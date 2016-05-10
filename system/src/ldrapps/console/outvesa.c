@@ -518,7 +518,7 @@ static void _std out_init(void) {
 
    if (!textonly) {
       vinfo = (VBEModeInfo*) malloc(sizeof(VBEModeInfo)*MAXVESA_MODES);
-      memZero(vinfo);
+      mem_zero(vinfo);
       vesa_cnt = vesadetect(vinfo, mref+PREDEFINED_MODES, enabled_modemask, &vesa_memsize);
       if (!vesa_cnt) { free(vinfo); vinfo = 0; }
    } else
@@ -528,7 +528,7 @@ static void _std out_init(void) {
    mode_cnt   = PREDEFINED_MODES + vesa_cnt;
    mode_limit = mode_cnt + MAXEMU_MODES + 1;
    modes      = (con_modeinfo*)malloc(sizeof(con_modeinfo)*mode_limit);
-   memZero(modes);
+   mem_zero(modes);
    // common text modes
    modes[0].width = modes[1].width = modes[2].width = 80;
    modes[0].height = 25; modes[0].font_x = 9; modes[0].font_y = 16; 
@@ -602,7 +602,7 @@ static fontbits *addfont(int ebx, fontbits *fb) {
       case 5:
       case 7: {
         int diffs = 0;
-        fb = (fontbits*)memDup(fb);
+        fb = (fontbits*)mem_dup(fb);
         fb->x=9;
         // copy alternate font data
         while (*font) {

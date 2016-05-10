@@ -62,8 +62,11 @@ getseldesc      proc    near
                 lea     esi,[edi+ebx]                           ; ESI -> descriptor in GDT
                 mov     edi,[esp+4]                             ; get EDI from stack
                 cld                                             ;
+                pushfd                                          ;
+                cli                                             ;
                 movsd                                           ; copy descriptor
                 movsd                                           ;
+                popfd                                           ;
                 pop     esi                                     ;
 @@gdesc_err:
                 pop     edi                                     ;
@@ -86,10 +89,13 @@ setseldesc      proc    near
                 jc      @@sdesc_accerr                          ;
                 add     edi,ebx                                 ; adjust EDI to descriptor in GDT
                 cld                                             ;
+                pushfd                                          ;
+                cli                                             ;
                 movsd                                           ; copy descriptor
                 lodsd                                           ;
                 or      eax,100000h                             ; set descriptor AVL bit
                 stosd                                           ;
+                popfd                                           ;
 @@sdesc_accerr:
                 pop     ecx                                     ;
                 pop     esi                                     ;
@@ -137,7 +143,9 @@ _hlp_selalloc   proc    near
 @@count         =  4                                            ;
                 mov     ecx,[esp+@@count]                       ;
                 push    ebx                                     ;
-                jecxz   @@salloc_err
+                pushfd                                          ;
+                cli                                             ;
+                jecxz   @@salloc_err                            ;
                 mov     edx,_gdt_pos                            ; base of GDT
                 movzx   eax,_gdt_size                           ;
                 dec     eax                                     ; EAX = last selector index
@@ -165,6 +173,7 @@ _hlp_selalloc   proc    near
 @@salloc_err:
                 xor     eax,eax                                 ;
 @@salloc_exit:
+                popfd                                           ;
                 pop     ebx                                     ;
                 ret     4                                       ;
 _hlp_selalloc   endp                                            ;

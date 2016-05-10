@@ -39,7 +39,7 @@ _exit_pm32a:
                 jmp     _exit_pm32s                             ;
 _exit_pm32:
                 pop     eax                                     ; drop return addr
-_exit_pm32s:                    
+_exit_pm32s:
                 call    _exit_prepare                           ;
                 pop     eax                                     ; rc
 
@@ -129,8 +129,8 @@ xcpt64entry     proc    near
                 mov     ax,ss                                   ; esp points to temp buffer
                 mov     ds,ax                                   ; allocated by 64-bit part
                 mov     es,ax                                   ;
-                cmp     dword ptr [esp].x64_number,256          ;
-                cmovnz  ecx,xcpt64handler                       ;
+                cmp     dword ptr [esp].x64_number,256          ; interrupts are disabled
+                cmovnz  ecx,xcpt64handler                       ; here
                 jnz     @@xc64_common                           ;
                 mov     ecx,tm64handler                         ;
 @@xc64_common:

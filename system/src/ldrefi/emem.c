@@ -13,9 +13,10 @@ u16t _std int12mem(void) {
    return 630;
 }
 
-AcpiMemInfo* _std int15mem(void) {
+/* fill acpi memory info in disk i/o buffer,
+   mt lock is on duaring this call */
+void int15mem_int(void) {
    call64(EFN_INIT15MEM, 0, 0);
-   return (AcpiMemInfo*)DiskBufPM;
 }
 
 void init_physmem(void) {

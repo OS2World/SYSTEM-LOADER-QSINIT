@@ -1,7 +1,7 @@
 [project]
 ; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0016
+version=0x0017
 
 [config]
 0=Debug
@@ -23,7 +23,7 @@ cc=wcc386
 
 &ver=$(outdir)\version.inc
 
-aflags=-d1 -dEFI_BUILD -mt -zq -6p -i=%(QS_BASE)\hc -i=$(outdir) -fo=
+aflags=-d1 -dEFI_BUILD -mt -zq -6p -i=%(QS_BASE)\hc -i=$(ldrsrc) -i=$(outdir) -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -DEFI_BUILD -zld -s -mf -os -i=hc -i=$(ldrsrc)\hc \
        -i=$(ldrsrc)\fat -i=$(ldrsrc)\zip -i=$(outdir) -fo=

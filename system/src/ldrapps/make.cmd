@@ -33,7 +33,7 @@ call make.cmd vdisk    %bldparm%
 call make.cmd cplib    %bldparm%
 call make.cmd vhdd     %bldparm%
 call make.cmd extcmd   %bldparm%
-rem call make.cmd mtlib    %bldparm%
+call make.cmd mtlib    %bldparm%
 
 goto quit
 :single_build

@@ -29,12 +29,16 @@ void *__va_arg_get(char **cp, int size);
 
 #define va_end(ap)      (ap=0)
 
-int __stdcall _vsnprintf(char *buf, u32t count, const char *format, va_list arg);
+int   __stdcall _vsnprintf(char *buf, u32t count, const char *format, va_list arg);
 
-int __stdcall vprintf(const char *format, va_list arg);
+int   __stdcall vprintf(const char *format, va_list arg);
+
+/// vsprintf to dynamically allocated buffer.
+
+char* __stdcall vsprintf_dyn(const char *fmt, va_list arg);
 
 /// vprint to log/serial port
-int __stdcall log_vprintf(const char *fmt, va_list arg);
+int   __stdcall log_vprintf(const char *fmt, va_list arg);
 
 #define vsprintf(buf,fmt,arg) _vsnprintf(buf,4096,fmt,arg)
 #define vsnprintf _vsnprintf

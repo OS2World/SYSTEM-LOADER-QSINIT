@@ -43,7 +43,7 @@ static void init_enum(void) {
          max_bus = 256;
    // init counters
    if (!funcmask) funcmask = (u8t*)malloc(256*32);
-   memZero(funcmask);
+   mem_zero(funcmask);
    num_buses = 0;
    // ask PCI BIOS
    if (!scan_all) max_bus = (hlp_querybios(QBIO_PCI)>>8&0xFF) + 1;

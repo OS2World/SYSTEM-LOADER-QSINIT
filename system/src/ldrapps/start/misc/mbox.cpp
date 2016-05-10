@@ -144,7 +144,7 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
    mx = mx-width>>1;
    my = my-lines>>1;
    // save screen data
-   void *savedata = malloc((width+1)*(lines+1)*2);
+   void *savedata = malloc_local((width+1)*(lines+1)*2);
    vio_readbuf(mx, my, width+1, lines+1, savedata, 0);
 #ifdef COLOR_SEL
    u32t act=0;

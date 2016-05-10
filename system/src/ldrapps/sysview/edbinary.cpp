@@ -1,9 +1,5 @@
-
 #ifdef __QSINIT__
-extern "C" {
-extern char aboutstr[];
-#pragma aux aboutstr "_*";
-}
+#include "qssys.h"
 #endif
 
 TDialog* makeAboutDlg(void) {
@@ -24,12 +20,16 @@ TDialog* makeAboutDlg(void) {
    control = new TColoredText(TRect(2, 6, 17, 7), "  °±±²   °±±²  ", 0x9f);
    dlg->insert(control);
    // version string
-   char verstr[96], *cp=0;
+   char verstr[96], *cp=0, *about=0;
    strcpy(verstr,"QS Loader ");
 #ifdef __QSINIT__
-   cp = strchr(aboutstr,' ');
+   u32t ver_len = sys_queryinfo(QSQI_VERSTR, 0);
+   about = new char[ver_len];
+   sys_queryinfo(QSQI_VERSTR, about);
+   cp    = strchr(about,' ');
 #endif
    strncat(verstr, cp?cp+1:"1.00", 4);
+   if (about) delete about;
 
    control = new TColoredText(TRect(26, 2, 40, 3), verstr, 0x7f);
    dlg->insert(control);
@@ -72,8 +72,7 @@ TDialog* makeSelDiskDlg(int DlgType) {
    return dlg;
 }
 
-TDialog* makeSelBootDiskDlg(void)
-{
+TDialog* makeSelBootDiskDlg(void) {
    TView *control;
    TDialog   *dlg = new TDialog(TRect(14, 5, 65, 17), "Select HDD to boot from");
    if (!dlg) return 0;

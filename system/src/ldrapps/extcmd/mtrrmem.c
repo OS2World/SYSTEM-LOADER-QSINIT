@@ -210,7 +210,7 @@ u32t _std shl_mtrr(const char *cmd, str_list *args) {
    }
    if (rc<0) {
       rc = EINVAL;
-      if (rc) cmd_shellerr(rc,0);
+      if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    }
    return rc;
 }
@@ -271,13 +271,13 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
             }
       }
       free(args);
-      if (rc<0) cmd_shellerr(rc=EINVAL, 0);
+      if (rc<0) cmd_shellerr(EMSG_CLIB, rc=EINVAL, 0);
       // continue mem on /o or /a without error
       if (rc || !os2table && !acpitable) return rc;
    } else 
    if (args->count>0) {
-      // uncknown args in source string
-      cmd_shellerr(EINVAL,0); free(args);
+      // unknown args in source string
+      cmd_shellerr(EMSG_CLIB,EINVAL,0); free(args);
       return EINVAL;
    } else
       free(args);
@@ -300,15 +300,13 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
             idx+1, phm[idx].startaddr, phm[idx].blocklen>>10)) return EZERO;
    }
    if (acpitable) {
-      AcpiMemInfo *rtbl = int15mem();
+      AcpiMemInfo *tbl = hlp_int15mem();
       // copying data from disk buffer first
       idx = 0;
-      while (rtbl[idx].LengthLow||rtbl[idx].LengthHigh) idx++;
+      while (tbl[idx].LengthLow||tbl[idx].LengthHigh) idx++;
       cmd_printseq("\nPC physical memory table:", 0, 0);
       if (idx) {
-         AcpiMemInfo *tbl = (AcpiMemInfo *)malloc(sizeof(AcpiMemInfo) * idx);
          int  ii;
-         memcpy(tbl, rtbl, sizeof(AcpiMemInfo) * idx);
          for (ii=0; ii<idx; ii++) {
             // avoid 64bit arithmetic
             u32t  szk = tbl[ii].LengthHigh<<22;
@@ -324,8 +322,8 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                   tbl[ii].BaseAddrLow, szk + (tbl[ii].LengthLow>>10),
                      btype[btidx])) break;
          }
-         free(tbl);
       }
+      free(tbl);
    }
    if (mtrr) shl_printmtrr(nopause);
    return EZERO;

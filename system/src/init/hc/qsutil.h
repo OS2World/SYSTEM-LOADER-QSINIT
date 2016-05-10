@@ -97,9 +97,6 @@ void  _std hlp_memcprint(void);
 //  boot filesystem (OS/2 micro-FSD) file management
 //-------------------------------------------------------------------
 
-/// init file i/o
-void  _std hlp_finit();
-
 /** open file.
     In EFI build function read files from \EFI\BOOT dir of EFI system volume.
     @param  name  File name (boot disk root dir only), up to 63 chars.
@@ -123,37 +120,6 @@ typedef void _std (*read_callback)(u32t percent, u32t readed);
     @param [in]  cbprint  Callback for process indication, can be 0.
     @return buffer with file or 0. Buffer must be freed via hlp_memfree() */
 void* _std hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint);
-
-/** shutdown entire file i/o.
-    @attention warning! this call shutdown both micro-FSD and virtual disk
-               management!!! */
-void  _std hlp_fdone();
-
-//===================================================================
-//  virtual FS current directory
-//-------------------------------------------------------------------
-
-/** set current dir.
-    Set current dir for current or other (if full path specified) drive.
-    @param  path   Path to set, can be relative
-    @return success flag (1/0) */
-u32t  _std hlp_chdir(const char *path);
-
-/** set current drive
-    @param  drive  drive number: 0 - boot disk (FAT boot only), 1 - virtual disk,
-                   2-9 - mounted volumes.
-    @return success flag (1/0) */
-u32t  _std hlp_chdisk(u8t drive);
-
-/** get current drive.
-    @return disk number as in hlp_chdisk() */
-u8t   _std hlp_curdisk(void);
-
-/** get current dir on specified drive.
-    @param  drive   drive number: 0 - boot disk (FAT boot only), 1 - virtual disk,
-                    2-9 - mounted volumes.
-    @return current dir or 0 */
-char* _std hlp_curdir(u8t drive);
 
 //===================================================================
 //  low level physical disk access
@@ -267,6 +233,7 @@ typedef struct {
    u32t        ClTotal;         ///< Clusters total
    char      Label[12];         ///< Volume Label
    char      FsName[9];         ///< File system readable name (empty if not recognized)
+   u8t           FsVer;         ///< File system version (0 - not recognized)
 } disk_volume_data;
 
 /// @name hlp_volinfo() result
@@ -286,12 +253,6 @@ typedef struct {
     @param  info      Buffer for data to fill in, can be 0.
     @return FAT_* constant */
 u32t _std hlp_volinfo(u8t drive, disk_volume_data *info);
-
-/** set volume label.
-    @param  drive     Drive number: 0..9.
-    @param  label     Up to 11 chars of volume label or 0 to clear it.
-    @return 1 on success. */
-u32t _std hlp_vollabel(u8t drive, const char *label);
 
 /** unmount previously mounted partition.
     @param  drive     Drive number: 2..9 only, unmounting of 0,1 is not allowed.
@@ -531,8 +492,28 @@ u32t _std exit_poweroff(int suspend);
     @return if failed */
 void _std exit_reboot(int warm);
 
-/** internal call: prepare to leave QSINIT.
-    this function call all installed exit callbacks
+/** prepare to leave QSINIT.
+    This function calls all installed exit callbacks.
+    This function stops MT mode (actually, set MT lock forewer).
+    This function terminates both micro-FSD and virtual disk management!
+
+    Actually, this must the last call before custom QSINIT exit, for ex.:
+    @code
+       memset(&regs, 0, sizeof(regs));
+       regs.r_ip  = MBR_LOAD_ADDR;
+       regs.r_edx = disk + 0x80;
+       exit_prepare();
+       memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, mbr, 512);
+       hlp_rmcallreg(-1, &regs, RMC_EXITCALL);
+    @endcode
+    Basic runtime still available after it, and can be called, but most
+    of services like cache, console, virtual disks and so on - terminated
+    already and using it will cause unpredicted results.
+
+    Any exit API functions make this call this internally, i.e. it must be
+    called only by custom exit ways, like direct jumping to real mode code
+    (as in in example above).
+
     @see exit_handler() */
 void _std exit_prepare(void);
 
@@ -545,6 +526,9 @@ u32t _std exit_inprocess(void);
 typedef void (*exit_callback)(void);
 
 /** add/remove exit_callback handler.
+    Note, what callbacks called in context of process, which initiate
+    QSINIT`s exit. Thread switching (in MT mode) is blocked at this time.
+
     @param func  Callback ptr
     @param add   bool - add/remove */
 void _std exit_handler(exit_callback func, u32t add);

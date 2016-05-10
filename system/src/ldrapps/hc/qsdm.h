@@ -309,6 +309,7 @@ u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
 #define DFMT_NOALIGN  0x0008     ///< do not align FAT tables and data to 4k
 #define DFMT_NOPTYPE  0x0010     ///< do not change volume type in partition table
 #define DFMT_BREAK    0x0020     ///< allow break by ESC with confirmation dialog
+#define DFMT_FORCE    0x0040     ///< force unmount before format, if open files present
 //@}
 
 /** format volume with FAT12/16/32.

@@ -8,7 +8,7 @@
 #include "wchar.h"
 
 #define MAX_TRACE_MOD (32)         ///< maximum # of traced modules
-#define TRACE_OWNER   (0x42435254)
+#define TRACE_OWNER   (QSMEMOWNER_TRACE)
 
 #define TRACEF_ON     0x0001
 #define TRACEF_CLASS  0x0002       ///< shared class
@@ -161,8 +161,8 @@ static TraceInfo *trace_find(const char *module, int quiet, int add=0) {
 static char** trace_getstrlist(u32t pool, TStrings &lst) {
    if (!lst.Count()) return 0;
    spstr flst(lst.GetTextToStr(" "));
-   char **out = (char**) memAlloc(TRACE_OWNER,pool,sizeof(char*)*lst.Count()),
-        *data = (char*) memAlloc(TRACE_OWNER,pool,flst.length()+1);
+   char **out = (char**) mem_alloc(TRACE_OWNER,pool,sizeof(char*)*lst.Count()),
+        *data = (char*) mem_alloc(TRACE_OWNER,pool,flst.length()+1);
    for (u32t ii=0; ii<lst.Count(); ii++) {
       out[ii] = data;
       strcpy(data, lst[ii]());
@@ -178,7 +178,7 @@ static u32t trace_makelists(TraceInfo *mti, u32t mh, u32t **ords,
    u32t  cnt = mti->name.Count(), ii;
 
    if (!cnt) *ords = 0; else {
-      *ords = (u32t*) memAlloc(TRACE_OWNER, mh, sizeof(u32t)*cnt);
+      *ords = (u32t*) mem_alloc(TRACE_OWNER, mh, sizeof(u32t)*cnt);
       memcpy(*ords, mti->name.LList.Value(), sizeof(u32t)*cnt);
       // zero ordinals present?
       if (memchrd(*ords, 0, cnt)) {
@@ -355,7 +355,7 @@ int trace_common(const char *module, const char *group, int quiet, int on) {
             // clear module list entry - if _all_ hooks was removed
             if (full) {
                activelist[idx] = 0;
-               memFreePool(TRACE_OWNER, mh);
+               mem_freepool(TRACE_OWNER, mh);
             }
          }
       }
@@ -457,7 +457,7 @@ void trace_unload_hook(module *mh) {
    int idx = trace_mhfind((u32t)mh);
    if (idx>=0) {
       activelist[idx] = 0;
-      memFreePool(TRACE_OWNER, (u32t)mh);
+      mem_freepool(TRACE_OWNER, (u32t)mh);
    }
 }
 
@@ -470,7 +470,7 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
         outpcnt = 0;
    u32t    *esp = (u32t*)(info->mc_regs->pa_esp + 4),
                  // buffer for/with output values
-         *ehbuf = in && outs? (u32t*)memAlloc(TRACE_OWNER, activelist[idx], 
+         *ehbuf = in && outs? (u32t*)mem_alloc(TRACE_OWNER, activelist[idx], 
                   sizeof(u32t)*outs) : (u32t*)info->mc_userdata;
 
    strcpy(buf, in?"In : ":"Out: ");
@@ -618,9 +618,9 @@ static int _std hookmain(mod_chaininfo *info) {
    listlock++;
 
    // reset debug check for own alloc/free time
-   u32t opt = memGetOptions();
+   u32t opt = mem_getopts();
    if ((opt&QSMEMMGR_PARANOIDALCHK)!=0)
-      memSetOptions(opt&~QSMEMMGR_PARANOIDALCHK);
+      mem_setopts(opt&~QSMEMMGR_PARANOIDALCHK);
 
    // process output
    u32t *pos = memchrd(activelist, mh, MAX_TRACE_MOD);
@@ -643,8 +643,8 @@ static int _std hookmain(mod_chaininfo *info) {
    listlock--;
 
    if ((opt&QSMEMMGR_PARANOIDALCHK)!=0) {
-      memCheckMgr();
-      memSetOptions(opt);
+      mem_checkmgr();
+      mem_setopts(opt);
    }
 
    return 1;

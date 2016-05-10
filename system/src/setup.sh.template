@@ -9,5 +9,5 @@ export QS_ROOT=/home/usr/QS
 
 . $QS_ROOT/system/src/tools/setupi.sh
 
-# note that svn revision appends here in QS_SDK archive compilation only
-export svnrev=0371
+# note what svn revision present here in QS_SDK archive compilation only
+export svnrev=0380

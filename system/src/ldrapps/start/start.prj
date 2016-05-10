@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0016
+version=0x0017
 
 [config]
 0=Common
@@ -28,7 +28,7 @@ ld=@wlink
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init -fo=
 
-cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -DNO_ERRNO -fi=%(QS_MHDR) \
+cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) \
        -i=$(outdir) -i=. -i=..\hc\rt -i=%(QS_BASE)\init \
        -i=%(QS_BASE)\ldrefi\hc -fo=
 
@@ -53,6 +53,7 @@ revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 ..\..\hc\inc\pci.inc     ..\..\hc\inc\pagedesc.inc
 ..\..\ldrefi\inc\efnlist.inc  ..\hc\inc\qschain.inc
 ..\..\init\inc\dskinfo.inc ..\..\init\inc\qspdata.inc
+..\..\hc\inc\parttab.inc
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
 loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
 main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
@@ -61,7 +62,7 @@ cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
 misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
 main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp
-pm\ptdump.c misc\trapset.c misc\bitmap.c
+pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiofat.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

@@ -100,7 +100,7 @@ void* con_buildfont(int width, int height) {
    ys  = fb->y; 
    if (ys>height) ys = height;
 
-   memZero(out);
+   mem_zero(out);
 
    for (ii=0; ii<256; ii++) {
       for (yy=0; yy<ys; yy++) {
@@ -251,6 +251,8 @@ int  _std con_instshot(const char *path) {
          if (_dos_stat(np,&pi)) { free(np); return errno; }
          if ((pi.d_attr&_A_SUBDIR)==0) { free(np); return ENOTDIR; }
          strcat(np,"\\");
+         // set this module as block owner
+         mem_modblock(np);
       }
    }
    if (shots_on) {

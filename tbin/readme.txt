@@ -212,8 +212,8 @@ and so on; just remember - this is not a BIG OS).
       have no problem with it, but oldest versions of DOS`s himem can hang.
 
     * "dmgr pm" command allow to create and delete both primary and logical
-      partitions. This functionality is in ALPHA stage!
-      The same options available from Disk Management dialog in SysView app.
+      partitions. The same options available from Disk Management dialog in
+      SysView app.
 
       Partitions will be created in OS/2 LVM geometry if it present on this
       disk.
@@ -339,7 +339,7 @@ of OS2LDR.INI file (see notes below).
    4.3 Graphic console.
   ----------------------
 
-   It is possible to use "graphic console" (colsole emulation in vesa 800x600
+   It is possible to use "graphic console" (console emulation in vesa 800x600
 mode).
 
       mode con list
@@ -388,6 +388,7 @@ example).
                names and HPFS formatting.
    vdisk.dll - PAE ramdisk
    vhdd.dll  - VHDD command (commonly not required at all ;)
+   mtlib.dll - threads support (in development, not required too)
    msg\sysview.hlp - small help file for SYSVIEW, can be deleted too
 
    FNT files in MSG dir - custom fonts for graphic console (both in 866
@@ -413,8 +414,7 @@ to OS2LDR.INI "config" section.
    This ZIP will be loaded by pressing "IMPORT" button and any file from it
 can  be selected as kernel for current boot. This method works on FAT, HPFS
 and  PXE, but can fail on JFS boot because of bug in micro-FSD (it hangs on
-large  files  or  access  over 4Gb - Mensys fix something here a short time
-ago).
+large files or access over 4Gb - this may be fixed in later JFS builds).
 
    ZIP  file  name  can be overloaded by REV_ARCH_PATH environment variable
 (add set REV_ARCH_PATH = ... into qssetup.cmd - see note above about it).
@@ -445,7 +445,8 @@ ago).
 
     - VBox is much better, except PAE paging mode - it looks unstable.
 
-   EFI version works in QEMU only (with TianoCore).
+   EFI version works in QEMU only (with TianoCore), but even here small
+   troubles still possible.
 
  * note, that huge USB HDDs can be non-operable via BIOS, especially on
    old motherboards. Only a starting part of disk can be readed, up to 128Gb,

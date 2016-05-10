@@ -150,7 +150,7 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
       }
    }
 
-   if (rc) cmd_shellerr(rc,"VHDD: ");
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,"VHDD: ");
    return rc;
 }
 

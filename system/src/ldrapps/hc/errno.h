@@ -9,11 +9,9 @@
 extern "C" {
 #endif
 
-// wlink go crazy on errno export/import in "start" module itself
-#ifndef NO_ERRNO
-extern int errno;
-#pragma aux errno "_*";
-#endif
+int* __stdcall _get_errno(void);
+
+#define errno  (*_get_errno())
 
 #define EZERO             0    // No error
 #define ENOENT            1    // No such file or directory

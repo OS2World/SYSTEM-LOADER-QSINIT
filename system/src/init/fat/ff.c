@@ -311,7 +311,7 @@ typedef struct {
 #elif _CODE_PAGE == 1	/* ASCII (for only non-LFN cfg) */
 #if _USE_LFN
 
-/* dixie`s only one of four changes here:
+/* dixie`s only one of five changes here:
    _EXCVT changed to pointer and until cplib presence ff_convert() just drop 
    all high caracters */
 #define _EXCVT
@@ -1552,8 +1552,11 @@ FRESULT dir_read (
 		c = dir[DIR_Name];
 		if (c == 0) { res = FR_NO_FILE; break; }	/* Reached to end of table */
 		a = dir[DIR_Attr] & AM_MASK;
+
+// dixie: return dots without _FS_RPATH!
+
 #if _USE_LFN	/* LFN configuration */
-		if (c == DDEM || (!_FS_RPATH && c == '.') || (int)((a & ~AM_ARC) == AM_VOL) != vol) {	/* An entry without valid data */
+		if (c == DDEM || /*(!_FS_RPATH && c == '.') ||*/ (int)((a & ~AM_ARC) == AM_VOL) != vol) {	/* An entry without valid data */
 			ord = 0xFF;
 		} else {
 			if (a == AM_LFN) {			/* An LFN entry is found */

@@ -86,6 +86,7 @@ static void exi_makethunks(cl_ref *ref, cl_header *hdr) {
     ------------------------------------- */
 void* _std exi_createid(u32t classid) {
    if (!classid) return 0;
+   MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    if (classid>refs->Count()) return 0;
 
@@ -97,7 +98,7 @@ void* _std exi_createid(u32t classid) {
    cl_header *hdr = (cl_header*)malloc(sizeof(cl_header) + algn16 + THUNK_SIZE*ref->fncount);
    u32t    *funcs = (u32t*)(hdr+1);
 
-   memZero(hdr);
+   mem_zero(hdr);
    hdr->sign      = EXI_SIGN;
    hdr->classid   = classid;
    hdr->datasize  = ref->datasize;
@@ -112,7 +113,13 @@ void* _std exi_createid(u32t classid) {
    return funcs;
 }
 
-static int exi_loadext(const char *classname) {
+/* load external class.
+   @param  classname     class name
+   @param  query         query only mode
+   @retval class index (id-1) in normal mode or 0 in query mode
+           if class exists and was/can be loaded; -1 - on error/unknown
+           class name */
+static int exi_loadext(const char *classname, int query = 0) {
    if (!extlist) {
       extlist = new TStrings;
       ecmd_readsec("class",*extlist);
@@ -128,6 +135,8 @@ static int exi_loadext(const char *classname) {
    spstr mdfname = ecmd_readstr("MODULES", extlist->Value(idx)());
    // module loaded, but no class?
    if (mod_query(mdfname(),MODQ_NOINCR)) return -1;
+   // query only - we know enough
+   if (query) return 0;
    // exi_register() must been called from module init
    u32t error = 0;
    if (load_module(mdfname, &error)) return refs->IndexOf(classname); else
@@ -137,6 +146,7 @@ static int exi_loadext(const char *classname) {
 }
 
 u32t _std exi_methods(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
    if (!classid) return 0;
    if (!refs) exi_registerstd();
    if (classid>refs->Count()) return 0;
@@ -146,6 +156,7 @@ u32t _std exi_methods(u32t classid) {
 }
 
 u32t _std exi_queryid(const char *classname) {
+   MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    int idx = refs->IndexOf(classname);
    if (idx<0) idx = exi_loadext(classname);
@@ -153,13 +164,25 @@ u32t _std exi_queryid(const char *classname) {
    return idx+1;
 }
 
+u32t _std exi_query(const char *classname) {
+   MTLOCK_THIS_FUNC lk;
+   if (!refs) exi_registerstd();
+   int idx = refs->IndexOf(classname);
+   if (idx>=0) return EXIQ_AVAILABLE;
+   if (exi_loadext(classname,1)==0) return EXIQ_KNOWN;
+   return EXIQ_UNKNOWN;
+}
+
 void* _std exi_create(const char *classname) {
+   MTLOCK_THIS_FUNC lk;
    u32t classid = exi_queryid(classname);
    return classid ? exi_createid(classid) : 0;
 }
 
 void _std exi_free(void *instance) {
-   if (!refs||!instance) return;
+   if (!instance) return;
+   MTLOCK_THIS_FUNC lk;
+   if (!refs) return;
    cl_header *ch = (cl_header*)instance-1;
    if (ch->sign!=EXI_SIGN) return;
    cl_ref   *ref = refs->Objects(ch->classid-1);
@@ -193,6 +216,7 @@ static int exi_countinst(const char *clname, cl_ref *ref, int trap) {
 }
 
 int _std exi_printclass(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
    if (!refs || classid>refs->Count()) return 0;
    cl_ref *ref = refs->Objects(classid-1);
 
@@ -209,6 +233,7 @@ int _std exi_printclass(u32t classid) {
 }
 
 void _std exi_dumpall(void) {
+   MTLOCK_THIS_FUNC lk;
    log_it(2,"<====== Class list ======>\n");
    if (!refs || !refs->Count()) return;
    log_it(2,"%d classes:\n", refs->Count());
@@ -216,6 +241,7 @@ void _std exi_dumpall(void) {
 }
 
 int _std exi_checkstate(void) {
+   MTLOCK_THIS_FUNC lk;
    if (!refs) return 1;
    u32t ii;
    for (ii=0; ii<refs->Count(); ii++) {
@@ -228,7 +254,9 @@ int _std exi_checkstate(void) {
 }
 
 u32t _std exi_classid(void *instance) {
-   if (!refs||!instance) return 0;
+   if (!instance) return 0;
+   MTLOCK_THIS_FUNC lk;
+   if (!refs) return 0;
    volatile cl_header *ch = (cl_header*)instance-1;
    // call was made safe to allow querying of any pointer
    _try_ {
@@ -243,7 +271,9 @@ u32t _std exi_classid(void *instance) {
 }
 
 void *_std exi_instdata(void *instance) {
-   if (!refs||!instance) return 0;
+   if (!instance) return 0;
+   MTLOCK_THIS_FUNC lk;
+   if (!refs) return 0;
    volatile cl_header *ch = (cl_header*)instance-1;
    _try_ {
       if (ch->sign!=EXI_SIGN) _ret_in_try_(0);
@@ -268,6 +298,7 @@ static void exi_freethunks(cl_ref *ref) {
 }
 
 int _std exi_chainon(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
    if (!refs || !classid || classid>refs->Count()) return 0;
    cl_ref *ref = refs->Objects(classid-1);
    if (!ref->fncount) return 0;
@@ -275,7 +306,7 @@ int _std exi_chainon(u32t classid) {
    // trap here on damaged list
    u32t   icnt = exi_countinst((*refs)[classid-1](), ref, 1), ii;
    // zeroed buffer
-   ref->thunks = (pvoid*)calloc(ref->fncount,sizeof(void*));
+   ref->thunks = (pvoid*)calloc_shared(ref->fncount,sizeof(void*));
    // alloc thunks, but with success for all
    for (ii=0; ii<ref->fncount; ii++)
       if (!(ref->thunks[ii] = mod_buildthunk(ref->module, ((void**)(ref+1))[ii]))) {
@@ -294,7 +325,9 @@ int _std exi_chainon(u32t classid) {
 }
 
 int _std exi_chainset(void *instance, int enable) {
-   if (!refs || !instance) return -1;
+   if (!instance) return -1;
+   MTLOCK_THIS_FUNC lk;
+   if (!refs) return -1;
    volatile cl_header *ch = (cl_header*)instance-1;
    volatile int prevstate = 0;
    _try_ {
@@ -317,6 +350,7 @@ int _std exi_chainset(void *instance, int enable) {
 
 
 pvoid* _std exi_thunklist(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
    if (!refs || !classid || classid>refs->Count()) return 0;
    cl_ref *ref = refs->Objects(classid-1);
    if (!ref->thunks) exi_chainon(classid);
@@ -324,34 +358,51 @@ pvoid* _std exi_thunklist(u32t classid) {
 }
 
 char* _std exi_classname(void *instance) {
+   MTLOCK_THIS_FUNC lk;
    u32t id = exi_classid(instance);
    if (!id) return 0;
-   return (char*)((*refs)[id-1]());
+   return strdup((*refs)[id-1]());
 }
 
 u32t _std exi_register(const char *classname, void **funcs, u32t funccount,
    u32t datasize, exi_pinitdone constructor, exi_pinitdone destructor, u32t mh)
 {
+   char rname[64];
+   if (!funcs||!funccount) return 0;
+   MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
-   if (!funcs||!funccount||!classname) return 0;
-   int idx = refs->IndexOf(classname), ii;
+   int     idx, ii;
    cl_ref *ref = 0;
-   // class unregistered?
-   if (idx>=0)
-      if ((ref=refs->Objects(idx))->fncount) return 0;
+
+   if (classname) {
+      idx = refs->IndexOf(classname); 
+      // is it unregistered?
+      if (idx>=0)
+         if ((ref=refs->Objects(idx))->fncount) return 0;
+   }
    // get module
    if (!mh)
       for (ii=0; ii<funccount; ii++) {
          module *md = mod_by_eip((u32t)funcs[ii],0,0,0);
          if (!mh) mh = (u32t)md; else
             if (mh!=(u32t)md) {
+               // printf can handle NULL ;)
                log_printf("module mismatch in class %s\n", classname);
                return 0;
             }
       }
+   // generate random unique name
+   if (!classname) {
+      do {
+         snprintf(rname, 64, "PRIVATE_CLASS_%05X_%05X_%s", random(0x100000),
+            random(0x100000), ((module*)mh)->name);
+         idx = refs->IndexOf(rname);
+      } while (idx>=0);
+      classname = rname;
+   }
    // alloc/realloc ref data
    ref = (cl_ref*)realloc(ref,sizeof(cl_ref)+funccount*sizeof(void*));
-   memZero(ref);
+   mem_zero(ref);
    // copy values
    ref->fncount  = funccount;
    ref->datasize = datasize;
@@ -367,6 +418,7 @@ u32t _std exi_register(const char *classname, void **funcs, u32t funccount,
 
 int _std exi_unregister(u32t classid) {
    if (!classid) return 0;
+   MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    if (classid>refs->Count()) return 0;
 

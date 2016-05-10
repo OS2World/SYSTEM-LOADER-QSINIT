@@ -70,6 +70,7 @@ void  _std  log_ftdump(void);
 #define LOGTF_FLAGS     0x0010 ///< print log entry flags
 #define LOGTF_DATE      0x0020 ///< print log entry date
 #define LOGTF_DOSTEXT   0x0040 ///< put \r\n at the end of line (\n by default)
+#define LOGTF_SHARED    0x0080 ///< allocate shared heap block
 //@}
 
 /** query log in text form.
@@ -124,9 +125,13 @@ typedef void _std (*log_querycb)(log_header *log, void *extptr);
 /** query log.
     Log output is blocked until cbproc exit, data in
     log is NOT sorted by time.
-    @param cbproc  Callback proc to read log.
-    @param extptr  App data for cbproc call */
-void   _std log_query(log_querycb cbproc, void *extptr);
+    @param  cbproc   Callback proc to read log.
+    @param  extptr   App data for cbproc call
+    @retval EINVAL   Invalid cbproc value (zero)
+    @retval EBUSY    Another one log_query() in progress (this can be
+                     recursive call from cbproc())
+    @retval 0        On success */
+int    _std log_query(log_querycb cbproc, void *extptr);
 
 /// flush delayed/realmode log entries to actual log (internal call).
 void   _std log_flush(void);

@@ -1,6 +1,6 @@
 //
 // QSINIT
-// own f_mkfs - smaller, less checks ,FAT12/16 only - for virtual disk
+// own f_mkfs - smaller, less checks, FAT12/16 only - for virtual disk
 //
 
 #include "qsint.h"
@@ -11,7 +11,7 @@
 #define N_ROOTDIR	256		/* Number of root dir entries for FAT12/16 */
 #define N_FATS		1		/* Number of FAT copies (1 or 2) */
 
-FRESULT f_mkfs2 (void) {
+FRESULT f_mkfs2(void) {
 	static const WORD vst[] = { 1024,   512,  256,  128,   64,    32,   16,    8,    4,    2,   0};
 	static const WORD cst[] = {32768, 16384, 8192, 4096, 2048, 16384, 8192, 4096, 2048, 1024, 512};
 	BYTE fmt, md, sys, *tbl, pdrv, part, vol = DISK_LDR;

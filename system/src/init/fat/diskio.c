@@ -19,12 +19,14 @@ extern u8t      qd_fdds, qd_hdds;
 extern int            qd_bootidx; // index of boot disk info in qd_array, -1 if no
 extern u8t           dd_bootdisk,
                     bootio_avail;
+extern u16t               cp_num;
 extern vol_data*          extvol;
 extern u8t*                ExCvt; // FatFs OEM case conversion
 cache_extptr        *cache_eproc;
 // real mode thunk (this thunk pop parameters from stack)
 // disk info parameter must be placed in DGROUP (16-bit offset used in RM)
-extern u8t _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
+u8t _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
+int _std sys_intstate(int on);
 
 // cache control
 void _std cache_ctrl(u32t action, u8t vol);
@@ -59,9 +61,13 @@ DRESULT disk_read(BYTE drv, BYTE *buff, DWORD sector, UINT count) {
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
-            if (!extvol||drv&&!vdta->flags) return RES_NOTRDY;
+            DRESULT    res = RES_OK;
+            mt_swlock();
+            if (drv&&!vdta->flags) res = RES_NOTRDY; else
             if (hlp_diskread(vdta->disk, vdta->start+sector, count, buff) != count)
-               return RES_ERROR;
+               res = RES_ERROR;
+            mt_swunlock();
+            return res;
          } else
             return RES_ERROR;
          break;
@@ -89,10 +95,14 @@ DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
-            if (!extvol||drv&&!vdta->flags) return RES_NOTRDY;
-            if (ctrl==GET_SECTOR_SIZE ) *(WORD*) buff = vdta->sectorsize; else
-            if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = vdta->length;
-            return RES_OK;
+            DRESULT    res = RES_OK;
+            mt_swlock();
+            if (drv&&!vdta->flags) res = RES_NOTRDY; else {
+               if (ctrl==GET_SECTOR_SIZE ) *(WORD*) buff = vdta->sectorsize; else
+               if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = vdta->length;
+            }
+            mt_swunlock();
+            return res;
          } else
             return RES_ERROR;
          break;
@@ -113,9 +123,13 @@ DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
       default:
          if (drv<_VOLUMES) {
             vol_data *vdta = extvol + drv;
-            if (!extvol||drv&&!vdta->flags) return RES_NOTRDY;
+            DRESULT    res = RES_OK;
+            mt_swlock();
+            if (drv&&!vdta->flags) res = RES_NOTRDY; else
             if (hlp_diskwrite(vdta->disk, vdta->start+sector, count, (void*)buff) != count)
-               return RES_ERROR;
+               res = RES_ERROR;
+            mt_swunlock();
+            return res;
          } else
             return RES_ERROR;
          break;
@@ -125,11 +139,13 @@ DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
 
 u32t _std hlp_diskcount(u32t *floppies) {
    u32t rc = 0, ii;
+   mt_swlock();
    /* number of floppies is not touched duaring QS work, but hdd number can
       be altered by hlp_diskadd() */
    for (ii=MAX_QS_FLOPPY; ii<MAX_QS_DISK; ii++)
       if (qd_array[ii].qd_flags&HDDF_PRESENT) rc = ii+1-MAX_QS_FLOPPY;
    if (floppies) *floppies = qd_fdds;
+   mt_swunlock();
    return rc;
 }
 
@@ -150,6 +166,7 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
          result = 0;
       if (result && geo) geo->TotalSectors = result;
    } else  {
+      mt_swlock();
       if (disk & QDSK_FLOPPY) {  // floppy disk
          if (idx<MAX_QS_FLOPPY) {
             qe     = qd_array + idx;
@@ -179,6 +196,7 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
             geo->SectOnTrack  = qe->qd_spt;
          }
       }
+      mt_swunlock();
    }
    return result;
 }
@@ -192,6 +210,8 @@ u64t _std hlp_disksize64(u32t disk, u32t *sectsize) {
 static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
    static u8t nestlevel = 0;
    u32t   rc = 0;
+   // lock it! this saves nestlevel usage too
+   mt_swlock();
    // try to ask cache for action
    if (cache_eproc && !nestlevel) {
       nestlevel = 1;
@@ -239,14 +259,18 @@ static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
                   memcpy(write?(void*)DiskBufPM:data, write?data:(void*)DiskBufPM, szm);
                   data = (u8t*)data + szm;
                } else {
-                  if (sector + actsize > qe->qd_sectors) return 0;
+                  int err = 0;
+                  if (sector + actsize > qe->qd_sectors) err = 1; else
                   // read/write by 32k via buffer in 1st Mb
-                  if (raw_io(qe, sector, actsize, write)) return 0;
+                  if (raw_io(qe, sector, actsize, write)) err = 1;
+                  // unlock and exit
+                  if (err) { mt_swunlock(); return 0; }
                   sector += actsize;
                }
          } while (count);
       }
    }
+   mt_swunlock();
    return rc;
 }
 
@@ -267,23 +291,29 @@ u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
 u32t _std hlp_diskmode(u32t disk, u32t flags) {
    struct qs_diskinfo *qe;
    u8t               fldc;
+   register u32t      rcv;
    if ((disk & ~QDSK_DISKMASK)!=0) return 0;
    if (disk >= MAX_QS_DISK-MAX_QS_FLOPPY) return 0;
-   // disk present?
-   qe   = qd_array + disk + MAX_QS_FLOPPY;
+   qe = qd_array + disk + MAX_QS_FLOPPY;
+
+   mt_swlock();
    fldc = qe->qd_flags;
-   if ((fldc&HDDF_PRESENT)==0) return 0;
+   // disk present?
+   if ((fldc&HDDF_PRESENT)==0) rcv = 0; else 
    // emulated disk
-   if ((fldc&HDDF_HOTSWAP)!=0) return HDM_QUERY|HDM_EMULATED;
+   if ((fldc&HDDF_HOTSWAP)!=0) rcv = HDM_QUERY|HDM_EMULATED; else
    // no i13x for this disk
-   if ((flags&HDM_USELBA)!=0 && (fldc&HDDF_LBAPRESENT)==0) return 0;
-   // change flags if requested
-   if ((flags&HDM_QUERY)==0)
-      if (fldc&HDM_USELBA^flags&HDM_USELBA)
-         if (flags&HDM_USELBA) qe->qd_flags|=HDM_USELBA;
-            else qe->qd_flags&=~HDM_USELBA;
+   if ((flags&HDM_USELBA)!=0 && (fldc&HDDF_LBAPRESENT)==0) rcv = 0; else {
+      // change flags if requested
+      if ((flags&HDM_QUERY)==0)
+         if (fldc&HDM_USELBA^flags&HDM_USELBA)
+            if (flags&HDM_USELBA) qe->qd_flags|=HDM_USELBA;
+               else qe->qd_flags&=~HDM_USELBA;
+      rcv = HDM_QUERY|qe->qd_flags&HDM_USELBA;
+   }   
+   mt_swunlock();
    // return current value
-   return HDM_QUERY|qe->qd_flags&HDM_USELBA;
+   return rcv;
 }
 
 static int check_diskinfo(struct qs_diskinfo *qdi, int bioschs) {
@@ -296,9 +326,11 @@ static int check_diskinfo(struct qs_diskinfo *qdi, int bioschs) {
 }
 
 s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
-   u32t ii;
+   u32t  ii;
+   s32t  rc = -1;
    if (!qdi) return -1;
 
+   mt_swlock();
    for (ii=MAX_QS_FLOPPY; ii<MAX_QS_DISK; ii++) {
       u8t qfl = qd_array[ii].qd_flags;
       if ((qfl&(HDDF_PRESENT|HDDF_HOTSWAP))==(HDDF_PRESENT|HDDF_HOTSWAP)) {
@@ -314,11 +346,14 @@ s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
       qe->qd_flags     = HDDF_LBAPRESENT|HDDF_PRESENT|HDDF_HOTSWAP|HDDF_LBAON;
       qe->qd_mediatype = 3;
 
-      return ii - MAX_QS_FLOPPY;
+      rc = ii - MAX_QS_FLOPPY;
    }
-   return -1;
+   mt_swunlock();
+   return rc;
 }
 
+/* since we returning disk data here, function is unsafe in any way, so
+   let caller care about this */
 struct qs_diskinfo *_std hlp_diskstruct(u32t disk, struct qs_diskinfo *qdi) {
    struct qs_diskinfo *qe = 0;
    u8t  idx = disk&QDSK_DISKMASK;
@@ -343,9 +378,11 @@ struct qs_diskinfo *_std hlp_diskstruct(u32t disk, struct qs_diskinfo *qdi) {
 
 int  _std hlp_diskremove(u32t disk) {
    struct qs_diskinfo *qe;
+   int  rc = 0;
    if (disk >= MAX_QS_DISK-MAX_QS_FLOPPY) return 0;
    qe = qd_array + disk + MAX_QS_FLOPPY;
 
+   mt_swlock();
    if ((qe->qd_flags&(HDDF_PRESENT|HDDF_HOTSWAP))==(HDDF_PRESENT|HDDF_HOTSWAP)) {
       memset(qe, 0, sizeof(struct qs_diskinfo));
       // drop used flags if next disk is not used
@@ -357,9 +394,10 @@ int  _std hlp_diskremove(u32t disk) {
          qe->qd_extread    = 0;
          qe->qd_sectors    = 0;
       }
-      return 1;
+      rc = 1;
    }
-   return 0;
+   mt_swunlock();
+   return rc;
 }
 
 #ifndef EFI_BUILD
@@ -393,24 +431,40 @@ static u16t _std (*ext_wtoupper)(u16t src) = 0;
 
 /* OEM-Unicode bidirectional conversion */
 WCHAR ff_convert (WCHAR src, UINT to_unicode) {
-   if (ext_convert) return ext_convert(src, to_unicode);
+   if (ext_convert) {
+      int state = sys_intstate(0);
+      src = ext_convert(src, to_unicode);
+      sys_intstate(state);
+      return src;
+   }
    return src>=0x80?0:src;
 }
 
 /* Unicode upper-case conversion */
 WCHAR ff_wtoupper (WCHAR src) {
-   if (ext_wtoupper) return ext_wtoupper(src);
+   if (ext_wtoupper) {
+      int state = sys_intstate(0);
+      src = ext_wtoupper(src);
+      sys_intstate(state);
+      return src;
+   }
    return toupper(src);
 }
 
-/// setup FatFs i/o to specified codepage
+/** setup FatFs i/o to specified codepage.
+    setup itself and function usage above is closed by cli to guarantee
+    thread-safeness duaring convertion/setup calls */
 void _std hlp_setcpinfo(codepage_info *info) {
+   int state = sys_intstate(0);
    if (!info) {
       ext_convert  = 0;
       ext_wtoupper = 0;
+      cp_num       = 0;
    } else {
       memcpy(ExCvt, info->oemupr, 128);
       ext_convert  = info->convert;
       ext_wtoupper = info->wtoupper;
+      cp_num       = info->cpnum;
    }
+   sys_intstate(state);
 }

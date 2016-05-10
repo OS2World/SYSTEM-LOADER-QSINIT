@@ -29,8 +29,8 @@ u32t envlen2(process_context *pq, u32t *lines) {
 
 // make copy of process environment (in malloc buffer)
 char *envcopy(process_context *pq, u32t addspace) {
-   u32t len=envlen(pq);
-   char *rc=(char*)malloc(len+addspace);
+   u32t len = envlen(pq);
+   char *rc = (char*)malloc(len+addspace);
    if (!rc) return 0;
    if (!pq) { rc[0]=0; rc[1]=0; } else memcpy(rc,pq->envptr,len);
    return rc;
@@ -95,12 +95,12 @@ int __stdcall setenv(const char *name, const char *newvalue, int overwrite) {
 
    newlen = len + strlen(name) + strlen(newvalue) + 2; // "=" & "\0"
    // realloc env buffer
-   if ((pq->flags|PCTX_BIGMEM)!=0 || memBlockSize(pq->envptr)<newlen) {
+   if ((pq->flags|PCTX_BIGMEM)!=0 || mem_blocksize(pq->envptr)<newlen) {
       char *newenv = envcopy(pq, newlen - len);
       /* drop "large block" flag or free previously self-allocated pointer.
          we do not free original block, allocated in mod_exec */
       if (pq->flags&PCTX_BIGMEM) pq->flags&=~PCTX_BIGMEM; else
-      if (pq->flags&PCTX_ENVCHANGED) memFree(pq->envptr);
+      if (pq->flags&PCTX_ENVCHANGED) mem_free(pq->envptr);
 
       pq->envptr = newenv;
       pq->flags |= PCTX_ENVCHANGED;
@@ -131,11 +131,9 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
    if (!name) return; else {
       char  *path;
       dir_t    fi;
-      // file is in the current dir?
+      // file is relative to current dir?
       if (_dos_stat(name, &fi)==0) {
-         char *cd = hlp_curdir(hlp_curdisk());
-         if (cd) { strcpy(pathname, cd); strcat(pathname,"\\"); }
-         strcat(pathname, name);
+         _fullpath(pathname, name, _MAX_PATH+1);
          return;
       }
       path = env_var?getenv(env_var):0;
@@ -143,9 +141,9 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
       { // searching in specifed directories
          char fpath[QS_MAXPATH+1];
          str_list *lst = str_split(path,";");
-         u32t ii, len, namelen=strlen(name);
+         u32t  namelen = strlen(name), ii, len;
 
-         for (ii=0;ii<lst->count;ii++) {
+         for (ii=0; ii<lst->count; ii++) {
             strncpy(fpath,lst->item[ii],QS_MAXPATH);
             fpath[QS_MAXPATH]=0;
             len = strlen(fpath);
@@ -156,10 +154,11 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
                strcpy(fpath+len,name);
                if (_dos_stat(fpath, &fi)==0) {
                   strcpy(pathname, fpath);
-                  return;
+                  break;
                }
             }
          }
+         free(lst);
       }
    }
 }
@@ -167,7 +166,7 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
 str_list* _std str_getenv(void) {
    process_context *pq = mod_context();
    u32t lines, ii, len = envlen2(pq, &lines);
-   str_list *rc = (str_list*)malloc(len + sizeof(str_list) + lines*sizeof(char*));
+   str_list *rc = (str_list*)malloc_local(len + sizeof(str_list) + lines*sizeof(char*));
    char   *cpos = (char*)&rc->item[lines], *cenv = pq->envptr;
 
    for (ii=0;ii<lines;ii++) {

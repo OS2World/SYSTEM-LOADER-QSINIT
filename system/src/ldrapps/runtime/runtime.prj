@@ -49,7 +49,8 @@ lbc=@ref2lbc
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
-commonflags=-4s %(QS_CFLAGS) -s -mf -ox -i=%(QS_BASE)\init\hc -fo=
+commonflags=-4s %(QS_CFLAGS) -s -mf -ox -i=%(QS_BASE)\init\hc \
+            -i=%(QS_APPINC) -i=$(outdir) -fo=
 
 cflags=-ecc $(commonflags)
 
@@ -73,9 +74,11 @@ del=rm
 copy=cp
 
 [files]
+..\..\hc\inc\seldesc.inc ..\..\init\inc\qspdata.inc
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
 cplib.ref vhdd.ref extcmd.ref mtlib.ref
 start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace console.trace
+mtlib.trace
 init.asm initdll.asm cpproute.asm initdta.asm
 rtcode.c defdll.c cpplib.cpp watcinit.c common.c
 rt\sp_defs.cpp rt\sp_ini.cpp rt\sp_str.cpp rt\qs_rt.cpp
@@ -88,7 +91,7 @@ MAKEDIRS : $(outdir)
 hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : MAKEDIRS hello @@wait $(**c) $(**cpp) $(**asm) $(**ref) @@wait $(**def)
+nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**c) $(**cpp) $(**asm) $(**ref) @@wait $(**def)
 
 packtrace : .DIRECTORY $(msgdir)
     $(copy) $(outdir)\*.trc $(msgdir) >nul
@@ -107,6 +110,7 @@ $(**c) $(**ref) $(outdir)\initdta.obj
 [&rsp2]
 $(outdir)\__qsinit.obj $(outdir)\initdll.obj $(outdir)\rtcode.obj
 $(outdir)\watcinit.obj $(outdir)\qsinit.lib $(outdir)\initdta.obj
+$(outdir)\common.obj
 $(**def) 
 
 [&rsp3]

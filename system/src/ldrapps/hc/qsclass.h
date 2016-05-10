@@ -52,7 +52,7 @@ void    _std exi_free(void *instance);
 
 /** Query instance class name.
     @param  instance   Pointer to instance.
-    @return class name or 0. COPY this data immediatly and do not touch it! */
+    @return class name or 0. This string must be free()-ed after use */
 char*   _std exi_classname(void *instance);
 
 /** Query instance class ID.
@@ -72,11 +72,23 @@ u32t    _std exi_classid(void *instance);
 void*   _std exi_instdata(void *instance);
 
 /** Query class id by name.
-    @attention function not just name querying, but can force loading of module
-               with asked class.
+    @attention function not just name querying, but forces loading of module
+               with requested class.
     @param  classname  Class(interface) name.
     @return class id or 0. */
 u32t    _std exi_queryid(const char *classname);
+
+/** Query class name presence.
+    @param  classname  Class(interface) name.
+    @return EXIQ_* value */
+u32t    _std exi_query(const char *classname);
+
+/// @name exi_query() value
+//@{
+#define EXIQ_UNKNOWN    0x0000    ///< class name known
+#define EXIQ_KNOWN      0x0001    ///< class known, but NOT available
+#define EXIQ_AVAILABLE  0x0003    ///< class name present and its supporting module is loaded
+//@}
 
 /** Query number of "methods" in "class".
     @param  classid    Class(interface) ID.
@@ -112,7 +124,8 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
 
     @attention  All "methods" _MUST_ use stdcall calling convention!
 
-    @param  classname   Class name.
+    @param  classname   Class name. Can be 0, in this case unique random name
+                        will be auto-generated.
     @param  funcs       Pointer to list of funcions.
     @param  funcscount  Number of funcions.
     @param  datasize    Size of user data in instance.

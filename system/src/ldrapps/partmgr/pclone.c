@@ -7,7 +7,7 @@
 #include "direct.h"
 #include "errno.h"
 #include "lvm.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 
 // try to change CHS geo of "virtual disk"
 int dsk_clonechs(u32t dstdisk, disk_geo_data *srcgeo) {

@@ -16,6 +16,7 @@
 #include "errno.h"
 #include "vio.h"
 #include "internal.h"
+#include "qspdata.h"
 
 // used memory size in pdmem block
 #define PDMEMSIZE    (4*PAGESIZE)
@@ -51,7 +52,8 @@ static u32t    vcr3 = 0,         // cr3 value
 // page tables (128 blocks of 64kb, only allocated if used one).
 static void    *pta[PTAENTRIES];
 
-extern u64t _std page0_fptr;     // 48-bit pointer to page 0 in QSINIT
+extern u64t       _std   page0_fptr;   // 48-bit pointer to page 0 in QSINIT
+extern mt_proc_cb _std mt_exechooks;   // MT service hooks
 
 /** set cr3 and cr4 regs.
     Function also updates internal variables of DPMI code.
@@ -190,13 +192,15 @@ int _std pag_enable(void) {
    u16t flatds = get_flatcs() + 8;
 
    if (hlp_hosttype()==QSHT_EFI) return ENOSYS;
-   if (pdptf) return EEXIST;
 
    ii = sys_isavail(SFEA_PAE|SFEA_PGE);
    // no PAE?
    if ((ii&SFEA_PAE)==0) return ENODEV;
    // add global flag if PGE supported
    if ((ii&SFEA_PGE)) global = PT_GLOBAL;
+
+   mt_swlock();
+   if (pdptf) { mt_swunlock(); return EEXIST; }
 
    // malloc always returning memory aligned to 16 bytes
    pdpt = pdptf = (u64t*)malloc(8*4+16);
@@ -278,5 +282,9 @@ int _std pag_enable(void) {
       mov  ss, ax
       nop
    }
+   // call MT lib if present
+   if (mt_exechooks.mtcb_pgoncb) mt_exechooks.mtcb_pgoncb();
+   mt_swunlock();
+
    return 0;
 }

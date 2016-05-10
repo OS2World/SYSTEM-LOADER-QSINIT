@@ -1289,10 +1289,11 @@ void main(int argc,char *argv[]) {
          strcat(cmdcall, parmptr);
       }
    }
-   /* PXE boot? call mfs_term, but only if this is not test & we`re not
-      planning to call SYSVIEW or CMD later */
-   if (boot_info.filetab.ft_cfiles==6 && !testmode && !memview && !cmdcall)
-      hlp_fdone();
+   /* PXEOS4 boot? direct call to mfs_term, but only in real run!
+      Moveton says - it may release some of low memory for us, but I never
+      saw such firmware ;) */
+   if (boot_info.filetab.ft_cfiles==6 && !testmode)
+      hlp_rmcall(boot_info.filetab.ft_muTerminate, 0);
    // read 1Mb memory size
    efd->LowMem = int12mem();
    // setup flags
@@ -1527,7 +1528,7 @@ void main(int argc,char *argv[]) {
    parmptr = key_present("PKEY");
    if (parmptr || key_present("ALTE")) {
       u16t key = parmptr?strtoul(parmptr,0,0):0x1200;
-      log_printf("pkey = %s %04X\n",parmptr,key);
+      log_printf("pkey = %s %04X\n", parmptr?parmptr:"ALTE", key);
       if (key) key_push(key);
    }
    // call external batch file
@@ -1545,9 +1546,8 @@ void main(int argc,char *argv[]) {
    }
    // loading process is non-destructive until this point
    if (testmode) error_exit(0, "test finished!\n");
-   // shutdown QSINIT & micro-FSD
+   // shutdown QSINIT
    exit_prepare();
-   hlp_fdone();
    /* copying high part to disk buffer where it will be launched.
       must be after exit functions, they can use i/o output, really */
    memcpy((char*)hlp_segtoflat(boot_info.diskbuf_seg), hiptbuf, DISKBUF_SIZE);

@@ -12,7 +12,7 @@
 #include "qsinit.h"
 #include "vioext.h"
 #include "errno.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 #include "seldesc.h"          // next 3 is for hook only
 #include "qsmodext.h"
 #include "qsinit_ord.h"
@@ -37,11 +37,11 @@ static void grow_mbr(hdd_info *di) {
       dlsz = sizeof(DLA_Table_Sector)*(sz>>2);
    // alloc with specified owner & pool to use batch free in scan_free()
    di->pts = (struct MBR_Record*)(sz ? realloc(di->pts, asz):
-      memAlloc(memOwner,memPool,asz));
+      mem_alloc(memOwner, memPool, asz));
    di->ptspos = (u32t*)(sz ? realloc(di->ptspos, isz):
-      memAlloc(memOwner,memPool,isz));
+      mem_alloc(memOwner, memPool, isz));
    di->dlat   = (DLA_Table_Sector*)(sz ? realloc(di->dlat, dlsz):
-      memAlloc(memOwner,memPool,dlsz));
+      mem_alloc(memOwner, memPool, dlsz));
 }
 
 static int __stdcall dsk_pos_compare(const void *b1, const void *b2) {
@@ -71,10 +71,8 @@ static u32t scan_gpt(hdd_info *drec) {
    char        guidstr[40];
    u32t          stype, recinsec;
    // buffers for both headers
-   drec->ghead  = (struct Disk_GPT *)memAlloc(memOwner, memPool, MAX_SECTOR_SIZE);
-   memZero(drec->ghead);
-   drec->ghead2 = (struct Disk_GPT *)memAlloc(memOwner, memPool, MAX_SECTOR_SIZE);
-   memZero(drec->ghead2);
+   drec->ghead  = (struct Disk_GPT *)mem_allocz(memOwner, memPool, MAX_SECTOR_SIZE);
+   drec->ghead2 = (struct Disk_GPT *)mem_allocz(memOwner, memPool, MAX_SECTOR_SIZE);
    // read header #1
    pt    = drec->ghead;
    stype = dsk_sectortype(drec->disk, drec->gpthead, (u8t*)drec->ghead);
@@ -117,7 +115,7 @@ static u32t scan_gpt(hdd_info *drec) {
          if (drec->ghead2->GPT_PtInfo <= pt->GPT_UserLast) return DPTE_GPTHDR2;
    }
    // allocate and read partition data
-   drec->ptg = (struct GPT_Record*)memAlloc(memOwner, memPool,
+   drec->ptg = (struct GPT_Record*)mem_alloc(memOwner, memPool,
       sizeof(struct GPT_Record) * pt->GPT_PtCout);
    
    if (!drec->ptg) return DPTE_GPTLARGE; else {
@@ -127,7 +125,7 @@ static u32t scan_gpt(hdd_info *drec) {
          drec->ptg) != drec->gpt_sectors)
       {
          log_it(0, "GPT records read error!\n");
-         memZero(drec->ptg);
+         mem_zero(drec->ptg);
          // header #2 available?
          if (!drec->ghead2) return DPTE_ERRREAD;
          // unable to read partition records?
@@ -142,7 +140,7 @@ static u32t scan_gpt(hdd_info *drec) {
          log_it(2, "GPT records CRC mismatch: %08X instead of %08X!\n", crc,
             pt->GPT_PtCRC);
       // viewable index for GPTs 
-      drec->gpt_index = (u32t*)memAlloc(memOwner, memPool, drec->gpt_size*4);
+      drec->gpt_index = (u32t*)mem_alloc(memOwner, memPool, drec->gpt_size*4);
       memset(drec->gpt_index, 0xFF, drec->gpt_size*4);
    }
    return 0;      
@@ -377,7 +375,7 @@ static u32t scan_disk(hdd_info *drec) {
            extlerr = 0, // error in length of extended partition
           primfree = 0, // at least one free primary entry is exists
            maxhead = 0;
-      drec->index  = (u32t*)memAlloc(memOwner,memPool,drec->pt_size*4);
+      drec->index  = (u32t*)mem_alloc(memOwner,memPool,drec->pt_size*4);
       memset(drec->index, 0xFF, drec->pt_size*4);
       // build viewable pt index and full list of block to calc free space
       for (ii=0; ii<drec->pt_size; ii++) {
@@ -533,9 +531,8 @@ static u32t scan_disk(hdd_info *drec) {
                   heads = 255;
             }
             // allocate free space array
-            drec->fsp = (dsk_freeblock*)memAlloc(memOwner, memPool,
+            drec->fsp = (dsk_freeblock*)mem_allocz(memOwner, memPool,
                sizeof(dsk_freeblock) * drec->fsp_size);
-            memZero(drec->fsp);
             // and fill it
             for (ii=0; ii<drec->fsp_size; ii++) {
                dsk_freeblock *fbi = drec->fsp + ii;
@@ -610,7 +607,7 @@ void scan_init(void) {
    u32t ii;
 
    if (memOwner==-1) {
-      memGetUniqueID(&memOwner,&memPool);
+      mem_uniqueid(&memOwner,&memPool);
       hddc = hlp_diskcount(&hddf);
       // actually we support only 14 HDDs + 2 FDDs ;)
       if (hddc>MAX_QS_DISK) hddc = MAX_QS_DISK;
@@ -618,10 +615,8 @@ void scan_init(void) {
       if (hddc+hddf) {
          /* make constant ptrs to disk info (else some of dsk_ptrescan() calls
             will hang, i think :) */
-         hddi = (hdd_info*)memAlloc(memOwner, memPool, sizeof(hdd_info) * 
+         hddi = (hdd_info*)mem_allocz(memOwner, memPool, sizeof(hdd_info) * 
             (MAX_QS_DISK + hddf));
-         memZero(hddi);
-
          for (ii=0; ii<hddf; ii++) {
             hdd_info *iptr = get_by_disk(QDSK_FLOPPY|ii);
             if (iptr) iptr->disk = QDSK_FLOPPY|ii;
@@ -643,7 +638,7 @@ void scan_init(void) {
 
 void scan_free(void) {
    if (memOwner!=-1) {
-      memFreePool(memOwner,memPool);
+      mem_freepool(memOwner, memPool);
       hddi = 0; hddc = 0; hddf = 0;
    }
 }
@@ -726,8 +721,8 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
       str_list *rcargs = str_parseargs(args, pos, 1, argstr, argval, &force, &verbose);
       ii = rcargs->count;
       free(rcargs);
-      // we must get empty list, else uncknown keys here
-      if (ii) { cmd_shellerr(EINVAL, 0); return EINVAL; }
+      // we must get empty list, else unknown keys here
+      if (ii) { cmd_shellerr(EMSG_CLIB, EINVAL, 0); return EINVAL; }
    }
    // do not init "pager" at nested calls
    if (cmd) cmd_printseq(0,1,0);

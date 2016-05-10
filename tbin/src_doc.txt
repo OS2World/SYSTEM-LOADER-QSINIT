@@ -51,7 +51,7 @@ Source tree:
    system\src\ldrapps\console      - advanced console support
    system\src\ldrapps\doshlp       - doshlp (binary file)
    system\src\ldrapps\extcmd       - several large shell commands
-   system\src\ldrapps\mtlib        - something still uncomplete :)
+   system\src\ldrapps\mtlib        - threads support (still in progress)
    system\src\ldrapps\partmgr      - partition management module
    system\src\ldrapps\start        - START module (second part of QSINIT core)
    system\src\ldrapps\sysview      - UI app (req. Turbo Vision)

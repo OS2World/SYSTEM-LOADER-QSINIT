@@ -32,11 +32,9 @@ static struct _io {
 } *io=0;
 
 FATFS*     extdrv[_VOLUMES];
-FIL*       extfl [_VOLUMES];
 vol_data*  extvol = 0;
 char*     currdir[_VOLUMES];
 u8t      currdisk = 0;
-u8t    *mount_buf = 0;
 
 extern void    *Disk1Data; // own data virtual disk
 extern u32t     Disk1Size; // and it`s size
@@ -228,38 +226,35 @@ void* hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint) {
 }
 
 // init file i/o
-void hlp_finit() {
+void hlp_finit(void) {
    IOPTR;
-   int   ii;
+   int    ii;
    char *ptr;
 #if defined(EFI_BUILD) // || defined(INITDEBUG)
    log_misc(2,"hlp_finit()\n");
 #endif
    if (iop) return;
    // allocating constant blocks for FAT i/o, no need to free it
-   iop=io = (struct _io *)hlp_memallocsig(sizeof(struct _io), "iop", QSMA_READONLY);
+   io     = (struct _io *)hlp_memallocsig(sizeof(struct _io), "iop", QSMA_READONLY);
+   iop    = io;
 #ifdef EFI_BUILD
    micro  = 1;
 #else
    micro  = dd_bootflags&BF_MICROFSD?1:0;
 #endif
-   // allocate memory for FATs in one call (because of 64k memalloc step)
-   fat_fs = (FATFS*)hlp_memallocsig((sizeof(FATFS)+sizeof(FIL)+sizeof(vol_data))*_VOLUMES+
+   fat_fs = (FATFS*)hlp_memallocsig((sizeof(FATFS)+sizeof(vol_data))*_VOLUMES+
             Round16(QS_MAXPATH+1)*_VOLUMES, "vol", QSMA_READONLY);
    fat_fl = (FIL*)((u8t*)fat_fs+sizeof(FATFS));
    // initing arrays
-   ptr=(char*)fat_fs;
-   for (ii=0;ii<_VOLUMES;ii++) {
-      extdrv[ii]=(FATFS*)ptr; ptr+=sizeof(FATFS);
-      extfl[ii] =(FIL*)ptr;   ptr+=sizeof(FIL);
-   }
+   ptr    = (char*)fat_fs;
+   for (ii=0; ii<_VOLUMES; ii++) { extdrv[ii]=(FATFS*)ptr; ptr+=sizeof(FATFS); }
    sto_save(STOKEY_FATDATA, &extdrv, _VOLUMES*sizeof(FATFS*), 0);
    // additional volumes (2-9) mount data
-   extvol=(vol_data*)ptr;
-   ptr  +=sizeof(vol_data)*_VOLUMES;
+   extvol = (vol_data*)ptr;
+   ptr   += sizeof(vol_data)*_VOLUMES;
    sto_save(STOKEY_VOLDATA, extvol, sizeof(vol_data)*_VOLUMES, 0);
    // current directory for all drives
-   for (ii=0;ii<_VOLUMES;ii++) {
+   for (ii=0; ii<_VOLUMES; ii++) {
       currdir[ii]=ptr;
       ptr[0]='0'+ii; ptr[1]=':'; ptr[2]='\\'; ptr[3]=0;
       ptr+=Round16(QS_MAXPATH+1);
@@ -284,7 +279,7 @@ void hlp_finit() {
 }
 
 // fini file i/o
-void hlp_fdone() {
+void hlp_fdone(void) {
    IOPTR;
    log_misc(2,"hlp_fdone()\n");
    if (!iop) return;
@@ -295,6 +290,7 @@ void hlp_fdone() {
    if (Disk1Data) memset(Disk1Data,0,Disk1Size);
 }
 
+#if 0
 u32t _std hlp_chdir(const char *path) {
    if (!path) return 0; else {
       int drive = path[1]==':'?path[0]-'0':currdisk;
@@ -338,6 +334,7 @@ u8t  _std hlp_curdisk(void) {
 char* _std hlp_curdir(u8t drive) {
    return drive>=_VOLUMES?0:currdir[drive];
 }
+#endif
 
 void init_vol1data(void) {
    vol_data *vdta = extvol+DISK_LDR;
@@ -370,139 +367,4 @@ u32t _std hlp_boottype(void) {
    } 
    return boottype;
 #endif // EFI_BUILD
-}
-
-u32t _std hlp_mountvol(u8t drive, u32t disk, u64t sector, u64t count) {
-   // no curcular refences allowed!!! ;)
-   if (disk==QDSK_VOLUME+(u32t)drive || !mount_buf) return 0;
-   // no 2Tb partitions!
-   if (count>=_4GBLL) return 0;
-   // mount it
-   if (extvol && drive>DISK_LDR && drive<_VOLUMES) {
-      struct Boot_Record *br = (struct Boot_Record *)mount_buf;
-      u32t     sectsz,
-              *fsname = 0;
-      u64t        tsz = hlp_disksize64(disk, &sectsz);
-      vol_data  *vdta = extvol+drive;
-      FATFS     *fdta = extdrv[drive];
-      char      dp[8];
-      FRESULT    mres;
-      // check for init, size and sector count overflow
-      if (!tsz||sector>=tsz||sector+count>tsz||sector+count<sector) return 0;
-      // unmount current
-      hlp_unmountvol(drive);
-      // read boot sector
-      if (!hlp_diskread(disk|QDSK_DIRECT, sector, 1, mount_buf)) return 0;
-      // disk parameters for fatfs i/o
-      vdta->disk       = disk;
-      vdta->start      = sector;
-      vdta->length     = count;
-      vdta->sectorsize = sectsz;
-      vdta->serial     = 0;
-      vdta->badclus    = 0;
-      vdta->clsize     = 1;
-      vdta->clfree     = 0;
-      vdta->cltotal    = 0;
-
-      vdta->fsname[0]  = 0;
-      snprintf(dp,8,"%d:\\",drive);
-      // mark as mounted else disk i/o deny disk access
-      vdta->flags      = VDTA_ON;
-
-      if (br->BR_BPB.BPB_SecPerFAT)
-         if (br->BR_BPB.BPB_RootEntries) fsname = (u32t*)br->BR_EBPB.EBPB_FSType;
-            else fsname = (u32t*)((struct Boot_RecordF32*)br)->BR_F32_EBPB.EBPB_FSType;
-      // call mount to setup FatFs vars
-      mres = f_mount(fdta,dp,1);
-      // if it is not FAT really - fix error code to accptable
-      if (mres!=FR_OK && (!fsname || (*fsname&0xFFFFFF)!=0x544146))
-         mres = FR_NO_FILESYSTEM;
-      // allow ok and no-filesystem error codes
-      if (mres==FR_OK || mres==FR_NO_FILESYSTEM) {
-         /* prior to FatFs R0.10 this call was required to force FatFs
-            chk_mounted(), now this can be done by f_mount parameter.
-            In addition, function update current drive in QSINIT module. */
-         if (mres==FR_OK) {
-            hlp_chdir(dp);
-            strcpy(vdta->fsname,fdta->fs_type<=FS_FAT16?"FAT":"FAT32");
-            vdta->clsize  = fdta->csize;
-            vdta->cltotal = (vdta->length - fdta->database)/fdta->csize;
-            vdta->flags  |= VDTA_FAT;
-         }
-         cache_ctrl(CC_MOUNT,drive);
-         return 1;
-      } else
-         log_printf("mount err %d\n", mres);
-      // clear state
-      vdta->flags = 0;
-   }
-   return 0;
-}
-
-u32t _std hlp_unmountvol(u8t drive) {
-   u32t     flags;
-   if (!extvol || drive<=DISK_LDR || drive>=_VOLUMES) return 0;
-   flags = extvol[drive].flags;
-   if ((flags&VDTA_ON)==0) return 0;
-   // change current disk to 1:
-   if (hlp_curdisk()==drive) hlp_chdisk(DISK_LDR);
-
-   cache_ctrl(CC_UMOUNT,drive);
-   extvol[drive].flags = 0;
-   
-   if ((flags&VDTA_FAT)!=0) {
-      char  dp[8];
-      snprintf(dp,8,"%d:",drive);
-      f_mount(0,dp,0);
-   }
-   return 1;
-}
-
-u32t _std hlp_volinfo(u8t drive, disk_volume_data *info) {
-   if (extvol && drive<_VOLUMES) {
-      vol_data  *vdta = extvol+drive;
-      FATFS     *fdta = extdrv[drive];
-      // mounted?
-      if (drive<=DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
-         if (info) {
-            info->StartSector  = vdta->start;
-            info->TotalSectors = vdta->length;
-            info->Disk         = vdta->disk;
-            info->SectorSize   = vdta->sectorsize;
-            // was it really mounted?
-            if ((vdta->flags&VDTA_FAT)!=0) {
-               FATFS *pfat = 0;
-               DWORD nclst = 0;
-               char     cp[3];
-               cp[0]='0'+drive; cp[1]=':'; cp[2]=0;
-
-               info->ClSize      = fdta->csize;
-               info->RootDirSize = fdta->n_rootdir;
-               info->FatCopies   = fdta->n_fats;
-               info->DataSector  = fdta->database;
-               // update info to actual one
-               if (f_getfree(cp,&nclst,&pfat)==FR_OK) vdta->clfree = nclst;
-               if (!vdta->serial) f_getlabel(cp,vdta->label,&vdta->serial);
-            } else {
-               /* Not a FAT.
-                  HPFS format still can fill vdta in way, compatible with
-                  "Format" command printing and this function will return
-                  it, because nobody touch it until unmount */
-               info->RootDirSize = 0;
-               info->FatCopies   = 0;
-               info->DataSector  = 0;
-            }
-            info->ClBad     = vdta->badclus;
-            info->SerialNum = vdta->serial;
-            info->ClSize    = vdta->clsize;
-            info->ClAvail   = vdta->clfree;
-            info->ClTotal   = vdta->cltotal;
-            strcpy(info->Label,vdta->label);
-            strcpy(info->FsName,vdta->fsname);
-         }
-         return fdta->fs_type;
-      }
-   }
-   if (info) memset(info,0,sizeof(disk_volume_data));
-   return FST_NOTMOUNTED;
 }

@@ -19,6 +19,8 @@
                 extrn   _strlen:near                            ;
                 extrn   _vio_charout:near                       ;
                 extrn   _tm_getdate:near                        ;
+                extrn   _mt_swlock:near                         ;
+                extrn   _mt_swunlock:near                       ;
 
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
@@ -54,6 +56,7 @@ _hlp_seroutstr  proc    near                                    ;
                 mov     esi,[esp+4+@@str]                       ;
                 xor     eax,eax                                 ;
                 cld                                             ;
+                call    _mt_swlock                              ;
 @@outstr_loop:
                 lodsb                                           ;
                 or      al,al                                   ;
@@ -66,12 +69,13 @@ _hlp_seroutstr  proc    near                                    ;
                 call    _hlp_seroutchar                         ;
                 mov     al,10                                   ;
 @@outstr_norm:
-                mov     ah,al
+                mov     ah,al                                   ;
                 push    eax                                     ;
                 call    _hlp_seroutchar                         ;
                 jmp     @@outstr_loop                           ;
 @@outstr_bye:
-                pop     esi
+                call    _mt_swunlock                            ;
+                pop     esi                                     ;
                 ret     4                                       ;
 _hlp_seroutstr  endp                                            ;
 
@@ -79,13 +83,16 @@ _hlp_seroutstr  endp                                            ;
 ; u16t _std hlp_seroutinfo(u32t *baudrate)
                 public  _hlp_seroutinfo                         ;
 _hlp_seroutinfo proc    near                                    ;
-@@baudrate      =  4                                            ;
+@@baudrate      =  8                                            ;
+                pushfd                                          ;
+                cli                                             ;
                 movzx   eax,_ComPortAddr                        ; return current baud
                 mov     ecx,[esp+@@baudrate]                    ; rate in any case
                 jecxz   @@serinfo_nobaud                        ; (required for
                 mov     edx,_BaudRate                           ;  DBCARD command)
                 mov     [ecx],edx                               ;
 @@serinfo_nobaud:
+                popfd                                           ;
                 ret     4                                       ;
 _hlp_seroutinfo endp                                            ;
 
@@ -194,24 +201,30 @@ _log_buffer     endp                                            ;
 ;----------------------------------------------------------------
 ; void _std sys_errbrk(void *access, u8t index, u8t size, u8t type);
                 public  _sys_errbrk                             ;
-_sys_errbrk     proc    near
-                mov     ecx,[esp+8]                             ; index
+_sys_errbrk     proc    near                                    ;
+@@ebrk_type     = 20                                            ;
+@@ebrk_size     = 16                                            ;
+@@ebrk_index    = 12                                            ;
+@@ebrk_address  =  8                                            ;
+                pushfd                                          ;
+                cli                                             ;
+                mov     ecx,[esp+@@ebrk_index]                  ; index
                 and     ecx,3                                   ;
                 shl     ecx,1                                   ;
                 mov     eax,dr7                                 ; disable bp
                 btr     eax,ecx                                 ;
                 mov     dr7,eax                                 ;
-                mov     eax,[esp+4]                             ; set address
+                mov     eax,[esp+@@ebrk_address]                ; set address
 ;                sub     eax,_ZeroAddress                        ;
                 mov     edx,ecx                                 ;
                 shl     edx,1                                   ;
                 add     edx, offset @@errbrk_dr0                ;
                 call    edx                                     ;
-                mov     dl,[esp+12]                             ; size
+                mov     dl,[esp+@@ebrk_size]                    ; size
                 dec     dl                                      ;
                 and     dl,3                                    ;
                 shl     dl,2                                    ;
-                mov     al,[esp+16]                             ; type
+                mov     al,[esp+@@ebrk_type]                    ; type
                 and     eax,3                                   ;
                 or      al,dl                                   ;
                 shl     eax,16                                  ; dr7 bits
@@ -230,6 +243,7 @@ _sys_errbrk     proc    near
                 and     ecx,edx                                 ;
                 or      ecx,eax                                 ;
                 mov     dr7,ecx                                 ;
+                popfd                                           ; enable ints
                 ret     16
 @@errbrk_dr0:
                 mov     dr0,eax                                 ; 4 bytes len

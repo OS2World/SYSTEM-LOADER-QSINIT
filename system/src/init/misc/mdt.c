@@ -8,13 +8,17 @@
 #include "qsinit.h"
 #include "qsbinfmt.h"
 #include "qspdata.h"
+#include "qserr.h"
+
+/** delete module file from disk after success load.
+    Flag is not published in qsmod.h - just for safeness ;) */
+#define LDM_UNLINKFILE  0x0001
 
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
 module          *mod_ilist = 0; // currently loading modules list
 module           *mod_self = 0, // QSINIT module reference
                 *mod_start = 0; // START module reference
-process_context    *ctxmem = 0; // current process context (const pointer)
 u8t              *page_buf = 0; // 4k buffer for various needs
 u32t           lastusedpid = 1; // unique pid for processes
 #ifdef INITDEBUG
@@ -29,14 +33,12 @@ extern u16t    qsinit_size;
 extern
 MKBIN_HEADER  *pbin_header;
 extern u32t       highbase;     // base of 32bit object
-extern pmt_new     mt_init;
-extern pmt_exec    mt_exec;
-extern pmt_exit    mt_fini;
+extern volatile
+mt_proc_cb    mt_exechooks;
 
 // launch routines
-u32t launch32(module *md, u32t env, u32t cmdline);
-u32t dll32init(module *md, u32t term);
-mt_prcdata* mt_new(process_context *pq);
+u32t _std launch32(module *md, u32t env, u32t cmdline);
+u32t _std dll32init(module *md, u32t term);
 int  _std mod_buildexps(module *mh, lx_exe_t *eh);
 
 static u32t mod_makeaddr(module *md, u32t Obj, u32t offset) {
@@ -218,60 +220,61 @@ u32t mod_query(const char *name, u32t searchtype) {
             list=list->next;
          }
       }
-   //log_misc(2, "no mod: %s\n", name);
+   // log_misc(2, "no mod: %s\n", name);
    return 0;
 }
 
-u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
+u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
    if (error) *error=0;
    if (!path) return 0; else {
-      char   *buf = (char*)hlp_memallocsig(_64KB,"MODb",0);
-      u32t    len = strlen(path);
-      FIL     *fl = (FIL*)(buf+len+4);
-      u32t     rc, size,
-             used = len+4+sizeof(FIL)+4;            // +4 bytes for unpack code
+      char   *buf;
+      u32t     rc = 0, size;
       char   *img;
       void   *mod = 0;                              // module location
       module  *md = 0;                              // module data
 
-      if (path[1]!=':') {
-         buf[0]='0'+DISK_LDR; buf[1]=':'; buf[2]='\\';
-         strcpy(buf+3,path);
-      } else strcpy(buf,path);
+      if (mod_secondary) {
+         buf = (char*)mod_secondary->freadfull(path, &size);
+         img = buf;
+         if (!img) rc = E_SYS_NOFILE; else
+            if (*(u32t*)img==0) // file is empty, may be delayed \ unpack?
+               if (!mod_secondary->unzip_ldi(img, size, path)) rc = E_MOD_CRCERROR;
+      } else {
+         u32t  len = strlen(path),
+              used = len+4+sizeof(FIL)+4;           // +4 bytes for unpack
+         FIL   *fl;
+         buf = (char*)hlp_memallocsig(_64KB, "MODb", 0);
+         fl  = (FIL*)(buf+len+4);
 
-      // reading module
-      do {
-         rc=f_open(fl,buf,FA_READ);
-         if (rc!=FR_OK) break;
-         size = fl->fsize;
-         buf  = (char*)hlp_memrealloc(buf, size+used);
-         fl   = (FIL*)(buf+len+4);                  // update pointer
-         img  = buf+used;                           // module dest.
-
-         rc   = f_read(fl, img, size, (UINT*)&used);
-         if (rc!=FR_OK) break;
-         f_close(fl);
-      } while (false);
-
-      if (rc||size<=sizeof(lx_exe_t)) { // too small
-         log_printf("lx read(%s): %d\n",buf,rc);
-         img = 0;
-      } else                            // file is empty, delayed 1:\ unpack
-      if (*(u32t*)img==0 && buf[0]=='0'+DISK_LDR) {
-         // no start module?
-         if (!mod_secondary) { img=0; rc=MODERR_NOEXTCODE; } else
-         // unzip error
-         if (!(*mod_secondary->unzip_ldi)(img,size,buf)) { img=0; rc=MODERR_CRCERROR; }
-         if (error) *error=rc;
+         if (path[1]!=':') {
+            buf[0]='0'+DISK_LDR; buf[1]=':'; buf[2]='\\';
+            strcpy(buf+3, path);
+         } else strcpy(buf, path);
+         // reading module
+         do {
+            rc   = f_open(fl, buf, FA_READ);
+            if (rc!=FR_OK) { rc=E_SYS_NOFILE; break; }
+            size = fl->fsize;
+            buf  = (char*)hlp_memrealloc(buf, size+used);
+            fl   = (FIL*)(buf+len+4);                  // update pointer
+            img  = buf + used;                         // module dest.
+            rc   = f_read(fl, img, size, (UINT*)&used);
+            if (rc!=FR_OK) { rc=E_MOD_READERROR; break; }
+            f_close(fl);
+         } while (false);
+         // for mod_path below
+         path = buf;
       }
+      if (!rc && size<=sizeof(lx_exe_t)) rc = E_MOD_EMPTY;    
       // early error occured, exiting
-      if (!img) {
-         hlp_memfree(buf);
-         if (error) *error = MODERR_READERROR;
+      if (rc) {
+         log_printf("lx read(%s): %d\n", path, rc);
+         if (buf) hlp_memfree(buf);
+         if (error) *error = rc;
          return 0;
       }
 
-      rc = 1;
+      rc = E_MOD_NOT_LX;
       /* error codes: 1 - not LE/LX, 2 - bad flags, 3 - empty module,
                       4 - unsupported feature, 5 - broken file,
                       6 - no free selector, 7 - obj load error,
@@ -304,7 +307,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          // unsupported feature
          if (eh->e32_instpreload) break;
          // too many used modules
-         if (eh->e32_impmodcnt>MAX_IMPMOD) { rc=MODERR_MODLIMIT; break; }
+         if (eh->e32_impmodcnt>MAX_IMPMOD) { rc=E_MOD_MODLIMIT; break; }
          rc++;
          // broken file
          if (size-oldhdr_size-eh->e32_objcnt*sizeof(lx_obj_t)<eh->e32_objtab) // broken object table
@@ -332,7 +335,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          // allocate physical storage for all loadable objects
          ii = sizeof(module)+sizeof(mod_object)*(eh->e32_objcnt-1);
          rc = mod_secondary?0:(EXPORT_THUNK+sizeof(mod_export))*MAX_EXPSTART;
-         mod = hlp_memallocsig(vsize+ii+rc+MAX_PATH+2,"MODl",0);
+         mod = hlp_memallocsig(vsize+ii+rc + QS_MAXPATH+2, "MODl", 0);
 
          // fill module handle data (note: memory zeroed in malloc)
          md  = (module*)((char*)mod + rc + vsize);
@@ -347,7 +350,9 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          md->objects   = eh->e32_objcnt;
          md->baseaddr  = mod;
          md->flags     = (eh->e32_mflags&E32MODMASK)==E32MODDLL?MOD_LIBRARY:0;
-         strncpy(md->mod_path, buf, MAX_PATH);
+         // make full path if possible
+         if (mod_secondary) mod_secondary->fullpath(md->mod_path, path, QS_MAXPATH+1);
+            else strncpy(md->mod_path, buf, QS_MAXPATH);
          // copy module name
          tptr = (u8t*)eh+eh->e32_restab;
          ii   = *tptr&E32MODNAME;
@@ -355,7 +360,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          // flag pre-applied fixups (not used now)
          //if ((eh->e32_mflags&E32NOINTFIX)!=0) md->flags|=MOD_NOFIXUPS;
 
-         rc=0;
+         rc = 0;
          // setup selectors & base addr for objects
          for (ii=0,selcount=0; ii<eh->e32_objcnt; ii++) {
             u16t objsel = 0;
@@ -366,10 +371,10 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
             if (ot[ii].o32_reserved&1) {
                objsel = selbase + selcount++*SEL_INCR;
                // check for start & stack objects
-               if (ii+1==eh->e32_startobj) rc = MODERR_START16; 
+               if (ii+1==eh->e32_startobj) rc = E_MOD_START16;
                   else
                if ((md->flags&MOD_LIBRARY)==0 && ii+1==eh->e32_stackobj)
-                  rc = MODERR_STACK16;
+                  rc = E_MOD_STACK16;
             } else
             if (oflags&OBJBIGDEF) {
                objsel = get_flatcs();
@@ -401,7 +406,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
                u8t len=*table++;
                module *dll = (module*)mod_query(table, len<<8);
                if (!dll)
-                  if (!mod_secondary) rc=MODERR_NOEXTCODE; else {
+                  if (!mod_secondary) rc = E_MOD_NOEXTCODE; else {
                      u8t svbyte=table[len]; table[len]=0;
                      dll = (module*)(*mod_secondary->mod_searchload)(table,&rc);
                      table[len]=svbyte;
@@ -446,7 +451,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
       // this module was first in recursive calls, so here we are done
       if (!rc&&md&&(md->flags&MOD_LOADER)!=0) {
          u32t rci = mod_initterm_all(md,0,FFFF);
-         if (!rci) rc=MODERR_INITFAILED; else {
+         if (!rci) rc=E_MOD_INITFAILED; else {
             // drop loader flags
             mod_listflags(mod_ilist,0,MOD_LOADING|MOD_LOADER);
             // merge loading and loaded lists
@@ -457,7 +462,7 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
       // process error
       if (error) *error=rc;
       if (rc) {
-         log_printf("lx err(%s): %d\n",md?md->mod_path:buf,rc);
+         log_printf("lx err(%s): %X\n", md?md->mod_path:path, rc);
          if (md) {
             u32t oi;  // free selectors (zero value will be ignored)
             for (oi=0;oi<md->objects;oi++) hlp_selfree(md->obj[oi].sel);
@@ -468,7 +473,10 @@ u32t mod_load(char *path, u32t flags, u32t *error, void *extdta) {
          }
          if (mod) hlp_memfree(mod);
          return 0;
-      }
+      } else
+      if (flags&LDM_UNLINKFILE)
+         if (mod_secondary) mod_secondary->unlink(md->mod_path); else
+            f_unlink(md->mod_path);
       // free module image
       hlp_memfree(buf);
       // callback to START
@@ -484,9 +492,9 @@ static void fixup_err(char where, u8t *prev, u8t *curr, u32t pos) {
    log_printf(fmt,where,prev,curr,pos);
 }
 
-#define FIXUP_ERR(where) { fixup_err(where,prev,cstart,start-cstart); return MODERR_BADFIXUP; }
-#define FIXUP_ORD(where) { fixup_err(where,prev,cstart,start-cstart); return MODERR_NOORDINAL; }
-#define FIXUP_SUP(where) { fixup_err(where,prev,cstart,start-cstart); return MODERR_UNSUPPORTED; }
+#define FIXUP_ERR(where) { fixup_err(where,prev,cstart,start-cstart); return E_MOD_BADFIXUP; }
+#define FIXUP_ORD(where) { fixup_err(where,prev,cstart,start-cstart); return E_MOD_NOORD; }
+#define FIXUP_SUP(where) { fixup_err(where,prev,cstart,start-cstart); return E_MOD_UNSUPPORTED; }
 
 /** load and unpack objects
     e32_datapage must be changed to offset from LX header, not begin of file */
@@ -500,7 +508,7 @@ int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
           idx = oe->o32_pagemap-1,
         pages = size>>PAGESHIFT,
        sflags = strange?strange->flags:0;
-   if ((idx+=ii-1)>eh->e32_mpages) return MODERR_OBJLOADERR;
+   if ((idx+=ii-1)>eh->e32_mpages) return E_MOD_OBJLOADERR;
 
    log_misc(2, "obj %d base %08X sz %d\n",object+1,destaddr,oe->o32_size);
    // zero-fill entire object
@@ -516,14 +524,14 @@ int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
 log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    pt->pageflags,eh->e32_datapage+(idx<<PAGESHIFT));*/
 
-         if (LEPAGEIDX(*pt)!=idx+1) return MODERR_INVPAGETABLE;
+         if (LEPAGEIDX(*pt)!=idx+1) return E_MOD_INVPAGETABLE;
          switch (pt->pageflags&LE_ZEROED) {
             case LE_VALID:
                memcpy((char*)destaddr+(ii<<PAGESHIFT), (char*)eh+eh->e32_datapage+
                   (idx<<PAGESHIFT),pgsize);
                break;
             case LE_ITERDATA:
-               return MODERR_UNSUPPORTED;
+               return E_MOD_UNSUPPORTED;
                break;
          }
          pt--; idx--;
@@ -545,31 +553,31 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
                memcpy(dst,src,pgsize);
                break;
             case LX_ITERDATA:
-               if (!mod_secondary) failed=MODERR_NOEXTCODE; else {
+               if (!mod_secondary) failed=E_MOD_NOEXTCODE; else {
                   pgsize = (*mod_secondary->mod_unpack1)(pgsize,src,dst);
-                  if (!pgsize) failed=MODERR_ITERPAGEERR;
+                  if (!pgsize) failed=E_MOD_ITERPAGEERR;
                }
                break;
             case LX_ITERDATA2:
-               if (!mod_secondary) failed=MODERR_NOEXTCODE; else {
+               if (!mod_secondary) failed=E_MOD_NOEXTCODE; else {
                   pgsize = (*mod_secondary->mod_unpack2)(pgsize,src,dst);
-                  if (!pgsize) failed=MODERR_ITERPAGEERR;
+                  if (!pgsize) failed=E_MOD_ITERPAGEERR;
                }
                break;
             case LX_ITERDATA3:
-               if (!mod_secondary) failed=MODERR_NOEXTCODE; else {
+               if (!mod_secondary) failed=E_MOD_NOEXTCODE; else {
                   pgsize = (*mod_secondary->mod_unpack3)(pgsize,src,dst);
-                  if (!pgsize) failed=MODERR_ITERPAGEERR;
+                  if (!pgsize) failed=E_MOD_ITERPAGEERR;
                }
                break;
             /* ignore ZEROED and INVALID types, both will be zero-filled.
                INVALID used in Warp 3 kernel */
             case LX_RANGE:
-               failed = MODERR_UNSUPPORTED;
+               failed = E_MOD_UNSUPPORTED;
                break;
          }
          if (failed) {
-            if (failed==MODERR_ITERPAGEERR) log_printf("unp err, pg %d\n",idx+ii);
+            if (failed==E_MOD_ITERPAGEERR) log_printf("unp err, pg %d\n",idx+ii);
             return failed;
          }
          pt--; idx--;
@@ -657,7 +665,7 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
             if (!imp) {
                // FIXUP_ORD('8');
                log_printf("no %s.%d\n",imh->name,ord);
-               return MODERR_NOORDINAL;
+               return E_MOD_NOORD;
             }
             fofs = imp->address;
             fsel = imp->sel;
@@ -701,7 +709,7 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
                case NROFF32 : *(u32t*)dst=fofs; break;
                case NRSOFF32: *(u32t*)dst=fofs-(u32t)dst-4; break;
                default:
-                  return MODERR_BADFIXUP;
+                  return E_MOD_BADFIXUP;
             }
          }
          prev = cstart; cstart = start;
@@ -741,105 +749,106 @@ static u32t env_length(const char *env) {
    return total+1;
 }
 
-process_context* _std mod_context(void) { return ctxmem; }
-
 /* run module. return -1 if failed (invalid handle, etc)
    env\0
    env\0\0
    module path\0
    params:
    module path\0
-   arguments string\0\0
-   */
+   arguments string\0\0 */
 s32t mod_exec(u32t mh, const char *env, const char *params) {
-   char                  *cmd;
-   u32t       envlen, parmlen, 
-                  pathlen, rc,
-                    envseg_sz;
-   char     *envseg, *cmdline;
-   process_context *svctx = 0,
-            ctxdata, *_ctxmem; // cached value (remove big offsets)
-   module   *md = (module*)mh;
+   u32t      envlen, parmlen,
+         pathlen, rc, env_sz,
+                   alloc_len;
+   char    *envseg, *cmdline;
+   process_context   *newctx;
+   module                *md = (module*)mh;
 
    if (md->sign!=MOD_SIGN) return -1;
    if (md->flags&MOD_LIBRARY) return -1;
+   if (md->flags&MOD_EXECPROC) return -1;
 
-   envlen  = env?env_length(env):0;
-   parmlen = params?strlen(params)+1:0;
-   pathlen = strlen(md->mod_path)+1;
-   /* env. segment allocation.
+   envlen    = env?env_length(env):0;
+   parmlen   = params?strlen(params)+1:0;
+   pathlen   = strlen(md->mod_path)+1;
+   /* envinonment allocation.
       hlp_memalloc(r) is used for the first launch only */
-   envseg_sz = envlen+2+parmlen+2+pathlen*2;
-
-   if (!ctxmem) {
-      cmdline = envseg = hlp_memallocsig(Round4k(envseg_sz)+sizeof(process_context),
-         "MCtx", QSMA_READONLY);
-      _ctxmem = ctxmem = (process_context*)(cmdline+Round4k(envseg_sz));
-   } else {
-      cmdline = envseg = mod_secondary?mod_secondary->memAlloc(1,mh,envseg_sz):
-         hlp_memalloc(envseg_sz,0);
-      // save previos context
-      svctx = &ctxdata;
-      memcpy(svctx,_ctxmem=ctxmem,sizeof(process_context));
-   }
+   env_sz    = envlen + 2 + parmlen + 2 + pathlen*2;
+   alloc_len = env_sz +sizeof(process_context);
+   envseg    = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR, mh, alloc_len):
+               hlp_memallocsig(alloc_len, "MCtx", QSMA_NOCLEAR|QSMA_READONLY);
+   // zero it all
+   memset(envseg, 0, alloc_len);
+   // here we entering critical part
+   mt_swlock();
    // fill process context data
-   memset(_ctxmem, 0, sizeof(process_context));
-   _ctxmem->size   = sizeof(process_context);
-   _ctxmem->pid    = lastusedpid++;
-   _ctxmem->cmdline= cmdline;
-   _ctxmem->envptr = envseg;
-   _ctxmem->self   = md;
-   _ctxmem->parent = svctx?svctx->self:0;
-   _ctxmem->flags  = mod_secondary?0:PCTX_BIGMEM;
-   _ctxmem->pctx   = svctx;
-   // allocates process data
-   _ctxmem->rtbuf[RTBUF_PROCDAT] = (u32t)mt_init(_ctxmem);
+   newctx = (process_context*)(envseg + env_sz);
+   newctx->size   = sizeof(process_context);
+   newctx->pid    = lastusedpid++;
+   newctx->envptr = envseg;
+   newctx->self   = md;
+   newctx->pctx   = mt_exechooks.mtcb_ctxmem;
+   newctx->parent = newctx->pctx?newctx->pctx->self:0;
+   newctx->flags  = mod_secondary?0:PCTX_BIGMEM;
 
    // copying env/cmdline data
-   if (envlen) memcpy(cmdline,env,envlen); else envlen=2;
+   cmdline  = envseg;
+   if (envlen) memcpy(cmdline, env, envlen); else envlen = 2;
    cmdline += envlen;
-   memcpy(cmdline,md->mod_path,pathlen);
+   memcpy(cmdline, md->mod_path, pathlen);
    cmdline += pathlen;
-   memcpy(cmdline,md->mod_path,pathlen);
-   if (parmlen) memcpy(cmdline+pathlen,params,parmlen);
+   memcpy(cmdline, md->mod_path, pathlen);
+   if (parmlen) memcpy(cmdline+pathlen, params, parmlen);
+   // command line pointer
+   newctx->cmdline = cmdline;
+
+   // allocates process data
+   newctx->rtbuf[RTBUF_PROCDAT] = (u32t)mt_exechooks.mtcb_init(newctx);
    // flag we`re running
    md->flags |= MOD_EXECPROC;
 
+   // leaving critical part
+   mt_swunlock();
    rc = 0;
-   if (svctx) {
-      // callback
-      if (mod_secondary) rc = mod_secondary->start_cb(_ctxmem);
-      // launch if this was not denied by callback
+   if (md!=mod_self) {
+      /* callback.
+         note, that callbacks are called in caller context! */
+      rc = mod_secondary->start_cb(newctx);
+      // launch it if was not denied by callback
       if (!rc) {
          log_it(LOG_HIGH,"exec %s\n",md->mod_path);
-         rc = mt_exec? mt_exec(_ctxmem): launch32(md,(u32t)envseg,(u32t)cmdline);
-         
-         if (mod_secondary) rc = mod_secondary->exit_cb(_ctxmem, rc);
+         /* if we have MT exec - it process context switching for us, we just
+            calls it here it sleeps until exit.
+            In non-MT mode - just swap current context here. */
+         if (mt_exechooks.mtcb_exec) rc = mt_exechooks.mtcb_exec(newctx); else {
+            mt_exechooks.mtcb_ctxmem = newctx;
+            mt_exechooks.mtcb_ctid   = 1;
+            rc = launch32(md, (u32t)envseg, (u32t)cmdline);
+            // restore context only if still no MT mode!
+            if (!mt_exechooks.mtcb_exec)
+               mt_exechooks.mtcb_ctxmem = newctx->pctx;
+         }
+         rc = mod_secondary->exit_cb(newctx, rc);
       }
+      if (mt_exechooks.mtcb_fini(newctx)) {
+         // free original env. segment
+         mod_secondary->mem_free(envseg);
+         // free reallocated env. data
+         if (newctx->flags&PCTX_ENVCHANGED)
+            if (newctx->envptr!=envseg)
+               if (newctx->flags&PCTX_BIGMEM) hlp_memfree(newctx->envptr); else
+                  mod_secondary->mem_free(newctx->envptr);
+      }
+      mt_safedand(&md->flags, ~MOD_EXECPROC);
    } else {
       /* START module launching.
          This is, actually, NOT DLL init (it already called by mod_load),
          but ptr to START.189 - main function in START.
          Called via dll32init() to use its simple save/restore features. */
+      mt_exechooks.mtcb_ctxmem = newctx;
       dll32init(md,0);
-   }
-   // is this NOT a first launched module?
-   if (svctx) {
-      // free process data
-      mt_fini(_ctxmem);
-      // free original env. segment
-      if (mod_secondary) mod_secondary->memFree(envseg); else hlp_memfree(envseg);
-      // free reallocated env. data
-      if (_ctxmem->flags&PCTX_ENVCHANGED)
-         if (_ctxmem->envptr!=envseg)
-            if (_ctxmem->flags&PCTX_BIGMEM) hlp_memfree(_ctxmem->envptr); else
-               mod_secondary->memFree(_ctxmem->envptr);
-      // restore parent process context
-      memcpy(_ctxmem,svctx,sizeof(process_context)); 
-   } else {
       //log_printf("warning! \"start\" module exited!\n");
    }
-   md->flags&=~MOD_EXECPROC;
    return rc;
 }
 
@@ -849,28 +858,27 @@ u32t mod_free(u32t mh) {
    module          *md = (module*)mh;
    u32t             oi;
 
-   if (md->sign!=MOD_SIGN) return MODFERR_HANDLE;
+   if (md->sign!=MOD_SIGN) return E_MOD_HANDLE;
    // do not allow to free self while running
-   if (pq && pq->self == md) return MODFERR_SELF;
+   if (pq && pq->self == md) return E_MOD_FSELF;
    // block main modules final free
    if ((md==mod_start || md==mod_self || (md->flags&MOD_SYSTEM)) && md->usage==1)
-      return MODFERR_SYSTEM;
+      return E_MOD_FSYSTEM;
    // dec usage
    if (--md->usage>0) return 0;
    log_printf("unload %s\n",md->mod_path);
-   /* check is mod_exec() not launched for EXE and
-      call term function for DLL module */
+   // is it running check for EXE and call term function for DLL
    if ((md->flags&MOD_LIBRARY)==0) {
       if ((md->flags&MOD_EXECPROC)) {
          log_printf("\"%s\" is running!\n",md->mod_path);
-         md->usage++; 
-         return MODFERR_EXECINPROC;
+         md->usage++;
+         return E_MOD_EXECINPROC;
       }
    } else
-      if (mod_initterm(md,1)==0) { 
+      if (mod_initterm(md,1)==0) {
          log_printf("\"%s\" deny unload\n",md->mod_path);
-         md->usage++; 
-         return MODFERR_LIBTERM; 
+         md->usage++;
+         return E_MOD_LIBTERM;
       }
    // free all used modules
    mod_unloadimports(md);
@@ -886,7 +894,7 @@ u32t mod_free(u32t mh) {
    return 0;
 }
 
-// build export table (boot time only, for start module)
+// build export table (boot time only, for START module)
 int _std mod_buildexps(module *mh, lx_exe_t *eh) {
    lx_exp_b    *ee = (lx_exp_b*)((u8t*)eh+eh->e32_enttab);
    u32t        idx = 1, cnt=0;
@@ -915,12 +923,12 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
                   //
                   entry+=4; bsize+=5;
                   exp[cnt].ordinal = idx++;
-                  if (++cnt==MAX_EXPSTART) return MODERR_EXPLIMIT;
+                  if (++cnt==MAX_EXPSTART) return E_MOD_EXPLIMIT;
                }
             }
             break;
          default:
-            return MODERR_UNSUPPORTED;
+            return E_MOD_UNSUPPORTED;
       }
       ee=(lx_exp_b*)((u8t*)ee+bsize);
    }
@@ -931,16 +939,15 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
 int start_it() {
    mod_export *stmain;
    u32t           err;
-   // loading START module (this is DLL now, not EXE like it was until rev.287)
-   mod_start = (module*)mod_load(MODNAME_START, 0, &err, 0);
+   /* loading START module (this is DLL now, not EXE like it was until rev.287)
+      file also will be deleted ramdisk to guarantee some free space */
+   mod_start = (module*)mod_load(MODNAME_START, LDM_UNLINKFILE, &err, 0);
    if (!mod_start) return err;
    // mark it as "system"
    mod_start->flags |= MOD_SYSTEM;
-   // delete START module file from ramdisk to guarantee some free space
-   f_unlink(MODNAME_START);
    // query "main" address
    stmain    = mod_findexport(mod_start, 189);
-   if (!stmain) return MODERR_NOORDINAL;
+   if (!stmain) return E_MOD_NOORD;
    // make sure mod_self is ready
    if (!mod_self) mod_query(MODNAME_QSINIT, 0);
    // REPLACE init function to use it in mod_exec()

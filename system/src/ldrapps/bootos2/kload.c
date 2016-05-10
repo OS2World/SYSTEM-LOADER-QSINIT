@@ -7,6 +7,7 @@
 #include "kload.h"
 #include "doshlp.h"
 #include "qsutil.h"
+#include "qserr.h"
 
 #define ORD_DOSIODELAYCNT    427           // one allowed import
 
@@ -57,7 +58,7 @@ module *krnl_readhdr(void *kernel, u32t size) {
       // unsupported feature
       if (eh->e32_instpreload) break;
       // too many used modules
-      if (eh->e32_impmodcnt>1) { rc=MODERR_MODLIMIT; break; }
+      if (eh->e32_impmodcnt>1) { rc = E_MOD_MODLIMIT; break; }
       rc++;
       // broken file
       if (size-oldhdr_size-eh->e32_objcnt*sizeof(lx_obj_t)<eh->e32_objtab) // broken object table
@@ -90,7 +91,7 @@ module *krnl_readhdr(void *kernel, u32t size) {
       if (eh->e32_impmodcnt) {
          u8t *table = (u8t*)eh+eh->e32_impmod;
          u8t    len =*table++;
-         if (strnicmp("DOSCALLS",table,len)) rc=MODERR_MODLIMIT;
+         if (strnicmp("DOSCALLS",table,len)) rc = E_MOD_MODLIMIT;
       }
       if (rc) break;
       // copying object data
@@ -116,7 +117,7 @@ module *krnl_readhdr(void *kernel, u32t size) {
 
    if (rc) {
       char err[64];
-      sprintf(err,"Kernel module loading error %d\n",rc);
+      sprintf(err,"Kernel module loading error %X\n",rc);
       error_exit(6,err);
    }
 

@@ -132,10 +132,6 @@ Dump module table
 @ingroup API2
 API: errno values
 
-@file malloc.h
-@ingroup API2
-API: malloc macroses
-
 @file memmgr.h
 @ingroup API2
 API: fast memory manager
@@ -143,6 +139,14 @@ API: fast memory manager
 @file qsshell.h
 @ingroup API2
 API: shell functions.
+
+@file qstask.h
+@ingroup API2
+API: thread management functions.
+
+@file qsio.h 
+@ingroup API2
+API: system file i/o functions.
 
 @file vioext.h
 @ingroup API2
@@ -540,7 +544,8 @@ There are two methods of memory allocation in QSINIT:
 Both system and heap alloc share common address space.
 
 @section memm_system System alloc
-Provided by functions hlp_memalloc(), hlp_memrealloc(), hlp_memfree().
+Provided by hlp_memalloc(), hlp_memallocsig(), hlp_memrealloc() and hlp_memfree()
+functions.
 @li allocated memory is zero-filled (additional space after realloc call - too).
 @li any allocation is rounded up to 64kb internally. So if you ask 1 byte, it
 get 64k from system.
@@ -548,22 +553,38 @@ get 64k from system.
 memory was founded.
 @li any damage of memory headers will produce panic.
 @li you can print memory table to log by hlp_memprint() (in debug build).
+@li hlp_memallocsig() allows to set 4 chars signature to block, which is
+visible in log dump.
+
+Note, that system alloc is shared over "system" - i.e. processes should free
+it at exit else it will be lost.
 
 @section memm_heap Heap alloc
-Provided by memmgr.h. Fast "heap" memory manager.
+Provided by memmgr.h and malloc.h. Fast "heap" memory manager.
 All of data are global too.
 @attention Allocated memory is NOT zero filled.
 
 Features:
-@li support of __FILE__ __LINE__ (in malloc.h). Do not reach <b>8190</b> lines per file!!
-@li full dump list of blocks (memDumpLog())
-@li optional paranoidal check mode, memCheckMgr() call
-@li "batch" blocks freeing (marked by own unique Owner & Pool values).
-@li print of TOP 32 memory users (memStatMax(), by Owner & Pool).
+@li 4 types of allocation - process owned, thread owned and DLL owned and
+shared over system.
+@li full dump list of blocks (mem_dumplog())
+@li for shared memory file and line information is available in log dump.
+@li optional paranoidal check mode, mem_checkmgr() call
+@li print TOP 32 memory users (mem_statmax(), by Owner & Pool).
 
-Manager allocate small blocks in multiple heaps (256kb each one), blocks >48k
-are allocated directly from system, but support all of functionality too.<br>
-Any damage of memory headers will cause immediate panic and dump.
+System supports "garbage collection" for process and thread owned blocks. I.e.,
+when process or thread exits - any belonging blocks will be auto-released.
+
+DLL owned blocks acts as "system shared" while DLL is loaded and will be
+auto-released on its unload.
+
+Note, what these rules also includes C++ "new"! Its result must be converted
+to shared type block by special macro (__set_shared_block_info()) if you
+planning to use it after process exit/DLL unload.
+
+Manager allocates small blocks in multiple heaps (256kb each one), blocks >48k
+are allocated directly from system, but supports the same functionality.<br>
+Any damage in memory headers will cause immediate panic and dump.
 
 Dumps of both memory managers can be printed to log in cmd shell or while
 pause message is active:
@@ -571,13 +592,12 @@ pause message is active:
 @li press Ctrl-Alt-F12 to dump pool block list (very long)
 
 Zero-fill still can be turned on for heap manager, but this functionality is
-not tested extremly and not recommended. Just add HEAPFLAGS=4 key to common
-ini file (os2ldr.ini / qsinit.ini).
+not hardly tested. Just add HEAPFLAGS = 4 key to common ini file 
+(os2ldr.ini / qsinit.ini).
 
 Also, 2 can be added to HEAPFLAGS key to turn on paranoidal checking of heap
 consistency (full check of control structs on every (re)alloc/free call). This
-option is terribly slow on large number of blocks, but will catch any heap
-damage on next alloc/free call.
+option is terribly slow, but it catches any heap damage on next alloc/free call.
 
 There is no debugger, but sys_errbrk() can help on random memory damages, it
 allow to set DR0..DR3 debug registers to catch memory read/write on specified
@@ -653,7 +673,7 @@ of lack of 4k paging.
 @li "chaining fixups" can be used to optimize fixup table size.
 @li data cannot be exported from 32-bit CODE objects! The source of problem
 is creation of small thunk for every CODE export entry, this thunk required
-for function chaining (qsmodext.h). */
+for function chaining (qsmodext.h).
 
 For linking LX modules by Watcom linker two options must be added:
 @code
@@ -668,17 +688,19 @@ but optimize LX fixups to "chaining" mode. This can save up to 10-15% of module
 size without any compression.
 
 More details:
-@li FLAT 32 bit DOS. No threads, no paging, shared address space (PAE still
-available, but only for mapping memory above 4Gb limit).
-@li launching "process" (module) get parameters and environment in the same
+@li FLAT 32 bit DOS. No threads, no paging, shared address space - by default.
+@li threads still available, but optionally ;)
+@li switching to PAE paging mode is available to, but only for mapping memory
+above 4Gb limit.
+@li launching "process" (module) gets parameters and environment in the same
 way as in OS/2. The one diffrence is: FS == 0 (no TIB).
 @li DLL modules (both code and data) are <b>global</b>, DLL init called
-on first load, fini - on real unload (zero usage couner).
-@li system does not mark memory as belonging to specified process, so, no
-any "automatic free" on exit. Module <b>must collect all garbage</b> before
-exit!
-@li unlike memory, all files opened by module via standard fopen() function
-will be closed after process termination.
+on first load, fini - on real unload (zero usage counter).
+@li by default system marks a heap memory as belonging to current process.
+This memory will be released on exit. Any way, @ref memm_system blocks are
+shared over system and still requires user handling on exit!
+@li all files, opened by module via standard i/o functions will be closed
+after process termination.
 @li exporting from EXE is supported. EXE and DLL can be cross-linked by
 imports from each other, but it is better to not use this feature (DLLs are
 global and DLL will be cross-linked with <b>first</b> EXE module, which load
@@ -714,8 +736,9 @@ support (plib3s.lib).
 Default C library has a short list of functions, but it's extending from time
 to time.
 
-DPMI available, but "unofficially" ;) - in BIOS hosted version only and without memory
-allocation functions. And there is no any support for allocating memory in 1st meg now.
+DPMI available, but "unofficially" ;) - in BIOS hosted version only and without
+memory allocation functions. And there is no any support for allocating memory
+in 1st meg now.
 
 All available runtime and C library functions linked to app as imports
 from modules QSINIT ans START. As result - EXE sizes on pure C are very small ;)

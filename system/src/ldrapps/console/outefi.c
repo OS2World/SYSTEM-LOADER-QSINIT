@@ -40,7 +40,7 @@ static void _std out_init(void) {
    // total number of available modes
    mode_limit += MAXEMU_MODES + 1;
    modes       = (con_modeinfo*)malloc(sizeof(con_modeinfo)*mode_limit);
-   memZero(modes);
+   mem_zero(modes);
    // common text modes
    for (ii=0; ii<con_modes; ii++) {
       modes[ii].width  = cm_list[ii].conmode_x;

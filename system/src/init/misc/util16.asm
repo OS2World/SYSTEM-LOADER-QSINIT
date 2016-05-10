@@ -20,7 +20,7 @@ DATA16          segment                                         ;
                 extrn   _DiskBufRM_Seg:word                     ;
                 extrn   _syslapic:dword                         ;
                 extrn   _apic_tmr_vnum:byte                     ;
-                public  _ComPortAddr, _BaudRate, _state_rec_len ;
+                public  _ComPortAddr, _BaudRate                 ;
                 public  _logrmbuf, _logrmpos, _page0_fptr       ;
                 public  rm_timer_ofs, rm_spur_ofs               ;
                 public  apic_tmr_rcnt, apic_tmr_reoi            ;
@@ -49,7 +49,6 @@ mini_gdt_ptr    dw      $-mini_gdt-1, offset mini_gdt, 0, 0     ;
 ; by START module when it turns on PAE.
 _page0_fptr     dd      0                                       ;
                 dd      SELZERO                                 ;
-_state_rec_len  dw      size tss_s                              ;
 DATA16          ends                                            ;
 
 _BSS16          segment

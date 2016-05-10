@@ -124,13 +124,10 @@ u32t opts_getpcmem(u64t *highaddr) {
    if (highaddr) *highaddr = haddr;
    if (rc) return rc;
 
-   AcpiMemInfo *rtbl = int15mem();
-   // copying data from disk buffer first
+   AcpiMemInfo *tbl = hlp_int15mem();
    int idx = 0;
-   while (rtbl[idx].LengthLow||rtbl[idx].LengthHigh) idx++;
+   while (tbl[idx].LengthLow||tbl[idx].LengthHigh) idx++;
    if (idx) {
-      AcpiMemInfo *tbl = new AcpiMemInfo[idx];
-      memcpy(tbl, rtbl, sizeof(AcpiMemInfo)*idx);
       for (int ii=0; ii<idx; ii++) {
          int tidx = tbl[ii].AcpiMemType;
          // count only "usable", "reserved (ACPI)" and "reserved (NVS)" blocks
@@ -141,8 +138,8 @@ u32t opts_getpcmem(u64t *highaddr) {
             ((u64t)tbl[ii].LengthHigh<<32) + tbl[ii].LengthLow;
          if (ea > haddr) haddr = ea;
       }
-      delete tbl;
    }
+   free(tbl);
    rc>>=10;
    if (highaddr) *highaddr = haddr;
    return rc;

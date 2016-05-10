@@ -5,7 +5,7 @@
 #include "errno.h"
 #include "qsvdisk.h"
 #include "qcl/qslist.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 #include "qsstor.h"
 #include "qsint.h"
 #include "dskinfo.h"

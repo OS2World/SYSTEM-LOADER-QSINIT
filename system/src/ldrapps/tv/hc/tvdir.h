@@ -14,8 +14,8 @@
 #  define findclose(p)          _dos_findclose(p)
 #  define ffblk                 dir_t
 #  define ff_attrib             d_attr
-#  define ff_ftime              d_time
-#  define ff_fdate              d_date
+#  define ff_ftime              d_wtime
+#  define ff_fdate              d_wtime
 #  define ff_fsize              d_size
 #  define ff_name               d_name
 #elif defined(__WATCOMC__)

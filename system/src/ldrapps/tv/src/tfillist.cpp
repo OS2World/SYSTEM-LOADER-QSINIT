@@ -36,6 +36,7 @@
 #endif
 #else // __QSINIT__
 #include <stdlib.h>
+#include <time.h>
 #endif
 #include <string.h>
 
@@ -120,7 +121,9 @@ void *DirSearchRec::operator new(size_t sz) {
 }
 
 static long SystemTimeRecode(ffblk &s) {
-#ifdef __OS2__
+#ifdef __QSINIT__
+   return timetodostime(s.ff_ftime);
+#elif defined(__OS2__)
    return *(unsigned short *)&s.ff_ftime+(*(unsigned short *)&s.ff_fdate<<16);
 #elif !defined(__MSVC__)&&!defined(__IBMCPP__)
    return s.ff_ftime + (long(s.ff_fdate) << 16);

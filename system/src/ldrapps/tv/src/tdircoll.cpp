@@ -25,6 +25,7 @@
 
 #ifdef __QSINIT__
 #include <qsutil.h>
+#include <qsio.h>
 #else
 #ifndef __IBMCPP__
 #include <dos.h>
@@ -46,7 +47,7 @@ Boolean driveValid(char drive) {
    DWORD mask = 0x01 << (drive - 'A');
    return (Boolean)(GetLogicalDrives() & mask);
 #elif defined(__QSINIT__)
-   return (Boolean)(hlp_curdir(drive - 'A')?1:0);
+   return (Boolean)(io_ismounted(drive - 'A', 0));
 #else
 #error Unknown platform!
 #endif

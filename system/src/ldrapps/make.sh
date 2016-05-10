@@ -45,7 +45,7 @@ then
   bash -c "./make.sh cplib    $bldparm"
   bash -c "./make.sh vhdd     $bldparm"
   bash -c "./make.sh extcmd   $bldparm"
-#  bash -c "./make.sh mtlib    $bldparm"
+  bash -c "./make.sh mtlib    $bldparm"
 else
   if test -f $1/$1.prj
   then

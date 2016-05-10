@@ -7,13 +7,14 @@
 #include "vioext.h"
 #include "errno.h"
 #include "qsstor.h"
+#include "qsio.h"
+#include "qssys.h"
 #include "qcl/qslist.h"
 #include "direct.h"
 
-extern char aboutstr[];
-extern char  *_CmdArgs;
-
-u32t      echo    = CMDR_ECHOOFF;
+extern 
+char    *_CmdArgs;
+u32t         echo = CMDR_ECHOOFF;
 ptr_list  history = 0;
 
 #define HISTORY_KEY  "cmd_hist_list"
@@ -154,6 +155,8 @@ static char* push_history(char *cmd) {
             free(cmd);
             return (char*)history->value(history->max());
          }
+      // share it in this way to prevent garbage in file name in memmgr dump
+      __set_shared_block_info(cmd, "cmd history", 0);
       history->add(cmd);
       return cmd;
    }
@@ -195,12 +198,15 @@ static int _std editline_cb(u16t key, key_strcbinfo *dta) {
 }
 
 int cmdloop(const char *init) {
-   u32t rc;
+   u32t     rc;
+   qserr   err;
    read_history();
    do {
-      char *cmd;
+      char *cmd, cdir[QS_MAXPATH+1];
       vio_defshape(VIO_SHAPE_LINE);
-      printf("\n%s=>",hlp_curdir(hlp_curdisk()));
+
+      err  = io_curdir(cdir, QS_MAXPATH+1);
+      printf("\n%s=>", err?"??":cdir);
       cmd  = key_getstrex(editline_cb,-1,-1,-1,init);
       init = 0;
       printf("\n");
@@ -253,8 +259,11 @@ int main(int argc,char *argv[]) {
    }
 
    if (leave) {
-       char *about = strdup(aboutstr),
-            *cmpos = strrchr(about,',');
+       u32t ver_len = sys_queryinfo(QSQI_VERSTR, 0);
+       char  *about = (char*)malloc(ver_len), 
+             *cmpos;
+       sys_queryinfo(QSQI_VERSTR, about);
+       cmpos = strrchr(about,',');
        if (cmpos) *cmpos = 0;
        printf("\n  Welcome to %s shell! ;)\n",about);
        free(about);

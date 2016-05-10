@@ -17,12 +17,10 @@
                 extrn   _hlp_memrealloc :near
                 extrn   _hlp_memqconst  :near
                 extrn   _hlp_memgetsize :near
-                extrn   _hlp_finit      :near
                 extrn   _hlp_fopen      :near
                 extrn   _hlp_fread      :near
                 extrn   _hlp_fclose     :near
                 extrn   _hlp_freadfull  :near
-                extrn   _hlp_fdone      :near
                 extrn   _f_mount        :near
                 extrn   _f_open         :near
                 extrn   _f_read         :near
@@ -69,7 +67,6 @@
                 extrn   _crc32          :near
                 extrn   _zip_isok       :near
                 extrn   _zip_unpacked   :near
-                extrn   _unpack_zip     :near
                 extrn   _BootBPB        :byte
                 extrn   _hlp_selalloc   :near
                 extrn   _hlp_selfree    :near
@@ -103,10 +100,6 @@
                 extrn   _exit_prepare   :near
                 extrn   _exit_handler   :near
                 extrn   _mod_context    :near
-                extrn   _hlp_chdir      :near
-                extrn   _hlp_chdisk     :near
-                extrn   _hlp_curdisk    :near
-                extrn   _hlp_curdir     :near
                 extrn   _memsetw        :near
                 extrn   _memsetd        :near
                 extrn   __longjmp       :near
@@ -131,7 +124,7 @@
                 extrn   _vio_getpos     :near
                 extrn   _aboutstr       :near
                 extrn   _hlp_memavail   :near
-                extrn   _int15mem       :near
+                extrn   _hlp_int15mem   :near
                 extrn   _log_flush      :near
                 extrn   _mod_query      :near
                 extrn   _exit_poweroff  :near
@@ -198,9 +191,6 @@
                 extrn   _vio_ttylines   :near
                 extrn   _hlp_memallocsig:near
                 extrn   _exit_reboot    :near
-                extrn   _hlp_mountvol   :near
-                extrn   _hlp_unmountvol :near
-                extrn   _hlp_volinfo    :near
                 extrn   _hlp_disksize64 :near
                 extrn   _sys_setxcpt64  :near
                 extrn   _sys_selquery   :near
@@ -210,11 +200,18 @@
                 extrn   _hlp_rmcallreg  :near
                 extrn   _sys_rmtstat    :near
                 extrn   _mt_yield       :near
-                extrn   _sys_setyield   :near
                 extrn   _hlp_tscread    :near
                 extrn   _hlp_tscin55ms  :near
                 extrn   _exit_inprocess :near
-                extrn   _mt_setextcb    :near
+                extrn   _mt_exechooks   :near
+                extrn   _mt_swlock      :near
+                extrn   _mt_swunlock    :near
+                extrn   _mt_safedadd    :near
+                extrn   _mt_safedand    :near
+                extrn   _mt_safedor     :near
+                extrn   _mt_safedxor    :near
+                extrn   _mt_cmpxchgd    :near
+                extrn   _clock          :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -275,12 +272,11 @@ _exptable_data:
                 dd      offset _hlp_memallocsig                 ; #29
 ;----------------------------------------------------------------
 ;                nextord <30>                                    ;
-                dd      offset _hlp_finit                       ; #30
+                dd      0                                       ; hlp_finit was here, #30
                 dd      offset _hlp_fopen                       ;
                 dd      offset _hlp_fread                       ;
                 dd      offset _hlp_fclose                      ;
                 dd      offset _hlp_freadfull                   ;
-                dd      offset _hlp_fdone                       ;
 ;----------------------------------------------------------------
                 nextord <40>                                    ;
                 dd      offset _f_mount                         ;
@@ -301,10 +297,10 @@ _exptable_data:
                 dd      offset _f_utime                         ;
                 dd      offset _f_rename                        ;
                 dd      offset _f_closedir                      ;
-                dd      offset _hlp_chdir                       ;
-                dd      offset _hlp_chdisk                      ;
-                dd      offset _hlp_curdisk                     ;
-                dd      offset _hlp_curdir                      ;
+                dd      0                                       ;
+                dd      0                                       ;
+                dd      0                                       ;
+                dd      0                                       ;
                 dd      offset _f_getlabel                      ;
                 dd      offset _f_setlabel                      ;
                 dd      offset _hlp_setcpinfo                   ;
@@ -361,10 +357,9 @@ _exptable_data:
                 dd      offset _crc32                           ;
                 dd      offset _zip_isok                        ;
                 dd      offset _zip_unpacked                    ;
-                dd      offset _unpack_zip                      ;
 ;----------------------------------------------------------------
                 nextord <120>                                   ;
-                dd      offset _int15mem                        ;
+                dd      offset _hlp_int15mem                    ;
                 dd      offset _exit_poweroff                   ;
                 dd      offset _exit_restirq                    ;
                 dd      0                                       ;
@@ -404,12 +399,14 @@ _exptable_data:
                 dd      offset _sys_tmirq64                     ;
                 dd      offset _sys_rmtstat                     ;
                 dd      offset _mt_yield                        ;
-                dd      offset _sys_setyield                    ;
+                dd      offset _mt_swlock                       ;
                 dd      offset _exit_inprocess                  ;
-                dd      offset _mt_setextcb                     ;
+                next_is_offset                                  ;
+                dd      offset _mt_exechooks                    ;
+                dd      offset _mt_swunlock                     ; #159
 ;----------------------------------------------------------------
-                nextord <160>                                   ;
-                dd      offset _mod_load                        ;
+;                nextord <160>                                   ;
+                dd      offset _mod_load                        ; #160
                 dd      offset _mod_unpackobj                   ;
                 dd      offset _mod_getfuncptr                  ;
                 dd      offset _mod_exec                        ;
@@ -444,7 +441,7 @@ _exptable_data:
                 dd      offset _vio_beepactive                  ;
                 dd      offset _tm_setdate                      ;
                 dd      offset _tm_calibrate                    ;
-                dd      0                                       ;
+                dd      offset _clock                           ;
                 dd      offset _hlp_tscin55ms                   ;
 ;----------------------------------------------------------------
                 nextord <200>                                   ;
@@ -468,9 +465,9 @@ _exptable_data:
                 dd      offset _hlp_fddline                     ;
                 dd      offset _hlp_diskadd                     ;
                 dd      offset _hlp_diskremove                  ;
-                dd      offset _hlp_mountvol                    ;
-                dd      offset _hlp_unmountvol                  ;
-                dd      offset _hlp_volinfo                     ;
+                dd      0                                       ; mount/unmount
+                dd      0                                       ; was here
+                dd      0                                       ;
                 dd      offset _hlp_disksize64                  ;
                 dd      offset _hlp_diskstruct                  ;
 ;----------------------------------------------------------------
@@ -489,6 +486,12 @@ _exptable_data:
                 dd      offset _memsetq                         ;
                 dd      offset _memchrq                         ;
                 dd      offset _memchrnq                        ;
+                next_offsets <5>                                ;
+                dd      offset _mt_safedadd                     ; *
+                dd      offset _mt_safedand                     ; *
+                dd      offset _mt_safedor                      ; *
+                dd      offset _mt_safedxor                     ; *
+                dd      offset _mt_cmpxchgd                     ; *
 ;----------------------------------------------------------------
                 nextord <0>                                     ;
 _DATA           ends                                            ;

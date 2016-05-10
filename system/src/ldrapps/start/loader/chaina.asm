@@ -12,10 +12,12 @@
 CODE32          segment para public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
-                extrn   _thunk_call :near
-                extrn   _thunk_panic:near
-                extrn   _sys_exfunc4:near
-                extrn   _log_printf :near
+                extrn   _thunk_call :near                       ;
+                extrn   _thunk_panic:near                       ;
+                extrn   _mt_swlock:near                         ;
+                extrn   _mt_swunlock:near                       ;
+                extrn   _sys_exfunc4:near                       ;
+                extrn   _log_printf :near                       ;
 
 EXIT_SIGN       = 6B6F6F48h                                     ; Hook
 
@@ -28,7 +30,7 @@ EXIT_SIGN       = 6B6F6F48h                                     ; Hook
 ;
                 public  _chain_entry
 _chain_entry    label   near
-
+                call    _mt_swlock                              ;
                 cmp     [eax].od_entry,0                        ;
                 push    [eax].od_replace                        ; @@mc_replace
                 push    0                                       ; @@mc_userdata
@@ -71,6 +73,7 @@ _chain_entry    label   near
                 pop     eax                                     ; mc_replace addr
 @@chain_call:
                 xchg    eax,[esp]                               ; and eax
+                call    _mt_swunlock                            ;
                 ret                                             ; goto function
 @@chain_withexit:
                 push    edi                                     ;
@@ -108,6 +111,7 @@ _chain_entry    label   near
                 pop     eax                                     ; restore eax
                 pop     [ebp].es_retpoint                       ;
                 push    offset @@chain_calldone                 ;
+                call    _mt_swunlock                            ;
                 jmp     near ptr [ebp].es_address               ;
 @@chain_calldone:
                 push    ebp                                     ;
@@ -130,9 +134,11 @@ _chain_entry    label   near
                 mov     eax,[ebp].es_retpoint                   ; ret eip
                 mov     [edi+size pushad_s+4],eax               ;
                 mov     [ebp].es_sign,0                         ;
+                call    _mt_swlock                              ;
                 push    esp                                     ;
                 call    _thunk_call                             ;
                 mov     esp,edi                                 ;
+                call    _mt_swunlock                            ;
                 popad                                           ;
                 popfd                                           ;
                 ret                                             ;

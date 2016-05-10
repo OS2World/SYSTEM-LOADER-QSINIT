@@ -11,7 +11,7 @@
 #include "dskinfo.h"
 #include "qcl/rwdisk.h"
 #include "qcl/bitmaps.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 
 #define SLICE_SECTORS          1024   ///< "sectors" per one index slice
 #define HEADER_SPACE           4096
@@ -249,7 +249,8 @@ static int _std dsk_make(void *data, const char *fname, u32t sectorsize, u64t se
          fwrite(&mhdr, 1, 8, di->df);
          fwrite(&di->info, 1, sizeof(disk_geo_data), di->df);
          // save full file name
-         di->dfname   = _fullpath(0, fname, 0);
+         di->dfname = _fullpath(0, fname, 0);
+         mem_modblock(di->dfname);
          di->freehint = 0;
          // build hints for feature use
          build_hints(di);
@@ -310,6 +311,7 @@ static int _std dsk_open(void *data, const char *fname) {
          fdetach(di->df);
          // save full file name
          di->dfname = _fullpath(0, fname, 0);
+         mem_modblock(di->dfname);
          // build hints for feature use
          build_hints(di);
       }

@@ -23,7 +23,7 @@ exports = {
   _hlp_seroutstr   = { index=11 }                                 # serial print string
   _log_printf      = { index=12 }                                 # printf to log
   _log_flush       = { index=13 }                                 # flush delayed log data
-  _hlp_seroutinfo  = { index=14 }                                 # query serial parameters
+  _hlp_seroutinfo  = { index=14 group="system" format="h&*u" }    # query serial parameters
   _sys_errbrk      = { index=15 }                                 # DR0..DR3 access
   _sto_init        = { index=16 }                                 # storage support
   _hlp_seroutset   = { index=17 group="system" format="i@hu" }    # change serial parameters
@@ -40,12 +40,10 @@ exports = {
   _hlp_memreserve  = { index=28 }                                 # reserve mem at phys addr
   _hlp_memallocsig = { index=29 }                                 # global malloc with signature
 
-  _hlp_finit       = { index=30 }                                 # init boot FS file i/o
   _hlp_fopen       = { index=31 }                                 # open file
   _hlp_fread       = { index=32 }                                 # read file
   _hlp_fclose      = { index=33 }                                 # close file
   _hlp_freadfull   = { index=34 }                                 # open/read/close file
-  _hlp_fdone       = { index=35 }                                 # done boot FS file i/o
 
   _f_mount         = { index=40 group="fatfs"  format="bpsb"  }   # mount virtual disk
   _f_open          = { index=41 group="fatfs"  format="bps@c" }   # open file
@@ -65,10 +63,7 @@ exports = {
   _f_utime         = { index=55 group="fatfs"  format="bsp"   }   #
   _f_rename        = { index=56 group="fatfs"  format="bss"   }   # rename file
   _f_closedir      = { index=57 group="fatfs"  format="bp"    }   # close dir
-  _hlp_chdir       = { index=58 group="disk"   format="us"    }   # set current dir
-  _hlp_chdisk      = { index=59 group="disk"   format="u@c"   }   # set current disk
-  _hlp_curdisk     = { index=60 group="disk"   format="@cv"   }   # get current disk
-  _hlp_curdir      = { index=61 group="disk"   format="s@c"   }   # get current dir
+  # 58..61 removed (FatFs curdir functions)
   _f_getlabel      = { index=62 group="fatfs"  format="bs&s&*@u" } # get volume label
   _f_setlabel      = { index=63 group="fatfs"  format="bs"    }   # set volume label
   _hlp_setcpinfo   = { index=64 group="fatfs"  format="v*h"   }   # oem conversion setup
@@ -121,9 +116,9 @@ exports = {
   _crc32           = { index=114 group="zip"    format="@u@upu" } # crc32
   _zip_isok        = { index=115 group="zip"    format="ip"    }  # check last result
   _zip_unpacked    = { index=116 group="zip"    format="up&*u" }  # get total zip size
-  _unpack_zip      = { index=117 group="zip"    format="i@cpu" }  # unpack zip to virtual disk
+  # 117 removed (_unpack_zip)
 
-  _int15mem        = { index=120 }                                # get full ACPI memory table
+  _hlp_int15mem    = { index=120 }                                # get full ACPI memory table
   _exit_poweroff   = { index=121 }                                # power off the system
   _exit_restirq    = { index=122 group="system" format="vi"    }  # set IRQ restore flag
   _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
@@ -158,9 +153,10 @@ exports = {
   _sys_tmirq64     = { index=153 group="system" format="pp"    }  # timer irq on EFI host
   _sys_rmtstat     = { index=154 }                                # internal timer irq counters
   _mt_yield        = { index=155 }                                # yields CPU to other threads
-  _sys_setyield    = { index=156 group="system" format="pp"    }  # set mt_yield callback
+  _mt_swlock       = { index=156 }                                # inc global mt lock
   _exit_inprocess  = { index=157 group="system" format="uv"    }  # is exit in process?
-  _mt_setextcb     = { index=158 group="system" format="vp"    }  # internal (mtlib support)
+  _mt_exechooks    = { index=158 offset = yes }                   # internal (mtlib support)
+  _mt_swunlock     = { index=159 }                                # dec global mt lock
 
   _mod_load        = { index=160 }                                # load module
   _mod_unpackobj   = { index=161 }                                # unpack module object
@@ -174,26 +170,26 @@ exports = {
   _mod_listdel     = { index=169 }                                #
   _mod_listlink    = { index=170 }                                #
   _mod_listflags   = { index=172 }                                #
-  _mod_context     = { index=173 }                                # query module context (GS)
+  _mod_context     = { index=173 }                                # query module context
   _mod_query       = { index=174 }                                # is module loaded?
   _mod_apidirect   = { index=175 group="module" format="p@uu" }   #
   _mod_findexport  = { index=176 }                                # internal
 
-  _key_read        = { index=180 }                                # read character
+  _key_read        = { index=180 group="key"    format="@hv" }    # read character
   _key_pressed     = { index=181 }                                # is character pressed?
-  _key_speed       = { index=182 group="vio"    format="vbb" }    # set keyboard rate/delay
-  _key_status      = { index=183 }                                # get sys key status
-  _key_wait        = { index=184 }                                # wait key with delay
-  _key_push        = { index=185 group="vio"    format="b@h" }    # push key to keyboard buffer
-  _key_waithlt     = { index=186 group="vio"    format="ii" }     # wait method setup
-  _key_getspeed    = { index=187 group="vio"    format="v&*b&*b" } # get keyboard rate/delay
+  _key_speed       = { index=182 group="key"    format="vbb" }    # set keyboard rate/delay
+  _key_status      = { index=183 group="key"    format="@uv" }    # get sys key status
+  _key_wait        = { index=184 group="key"    format="@hu" }    # wait key with delay
+  _key_push        = { index=185 group="key"    format="b@h" }    # push key to keyboard buffer
+  _key_waithlt     = { index=186 group="key"    format="ii" }     # wait method setup
+  _key_getspeed    = { index=187 group="key"    format="v&*b&*b" } # get keyboard rate/delay
 
   _tm_counter      = { index=190 }                                # bios timer counter value
   _tm_getdate      = { index=191 }                                # query cmos date/time
   _vio_beepactive  = { index=192 }                                # is beep active now
   _tm_setdate      = { index=193 }                                # set cmos date/time
   _tm_calibrate    = { index=194 }                                # calibrate i/o delay
-  # 195 removed (_tm_setiodelay)
+  _clock           = { index=195 group="time"   format="@qv" }    # just clock()
   _hlp_tscin55ms   = { index=196 group="system" format="@qv" }    # rtdsc cycles in 55 ms
 
   _vio_getshape    = { index=200 group="vio"    format="@hv" }    # get cursor shape
@@ -214,9 +210,6 @@ exports = {
   _hlp_fddline     = { index=215 group="disk"   format="i@u"   }  #
   _hlp_diskadd     = { index=216 group="disk"   format="@ip"   }  #
   _hlp_diskremove  = { index=217 group="disk"   format="i@u"   }  #
-  _hlp_mountvol    = { index=218 group="disk"   format="u@c@u@qq"} # mount/unmount FAT/FAT32
-  _hlp_unmountvol  = { index=219 group="disk"   format="u@c"   }  #
-  _hlp_volinfo     = { index=220 group="disk"   format="u@cp"  }  # mounted volume info
   _hlp_disksize64  = { index=221 group="disk"   format="q@u&*u" } #
   _hlp_diskstruct  = { index=222 group="disk"   format="p@up"  }  #
 
@@ -233,4 +226,9 @@ exports = {
   _memsetq         = { index=240 group="clib"   format="pp@qu" }  #
   _memchrq         = { index=241 group="clib"   format="pp@qu" }  #
   _memchrnq        = { index=242 group="clib"   format="pp@qu" }  #
+  _mt_safedadd     = { index=243 }                                #
+  _mt_safedand     = { index=244 }                                #
+  _mt_safedor      = { index=245 }                                #
+  _mt_safedxor     = { index=246 }                                #
+  _mt_cmpxchgd     = { index=247 }                                #
 }

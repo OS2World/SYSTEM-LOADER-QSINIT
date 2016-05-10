@@ -15,6 +15,7 @@
 #include "qssys.h"
 #include "efnlist.h"
 #include "cpudef.h"
+#include "qspdata.h"
 
 #if ORD_QSINIT_vio_charout!=100
 #error VIO ordinals was changed!
@@ -23,6 +24,9 @@
 extern module * _std  mod_list,  // loaded and loading module lists
               * _std mod_ilist;  //
 extern u32t        xcpt_broken;  // "exception list was broken" flag. set by walk_xcpt.
+extern
+mt_proc_cb _std   mt_exechooks;  // this thing is import from QSINIT module
+
 
 void      mod_resetchunk(u32t mh, u32t ordinal);
 
@@ -34,7 +38,7 @@ static char buffer[PRNBUF_SIZE],
 static char *trapinfo1="EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfo2="ESI=%08X EDI=%08X EBP=%08X ESP=%08X DR7=%08X",
             *trapinfo3="DS=%04X ES=%04X SS=%04X GS=%04X FS=%04X TR=%04X Error Code: %04X",
-            *trapinfo4="CS:EIP=%04X:%08X",
+            *trapinfo4="CS:EIP=%04X:%08X      PID=%04d  TID=%04d",
             *trapinfo5="Unhandled exception in file %s, line %d",
             *trapinfoA="RAX=%016LX  RBX=%016LX  RCX=%016LX",
             *trapinfoB="RDX=%016LX  RSI=%016LX  RDI=%016LX",
@@ -43,7 +47,7 @@ static char *trapinfo1="EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfoE="R14=%016LX  R15=%016LX  RBP=%016LX",
             *trapinfoF="DR6=%08X DR7=%08X ",
             *trapinfoG="CR3=%016LX  GS.=%016LX  FS.=%016LX",
-            *trapinfoH="RIP=%016LX  RSP=%016LX",
+            *trapinfoH="RIP=%016LX  RSP=%016LX     PID=%04d  TID=%04d",
             *trapinfoI="Check failure for module \"%s\", PID %d";
 
 static char *trapname[19]={"Divide Error Fault", "Step Fault", "",
@@ -182,7 +186,8 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    get_flags_str(buffer, ti->tss_eflags);
    vio_setpos(8,3);
    trap_out(buffer);
-   snprintf(buffer, PRNBUF_SIZE, trapinfo4, ti->tss_cs, ti->tss_eip);
+   snprintf(buffer, PRNBUF_SIZE, trapinfo4, ti->tss_cs, ti->tss_eip,
+      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid);
    vio_setpos(9,3);
    trap_out(buffer);
    vio_setshape(0x20,0);
@@ -279,7 +284,8 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
    get_flags_str(buffer+strlen(buffer), ti->tss_eflags);
    vio_setpos(12,3);
    trap_out(buffer);
-   snprintf(buffer, PRNBUF_SIZE, trapinfoH, xd->x64_rip, xd->x64_rsp);
+   snprintf(buffer, PRNBUF_SIZE, trapinfoH, xd->x64_rip, xd->x64_rsp,
+      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid);
    vio_setpos(14,3);
    trap_out(buffer);
 

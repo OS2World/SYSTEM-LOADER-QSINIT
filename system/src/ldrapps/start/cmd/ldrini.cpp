@@ -14,17 +14,19 @@ Minor runtime functions, C++ part.
 #define LOG_INTERNAL
 #define STORAGE_INTERNAL
 #define SORT_BY_OBJECTS_ON
+#include "internal.h"
 #include "qsutil.h"
 #include "sp_ini.h"
 #include "qsshell.h"
 #include "qs_rt.h"
 #include "qslog.h"
+#include "qsio.h"
 #include "time.h"
 #include "stdlib.h"
 #include "qsstor.h"
 #include "qsinit.h"
 #include "qsint.h"
-#include "internal.h"
+#include "errno.h"
 
 static const char *cfg_section = "config",
                 *shell_section = "shell",
@@ -110,7 +112,7 @@ int get_ini_parms(void) {
          if (rc || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1);
 
          u32t heapflags = ini->ReadInt(cfg_section,"HEAPFLAGS");
-         memSetOptions(heapflags&0xF);
+         mem_setopts(heapflags&0xF);
 
          rc = 1;
       }
@@ -299,25 +301,32 @@ long _std ini_getint(const char *Section, const char *Key, long Value,
    return res;
 }
 
+/// convert TStrings to string list for usage in pure C code
+str_list* str_getlist_local(TStringVector &lst) {
+   str_list *res = str_getlist(lst);
+   mem_localblock(res);
+   return res;
+}
+
 // split string to items. result must be freed by single free() call
 str_list* __stdcall str_split(const char *str,const char *separators) {
    TStrings lst;
    lst.SplitString(str,separators);
    for (int ii=0;ii<=lst.Max();ii++) lst[ii].trim();
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 str_list* _std str_settext(const char *text, u32t len) {
    TStrings lst;
    lst.SetText(text,len);
    for (int ii=0;ii<=lst.Max();ii++) lst[ii].trimright();
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 str_list* __stdcall str_splitargs(const char *str) {
    TStrings lst;
    lst.ParseCmdLine(str);
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 static str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**values) {
@@ -334,9 +343,9 @@ static str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**valu
          if (!sk.trim().length() && !sv.trim().length())
             { lst.Delete(ii); vlst.Delete(ii); } else ii++;
       }
-      *values = str_getlist(vlst.Str);
+      *values = str_getlist_local(vlst.Str);
    }
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 str_list* _std str_keylist(const char *IniName, const char *Section,
@@ -355,7 +364,7 @@ str_list* _std str_seclist(const char *IniName) {
    if (!reinitini(IniName)) return 0; else {
       TStrings lst = ini->ReadSections();
       lst.TrimEmptyLines();
-      return str_getlist(lst.Str);
+      return str_getlist_local(lst.Str);
    }
 }
 
@@ -380,7 +389,7 @@ str_list* _std str_getsec(const char *IniName, const char *Section, u32t flags) 
    if (!reinitini(IniName)) return 0; else {
       TStrings lst;
       read_section(Section, flags, lst);
-      return str_getlist(lst.Str);
+      return str_getlist_local(lst.Str);
    }
 }
 
@@ -413,7 +422,7 @@ str_list* _std str_fromptr(char **list,int size) {
    TStrings lst;
    if (list&&size>0)
       while (size--) lst.Add(*list++);
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 // is key present? for subsequent search of the same parameter
@@ -506,7 +515,7 @@ static void _std getlog(log_header *log, void *extptr) {
       int ii,jj;
       const char *eol = pli->flags&LOGTF_DOSTEXT?"\r\n":"\n";
 
-      log_it(2, "%d lines of log quered\n", lst.Count());
+      log_it(2, "%d lines of log queried\n", lst.Count());
 
       for (ii=1;ii<lst.Count();ii++)
          // we`re can`t fill entire log for 3 seconds
@@ -525,27 +534,29 @@ static void _std getlog(log_header *log, void *extptr) {
 
 char* _std log_gettext(u32t flags) {
    getloginfo li = {flags, 0};
-   log_query(getlog,&li);
+   while (log_query(getlog,&li)==EBUSY) mt_yield();
+   // change block context to current process
+   if ((flags&LOGTF_SHARED)==0) mem_localblock(li.rc);
    return li.rc;
 }
 
 spstr changeext(const spstr &src,const spstr &newext) {
-  spstr dmp(src);
-  int ps=dmp.crpos('.');
-  if (dmp.crpos('/')>ps||dmp.crpos('\\')>ps) ps=-1;
-  if (!newext) {
-    if (ps>=0) dmp.del(ps,dmp.length()-ps);
-    return dmp;
-  }
-  if (ps<0) { dmp+='.'; ps=dmp.length(); }
-  if (ps<dmp.length()) dmp.del(ps+1,65536);
-  return dmp+=newext;
+   spstr dmp(src);
+   int ps=dmp.crpos('.');
+   if (dmp.crpos('/')>ps||dmp.crpos('\\')>ps) ps=-1;
+   if (!newext) {
+      if (ps>=0) dmp.del(ps,dmp.length()-ps);
+      return dmp;
+   }
+   if (ps<0) { dmp+='.'; ps=dmp.length(); }
+   if (ps<dmp.length()) dmp.del(ps+1,65536);
+   return dmp+=newext;
 }
 
 char* _std _changeext(const char *name, const char *ext, char *path) {
    if (!path||!name) return 0;
    spstr rc(changeext(name,ext));
-   strncpy(path,rc(),_MAX_PATH);
+   strncpy(path, rc(), _MAX_PATH);
    path[_MAX_PATH-1] = 0;
    return path;
 }
@@ -585,6 +596,8 @@ struct sto_entry {
 static Strings <sto_entry*> *storage = 0;
 
 void _std sto_save(const char *entry, void *data, u32t len, int copy) {
+   MTLOCK_THIS_FUNC _lk;
+
    if (!storage||!entry) return;
    int idx = storage->IndexOfICase(entry);
    sto_entry *ste = idx>=0?storage->Objects(idx):0;
@@ -614,6 +627,8 @@ void _std sto_save(const char *entry, void *data, u32t len, int copy) {
 }
 
 void _std sto_flush(void) {
+   MTLOCK_THIS_FUNC _lk;
+
    int ii, cnt = 0;
    stoinit_entry *stl = sto_init();
 
@@ -638,6 +653,8 @@ static sto_entry *sto_find(const char *entry) {
 }
 
 u32t _std sto_dword(const char *entry) {
+   MTLOCK_THIS_FUNC _lk;
+
    sto_entry *ste = sto_find(entry);
    if (!ste) return 0;
    return ste->isalloc && ste->size<=4?ste->ddvalue:*((u32t*)ste->data);
@@ -645,6 +662,8 @@ u32t _std sto_dword(const char *entry) {
 
 /// get pointer to stored data
 void *_std sto_data(const char *entry) {
+   MTLOCK_THIS_FUNC _lk;
+
    sto_entry *ste = sto_find(entry);
    if (!ste) return 0;
    return ste->isalloc && ste->size<=4?&ste->ddvalue:ste->data;
@@ -652,12 +671,15 @@ void *_std sto_data(const char *entry) {
 
 /// get size of to stored data
 u32t  _std sto_size(const char *entry) {
+   MTLOCK_THIS_FUNC _lk;
+
    sto_entry *ste = sto_find(entry);
    return ste?ste->size:0;
 }
 
 extern "C"
 void setup_storage() {
+   // init function, there is no file i/o and many other things here!
    if (storage) return;
    storage = new Strings <sto_entry*>;
    sto_flush();
@@ -713,4 +735,22 @@ int fullpath(spstr &path) {
    rc.UnlockPtr();
    if (res) path = rc;
    return res;
+}
+
+/// get current directory
+int getcurdir(spstr &path) {
+   char *cp = path.LockPtr(_MAX_PATH+1);
+   int  res = io_curdir(cp, _MAX_PATH+1)?0:1;
+   if (!res) *cp = 0;
+   path.UnlockPtr();
+   return res;
+}
+
+/// get current directory of active process (string is malloc-ed)
+char* _std getcurdir_dyn(void) {
+   spstr cd;
+   if (!getcurdir(cd)) return 0;
+   char *rc = strdup(cd());
+   __set_shared_block_info(rc, "getcurdir()", 0);
+   return rc;
 }

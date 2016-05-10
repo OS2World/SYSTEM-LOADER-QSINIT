@@ -13,6 +13,7 @@
 #include "pscan.h"
 #include "stdlib.h"
 #include "qsint.h"
+#include "qsio.h"
 #include "qsstor.h"
 #include "vio.h"
 
@@ -95,7 +96,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    if (!sectin4k || 4096 % di.SectorSize) return DFME_SSIZE;
    /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
       flag, so no any volume caching will occur until the end of format */
-   if (!hlp_unmountvol(vol)) return DFME_UMOUNT;
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
    // try to query actual values: LVM/PT first, BIOS - next
    if (!dsk_getptgeo(di.Disk,&geo)) {
       // ignore LVM surprise

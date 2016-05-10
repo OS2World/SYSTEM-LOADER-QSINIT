@@ -35,22 +35,24 @@ time_t  _std time(time_t *tloc);
 time_t  _std mktime(struct tm *timeptr);
 
 struct tm* _std localtime_r(const time_t *timer,struct tm * res);
-
 #define localtime(tme) localtime_r(tme,0)
+#define _localtime   localtime_r
 
 char*   _std ctime_r(const time_t *timer, char* buffer);
-
-#define ctime(tme) ctime_r(tme,0)
+#define ctime(tme)   ctime_r(tme,0)
+#define _ctime       ctime_r
 
 char*   _std asctime_r(const struct tm *timeptr, char* buffer);
-
 #define asctime(tme) asctime_r(tme,0)
+#define _asctime     asctime_r
 
 /// convert DOS time to struct tm value
 void    _std dostimetotm(u32t dostime, struct tm *dt);
 
 /// convert time_t to DOS time
 u32t    _std timetodostime(time_t time);
+
+time_t  _std dostimetotime(u32t dostime);
 
 #define CLOCKS_PER_SEC   1000000
 

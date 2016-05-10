@@ -48,13 +48,11 @@ u32t _std dsk_gptinit(u32t disk) {
    hi->gpt_size    = GPT_MINSIZE;
    hi->gpt_sectors = hi->gpt_size * GPT_RECSIZE / hi->info.SectorSize;
    // minimum data to perform dsk_flushgpt()
-   hi->ghead  = (struct Disk_GPT *)memAlloc(memOwner, memPool, MAX_SECTOR_SIZE);
-   hi->ptg    = (struct GPT_Record*)memAlloc(memOwner, memPool,
+   hi->ghead  = (struct Disk_GPT *)mem_allocz(memOwner, memPool, MAX_SECTOR_SIZE);
+   hi->ptg    = (struct GPT_Record*)mem_allocz(memOwner, memPool,
       sizeof(struct GPT_Record) * hi->gpt_size);
    if (hi->ghead) {
       struct Disk_GPT *pt = hi->ghead;
-      memZero(hi->ghead);
-      memZero(hi->ptg);
 
       pt->GPT_Sign      = GPT_SIGNMAIN;
       pt->GPT_Revision  = 0x10000;
@@ -95,7 +93,7 @@ u32t dsk_flushgpt(hdd_info *hi) {
       if (pt->GPT_Hdr2Pos - hi->gpt_sectors <= pt->GPT_UserLast)
          return DPTE_GPTHDR;
       // makes a copy
-      hi->ghead2      = pt2 = (struct Disk_GPT *)memDup(hi->ghead);
+      hi->ghead2      = pt2 = (struct Disk_GPT *)mem_dup(hi->ghead);
       pt2->GPT_PtInfo = pt->GPT_Hdr2Pos - hi->gpt_sectors;
    }
    // update crc32 in headers

@@ -4,7 +4,6 @@
 #include "stdarg.h"
 #include "qsvdisk.h"
 #include "qsutil.h"
-#include "qsmod.h"
 #include "qsdm.h"
 #include "vioext.h"
 #include "qsmodext.h"
@@ -212,12 +211,12 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             case EFBIG  : printf("Disk image too small or too big!\n"); break;
             case EIO    : printf("I/O error while reading disk image!\n"); break;
             default     :
-               cmd_shellerr(rc, 0);
+               cmd_shellerr(EMSG_CLIB, rc, 0);
          }
       }
       return rc;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 

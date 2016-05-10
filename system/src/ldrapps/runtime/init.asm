@@ -105,9 +105,10 @@ __CmdArgs       dd      0
 ; esp saved value
 exit_esp        dd      0
 
-                public  __RandSeed
+                public  __RandSeed, __IsDll
 __RandSeed      dd      1
-                extrn __argv:dword
+__IsDll         dd      0
+                extrn   __argv:dword
 argerr_msg      db      "stack too small!",10,13,0
 _DATA           ends
 

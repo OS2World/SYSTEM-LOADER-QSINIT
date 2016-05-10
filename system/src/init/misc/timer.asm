@@ -13,14 +13,14 @@
 
 _BSS16          segment
                 public  _IODelay, _OrgInt50h, _NextBeepEnd
-                public  _countsIn55ms, _rtdsc_present
+                public  _countsIn55ms, _rtdsc_present, _rdtscprev
                 align   4
 _rtdsc_present  db      ?
                 db      ?                                       ; reserved for align
 _IODelay        dw      ?                                       ; i/o delay value
 _OrgInt50h      dd      ?                                       ; old irq0 vector
 _NextBeepEnd    dd      ?                                       ; next end of beep, ticks
-rdtscprev       dq      ?                                       ;
+_rdtscprev      dq      ?                                       ;
 _countsIn55ms   dq      ?                                       ;
 _BSS16          ends
 
@@ -47,8 +47,8 @@ _calibrate_delay proc   far
                 pushf                                           ;
                 cli                                             ; disable interrupts
                 xor     eax,eax                                 ;
-                mov     dword ptr rdtscprev,eax                 ; zero rdtsc
-                mov     dword ptr rdtscprev+4,eax               ; counters
+                mov     dword ptr _rdtscprev,eax                ; zero rdtsc
+                mov     dword ptr _rdtscprev+4,eax              ; counters
                 mov     dword ptr _countsIn55ms,eax             ;
                 mov     dword ptr _countsIn55ms+4,eax           ;
 
@@ -191,20 +191,20 @@ irq0_handler    proc    near                                    ;
                 push    edx                                     ;
                 rdtsc                                           ;
                 mov     ecx,eax                                 ;
-                xchg    ecx,dword ptr cs:rdtscprev              ; calc diff between
+                xchg    ecx,dword ptr cs:_rdtscprev             ; calc diff between
                 jecxz   @@irq0_rtdsc_zero                       ; rdtscprev and
                 sub     eax,ecx                                 ; current value
 @@irq0_rtdsc_nz:
                 mov     ecx,edx                                 ;
-                xchg    ecx,dword ptr cs:rdtscprev+4            ; and save current
+                xchg    ecx,dword ptr cs:_rdtscprev+4           ; and save current
                 sbb     edx,ecx                                 ; as rdtscprev
                 mov     dword ptr cs:_countsIn55ms,eax          ;
                 mov     dword ptr cs:_countsIn55ms+4,edx        ;
                 jmp     @@irq0_rtdsc_exit
 @@irq0_rtdsc_zero:
-                or      ecx,dword ptr cs:rdtscprev+4            ; rdtscprev==0?
+                or      ecx,dword ptr cs:_rdtscprev+4           ; rdtscprev==0?
                 jnz     @@irq0_rtdsc_nz                         ; if not - continue calc,
-                mov     dword ptr cs:rdtscprev+4,edx            ; else just save new rdtscprev
+                mov     dword ptr cs:_rdtscprev+4,edx           ; else just save new rdtscprev
 @@irq0_rtdsc_exit:
                 pop     edx                                     ;
                 pop     ecx                                     ;

@@ -7,7 +7,7 @@
 #include "internal.h"
 #include "qecall.h"
 
-static const char *pattype[8] = { "UC", "WC", "???", "???", "WT", 
+static const char *pattype[8] = { "UC", "WC", "???", "???", "WT",
    "WP", "WB", "UC-" };
 
 static void fillinfo(u32t lowdd, char *tgt, u64t patmsr, int big) {
@@ -53,7 +53,7 @@ static void dump_pagedir(u64t *pd, u64t vbase, u64t patmsr, int is64) {
          if (pv&PD_BIGPAGE) {
             log_it(2, "%s big page (%012LX) %s\n", va_str, paddr&~(u64t)((1<<PD2M_ADDRSHL)-1),
                astr);
-         } else 
+         } else
          if (paddr>=_4GBLL) {
             log_it(2, "%s page table above 4Gb! (%012LX) %s\n", va_str, paddr, astr);
          } else {
@@ -79,6 +79,7 @@ static void dump_pagedir(u64t *pd, u64t vbase, u64t patmsr, int is64) {
    }
 }
 
+// it is not locked!
 void _std pag_printall(void) {
    u32t  ii, pi, cr0v, cr3v, cr4v;
    u64t  patmsr;
@@ -130,7 +131,7 @@ void _std pag_printall(void) {
                   if (pv&PD_BIGPAGE) {
                      log_it(2, "%012LX: big page (%012LX) %s\n", staddr,
                         paddr&~(u64t)((1<<PD1G_ADDRSHL)-1), astr);
-                  } else 
+                  } else
                   if (paddr>=_4GBLL) {
                      log_it(2, "%012LX: PDPTE above 4Gb! (%012LX) %s\n", staddr,
                         paddr, astr);
@@ -146,7 +147,7 @@ void _std pag_printall(void) {
       }
    } else {
       u64t *pdpt = (u64t*)(cr3v&~(1<<CR3PAE_PDPSHL-1));
-      
+
       for (ii=0; ii<4; ii++) {
          u32t lnp = 0;
          log_it(2, "PDPTE[%d]: %010LX\n", ii, pdpt[ii]);

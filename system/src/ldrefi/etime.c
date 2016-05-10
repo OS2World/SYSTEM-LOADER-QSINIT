@@ -5,6 +5,8 @@
 #include "qstime.h"
 #include "qecall.h"
 #include "../ldrapps/hc/qshm.h"
+#define MODULE_INTERNAL
+#include "qsmod.h"
 
 extern u16t IODelay;
 /* note that the same var present in BIOS host files, but with sligtly
@@ -18,25 +20,31 @@ void _std tm_setdate(u32t dostime) {
    call64(EFN_TMSETDATE, 0, 1, &dostime);
 }
 
-static u32t get_ticks(void) {
-   return tick_base + (u32t)((hlp_tscread()-tick_btsc)/countsIn55ms);
+static u32t get_ticks(u32t *mksrem) {
+   u64t diff = hlp_tscread()-tick_btsc;
+   u32t   rc = tick_base + (u32t)(diff/countsIn55ms);
+   // 55 ms in clock tick
+   if (mksrem) *mksrem = diff % countsIn55ms * 54932LL / countsIn55ms;
+   return rc;
 }
 
 void _std tm_calibrate(void) {
    /* countsIn55ms can be changed by tm_calibrate(), just because of ugly
-      EFI timers, to fix this - here we guarantee LINEAR increment of 
-      tm_counter() value */
+      EFI timers, this can cause DECREMENT of tm_counter() value.
+      To fix this - we guarantee linear increment here. */
+   mt_swlock();
    if (countsIn55ms) {
-      tick_base = get_ticks();
+      tick_base = get_ticks(0);
       tick_btsc = hlp_tscread();
    }
    IODelay = call64(EFN_TMCALIBRATE, 0, 0);
+   mt_swunlock();
    log_printf("new delay: %hu, tsc %LX\n", IODelay, countsIn55ms);
 }
 
 u32t _std tm_counter(void) {
    if (!countsIn55ms) tm_calibrate();
-   return get_ticks();
+   return get_ticks(0);
 }
 
 u64t tm_getdateint(void) {
@@ -53,4 +61,16 @@ u64t tm_getdateint(void) {
 
 u64t _std hlp_tscin55ms(void) {
    return countsIn55ms;
+}
+
+u64t _std clock(void) {
+   process_context *pq = mod_context();
+   u32t         mksrem;
+   u64t            res;
+   if (!countsIn55ms) tm_calibrate();
+   // 55 ms in clock tick
+   res = (get_ticks(&mksrem) - pq->rtbuf[RTBUF_STCLOCK]) * 54932;
+   res+= mksrem;
+   // it is inaccurate, but linear and really shows mks increment
+   return res;
 }

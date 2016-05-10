@@ -92,7 +92,7 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
       } else
       if (cc_setsize_str(0,fp)) return 0;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 

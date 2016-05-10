@@ -3,7 +3,8 @@
 #include "stdlib.h"
 #include "stdio.h"
 #ifdef __QSINIT__
-#include "../../hc/qsdm.h"
+#include "qsdm.h"
+#include "qcl/cplib.h"
 #endif
 
 #define MAX_ENTRIES 128
@@ -94,6 +95,67 @@ void TSysApp::PowerOFF() {
             errDlg(MSGE_NOTSUPPORTED);
       }
    }
+}
+
+int TSysApp::SetCodepage(int format) {
+#ifdef __QSINIT__
+   TInputLine *cpline;
+   TView     *control;
+   TDialog       *dlg = new TDialog(TRect(17, 6, 62, 15+format), "Select codepage");
+   if (!dlg) return 0;
+   dlg->options |= ofCenterX | ofCenterY;
+   dlg->helpCtx  = hcSetCodepage;
+
+   cpline = new TInputLine(TRect(13, 4+format, 19, 5+format), 5);
+   dlg->insert(cpline);
+
+   qs_cpconvert cpl = NEW(qs_cpconvert);
+   if (!cpl) return 0;
+   u16t     current = cpl->getsyscp(),
+            *cplist = cpl->cplist();
+   TSItem     *list = 0, *next;
+   char         tmp[8];
+   // no ask in format sequence and selected codepage
+   if (format && current) { destroy(dlg); DELETE(cpl); return 1; }
+
+   while (*cplist) {
+      itoa(*cplist++, tmp, 10);
+      TSItem *item = new TSItem(tmp,0);
+      if (!list) next = list = item; else { next->next = item; next = item; }
+   }
+
+   control = new TCombo(TRect(19, 4+format, 22, 5+format), cpline, cbxOnlyList |
+                       cbxDisposesList | cbxNoTransfer, list);
+   dlg->insert(control);
+   dlg->insert(new TLabel(TRect(2, 4+format, 12, 5+format), "Codepage:", cpline));
+
+   control = new TButton(TRect(22, 6+format, 32, 8+format), "O~K~", cmOK, bfDefault);
+   dlg->insert(control);
+
+   control = new TButton(TRect(32, 6+format, 42, 8+format), "~C~ancel", cmCancel, bfNormal);
+   dlg->insert(control);
+
+   control = new TStaticText(TRect(3, 2, 42, 3+format), format? "There is no codepage "
+             "selected, but HPFS format requires one. Default is 850.":
+             "Codepage affects file i/o in QSINIT.");
+   dlg->insert(control);
+   dlg->selectNext(False);
+
+   if (!current) current = 850;
+   itoa(current, tmp, 10);
+   setstr(cpline, tmp);
+
+   int  res = execView(dlg)==cmOK;
+   if (res) {
+      u32t cp = getuint(cpline);
+      res = cpl->setsyscp(cp);
+   } else
+      res = -1;
+
+   DELETE(cpl);
+   destroy(dlg);
+   return res;
+#endif
 }
 
 //------------------------------------------------------------------

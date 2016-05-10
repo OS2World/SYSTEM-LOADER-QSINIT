@@ -12,6 +12,7 @@ chmod +111 system/src/ldrefi/make.sh
 chmod +111 system/src/ldrapps/make.sh
 chmod +111 system/src/usrapps/example/make.sh
 chmod +111 system/src/usrapps/mptable/make.sh
+chmod +111 system/src/usrapps/mttest/make.sh
 chmod +111 system/src/tools/setupi.sh
 chmod +111 system/src/tools/src/bin2h/make.sh
 chmod +111 system/src/tools/src/def2lbc/make.sh

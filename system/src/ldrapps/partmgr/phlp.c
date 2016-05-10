@@ -138,7 +138,8 @@ dsk_mapblock* _std dsk_getmap(u32t disk) {
       if (hi->scan_rc) return 0;
       // alloc buffer
       rc  = (dsk_mapblock*)malloc(sizeof(dsk_mapblock)*cnt);
-      memZero(rc);
+      mem_zero(rc);
+      mem_localblock(rc);
       // query mounted volumes
       for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
       // copy partitions
@@ -352,7 +353,7 @@ u32t _std dsk_copysector(u32t dstdisk, u64t dstpos, u32t srcdisk,
          if (spb>act) spb = act;
          // get max 1/4 of max. avail block
          buf = (u8t*)hlp_memalloc(spb*s_sect, QSMA_RETERR|QSMA_NOCLEAR);
-         if (!spb) { rc = DPTE_NOMEMORY; break; }
+         if (!buf) { rc = DPTE_NOMEMORY; break; }
 
          count = act;
          if (cbprint) cbprint(prevpct = 0, 0);

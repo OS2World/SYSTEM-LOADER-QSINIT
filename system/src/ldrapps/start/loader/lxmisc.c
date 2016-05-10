@@ -17,12 +17,13 @@
 #include "qsstor.h"
 #include "qsshell.h"
 #include "qsint.h"
+#include "sysio.h"
 #include "vio.h"
 #include "start_ord.h"
 #include "internal.h"
 #include "qsclass.h"
 #include "qsxcpt.h"
-#include "qspdata.h"
+#include "qserr.h"
 
 extern u16t  _std IODelay;
 extern u32t  M3BufferSize;
@@ -59,7 +60,7 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
    lx_exp_b    *ee = (lx_exp_b*)((u8t*)eh+eh->e32_enttab);
    u32t        idx = 1, cnt=0, expsmax=32, thcnt = 0;
    mod_export *exp = mh->exps = malloc(sizeof(mod_export)*expsmax);
-   memZero(exp);
+   mem_zero(exp);
 
    while (ee->b32_cnt) {
       u32t e32=0, bsize=0;
@@ -69,7 +70,7 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
             e32 = 2;
          case ENTRY16 :
             if (ee->b32_obj==0||ee->b32_obj>eh->e32_objcnt) // invalid object?
-               return MODERR_BADEXPORT; else
+               return E_MOD_BADEXPORT; else
             {
                u8t *entry = (u8t*)ee + (bsize=sizeof(lx_exp_b));
                while (ee->b32_cnt--) {
@@ -93,18 +94,18 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
             }
             break;
          case GATE16  : // ring 2 does not supported
-            return MODERR_UNSUPPORTED;
+            return E_MOD_UNSUPPORTED;
          case ENTRYFWD: // forward entry
             {
                u8t *entry = (u8t*)ee + (bsize=sizeof(lx_exp_b));
                while (ee->b32_cnt--) {
                   // forwarding to the name table is not supported
-                  if ((*entry++&1)==0) return MODERR_UNSUPPORTED;
+                  if ((*entry++&1)==0) return E_MOD_UNSUPPORTED;
                   exp[cnt].ordinal = idx++;
                   exp[cnt].forward = *(u16t*)entry;
                   // invalid module ordinal?
                   if (!exp[cnt].forward||exp[cnt].forward>eh->e32_impmodcnt)
-                     return MODERR_BADEXPORT;
+                     return E_MOD_BADEXPORT;
                   entry+=2;
                   exp[cnt].address = *(u32t*)entry;
                   entry+=4; bsize+=7;
@@ -113,7 +114,7 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
             }
             break;
          default:
-            return MODERR_BADEXPORT;
+            return E_MOD_BADEXPORT;
       }
       ee=(lx_exp_b*)((u8t*)ee+bsize);
    }
@@ -235,10 +236,7 @@ u32t _std mod_unpack3(u32t datalen, u8t* src, u8t *dst) {
    return DecompressM3(datalen,src,dst,M3Buffer);
 }
 
-u32t _std mod_getpid(void) {
-   process_context *pq = mod_context();
-   return pq?pq->pid:0;
-}
+u32t _std mod_getpid(void) { return mod_context()->pid; }
 
 u32t _std mod_appname(char *name, u32t parent) {
    process_context *pq = mod_context();
@@ -274,7 +272,7 @@ int _std unzip_ldi(void *mem, u32t size, const char *path) {
    u32t    bsize = 0, delaycnt = sto_dword(STOKEY_DELAYCNT);
    delaycnt &= 0xFF;
    // trying to use one buffer  in stack
-   cpath = callstr + snprintf(callstr, 128, "/o /q /key %s 1:\\ ", STOKEY_ZIPDATA);
+   cpath = callstr + snprintf(callstr, 128, "/o /q /key %s b:\\ ", STOKEY_ZIPDATA);
    unpp  = _fullpath(cpath, path, _MAX_PATH);
 
    if (!unpp || toupper(unpp[0])!='B') return 0;
@@ -324,18 +322,28 @@ void _std mod_freeexps(module *mh) {
    trace_unload_hook(mh);
    // free other possible function thunks
    mod_freethunk((u32t)mh,0);
+   // free heap blocks, belonging to this module
+   mem_freepool(QSMEMOWNER_COLIB, (u32t)mh);
 }
 
-// process start callback
+/** process start callback.
+    note, that callbacks are called in CALLER context! */
 int _std mod_startcb(process_context *pq) {
    reset_ini_cache();
    init_stdio(pq);
    return 0;
 }
 
+/** process exit callback.
+    note, that callbacks are called in CALLER context! */
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    int errtype = 0;
-   fcloseall();
+
+   // !!!
+   fcloseall_as(pq->pid);
+   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR);
+
+
    if (pq->rtbuf[RTBUF_PUSHDST]) {
       pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
       pq->rtbuf[RTBUF_PUSHDST] = 0;
@@ -345,7 +353,7 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
       pq->rtbuf[RTBUF_ANSIBUF] = 0;
    }
 
-   if (!memCheckMgr()) errtype = 1; else
+   if (!mem_checkmgr()) errtype = 1; else
    if (!exi_checkstate()) errtype = 2;
 
    if (errtype) {
@@ -370,19 +378,24 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
 }
 
 u32t _std mod_getmodpid(u32t module) {
-   process_context *pq = mod_context();
-   while (pq) {
-      if ((u32t)pq->self==module) return pq->pid;
-      pq = pq->pctx;
+   qs_mtlib      mtlib = get_mtlib();
+
+   if (mtlib->active()) return mtlib->getmodpid(module); else {
+      process_context *pq = mod_context();
+      while (pq) {
+         if ((u32t)pq->self==module) return pq->pid;
+         pq = pq->pctx;
+      }
    }
    return 0;
 }
 
 mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
    &mod_buildexps, &mod_searchload, &mod_unpack1, &mod_unpack2, &mod_unpack3,
-   &mod_freeexps, &memAlloc, &memRealloc, &memFree, &freadfull, &log_pushtm,
+   &mod_freeexps, &mem_alloc, &mem_realloc, &mem_free, &freadfull, &log_pushtm,
    &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
-   &hlp_memcpy, &mod_loaded, &sys_exfunc4};
+   &hlp_memcpy, &mod_loaded, &sys_exfunc4, &hlp_volinfo, &io_fullpath,
+   &getcurdir_dyn, &io_remove, &mem_freepool};
 
 extern module*_std _Module;
 
@@ -394,26 +407,4 @@ void setup_loader(void) {
    log_flush();
    // minor print
    log_printf("i/o delay value: %d\n",IODelay);
-
-   /* because process context is a CONSTANT value for all processes (it swapped
-      on start/exit) - we just replace fake stdin/stdout/stderr exports to
-      pointers to process context data.
-      So every module (including DLLs!) will be fixuped with stdin, which
-      points to process context of current executing module */
-   pq = mod_context();
-   if (pq) {
-      mod_export *me = mod_findexport(_Module, ORD_START_stdin);
-      me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDIN];
-      pstdin  = (FILE**)me->direct;
-
-      me = mod_findexport(_Module, ORD_START_stdout);
-      me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDOUT];
-      pstdout = (FILE**)me->direct;
-
-      me = mod_findexport(_Module, ORD_START_stderr);
-      me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDERR];
-
-      me = mod_findexport(_Module, ORD_START_stdaux);
-      me->address = me->direct = (u32t)&pq->rtbuf[RTBUF_STDAUX];
-   }
 }

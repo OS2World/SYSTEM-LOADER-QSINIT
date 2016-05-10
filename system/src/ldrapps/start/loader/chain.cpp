@@ -4,6 +4,7 @@
 #include "qschain.h"
 #include "qsmodext.h"
 #include "qcl/qslist.h"
+#include "internal.h"
 #include "qslog.h"
 #include "stdlib.h"
 
@@ -141,7 +142,8 @@ static u32t del_handler(ordinal_data *od, u32t chaintype, void *handler) {
 }
 
 int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN || !ordinal || !chaintype ||
       (chaintype&~APICN_FIRSTPOS)>APICN_REPLACE || !handler) return 0;
    ordinal_data *od = find_entry(md, ordinal);
@@ -164,7 +166,7 @@ int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
 
       if (!chlist) chlist = NEW(ptr_list);
       od = (ordinal_data*)malloc(sizeof(ordinal_data));
-      memZero(od);
+      mem_zero(od);
       od->od_handle  = md;
       od->od_ordinal = ordinal;
       od->od_thunk   = (u8t*)me->address;
@@ -177,7 +179,8 @@ int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
 }
 
 u32t _std mod_apiunchain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN || chaintype>APICN_REPLACE) return 0;
    if (!chlist) return 0;
    u32t rc = 0;
@@ -222,13 +225,14 @@ void mod_resetchunk(u32t mh, u32t ordinal) {
 }
 
 void *mod_buildthunk(u32t mh, void *function) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN || !function) return 0;
    ordinal_data *od = find_entry(md, 0, function);
    if (!od) {
       if (!chlist) chlist = NEW(ptr_list);
       od = (ordinal_data*)malloc(Round16(sizeof(ordinal_data))+16);
-      memZero(od);
+      mem_zero(od);
       od->od_handle  = md;
       od->od_ordinal = 0;
       od->od_thunk   = (u8t*)od + Round16(sizeof(ordinal_data));
@@ -242,7 +246,8 @@ void *mod_buildthunk(u32t mh, void *function) {
 }
 
 u32t mod_freethunk(u32t mh, void *thunk) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN) return 0;
    if (!chlist) return 0;
    u32t rc = 0;
@@ -268,7 +273,8 @@ u32t mod_freethunk(u32t mh, void *thunk) {
 }
 
 int mod_fnchain(u32t mh, void *thunk, u32t chaintype, void *handler) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module  *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN || !thunk || !chaintype ||
       (chaintype&~APICN_FIRSTPOS)>APICN_REPLACE || !handler) return 0;
    ordinal_data *od = find_by_thunk(thunk);
@@ -278,7 +284,8 @@ int mod_fnchain(u32t mh, void *thunk, u32t chaintype, void *handler) {
 }
 
 u32t mod_fnunchain(u32t mh, void *thunk, u32t chaintype, void *handler) {
-   module *md=(module*)mh;
+   MTLOCK_THIS_FUNC lk;
+   module  *md = (module*)mh;
    if (!mh || md->sign!=MOD_SIGN || chaintype>APICN_REPLACE) return 0;
    if (!chlist) return 0;
    u32t rc = 0;

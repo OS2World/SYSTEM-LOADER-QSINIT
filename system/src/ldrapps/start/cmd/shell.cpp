@@ -308,7 +308,7 @@ static u32t process_for(TStrings &plist, session_info *si) {
       } while (0);
       if (rc) printf("\"%s\" is unexpected at this time\n",plist[ppos]());
    } else
-      cmd_shellerr(rc,0);
+      cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -338,7 +338,7 @@ static u32t cmd_process(spstr ln,session_info *si) {
    // ugly written IF processing :(
    if (cmd=="IF") {
       if (!plist.Count()) {
-         cmd_shellerr(EINVAL,0);
+         cmd_shellerr(EMSG_CLIB,EINVAL,0);
       } else {
          int icase = plist[0].upper()=="/I"?1:0, exec=0;
          if (icase) plist.Delete(0);
@@ -487,13 +487,12 @@ static u32t cmd_process(spstr ln,session_info *si) {
    } else
    if (cmd.length()) {
       u32t error=0;
-      // correct TV direct A:..Z: path
       if (cmd[1]==':')
-         if (cmd[0]>='A'&&cmd[0]<='Z') cmd[0]-='A'-'0';
+         if (cmd[0]>='0'&&cmd[0]<='9') cmd[0]+='A'-'0';
       if (cmd[1]==':'&&cmd.length()==2) {
-         error = hlp_chdisk(cmd[0]-'0')?EZERO:ENODEV;
-         set_errorlevel(error);
-         if (error) cmd_shellerr(error,0);
+         error = io_setdisk(cmd[0]-'A');
+         set_errorlevel(error?ENODEV:EZERO);
+         if (error) cmd_shellerr(EMSG_QS,error,0);
       } else {
          // launch or search module
          module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
@@ -509,9 +508,11 @@ static u32t cmd_process(spstr ln,session_info *si) {
             rc = 0;
          } else {
             printf("Error loading module \"%s\"\n",cmd());
-            spstr msg;
-            msg.sprintf("_MOD%02d",error);
-            cmd_shellhelp(msg(),0);
+            char *msg = cmd_shellerrmsg(EMSG_QS,error);
+            if (msg) {
+               printf("(%s)\n", msg);
+               free(msg);
+            }
             set_errorlevel(error = ENOENT);
          }
       }
@@ -598,7 +599,7 @@ int _std log_hotkey(u16t key) {
          // Ctrl-Alt-F3: class list
          case 0x3D: case 0x60: case 0x6A: exi_dumpall(); return 1;
          // Ctrl-Alt-F4: file handles
-         case 0x3E: case 0x61: case 0x6B: log_ftdump(); return 1;
+         case 0x3E: case 0x61: case 0x6B: log_ftdump(); io_dumpsft(); return 1;
          // Ctrl-Alt-F5: process tree
          case 0x3F: case 0x62: case 0x6C: mod_dumptree(); return 1;
          // Ctrl-Alt-F6: gdt dump
@@ -614,7 +615,7 @@ int _std log_hotkey(u16t key) {
          // Ctrl-Alt-F11: dump main memory table
          case 0x85: case 0x89: case 0x8B: hlp_memcprint(); hlp_memprint(); return 1;
          // Ctrl-Alt-F12: dump memory log
-         case 0x86: case 0x8A: case 0x8C: memDumpLog("User request"); return 1;
+         case 0x86: case 0x8A: case 0x8C: mem_dumplog("User request"); return 1;
       }
    }
    return 0;
@@ -672,7 +673,7 @@ str_list* _std cmd_shellqall(int ext_only) {
    int ii = 0;
    while (ii<lst.Max())
       if (lst[ii]==lst[ii+1]) lst.Delete(ii+1); else ii++;
-   return str_getlist(lst.Str);
+   return str_getlist_local(lst.Str);
 }
 
 cmd_eproc _std cmd_modeadd(const char *name, cmd_eproc proc) {
@@ -687,9 +688,9 @@ str_list* _std cmd_modeqall(void) {
    if (ext_mode) {
       TStrings lst(*ext_mode);
       lst.Sort();
-      return str_getlist(lst.Str);
+      return str_getlist_local(lst.Str);
    }
-   str_list *rc = (str_list*)malloc(sizeof(str_list));
+   str_list *rc = (str_list*)malloc_local(sizeof(str_list));
    rc->count    = 0;
    rc->item[0]  = 0;
    return rc;

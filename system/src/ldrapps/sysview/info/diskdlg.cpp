@@ -25,6 +25,7 @@
 #endif
 #include "diskdlg.h"
 #include "diskact.h"
+#include "qsio.h"
 
 #define DISK_BUFFER   (32768)
 
@@ -755,8 +756,9 @@ void TSysApp::Unmount(u8t vol) {
 #ifdef __QSINIT__
    char msg[80];
    snprintf(msg, 80, "\3""Unmount QSINIT drive %c:/%c:?", vol+'0', vol+'A');
-   if (messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes)
-      if (!hlp_unmountvol(vol)) errDlg(MSGE_COMMONFAIL);
+   if (messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes) {
+      if (io_unmount(vol,0)) errDlg(MSGE_COMMONFAIL);
+   }
 #endif
 }
 
@@ -975,6 +977,14 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
          if (di.TotalSectors*(u64t)di.SectorSize/csize>_64KB && csize<_64KB)
             unitsize = csize;
       }
+   }
+
+   // set codepage if no one is selected now
+   if (ok && isHPFS) {
+      int cpres = SetCodepage(1);
+      if (cpres<0) ok = 0; else
+      if (!cpres)
+         if (!askDlg(MSGA_FMTCPSERR)) ok = 0;
    }
 
    if (ok) {

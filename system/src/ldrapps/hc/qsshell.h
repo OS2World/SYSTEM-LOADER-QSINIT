@@ -299,9 +299,19 @@ str_list* _std cmd_shellmsgall(str_list**values);
 u32t      _std cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb);
 
 /** print common error message.
+    @param errtype     error type (EMSG_* constant)
     @param errorcode   common error code
     @param prefix      message prefix */
-void      _std cmd_shellerr(int errorcode, const char *prefix);
+void      _std cmd_shellerr(u32t errtype, int errorcode, const char *prefix);
+
+#define EMSG_QS      0x0000           ///< QSINIT error codes (qserr.h)
+#define EMSG_CLIB    0x0001           ///< clib error codes (errno.h)
+
+/** get common error message.
+    @param errtype     error type (EMSG_* constant)
+    @param errorcode   common error code
+    @return message (need to be free() -ed) or 0 */
+char*     _std cmd_shellerrmsg(u32t errtype, int errorcode);
 
 /** add MODE command device handler.
     Note, what if no device handler present at the time of MODE command

@@ -8,10 +8,12 @@
 #include "stdlib.h"
 #define MODULE_INTERNAL
 #include "qsmod.h"
+#include "qsint.h"
 #include "qs_rt.h"
 #include "direct.h"
 #include "vioext.h"
 #include "qcl/qsmt.h"
+#include "qsio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,19 +38,27 @@ u32t  envlen2(process_context *pq, u32t *lines);
 #define envlen(pq) envlen2(pq,0)
 
 /** make copy of process environment.
+    Heap context is default (START.DLL)
     @param pq        Process context.
     @param addspace  Additional space to allocate in result memory block.
     @return environment in malloc(envlen()+addspace) buffer */
 char *envcopy(process_context *pq, u32t addspace);
 
+/// malloc in process context
+void* malloc_local(u32t size);
+
 // must be used outside clib.c - else watcom link it as forward entry ;)
-void  set_errno(int errno);
+int   set_errno(int errno_value);
+// return new errno value and set var itself
+int   set_errno_qserr(u32t err);
 int   get_errno(void);
-// set errno from FatFs lib error code
-void  set_errno2(int ffliberr);
+// error code convertion
+int   qserr2errno(qserr errv);
 // direct using of std* handles in START is not supported too
 FILE* get_stdout(void);
 FILE* get_stdin(void);
+
+int   fcloseall_as(u32t pid);
 
 /** global printed lines counter.
     Used for pause message calculation, updated by common vio functions and
@@ -84,15 +94,15 @@ char* msg_readstr(const char *section, const char *key);
 /// draw colored box
 void  draw_border(u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
-/** convert c lib path to qs path
-    warning! function can add one symbol to str (1:->1:\) */
-void  pathcvt(const char *src,char *dst);
-
 /// QSINIT is in the page mode (flag = 1/0)
 extern u8t  in_pagemode;
 
+/// QSINIT in MT mode (flag = 1/0)
+extern u8t    in_mtmode;
+
 /// disable task gate usage for exceptions
 extern u32t   no_tgates;
+
 
 /// init new process std i/o handles
 void  init_stdio(process_context *pq);
@@ -107,9 +117,9 @@ u32t  getcr0(void);
 u32t  getcr3(void);
 u32t  getcr4(void);
 #ifdef __WATCOMC__
-#pragma aux getcr0 = "mov eax,cr0";
-#pragma aux getcr3 = "mov eax,cr3";
-#pragma aux getcr4 = "mov eax,cr4";
+#pragma aux getcr0 = "mov eax,cr0" modify exact [eax];
+#pragma aux getcr3 = "mov eax,cr3" modify exact [eax];
+#pragma aux getcr4 = "mov eax,cr4" modify exact [eax];
 #endif
 
 /** get mtlib class instance.
@@ -121,8 +131,18 @@ qs_mtlib get_mtlib(void);
 /// custom dump mdt
 void log_mdtdump_int(printf_function pfn);
 
+/// internal i/o fullpath for clib implementation
+char* _std io_fullpath_int(char *dst, const char *path, u32t size, qserr *err);
+
+/** get current directory to malloc-ed buffer.
+    see also getcurdir() below */
+char* _std getcurdir_dyn(void);
+
 #ifdef __cplusplus
 }
+/// str_getlist, which returns memory in process context
+str_list* str_getlist_local(TStringVector &lst);
+
 /// call external shell command directly
 u32t  shl_extcall(spstr &cmd, TStrings &plist);
 
@@ -133,6 +153,12 @@ spstr changeext(const spstr &src, const spstr &newext);
     @param path         Path to expand.
     @return success flag */
 int   fullpath(spstr &path);
+
+/** get current directory
+    see also getcurdir_dyn() above.
+    @param path         Target string.
+    @return success flag */
+int   getcurdir(spstr &path);
 
 /** split file name to dir & name.
     @param [in]  fname  File name to split
@@ -188,6 +214,12 @@ class ansi_push_set {
 public:
    ansi_push_set(int newstate) { state = vio_setansi(newstate); }
    ~ansi_push_set() { vio_setansi(state); }
+};
+
+class MTLOCK_THIS_FUNC {
+public:
+   MTLOCK_THIS_FUNC() { mt_swlock(); }
+   ~MTLOCK_THIS_FUNC() { mt_swunlock(); }
 };
 
 #endif // __cplusplus

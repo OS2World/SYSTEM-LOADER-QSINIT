@@ -5,6 +5,7 @@
 #include "memmgr.h"
 #include "qsint.h"
 #include "qsstor.h"
+#include "qsio.h"
 #include "qcl/cplib.h"
 
 #define PERCENTS_PER_DISKCHECK   90
@@ -85,7 +86,7 @@ static int prepare_bb_list(fmt_info *fd) {
    }
    fd->bblist = (hpfs_badlist*)malloc(fd->bbidxlen*sizeof(hpfs_badlist));
    if (!fd->bblist) return 0;
-   memZero(fd->bblist);
+   mem_zero(fd->bblist);
 
    // sectors for the bad block list
    fd->sup.badlist.main = allocate_early(fd->bmp, SPB, 1);
@@ -381,7 +382,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    if (di.TotalSectors>=FORMAT_LIMIT) return DFME_LARGE;
    /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
       flag, so no any volume caching will occur until the end of format */
-   if (!hlp_unmountvol(vol)) return DFME_UMOUNT;
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
    // try to query actual values: LVM/PT first, BIOS - next
    if (!dsk_getptgeo(di.Disk,&geo)) {
       // ignore LVM surprise
@@ -393,7 +394,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    }
 
    fd = (fmt_info*)malloc(sizeof(fmt_info));
-   memZero(fd);
+   mem_zero(fd);
    /* create BPB.
       Native format uses "recommended BPB" as base, so some FAT-specific
       stuff non-zero in it, but we just leave it all with 0 */
@@ -444,7 +445,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
          exi_chainset(fd->bmp,0);
          // allocate space for bitmap index
          fd->mapidx = (u32t*)malloc(fd->mapidxlen*512*SPB);
-         if (fd->mapidx) memZero(fd->mapidx);
+         if (fd->mapidx) mem_zero(fd->mapidx);
       }
    }
 

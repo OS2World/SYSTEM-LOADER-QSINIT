@@ -151,7 +151,7 @@ u32t _std key_status(void) {
    return call64(EFN_KEYSTATUS, 0, 0);
 }
 
-u16t _std key_read(void) {
+u16t _std key_read_int(void) {
    return call64(EFN_KEYREAD, 0, 0);
 }
 
@@ -174,9 +174,10 @@ void _std key_getspeed(u8t *rate, u8t *delay) {
 }
 
 u8t _std key_push(u16t code) { return 0; }
-int _std key_waithlt(int on) { return 0; }
 
+/*
 u16t _std key_wait(u32t seconds) {
 //   cache_ctrl(CC_IDLE, DISK_LDR);
    return call64(EFN_KEYWAIT, 0, 1, seconds);
 }
+*/

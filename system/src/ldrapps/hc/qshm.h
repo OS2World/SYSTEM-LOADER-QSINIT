@@ -12,7 +12,7 @@ extern "C" {
 
 /** Safe version of hlp_readmsr() (read MSR register).
     Function catch an occured exception and return zeroes in this case.
-    @param [in]     index      register numner
+    @param [in]     index      register number
     @param [out]    ddlo       ptr to low dword (eax value), can be 0
     @param [out]    ddhi       ptr to high dword (edx value), can be 0
     @return bool - success flag, return 0 in both dwords if failed */
@@ -20,7 +20,7 @@ u32t _std hlp_getmsrsafe(u32t index, u32t *ddlo, u32t *ddhi);
 
 /** Safe version of hlp_writemsr() (write MSR register).
     Function catch an occured exception and return zero in this case.
-    @param  index      register numner
+    @param  index      register number
     @param  ddlo       low dword (eax value)
     @param  ddhi       high dword (edx value)
     @return bool - success flag */

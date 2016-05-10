@@ -121,7 +121,9 @@ const char *Hints[131]= {
   "Clone one partition`s data to another",
   "Select target disk here",
   "Select target partition",
-  "", "", "", "", "", "",
+  "",
+  "Select codepage for file i/o and HPFS format",
+  "", "", "", "",
   ""
   };
 

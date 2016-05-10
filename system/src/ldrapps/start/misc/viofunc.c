@@ -58,11 +58,11 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1, const c
 
    width = len1>0?len1:mode_x-1;
    if (col+width+1>=mode_x) width = mode_x-col-1;
-   buf   = (char*)malloc(mode_x);
+   buf   = (char*)malloc_local(mode_x);
 
    if (init) {
       rc    = strdup(init);
-      bsize = memBlockSize(rc);
+      bsize = mem_blocksize(rc);
       clen  = strlen(rc);
 
       if (clen>=width) {
@@ -74,7 +74,7 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1, const c
       }
    } else {
       pos=0; bsize=1024; clen=0; scroll=0; 
-      rc  = (char*)malloc(bsize);
+      rc  = (char*)malloc_local(bsize);
       *rc = 0;
    }
    //log_printf("pos: x=%d,y=%d,width=%d\n",col,line,width);
@@ -188,7 +188,7 @@ typedef struct {
    char       str[ANSI_BUF_LEN];
 } ansi_state;
 
-// searches and allocate ANSI state buffer
+// searches and allocates ANSI state buffer
 static ansi_state *ansi_getstate(void) {
    process_context *pq = mod_context();
    if (!pq) return 0;

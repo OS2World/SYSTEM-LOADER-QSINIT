@@ -57,7 +57,7 @@ typedef struct _free_block free_block;
 #define LDR_SSIZE    1024  // virtual disk sector size
 #define LDR_SSHIFT     10  // virtual disk sector shift
 
-/** boot parameters. 
+/** boot parameters.
     diskbuf_seg - 32k buffer in 1Mb, used for disk i/o and some other funcs,
     but can be re-used in user atomic ops. */
 typedef struct {
@@ -75,11 +75,10 @@ typedef struct {
 u16t _std int12mem(void);
 
 /** query "SMAP" memory table
-    @attention data returned in disk i/o buffer!
-    @return table with zero length in last entry */
-AcpiMemInfo* _std int15mem(void);
+    @return table with zero length in last entry, memory block must be free()-ed */
+AcpiMemInfo* _std hlp_int15mem(void);
 
-/// internal use only: mounted 2:-9: volume data
+/// internal use only: mounted volumes data
 typedef struct {
    u32t                 flags;              ///< flags for volume (VDTA_*)
    u32t                  disk;              ///< disk number
@@ -132,18 +131,20 @@ typedef u32t _std (*cache_read_func)(u32t disk, u64t pos, u32t ssize, void *buf)
 /// cache write function
 typedef u32t _std (*cache_write_func)(u32t disk, u64t pos, u32t ssize, void *buf);
 
-typedef struct {   
+typedef struct {
    /// number of entries in this table
    u32t    entries;
    /// ioctl function
    cache_ioctl_func     cache_ioctl;
-   /// sector read function
+   /// sector read function (MT locked state guaranteed duaring call)
    cache_read_func       cache_read;
-   /// sector write function
+   /// sector write function (MT locked state guaranteed duaring call)
    cache_write_func     cache_write;
 } cache_extptr;
 
-/** install/remove external cache processor
+/** install/remove external cache processor.
+    Call should be made in MT locked state. CACHE module is a single used of
+    this function.
     @param  fptr  Function, use NULL to remove handler.
     @return success flag (1/0) */
 u32t _std hlp_runcache(cache_extptr *fptr);
@@ -159,8 +160,8 @@ typedef void _std (*print_outf)(int ch, void *stream);
     @return number of printed characters */
 int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc);
 
-typedef struct {   
-   /// code page (just for trace printing)
+typedef struct {
+   /// code page number
    u16t    cpnum;
    /// OEM-Unicode bidirectional conversion
    u16t _std (*convert)(u16t src, int to_unicode);
@@ -173,6 +174,17 @@ typedef struct {
 
 /// setup FatFs i/o to specified codepage
 void _std hlp_setcpinfo(codepage_info *info);
+
+/// lock context switching over system
+void      mt_swlock  (void);
+/// unlock context switching
+void      mt_swunlock(void);
+
+// eliminate any regs saving
+#if defined(__WATCOMC__)
+#pragma aux mt_swlock   "_*" modify exact [];
+#pragma aux mt_swunlock "_*" modify exact [];
+#endif
 
 #ifdef __cplusplus
 }

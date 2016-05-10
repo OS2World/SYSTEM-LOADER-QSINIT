@@ -82,19 +82,19 @@ exports = {
                          expname = "__rmdir"
                        }
    __dos_findfirst   = {
-                         index = 42  group = "clib"    format = "hshp"
+                         index = 42  group = "clib"    format = "@ushp"
                          expname = "___dos_findfirst"
                        }
    __dos_findnext    = {
-                         index = 43  group = "clib"    format = "hp"
+                         index = 43  group = "clib"    format = "@up"
                          expname = "___dos_findnext"
                        }
    __dos_findclose   = {
-                         index = 44  group = "clib"    format = "hp"
+                         index = 44  group = "clib"    format = "@up"
                          expname = "___dos_findclose"
                        }
    __dos_stat        = {
-                         index = 45  group = "clib"    format = "hsp"
+                         index = 45  group = "clib"    format = "@usp"
                          expname = "___dos_stat"
                        }
    _strncat          = { index = 46  group = "string"  format = "sssu"  }
@@ -105,14 +105,14 @@ exports = {
                          expname = "___splitpath"
                        }
    _strcat_dyn       = { index = 50  group = "string"  format = "sss"   }
-   __dos_getdiskfree = { index = 51  group = "clib"    format = "uup"   }
+   __dos_getdiskfree = { index = 51  group = "clib"    format = "@uup"  }
    _bcmp             = { index = 52  group = "clib"    format = "uppu"  }
    __dos_readtree    = {
                          index = 53  group = "clib"    format = "uss&pipp"
                          expname = "___dos_readtree"
                        }
    __dos_freetree    = {
-                         index = 54  group = "clib"    format = "ip"
+                         index = 54  group = "clib"    format = "@up"
                          expname = "___dos_freetree"
                        }
    __access          = {
@@ -124,11 +124,11 @@ exports = {
                          expname = "___fullpath"
                        }
    __dos_setfileattr = {
-                         index = 57  group = "clib"    format = "hs@u"
+                         index = 57  group = "clib"    format = "@us@u"
                          expname = "___dos_setfileattr"
                        }
    __dos_getfileattr = {
-                         index = 58  group = "clib"    format = "hs&*@u"
+                         index = 58  group = "clib"    format = "@us&*@u"
                          expname = "___dos_getfileattr"
                        }
    __changeext       = { index = 59  group = "clib"    format = "sss&s" }
@@ -151,11 +151,11 @@ exports = {
    _bsr64            = { index = 70  group = "clib"    format = "iq"    }
    _hlp_copytoflat   = { index = 71  group = "clib"    format = "up@u@hu" }
    __dos_setfiletime = {
-                         index = 72  group = "clib"    format = "hs@uu"
+                         index = 72  group = "clib"    format = "@us@uu"
                          expname = "___dos_setfiletime"
                        }
    __dos_getfiletime = {
-                         index = 73  group = "clib"    format = "hs&*@uu"
+                         index = 73  group = "clib"    format = "@us&*@uu"
                          expname = "___dos_getfiletime"
                        }
    _sprintf_dyn      = {
@@ -186,7 +186,7 @@ exports = {
                          expname = "__fseek"
                        }
    _ftell            = { index = 87  group = "stdio"   format = "up"    }
-   _errno            = { index = 88  offset = yes  }                       # int errno
+   # ordinal 88 removed (errno)
    _freadfull        = { index = 89  group = "stdio"   format = "ps&*u" }
    _fcloseall        = { index = 90  group = "stdio"   format = "iv"    }
    __chsize          = {
@@ -251,31 +251,40 @@ exports = {
    _str2ulong        = { index =434  group = "clib"    format = "us"    }
    _str2int64        = { index =435  group = "clib"    format = "Is"    }
    _str2uint64       = { index =436  group = "clib"    format = "qs"    }
+   _dostimetotime    = { index =437  group = "clib"    format = "u@u"   }
+   __filelengthi64   = { index =438  group = "clib"    format = "Ip"    }
+   _bsf32            = { index =439  group = "clib"    format = "iu"    }
+   _bsr32            = { index =440  group = "clib"    format = "iu"    }
+   __get_errno       = { index =441  }
+   _vsprintf_dyn     = {
+                         index =442  group = "string"  format = "ssp"
+                         expname = "__vsprintf_dyn"
+                       }
+
 
    # memory manager
 
-   _memInit          = { index =100  group = "memmgr"  format = "vv"    }
-   _memDone          = { index =101  group = "memmgr"  format = "vv"    }
-   _memSetOptions    = { index =102  group = "memmgr"  format = "v@u"   }
-   _memAlloc         = { index =103  group = "memmgr"  format = "p@u@uu" }
-   _memRealloc       = { index =104  group = "memmgr"  format = "ppu"   }
-   _memFree          = { index =105  group = "memmgr"  format = "vp"    }
-   _memDup           = { index =106  group = "memmgr"  format = "pp"    }
-   _memZero          = { index =107  group = "memmgr"  format = "vp"    }
-   _memBlockSize     = { index =108  group = "memmgr"  format = "up"    }
-   _memFreePool      = { index =109  group = "memmgr"  format = "uuu"   }
-   _memFreeByPool    = { index =110  group = "memmgr"  format = "uu"    }
-   _memFreeByOwner   = { index =111  group = "memmgr"  format = "uu"    }
-   _memFreeAll       = { index =112  group = "memmgr"  format = "vv"    }
-   _memDumpLog       = { index =113  group = "memmgr"  format = "vs"    }
-   _memCheckMgr      = { index =114  group = "memmgr"  format = "iv"    }
-   _memStat          = { index =115  group = "memmgr"  format = "vv"    }
-   _memStatMax       = { index =116  group = "memmgr"  format = "vi"    }
-   _memGetObjInfo    = { index =117  group = "memmgr"  format = "up&*@u&*@u" }
-   _memGetUniqueID   = { index =118  group = "memmgr"  format = "v&*@u&*@u"  }
-   _memGetOptions    = { index =119  group = "memmgr"  format = "uv"    }
-   _memAllocZ        = { index =120  group = "memmgr"  format = "p@u@uu" }
-   _memSetObjInfo    = { index =121  group = "memmgr"  format = "up@u@u" }
+   # ordinals 100-101 removed
+   _mem_setopts      = { index =102  group = "memmgr"  format = "v@u"   }
+   _mem_alloc        = { index =103  group = "memmgr"  format = "p@u@uu" }
+   _mem_realloc      = { index =104  group = "memmgr"  format = "ppu"   }
+   _mem_free         = { index =105  group = "memmgr"  format = "vp"    }
+   _mem_dup          = { index =106  group = "memmgr"  format = "pp"    }
+   _mem_zero         = { index =107  group = "memmgr"  format = "vp"    }
+   _mem_blocksize    = { index =108  group = "memmgr"  format = "up"    }
+   _mem_freepool     = { index =109  group = "memmgr"  format = "uuu"   }
+   # ordinal 110 removed (memFreeByPool)
+   _mem_freeowner    = { index =111  group = "memmgr"  format = "uu"    }
+   # ordinal 112 removed (memFreeAll)
+   _mem_dumplog      = { index =113  group = "memmgr"  format = "vs"    }
+   _mem_checkmgr     = { index =114  group = "memmgr"  format = "iv"    }
+   _mem_stat         = { index =115  group = "memmgr"  format = "vv"    }
+   _mem_statmax      = { index =116  group = "memmgr"  format = "vi"    }
+   _mem_getobjinfo   = { index =117  group = "memmgr"  format = "up&*@u&*@u" }
+   _mem_uniqueid     = { index =118  group = "memmgr"  format = "v&*@u&*@u"  }
+   _mem_getopts      = { index =119  group = "memmgr"  format = "uv"    }
+   _mem_allocz       = { index =120  group = "memmgr"  format = "p@u@uu" }
+   _mem_setobjinfo   = { index =121  group = "memmgr"  format = "up@u@u" }
 
    # string lists and ini
 
@@ -315,13 +324,14 @@ exports = {
    _cmd_shellqall    = { index =159  group = "shell"   format = "pi"    }
    _cmd_shellhelp    = { index =161  group = "shell"   format = "isb"   }
    _cmd_shellcall    = { index =162  group = "shell"   format = "upsp"  }
-   _cmd_shellerr     = { index =163  group = "shell"   format = "vis"   }
+   _cmd_shellerr     = { index =163  group = "shell"   format = "vuis"  }
    _cmd_shellgetmsg  = { index =164  group = "shell"   format = "ps"    }
    _cmd_printf       = { index =165  group = "shell"   format = "is."   }
    _cmd_modeadd      = { index =166  group = "shell"   format = "psp"   }
    _cmd_modermv      = { index =167  group = "shell"   format = "psp"   }
    _cmd_modeqall     = { index =168  group = "shell"   format = "pi"    }
    _cmd_shellmsgall  = { index =169  group = "shell"   format = "p&*p"  }
+   _cmd_shellerrmsg  = { index =490  group = "shell"   format = "sui"   }
 
    # modules
 
@@ -333,7 +343,9 @@ exports = {
    _mod_appname      = { index =175  group = "module"  format = "u&si"  }
    _mod_getname      = { index =176  group = "module"  format = "s@up"  }
    _mod_searchload   = { index =177  group = "module"  format = "us&*u" }
-   _mod_dumptree     = { index =179  }
+   _mod_dumptree     = { index =179  
+                         expname = "__mod_dumptree" 
+                       }
 
    _env_istrue       = { index =180  group = "shell"   format = "is"    }
    _mod_buildthunk   = { index =181  group = "module"  format = "p@up"  }
@@ -341,8 +353,10 @@ exports = {
    _mod_fnchain      = { index =183  }
    _mod_fnunchain    = { index =184  }
    _mod_getmodpid    = { index =185  group = "module"  format = "@up"   }
+   _log_dumppctx     = { index =186  }
 
-   _mod_main         = { index =189 }  # do not call THIS! :)
+   _mt_startcb       = { index =188  noimplib = yes }  # do not call this!
+   _mod_main         = { index =189  noimplib = yes }  # and especially THIS! ;)
 
    # exception handling
 
@@ -372,6 +386,7 @@ exports = {
    _exi_methods      = { index =213  group = "exi"     format = "u@u"   }
    _exi_instdata     = { index =214  group = "exi"     format = "pp"    }
    _exi_chainset     = { index =215  group = "exi"     format = "ipi"   }
+   _exi_query        = { index =216  group = "exi"     format = "us"    }
 
    # shell commands
 
@@ -497,8 +512,10 @@ exports = {
 
    # disk/volume functions
 
-   # ordinals 330-332 reserved (moved back to QSINIT)
-   _hlp_vollabel     = { index =333  group = "disk"    format = "u@cs"  }
+   _hlp_mountvol     = { index =330  group = "disk"    format = "u@c@u@qq" }
+   _hlp_unmountvol   = { index =331  group = "disk"    format = "u@c"   }
+   _hlp_volinfo      = { index =332  group = "disk"    format = "u@cp"  }
+   # ordinal 333 removed (hlp_vollabel)
    _dsk_strtodisk    = { index =334  group = "disk"    format = "@us"   }
    # ordinal 335 reserved (moved to QSINIT)
    _dsk_disktostr    = { index =336  group = "disk"    format = "s@up"  }
@@ -523,12 +540,67 @@ exports = {
    _sys_is64mode     = { index =386  group = "system"  format = "iv"    }
    _sys_isavail      = { index =387  group = "system"  format = "@u@u"  }
    _sys_getlapic     = { index =388  group = "system"  format = "pv"    }
-
-   # time functions (390..393 was moved back to QSINIT)
-   _clock            = { index =394  group = "time"    format = "qv"    }
+   _sys_queryinfo    = { index =389  group = "system"  format = "uup"   }
+   # time functions (390..394 was moved back to QSINIT)
 
    _mt_initialize    = { index =500  group = "mt"      format = "uv"    }
    _mt_active        = { index =501  group = "mt"      format = "uv"    }
+   _mt_getthread     = { 
+                         index =502  group = "mt"      format = "uv"    
+                         expname = "__mt_getthread"
+                       }
+
+   _mt_safeqadd      = { index =510  }
+   _mt_safeqand      = { index =511  }
+   _mt_safeqor       = { index =512  }
+   _mt_safeqxor      = { index =513  }
+   _mt_cmpxchgq      = { index =514  }
+
+   # new i/o functions
+
+   _io_curdir        = { index =600  group = "io"      format = "@u&su" }
+   _io_diskdir       = { index =601  group = "io"      format = "@ub&su" }
+   _io_fullpath      = { index =602  group = "io"      format = "@u&ssu" }
+   _io_chdir         = { index =603  group = "io"      format = "@us"   }
+   _io_mkdir         = { index =604  group = "io"      format = "@us"   }
+   _io_rmdir         = { index =605  group = "io"      format = "@us"   }
+   _io_curdisk       = { index =606  group = "io"      format = "bv"    }
+   _io_setdisk       = { index =607  group = "io"      format = "@ub"   }
+   _io_open          = { index =608  group = "io"      format = "@us@u&*@u&*@u" }
+   _io_read          = { index =609  group = "io"      format = "@u@upu" }
+   _io_write         = { index =610  group = "io"      format = "@u@upu" }
+   _io_seek          = { index =611  group = "io"      format = "@q@uIu" }
+   _io_pos           = { index =612  group = "io"      format = "@q@u"  }
+   _io_flush         = { index =613  group = "io"      format = "@u@u"  }
+   _io_close         = { index =614  group = "io"      format = "@u@u"  }
+   _io_size          = { index =615  group = "io"      format = "@u@u&*@q" }
+   _io_setsize       = { index =616  group = "io"      format = "@u@u@q" }
+   _io_setstate      = { index =617  group = "io"      format = "@u@u@uu" }
+   _io_getstate      = { index =618  group = "io"      format = "@u@u&*@u" }
+   _io_lasterror     = { index =619  group = "io"      format = "@u@u"  }
+   _io_info          = { index =620  group = "io"      format = "@u@up" }
+   _io_filetype      = { index =621  group = "io"      format = "u@u"   }
+   _io_setexattr     = { index =622  group = "io"      format = "@usspu" }
+   _io_getexattr     = { index =623  group = "io"      format = "@ussp&u" }
+   _io_lstexattr     = { index =624  group = "io"      format = "ps"    }
+   _io_remove        = { index =625  group = "io"      format = "@us"   }
+   _io_pathinfo      = { index =626  group = "io"      format = "@usp"  }
+   _io_setinfo       = { index =627  group = "io"      format = "@usp@u" }
+   _io_diropen       = { index =628  group = "io"      format = "@us&*@u" }
+   _io_dirnext       = { index =629  group = "io"      format = "@u@up" }
+   _io_dirclose      = { index =630  group = "io"      format = "@u@u"  }
+   _io_lock          = { index =631  group = "io"      format = "@u@u@q@q" }
+   _io_unlock        = { index =632  group = "io"      format = "@u@u@q@q" }
+   _io_move          = { index =633  group = "io"      format = "@uss"  }
+   _io_timetoio      = { index =634  group = "io"      format = "vpu"   }
+   _io_iototime      = { index =635  group = "io"      format = "up"    }
+   _io_vollabel      = { index =636  group = "io"      format = "@u@bs" }
+   _io_ismounted     = { index =637  group = "io"      format = "u@b&*u" }
+   _io_volinfo       = { index =638  group = "io"      format = "@u@bp" }
+   _io_mount         = { index =639  group = "io"      format = "@u@b@u@q@q" }
+   _io_unmount       = { index =640  group = "io"      format = "@u@b@u" }
+   _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@ui" }
+   _io_dumpsft       = { index =642  group = "io"      format = "vv"    }
 }
 
 class = {

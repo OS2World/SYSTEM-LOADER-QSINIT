@@ -7,7 +7,7 @@
 #include "qsutil.h"
 #include "stdlib.h"
 #include "cache.h"
-#include "qcl/qsedinfo.h"
+#include "qcl/sys/qsedinfo.h"
 
 #undef  ADV_DEBUG
 
@@ -131,7 +131,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
    di->sysalloc = bsize >= 48 * 1024;
    di->prio     = di->sysalloc?(u32t*)hlp_memallocsig(bsize, "ioch", QSMA_RETERR): malloc(bsize);
    if (!di->prio) return 0;
-   if (!di->sysalloc) memZero(di->prio);
+   if (!di->sysalloc) mem_zero(di->prio);
    di->bitmap   = (u32t*)((u8t*)di->prio + bsize/2);
    // all ok
    di->enabled  = 1;
@@ -141,6 +141,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
 
 /// unload disk info structs on DLL exit
 void unload_all(void) {
+   mt_swlock();
    if (cache) cc_setsize(0,0);
    if (cdi) {
       int ii;
@@ -158,16 +159,17 @@ void unload_all(void) {
    }
    cdi_hdds = 0;
    cdi_fdds = 0;
+   mt_swunlock();
 }
 
 
 static void alloc_structs() {
-   u32t cnt, mem_total = 0;
+   u32t   cnt, mem_total = 0;
    cdi_hdds = hlp_diskcount(&cdi_fdds);
-   cnt = cdi_hdds + cdi_fdds;
+   cnt      = cdi_hdds + cdi_fdds;
    if (cnt) {
       cdi = (diskinfo*)malloc(sizeof(diskinfo) * cnt);
-      memZero(cdi);
+      mem_zero(cdi);
       for (cnt = 0; cnt<cdi_hdds; cnt++) mem_total+=alloc_disk(cnt, cdi+cnt);
       for (cnt = 0; cnt<cdi_fdds; cnt++) {
          mem_total+=alloc_disk(cnt|QDSK_FLOPPY, cdi+cdi_hdds+cnt);
@@ -218,47 +220,57 @@ static diskinfo *get_di(u32t disk) {
 }
 
 void _std cc_setprio(void *data, u32t disk, u64t start, u32t size, int on) {
-   diskinfo *di = get_di(disk);
+   diskinfo   *di;
+
+   mt_swlock();
+   di = get_di(disk);
    if (di && di->valid) {
       u32t sp, ep;
-      if (start >= di->sectors) return;
-      if (start+size >= di->sectors) size = di->sectors - start;
-      if (dblevel>1)
-         log_it(2,"cc_setprio(%X,0x%LX,0x%X,%d)\n",disk,start,size,on);
-      // size in bytes
-      start <<= di->sshift;
-      size  <<= di->sshift;
-      // start/end pos in megabytes
-      ep = (start + size + PRIO_ARRAY_STEP-1) / PRIO_ARRAY_STEP;
-      sp = start / PRIO_ARRAY_STEP;
-      // set bits in array
-      setbits(di->prio, sp, ep-sp+1, on?SBIT_ON:0);
-      // log it!
-      if (dblevel>2) log_it(2,"cc_setprio done\n");
+      if (start < di->sectors) {
+         if (start+size >= di->sectors) size = di->sectors - start;
+         if (dblevel>1)
+            log_it(2,"cc_setprio(%X,0x%LX,0x%X,%d)\n",disk,start,size,on);
+         // size in bytes
+         start <<= di->sshift;
+         size  <<= di->sshift;
+         // start/end pos in megabytes
+         ep = (start + size + PRIO_ARRAY_STEP-1) / PRIO_ARRAY_STEP;
+         sp = start / PRIO_ARRAY_STEP;
+         // set bits in array
+         setbits(di->prio, sp, ep-sp+1, on?SBIT_ON:0);
+         // log it!
+         if (dblevel>2) log_it(2,"cc_setprio done\n");
+      }
    }
+   mt_swunlock();
 }
 
 /// enable/disable cache for specified disk
 int _std cc_enable(void *data, u32t disk, int enable) {
    diskinfo *di;
+   int   result = -1;
+
+   mt_swlock();
    if (!cdi) alloc_structs();
-   if (dblevel>0) log_it(2,"cc_enable(%X,%d)\n",disk,enable);
+   if (dblevel>0) log_it(2,"cc_enable(%X,%d)\n", disk, enable);
 
    di = get_di(disk);
-   if (!di) return -1;
    // is it valid?
-   if (!di->valid) return -1;
-   if (enable<0) return di->enabled; else {
-      int oldstate = di->enabled;
-      di->enabled  = enable?1:0;
-      // if cache is active - drop all cached data for this disk
-      if (cache && !enable) cc_invalidate(data, disk, 0, FFFF64);
-      return oldstate;
+   if (di && di->valid) {
+      result = di->enabled;
+      if (enable>=0) {
+         di->enabled = enable?1:0;
+         // if cache is active - drop all cached data for this disk
+         if (cache && !enable) cc_invalidate(data, disk, 0, FFFF64);
+      }
    }
+   mt_swunlock();
+   return result;
 }
 
 /// set cache size in mbs
 void _std cc_setsize(void *data, u32t size_mb) {
+   mt_swlock();
    if (!size_mb) {
       hlp_runcache(0);
       if (cache) { hlp_memfree(cache); cache = 0; }
@@ -276,7 +288,10 @@ void _std cc_setsize(void *data, u32t size_mb) {
       if (blocks_total || cache) cc_setsize(data, 0);
       // check define and calc array`s shift
       a_shift = bsf64(PRIO_ARRAY_STEP);
-      if (a_shift<15 || 1<<a_shift!=PRIO_ARRAY_STEP) return;
+      if (a_shift<15 || 1<<a_shift!=PRIO_ARRAY_STEP) {
+         mt_swunlock();
+         return;
+      }
       a_shift  -= 15;
       // and process again
       hlp_memavail(&availmax,0);
@@ -298,7 +313,7 @@ void _std cc_setsize(void *data, u32t size_mb) {
          blocks_total = size_mb * 2;
          // block info
          bi = (blockinfo*)malloc(sizeof(blockinfo) * blocks_total);
-         memZero(bi);
+         mem_zero(bi);
          // block index
          cidxa = (u32t*)malloc(sizeof(u32t) * blocks_total);
          memsetd(cidxa, FFFF, blocks_total);
@@ -320,6 +335,7 @@ void _std cc_setsize(void *data, u32t size_mb) {
       } else
          log_it(2, "no memory?\n");
    }
+   mt_swunlock();
 }
 
 /// no any checks here!!
@@ -552,6 +568,7 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
    return rc;
 }
 
+// caller provides MT locking in own code
 u32t cache_read(u32t disk, u64t pos, u32t ssize, void *buf) {
    diskinfo *di = cache?get_di(disk):0;
    // wrong disk, pos, size
@@ -562,6 +579,7 @@ u32t cache_read(u32t disk, u64t pos, u32t ssize, void *buf) {
       else return cache_io(di, pos, ssize, (u8t*)buf, 0);
 }
 
+// caller provides MT locking in own code
 u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
    int   direct = disk&QDSK_DIRECT?1:0;
    diskinfo *di = cache?get_di(disk&~QDSK_DIRECT):0;
@@ -582,6 +600,7 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
    }
 }
 
+// called WITHOUT MT locking, but all ops here are safe
 void cache_ioctl(u8t vol, u32t action) {
    if (dblevel>1 && action!=CC_IDLE)
       log_it(2,"cache_ioctl(%d,%d)\n",vol,action);
@@ -620,10 +639,13 @@ void _std cc_invalidate_vol(void *data, u8t drive) {
 
 // warning! it called with data=0 from cache_write() above
 void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
-   diskinfo *di = get_di(disk);
+   diskinfo  *di;
+
+   mt_swlock();
+   di = get_di(disk);
    if (di && cache && di->valid) {
       // check arguments
-      if (start>di->sectors) return;
+      if (start>di->sectors) { mt_swunlock(); return; }
       if (start+size>di->sectors) size = di->sectors - start;
       if (dblevel>1)
          log_it(2,"cc_invalidate(%X,%LX,%LX)\n",disk,start,size);
@@ -635,7 +657,7 @@ void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
             if (bi[ii].pdi)
                if (bi[ii].pdi->disk==disk) free_bi_entry(ii,1);
          // zero both prio & bitmap arrays
-         if (!di->sysalloc) memZero(di->prio); else
+         if (!di->sysalloc) mem_zero(di->prio); else
             memset(di->prio, 0, hlp_memgetsize(di->prio));
       } else  {
          u32t min_loc = start>>di->s32shift,
@@ -650,13 +672,18 @@ void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
          }
       }
    }
+   mt_swunlock();
 }
 
 u32t _std cc_stat(void *data, u32t disk, u32t *pblocks) {
-   diskinfo *di = get_di(disk);
+   diskinfo   *di;
+   u32t     count = 0;
+
+   mt_swlock();
+   di = get_di(disk);
    if (pblocks) *pblocks = 0;
    if (di && cache && di->valid) {
-      u32t ii = blocks_total, count = 0, pcount = 0;
+      u32t ii = blocks_total, pcount = 0;
       // free all entries for this disk
       while (ii--)
          if (bi[ii].pdi)
@@ -665,7 +692,7 @@ u32t _std cc_stat(void *data, u32t disk, u32t *pblocks) {
                if (pblocks && (bi[ii].flags&BI_PRIO)) pcount++;
             }
       if (pblocks) *pblocks = pcount;
-      return count;
    }
-   return 0;
+   mt_swunlock();
+   return count;
 }

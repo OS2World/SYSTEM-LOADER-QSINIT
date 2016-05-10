@@ -9,6 +9,7 @@
 #include "vioext.h"
 #include "pscan.h"
 #include "qsint.h"
+#include "qsio.h"
 #include "direct.h"
 
 // is key present? (with argument or not)
@@ -227,7 +228,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
       }
       free(args); args=0;
    }
-   if (rc<0) cmd_shellerr(rc = EINVAL,0);
+   if (rc<0) cmd_shellerr(EMSG_CLIB,rc = EINVAL,0);
    return rc;
 }
 
@@ -251,7 +252,7 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
                   printf("Failed to unmount %c: !\n", '0'+ii);
                }
             }
-         if (hlp_curdisk()>DISK_LDR) hlp_chdisk(DISK_LDR);
+         if (io_curdisk()>DISK_LDR) io_setdisk(DISK_LDR);
          return 0;
       } else {
          u32t rc = 0;
@@ -263,8 +264,8 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
                return EINVAL;
             } else {
                vol&=~QDSK_VOLUME;
-
-               if (vol==hlp_curdisk()) hlp_chdisk(DISK_LDR);
+               // current process only
+               if (vol==io_curdisk()) io_setdisk(DISK_LDR);
 
                if (hlp_unmountvol(vol)) {
                   printf("Volume %c: unmounted\n", '0'+vol);
@@ -279,7 +280,7 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
       }
 
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 
@@ -593,7 +594,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
       } else
       if (subcmd==3) { // "BPB"
          int rc = dsk_printbpb(disk, 0);
-         if (rc && rc!=EINTR) cmd_shellerr(EIO,0);
+         if (rc && rc!=EINTR) cmd_shellerr(EMSG_CLIB,EIO,0);
          return rc;
       } else
       if (subcmd==4) { // "DIRTY"
@@ -627,7 +628,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
                rc = EACCES;
             }
          } else
-            cmd_shellerr(rc,0);
+            cmd_shellerr(EMSG_CLIB,rc,0);
          return rc;
       }
       return 0;
@@ -722,7 +723,7 @@ u32t _std shl_dm_clone(const char *cmd, str_list *args, u32t disk, u32t pos) {
       u32t  dpterr = 0;
 
       if (subcmd<0 || args->count<pos+1) {
-         cmd_shellerr(EINVAL, 0);
+         cmd_shellerr(EMSG_CLIB, EINVAL, 0);
          return EINVAL;
       }
       srcdisk = get_disk_number(args->item[pos++]);
@@ -744,7 +745,7 @@ u32t _std shl_dm_clone(const char *cmd, str_list *args, u32t disk, u32t pos) {
          u32t   srcindex, dstindex, s_sectsz, d_sectsz;
 
          if (args->count<pos+1 || args->count>pos+2) {
-            cmd_shellerr(EINVAL, 0);
+            cmd_shellerr(EMSG_CLIB, EINVAL, 0);
             return EINVAL;
          }
          // use str2long to prevent octal conversion
@@ -789,9 +790,9 @@ u32t _std shl_dm_clone(const char *cmd, str_list *args, u32t disk, u32t pos) {
          args = str_parseargs(args, pos, 1, argstr, argval, &ident, &sameid, &ignspt, &nowipe);
          rcnt = args->count;
          free(args);
-         // we must get empty list, else uncknown keys here
+         // we must get empty list, else unknown keys here
          if (rcnt) {
-            cmd_shellerr(EINVAL, 0);
+            cmd_shellerr(EMSG_CLIB, EINVAL, 0);
             return EINVAL;
          }
          if (ident ) flags|=DCLN_IDENT;
@@ -885,7 +886,7 @@ u32t _std shl_dmgr(const char *cmd, str_list *args) {
       }
       break;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB, EINVAL,0);
    return EINVAL;
 }
 
@@ -900,7 +901,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
       return 0;
    }
    while (args->count>0) {
-      int  ii, quick = 0, wipe = 0, noaf = 0, asz = 0, fatcpn = 2, quiet = 0;
+      int  ii, quick = 0, wipe = 0, noaf = 0, asz = 0, fatcpn = 2, quiet = 0, force = 0;
       u32t   disk = 0;
       char *szstr = 0;
       disk_volume_data vi;
@@ -931,7 +932,9 @@ u32t _std shl_format(const char *cmd, str_list *args) {
                               else
                            if (stricmp(args->item[ii]+4, "HPFS")==0) fstype = 1;
                               else rc=EINVAL;
-                        } else rc=EINVAL;
+                        } else 
+                        if (stricmp(args->item[ii]+1,"FORCE")==0) force = 1;
+                          else rc=EINVAL;
                         break;
                case 'N':if (stricmp(args->item[ii]+1,"NOAF")==0) noaf = 1;
                            else rc=EINVAL;
@@ -987,6 +990,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          if (fatcpn==1) flags|=DFMT_ONEFAT;
          if (wipe) flags|=DFMT_WIPE;
          if (noaf) flags|=DFMT_NOALIGN;
+         if (force || quiet) flags|=DFMT_FORCE;
 
          switch (fstype) {
             case 0: rc = vol_format (disk, flags, asz, quiet?0:fmt_callback); break;
@@ -1019,7 +1023,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
       }
       return rc;
    }
-   cmd_shellerr(!rc?EINVAL:rc,0);
+   cmd_shellerr(EMSG_CLIB, !rc?EINVAL:rc, 0);
    return !rc?EINVAL:rc;
 }
 
@@ -1195,7 +1199,7 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
       }
       return 0;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 
@@ -1395,7 +1399,7 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
       }
       return 0;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 
@@ -1633,7 +1637,7 @@ u32t _std shl_gpt(const char *cmd, str_list *args) {
       if (!rc) return 0;
       break;
    }
-   cmd_shellerr(EINVAL,0);
+   cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
 }
 

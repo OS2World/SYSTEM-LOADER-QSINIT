@@ -31,6 +31,8 @@ void* __stdcall memset  (void *dst, int c, u32t length);
 
 int   __stdcall strncmp (const char *s1, const char *s2, u32t n);
 
+/** strnicmp function.
+    note, that current code page affects this! */
 int   __stdcall strnicmp(const char *s1, const char *s2, u32t n);
 
 u32t  __stdcall strlen  (const char *s);
@@ -71,6 +73,23 @@ u64t* __stdcall memchrnq(const u64t*mem, u64t chr, u32t buflen);
 u16t* __stdcall memsetw (u16t *dst, u16t value, u32t length);
 u32t* __stdcall memsetd (u32t *dst, u32t value, u32t length);
 u64t* __stdcall memsetq (u64t *dst, u64t value, u32t length);
+
+// a set of functions for dword/qword safe +/-/or/and/xor
+u32t  __stdcall mt_safedadd(u32t *src, u32t value);
+u32t  __stdcall mt_safedand(u32t *src, u32t value);
+u32t  __stdcall mt_safedor (u32t *src, u32t value);
+u32t  __stdcall mt_safedxor(u32t *src, u32t value);
+u64t  __stdcall mt_safeqadd(u64t *src, u64t value);
+u64t  __stdcall mt_safeqand(u64t *src, u64t value);
+u64t  __stdcall mt_safeqor (u64t *src, u64t value);
+u64t  __stdcall mt_safeqxor(u64t *src, u64t value);
+/** cmpxchg public api.
+    Analogue of win`s InterlockedCompareExchange() */
+u32t  __stdcall mt_cmpxchgd(u32t volatile *src, u32t value, u32t cmpvalue);
+/** cmpxchg8b public api.
+    note: since this is direct cmpxchg8b usage - it will hang on 486dx, which
+    is still supported as lowest cpu by QSINIT ;) */
+u64t  __stdcall mt_cmpxchgq(u64t volatile *src, u64t value, u64t cmpvalue);
 
 void  __stdcall usleep  (u32t usec);
 

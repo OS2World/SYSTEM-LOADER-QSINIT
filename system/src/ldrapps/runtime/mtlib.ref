@@ -2,8 +2,19 @@ type = dll
 name = "MTLIB"
 
 exports = {
-   _mt_createthread     = { index = 10  group="mt"     format="up@up"   }
+   _mt_createthread     = { index = 10  group="mt"     format="up@upp"  }
    _mt_exitthread       = { index = 11  group="mt"     format="Vu"      }
+   _mt_termthread       = { index = 12  group="mt"     format="Vuu"     }
+   _mt_getfiber         = { index = 14  group="mt"     format="uv"      }
+   _mt_setfiber         = { index = 15  group="mt"     format="uuu"     }
+
+   _mt_tlsalloc         = { index = 25  group="tls"    format="uv"      }
+   _mt_tlsfree          = { index = 26  group="tls"    format="@uu"     }
+   _mt_tlsget           = { index = 27  group="tls"    format="@qu"     }
+   _mt_tlsset           = { index = 28  group="tls"    format="@uu@q"   }
+   _mt_tlsaddr          = { index = 29  group="tls"    format="@uu@&*p" }
+
+   _mt_dumptree         = { index = 30  group="misc"   format="vv"      }
 }
 
 class = {
@@ -11,5 +22,6 @@ class = {
    entires = {
       initialize   = "up"
       state        = "up"
+      getmodpid    = "upp"
    }
 }

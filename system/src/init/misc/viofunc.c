@@ -1,21 +1,21 @@
 #include "qstypes.h"
+#define MODULE_INTERNAL
+#include "qsmod.h"
 #include "qsutil.h"
 #include "qsint.h"
 #include "clib.h"
 #include "vio.h"
 
 #define TEXTMEM_SEG  0xB800
-extern u64t countsIn55ms;
-extern u32t syslapic;
+extern u64t  countsIn55ms,
+                rdtscprev;
 extern u8t  rtdsc_present;
 
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
-void _std cache_ctrl(u32t action, u8t vol);
-void _std cpuhlt(void);
 void _std mt_yield(void);
 u64t _std hlp_tscread(void);
-u16t _std key_read_int(void);
+int  _std sys_intstate(int on);
 // ******************************************************************
 
 // real mode far functions, do not call it directly!
@@ -140,12 +140,21 @@ u64t _std hlp_tscin55ms(void) {
    return countsIn55ms;
 }
 
-static u8t hltflag = 1;
+u64t _std clock(void) {
+   process_context *pq = mod_context();
+   // init everything
+   if (hlp_tscin55ms()) {
+      int    state = sys_intstate(0);
+      u64t     res = (tm_counter() - pq->rtbuf[RTBUF_STCLOCK]) * 54932; // 55 ms in clock tick
+      u32t  mksrem = 0;
+      // tsc since last timer interrupt
+      if (rdtscprev) mksrem = (hlp_tscread() - rdtscprev) * 54932LL / countsIn55ms;
+      // restore interrupts state
+      sys_intstate(state);
 
-int _std key_waithlt(int on) {
-   int prev = hltflag;
-   hltflag  = on?1:0;
-   return prev;
+      return res + mksrem;
+   }
+   return 0;
 }
 
 #pragma aux key_filter "_*" parm [eax] value [eax];
@@ -157,32 +166,4 @@ u32t key_filter(u32t key) {
    if (kc>=0x3B00 && kc<=0x44FF || kc>=0x5400 && kc<=0x71FF ||
       kc>=0x8500 && kc<=0x8CFF) kc&=0xFF00;
    return kc;
-}
-
-u16t _std key_wait(u32t seconds) {
-   u32t  btime, diff;
-
-   cache_ctrl(CC_IDLE, DISK_LDR);
-   if (key_pressed()) return key_read_int();
-
-   btime = tm_counter();
-   diff  = 0;
-   while (seconds>0) {
-       if (hltflag) cpuhlt(); else usleep(20000); // 20 ms
-       cache_ctrl(CC_IDLE, DISK_LDR);
-
-       if (key_pressed()) return key_read_int(); else {
-          u32t now = tm_counter();
-          if (now != btime) {
-              if ((diff+=now-btime)>=18) { seconds--; diff = 0; }
-              btime = now;
-          }
-       }
-   }
-   return 0;
-}
-
-u16t _std key_read() {
-   // goes to real mode for a while until MTLIB start
-   return syslapic ? key_wait(x7FFF) : key_read_int();
 }

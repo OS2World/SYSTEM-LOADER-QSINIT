@@ -16,6 +16,7 @@
 #include "qsdm.h"
 #include "qsshell.h"
 #include "qspage.h"
+#include "qsint.h"
 
 jmp_buf jmp;
 
@@ -140,8 +141,15 @@ int main(int argc,char *argv[]) {
          return 0;
       } else
       if (stricmp(argv[1],"u")==0 && argc==2) {
-        // trap screen
-        __asm { int 1 }
+         // trap screen
+         __asm { int 1 }
+      } else
+      if (stricmp(argv[1],"ct")==0 && argc==2) {
+         u64t cv;
+         while (!key_pressed()) {
+            printf("\rclock: %Lu ms", clock()/1000LL);
+         }
+         printf("\n");
       } else
       if (stricmp(argv[1],"f")==0 && argc==3) {
          // test of module unload
@@ -180,6 +188,13 @@ int main(int argc,char *argv[]) {
          u16t  sel = strtoul(argv[2],0,16);
          if (sys_selquery(sel,&sd)) printf("%04X: %8b\n", sel, &sd);
             else printf("no sel %04X\n", sel);
+      } else
+      if (stricmp(argv[1],"d")==0 && argc==3) {
+         // delay x ms
+         u32t delay = atoi(argv[2]);
+         mt_swlock();
+         usleep(delay*1000);
+         mt_swunlock();
       } else {
          u64t addr = strtoull(argv[1],0,16);
          u8t*  mem = pag_physmap(addr, 4096, 0);
@@ -232,9 +247,7 @@ int main(int argc,char *argv[]) {
 
    if (!_dos_findfirst("B:\\", _A_ARCH,&di)) {
       do {
-         struct tm tme;
-         dostimetotm((u32t)di.d_date<<16|di.d_time, &tme);
-         printf("%15s %8d %s",di.d_name,di.d_size,asctime(&tme));
+         printf("%15s %8d %s",di.d_name,di.d_size,ctime(&di.d_wtime));
       } while (!_dos_findnext(&di));
       _dos_findclose(&di);
    } else
@@ -305,9 +318,13 @@ int main(int argc,char *argv[]) {
    _endcatch_
 #endif
    printf("play music? (Y/n, pc speaker required)");
-   ii = key_wait(3)&0xFF;
+   do {
+      ii = key_wait(3);
+      if (log_hotkey(ii)) continue;
+      ii&= 0xFF;
+      if (ii==27||tolower(ii)=='n') return 0; else break;
+   } while (1);
    printf("\rtoo late, playing ;)                  \n");
-   if (ii==27||tolower(ii)=='n') return 0;
 
    ii = 0;
    while (music[ii][0]) {

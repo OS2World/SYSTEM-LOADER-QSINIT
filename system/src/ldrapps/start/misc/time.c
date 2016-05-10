@@ -8,6 +8,7 @@
 #include "qslog.h"
 #define MODULE_INTERNAL
 #include "qsmod.h"
+#include "internal.h"
 
 static struct tm lct_res;
 static char  timestr[32];
@@ -73,7 +74,7 @@ time_t __stdcall mktime(struct tm *dt) {
    return uts+temp;
 }
 
-struct tm* __stdcall localtime_r(const time_t *timer,struct tm *res) {
+struct tm* __stdcall localtime_r(const time_t *timer, struct tm *res) {
    if (!res) res = &lct_res;
    UnPackUnixTime(*timer,res);
    return res;
@@ -121,6 +122,18 @@ static const char *mtitle[12]={"Jan","Feb","Mar","Apr","May","Jun",
    "Jul","Aug","Sep","Oct","Nov","Dec"};
 static const char *dtitle[7]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 
+static char* _asctime_buffer(void) {
+   if (!in_mtmode) return &timestr; else {
+      qs_mtlib  mt = get_mtlib();
+      char    *res = (char*)(u32t)mt->tlsget(QTLS_ASCTMBUF);
+      if (!res) {
+         res = (char*)malloc_thread(48);
+         mt->tlsset(QTLS_ASCTMBUF, (u32t)res);
+      }
+      return res;
+   }
+}
+
 char* __stdcall ctime_r(const time_t *timer, char* buffer) {
    struct tm tme;
    localtime_r(timer,&tme);
@@ -128,7 +141,7 @@ char* __stdcall ctime_r(const time_t *timer, char* buffer) {
 }
 
 char* __stdcall asctime_r(const struct tm *dt, char* buffer) {
-   if (!buffer) buffer = timestr;
+   if (!buffer) buffer = _asctime_buffer();
    snprintf(buffer,32,"%s %s %02d %02d:%02d:%02d %4d\n", dtitle[dt->tm_wday],
       mtitle[dt->tm_mon], dt->tm_mday, dt->tm_hour, dt->tm_min, dt->tm_sec,
          dt->tm_year+1900);
@@ -142,11 +155,10 @@ u32t __stdcall timetodostime(time_t time) {
       (tmi.tm_mday<<16) + (tmi.tm_mon+1<<21) + (tmi.tm_year-80<<25);
 }
 
-clock_t __stdcall clock(void) {
-   process_context *pq = mod_context();
-   if (pq) {
-      u32t diff = tm_counter() - pq->rtbuf[RTBUF_STCLOCK];
-      return (u64t)diff * 54932; // 55 ms in clock tick
-   }
-   return 0;
+time_t __stdcall dostimetotime(u32t dostime) {
+   int j1970 = GregorianToJulian(1970,1,1),
+        jNow = GregorianToJulian((dostime>>25)+1980,dostime>>21&0xF,dostime>>16&0x1F),
+         uts = (jNow-j1970)*CONST_SECINDAY,
+        temp = (dostime>>11&0x1F)*3600+(dostime>>5&0x3F)*60+((dostime&0x1F)<<1);
+   return uts+temp;
 }

@@ -122,8 +122,10 @@ int main(int argc,char *argv[]) {
 
     op=str.word(1).upper();
     if (!in_macro&&op=="INCLUDE") {
+#if 0
       tmp.sprintf("#include \"%s\"",str.word(2)());
       dst << tmp;
+#endif
     } else
     if (op=="PUBLIC") continue; else
     if (op=="IRP") in_macro++; else

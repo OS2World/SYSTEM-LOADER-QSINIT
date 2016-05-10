@@ -197,13 +197,13 @@ void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
 
       if (cnt>0) {
          dd.fsname = (char*)malloc(32*cnt);
-         memZero(dd.fsname);
+         mem_zero(dd.fsname);
          // get fs name from boot sector
          for (ii=0; ii<cnt; ii++) dsk_ptquery64(disk, ii, 0, 0, dd.fsname+32*ii, 0);
          // query GPT partition info
          if (dd.is_gpt) {
             dd.gp = (dsk_gptpartinfo*)malloc(sizeof(dsk_gptpartinfo) * cnt);
-            memZero(dd.gp);
+            mem_zero(dd.gp);
             for (ii=0; ii<cnt; ii++) dsk_gptpinfo(disk, ii, dd.gp+ii);
          }
          // get lvm partition name and drive letter
@@ -211,8 +211,8 @@ void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
             lvm_partition_data info;
             dd.lvmname = (char*)malloc(32*cnt);
             dd.in_bm   = (u8t*)malloc(cnt);
-            memZero(dd.lvmname);
-            memZero(dd.in_bm);
+            mem_zero(dd.lvmname);
+            mem_zero(dd.in_bm);
 
             for (ii=0; ii<cnt; ii++) 
                if (lvm_partinfo(disk, ii, &info)) {

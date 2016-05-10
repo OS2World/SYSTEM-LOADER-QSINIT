@@ -9,6 +9,7 @@
 extern "C" {
 #endif
 #include "qstypes.h"
+#include "time.h"
 
 #pragma pack(1)
 
@@ -21,43 +22,41 @@ extern "C" {
 #define _A_SUBDIR       0x10    // Subdirectory
 #define _A_ARCH         0x20    // Archive file
 
-#define NAME_MAX        260     // LFN is supported
+#define NAME_MAX        QS_MAXPATH  // LFN is supported
 
 struct dirent {
    char     d_attr;             ///< file's attribute
-   u16t     d_time;             ///< file's time
-   u16t     d_date;             ///< file's date
-   u16t     d_crtime;           ///< file's creation time
-   u16t     d_crdate;           ///< file's creation date
-   long     d_size;             ///< file's size
+   time_t   d_wtime;            ///< file's time
+   time_t   d_ctime;            ///< file's creation time
+   u32t     d_size;             ///< file's size
    char     d_name[NAME_MAX+1]; ///< file's name
-   char    *d_openpath;         ///< path specified to opendir
+   char    *d_openpath;         ///< path specified to opendir (with trailing \)
    void    *d_sysdata;          ///< internal data
 };
 typedef struct dirent dir_t;
 
-int   __stdcall chdir (const char *path);
-char* __stdcall getcwd(char *buf,size_t size);
-int   __stdcall mkdir (const char *path);
+int    _std chdir (const char *path);
+char*  _std getcwd(char *buf,size_t size);
+int    _std mkdir (const char *path);
 
-dir_t*__stdcall opendir(const char*);
-dir_t*__stdcall readdir(dir_t*);
-int   __stdcall closedir(dir_t*);
+dir_t* _std opendir(const char*);
+dir_t* _std readdir(dir_t*);
+int    _std closedir(dir_t*);
 
-int   __stdcall rmdir(const char *path);
+int    _std rmdir(const char *path);
 
-u16t  __stdcall _dos_findfirst(const char *path, u16t attributes, dir_t *buffer);
-u16t  __stdcall _dos_findnext(dir_t *buffer);
-u16t  __stdcall _dos_findclose(dir_t *buffer);
+qserr  _std _dos_findfirst(const char *path, u16t attributes, dir_t *buffer);
+qserr  _std _dos_findnext(dir_t *buffer);
+qserr  _std _dos_findclose(dir_t *buffer);
 
-void  __stdcall _dos_getdrive(unsigned *drive);
-void  __stdcall _dos_setdrive(unsigned drive, unsigned *total);
+void   _std _dos_getdrive(unsigned *drive);
+void   _std _dos_setdrive(unsigned drive, unsigned *total);
 
 /** tiny stat function replacement.
     @param  path    File path.
     @param  buffer  Stat data.
-    @return 0 or error code. */
-u16t  __stdcall _dos_stat(const char *path, dir_t *buffer);
+    @return 0 on success or QS error code */
+qserr  _std _dos_stat(const char *path, dir_t *buffer);
 
 struct diskfree_t {
    u32t     total_clusters;     ///< total clusters on disk
@@ -71,14 +70,14 @@ typedef struct diskfree_t diskfree_t;
     @param [in]  drive      Disk number (0 - default, 1 for A:/0:, 2 for B:/1:, etc.
     @param [out] diskspace  Return data.
     @return zero on success. */
-u32t  __stdcall _dos_getdiskfree(unsigned drive, diskfree_t *diskspace);
+qserr  _std _dos_getdiskfree(unsigned drive, diskfree_t *diskspace);
 
 /** callback for _dos_readtree.
     @param fp      file info. d_openpath field point to file`s directory
     @param cbinfo  user data for callback proc
     @return 1 to continue processing, 0 to skip this entry and -1
             to stop call and return 0 from _dos_readtree() */
-typedef int __stdcall (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
+typedef int _std (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
 
 /** read directory tree.
     @param dir          Directory.
@@ -88,7 +87,7 @@ typedef int __stdcall (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
                         high bit (0x80) set. "." is never returned.
     @param [out] info   Pointer to return data. Return list of dir files
                         with 0 in last entry dir_t[].d_name. In _A_SUBDIR
-                        dir_t entries d_sysdata field point to subdirectory
+                        dir_t entries d_sysdata field points to subdirectory
                         data in the same format (dir_t*).<br>
                         This list must be freed by single _dos_freetree() call
                         with top dir *info value.
@@ -97,26 +96,26 @@ typedef int __stdcall (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
                         One of info or callback can be 0.
     @param cbinfo       User data for callback proc.
     @return total number of founded files (with subdirectories). */
-u32t  __stdcall _dos_readtree(const char *dir, const char *mask,
-                              dir_t **info, int subdirs,
-                              _dos_readtree_cb callback, void *cbinfo);
+u32t   _std _dos_readtree(const char *dir, const char *mask,
+                          dir_t **info, int subdirs,
+                          _dos_readtree_cb callback, void *cbinfo);
 
 /** free directory tree data.
     @param info         Info value, returned by _dos_readtree()
-    @return 0 or EINVAL value */
-int   __stdcall _dos_freetree(dir_t *info);
+    @return 0 or QS error code */
+qserr  _std _dos_freetree(dir_t *info);
 
 /** set file attributes.
     @param path         File path.
     @param attributes   File attributes.
-    @return 0 or error code value */
-u16t  __stdcall _dos_setfileattr(const char *path, unsigned attributes);
+    @return 0 on success or QS error code */
+qserr  _std _dos_setfileattr(const char *path, unsigned attributes);
 
 /** get file attributes.
     @param       path         File path.
     @param [OUT] attributes   File attributes.
-    @return 0 or error code value */
-u16t  __stdcall _dos_getfileattr(const char *path, unsigned *attributes);
+    @return 0 on success or QS error code */
+qserr  _std _dos_getfileattr(const char *path, unsigned *attributes);
 
 #define _DT_MODIFY     0x0001   ///< query/set file modification time
 #define _DT_CREATE     0x0002   ///< query/set file creation time
@@ -126,19 +125,19 @@ u16t  __stdcall _dos_getfileattr(const char *path, unsigned *attributes);
     @param       dostime      Time in DOS format.
     @param       type         Time type (_DT_* constant), OR-ed flags
                               can be used for the same time for some values.
-    @return 0 or error code value */
-u16t  __stdcall _dos_setfiletime(const char *path, u32t dostime, u32t type);
+    @return 0 on success or QS error code */
+qserr  _std _dos_setfiletime(const char *path, u32t dostime, u32t type);
 
 /** get file/dir time.
     @param       path         File path.
     @param [OUT] dostime      Time in DOS format.
-    @return 0 or error code value */
-u16t  __stdcall _dos_getfiletime(const char *path, u32t *dostime, u32t type);
+    @return 0 on success or QS error code */
+qserr  _std _dos_getfiletime(const char *path, u32t *dostime, u32t type);
 
 /** check string for a exist directory name.
     @param dir          Directory name.
     @return 1 if string is existing directory name, else 0 */
-u32t  __stdcall hlp_isdir(const char *dir);
+u32t   _std hlp_isdir(const char *dir);
 
 #pragma pack()
 

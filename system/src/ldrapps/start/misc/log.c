@@ -1,6 +1,8 @@
 #include "clib.h"
 #define LOG_INTERNAL
 #include "qslog.h"
+#include "qsint.h"
+#include "errno.h"
 #include "stdarg.h"
 #include "qsutil.h"
 
@@ -10,7 +12,8 @@
 
 static u32t       logsize = _64KB; // log size
 static log_header* logptr = 0;
-static u8t        logused = 0;
+volatile 
+static u32t       logused = 0;
 static u32t       logfptr = 0;
 
 static void log_setdate(log_header* lp) {
@@ -26,6 +29,7 @@ static void log_setdate(log_header* lp) {
 }
 
 void _std log_clear(void) {
+   mt_swlock();
    if (!logptr) {
       u32t qsmem;
       hlp_memavail(0,&qsmem);
@@ -45,8 +49,10 @@ void _std log_clear(void) {
    logptr[LOG_SIZEFP-1].sign   = LOG_SIGNATURE;
    logptr[LOG_SIZEFP-1].flags  = LOGIF_USED;
    logptr[LOG_SIZEFP-1].offset = 0;
+   mt_swunlock();
 }
 
+// init function, there is no file i/o and many other things here!
 void setup_log() {
    log_clear();
 }
@@ -138,7 +144,9 @@ static void log_commit(log_header *lp) {
 }
 
 int log_pushb(int level, const char *str, int len, u32t timemark) {
-   log_header *lp = log_alloc(len);
+   log_header *lp;
+   mt_swlock();
+   lp = log_alloc(len);
    if (lp) {
       memcpy(lp+1,str,len);
       lp->flags = level&(LOGIF_LEVELMASK|LOGIF_DELAY|LOGIF_REALMODE)|LOGIF_USED;
@@ -149,6 +157,7 @@ int log_pushb(int level, const char *str, int len, u32t timemark) {
          log_setdate(lp);
    } else
       hlp_seroutstr("<< log is locked, log_push failed >>\n");
+   mt_swunlock();
    return lp?1:0;
 }
 
@@ -163,15 +172,20 @@ int _std log_pushtm(int level, const char *str, u32t time) {
 }
 
 int __cdecl log_it(int level, const char *fmt, ...) {
-   log_header  *lp = log_alloc(LOG_PRINTSIZE);
-   va_list arglist;
-   char       *dst = (char*)(lp+1);
-   int          rc;
+   log_header   *lp;
+   va_list  arglist;
+   char        *dst;
+   int           rc;
+  
+   mt_swlock();
+
+   lp = log_alloc(LOG_PRINTSIZE);
    if (!lp) {
       static char buf[LOG_PRINTSIZE];
       hlp_seroutstr("log is locked: ");
       dst = &buf;
-   }
+   } else
+      dst = (char*)(lp+1);
    va_start(arglist,fmt);
    rc = _vsnprintf(dst,LOG_PRINTSIZE,fmt,arglist);
    va_end(arglist);
@@ -181,13 +195,16 @@ int __cdecl log_it(int level, const char *fmt, ...) {
       lp->flags = lp->flags&~LOGIF_LEVELMASK|level&LOGIF_LEVELMASK;
       log_commit(lp);
    }
+   mt_swunlock();
    return rc;
 }
 
-void _std log_query(log_querycb cbproc, void *extptr) {
-   if (!logptr||!cbproc) return;
-   logused++;
+int _std log_query(log_querycb cbproc, void *extptr) {
+   if (!logptr||!cbproc) return EINVAL;
+   // change from 0 to 1 or return error
+   if (mt_cmpxchgd(&logused,1,0)) return EBUSY;
    cbproc(logptr,extptr);
-   logused--;
+   // zero lock flag
+   logused = 0;
+   return 0;
 }
-

@@ -20,6 +20,7 @@ typedef short              s16t;
 typedef unsigned char       u8t;
 typedef signed char         s8t;
 typedef void             *pvoid;
+typedef unsigned long     qserr;
 
 #ifndef _STDDEF_H_INCLUDED
 typedef unsigned long ptrdiff_t;
@@ -29,6 +30,8 @@ typedef unsigned long ptrdiff_t;
 #define PAGESIZE     (0x1000)
 #define PAGEMASK     (0x0FFF)
 #define PARASHIFT    (4)
+
+#define QS_MAXPATH   (260)
 
 #define   _1KB       (  1UL* 1024)       // 1 kb
 #define   _2KB       (  2UL* _1KB)       // 2 kb
@@ -55,10 +58,10 @@ typedef unsigned long ptrdiff_t;
 
 #define FFFF         (0xFFFFFFFF)
 #define x7FFF        (0x7FFFFFFF)
-#define x7FFF64      (((s64t)(0x7FFFFFFF)<<32)+0xFFFFFFFF)
-#define FFFF64       (((u64t)(0xFFFFFFFF)<<32)+0xFFFFFFFF)
-#define _4GBLL       ((u64t)0xFFFFFFFF+1)    // 4 gb (64 bit)
-#define _2TBLL       ((u64t)0xFFFFFFFF+1<<9) // 2 tb (64 bit)
+#define x7FFF64      (((s64t)x7FFF<<32)+FFFF)
+#define FFFF64       (((u64t)FFFF<<32)+FFFF)
+#define _4GBLL       ((u64t)FFFF+1)      // 4 gb (64 bit)
+#define _2TBLL       ((u64t)FFFF+1<<9)   // 2 tb (64 bit)
 
 #define PAGEROUND(p)    (((p) + PAGEMASK) & ~PAGEMASK)
 #define PAGEROUNDLL(p)  (((p) + PAGEMASK) & ~(u64t)PAGEMASK)

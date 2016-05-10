@@ -5,15 +5,21 @@
 //
 // todo! some things still not fixed after porting! ;)
 //
-// this memmgr was written in 1997 for own unfinished pascal compiler ;)
-// then it was ported to C and used on some real jobs (for 4 bln. users)
-// here used simplified version, with 16 bytes block header
-// alloc/free pair speed is ~ the same as in ICC/GCC runtime.
+// * this memmgr was written in 1997 for own unfinished pascal compiler ;)
+//   then it was ported to C and used on some real jobs (for 4 bln. users)
+// * it is simplyfied version here, with 16 bytes block header.
+// * alloc/free pair speed is ~ the same with ICC/GCC runtime, but this
+//   manager also provides file/line or id1/id2 pair for user needs on every
+//   block (and various debug listings too).
+// * mtlock is used here because of using this manager in MTLIB itself. I.e
+//   all thread/fiber data is also stored in those heaps.
 //
 
 #include "clib.h"
+#include "qsint.h"
 #include "qsutil.h"
 #include "memmgr.h"
+#include "qspdata.h"
 #define MODULE_INTERNAL
 #include "qsmod.h"
 #include "vio.h"
@@ -101,18 +107,19 @@ public:
    qsmcc& operator--(int) { return operator-=((u32t)SPt->Link<<4); }
 };
 
-volatile static int     MMInited     =0;
-volatile static int     ParanoidalChk=0; // check ALL at EVERY call (ULTRA slow)
-volatile static int     ClearBlocks  =0; // clear blocks on malloc
-volatile static int     HaltOnNoMem  =1; // abort() on out of memory
-volatile static u32t    CurMemUsed   =0; // total used mem size
-volatile static u32t    MaxMemUsed   =0; // max used mem size
-extern "C" volatile  long    FirstFree    =0;
-volatile static long    LargeFree    =0;
-volatile static long    UniquePool   =0;
+volatile static int     MMInited     = 0;
+volatile static int     ParanoidalChk= 0; // check ALL at EVERY call (ULTRA slow)
+volatile static int     ClearBlocks  = 0; // clear blocks on malloc
+volatile static int     HaltOnNoMem  = 1; // abort() on out of memory
+volatile static u32t    CurMemUsed   = 0; // total used mem size
+volatile static u32t    MaxMemUsed   = 0; // max used mem size
+extern "C"
+volatile long           FirstFree    = 0;
+volatile static long    LargeFree    = 0;
+volatile static long    UniquePool   = 0;
 
 #define FREEQSMCC       ((long)-1)
-#define GETOWNERID      ((long)-2)
+#define GETOWNERID      ((long)QSMEMOWNER_UNOWNER)
 #define HeaderSize      long(sizeof(QSMCC))
 // ** changeable constants
 #define MAX_MEM_SIZE    (1<<28)          // 256Mb - total memory size (<=4Gb ;)
@@ -142,6 +149,7 @@ typedef void (*MemMgrError)(u32t ErrType, const char *FromHere,
                             u32t Caller,void *Pointer);
 static  void CheckMgr(u32t Caller);
 static  void DumpNewReport(QSMCC*P,u32t idx);
+extern "C" void mem_init(void);
 
 volatile static MemMgrError MemError=NULL;
 
@@ -206,7 +214,7 @@ typedef struct {
    u32t     usedSize;
 } ExtPoolInfo;
 
-//must be called inside SynchroL mutex
+// must be called inside SynchroL mutex
 static int NewSmallPool(u32t Size16,u32t Caller) {
    ExtPoolInfo info[ExtPool];
    // reading r/o blocks
@@ -265,7 +273,7 @@ static long AllocLargeSlot(u32t Caller) {
 }
 
 static QSMCC*SmallAlloc(long Owner,long Pool,u32t Size16,u32t Caller) {
-   // if (MultiThread) MutexGrab(SynchroL);
+   mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
 
    u32t lg=Size16<TinySize16?0:1,
            bp=Size16>>(lg?SZSHL_L-SZSHL_S:0);
@@ -283,7 +291,7 @@ static QSMCC*SmallAlloc(long Owner,long Pool,u32t Size16,u32t Caller) {
          int rc=NewSmallPool(Size16,Caller);
          HaltOnNoMem=HaltSv;
          if (!rc) {
-            // if (MultiThread) MutexRelease(SynchroL);
+            mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
             return 0;
          }
          res=SmallPool[FirstFree-1];
@@ -313,13 +321,13 @@ static QSMCC*SmallAlloc(long Owner,long Pool,u32t Size16,u32t Caller) {
       next->Link=PP->Size;
       AddToCache(PP);
    }
-   // if (MultiThread) MutexRelease(SynchroL);
+   mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    return res;
 }
 
-extern "C" void* memAlloc(long Owner,long Pool,u32t Size) {
+extern "C" void* mem_alloc(long Owner, long Pool, u32t Size) {
    if (!Size) return NULL;
-   if (!MMInited) memInit();
+   if (!MMInited) mem_init();
    u32t Caller=CALLER(Owner);
    Size=Round16(Size+HeaderSize);
    qsmcc result;
@@ -335,35 +343,35 @@ extern "C" void* memAlloc(long Owner,long Pool,u32t Size) {
          if (Owner!=500&&HaltOnNoMem) (*MemError)(RET_NOMEM,"AllocLarge()",Caller,0);
             else return 0;
       } else {
-         // if (MultiThread) MutexGrab(SynchroG);
+         mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
          FillQSMCC16(result,Size>>LargeShift,Owner,Pool,AllocLargeSlot(Caller));
          LargePool[result->Link]=result;
          result->Signature=QSMCL_SIGN;
-         // if (MultiThread) MutexRelease(SynchroG);
+         mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
       }
    }
    if (ParanoidalChk) CheckMgr(Caller);
    if (!result) return NULL;
    result+=HeaderSize;
-   if (ClearBlocks) memZero(result);
+   if (ClearBlocks) mem_zero(result);
    return result;
 }
 
-extern "C" void* memAllocZ(long Owner,long Pool,u32t Size) {
-   void *rc = memAlloc(Owner,Pool,Size);
+extern "C" void* mem_allocz(long Owner, long Pool, u32t Size) {
+   void *rc = mem_alloc(Owner,Pool,Size);
    /* clear block if no "clear all" flags and block is small (QSINIT large
       alloc is always cleared) */
-   if (!ClearBlocks && rc && Size<MaxSmallAlloc) memZero(rc);
+   if (!ClearBlocks && rc && Size<MaxSmallAlloc) mem_zero(rc);
    return rc;
 }
 
-static inline QSMCC*TryToRefBlock(void*MM,const char *FromWhere,u32t Caller) {
+static inline QSMCC* TryToRefBlock(void*MM,const char *FromWhere,u32t Caller) {
    QSMCC*mm=(QSMCC*)((char*)MM-HeaderSize);
    if ((mm->Signature&CHECK_MASK)!=QSMCC_SIGN) (*MemError)(RET_INVALIDPTR,FromWhere,Caller,MM);
    return mm;
 }
 
-static inline QSMCC*TryToRefNonFatal(void*MM) {
+static inline QSMCC* TryToRefNonFatal(void*MM) {
    QSMCC*mm=(QSMCC*)((char*)MM-HeaderSize);
    if (!MM||(mm->Signature&CHECK_MASK)!=QSMCC_SIGN) mm=0;
    return mm;
@@ -371,7 +379,11 @@ static inline QSMCC*TryToRefNonFatal(void*MM) {
 
 #define ChkMergeStr "CheckMerge()"
 
-static int CheckMerge(QSMCC*MM,u32t Caller) {
+/** internal free.
+    returns 0 for large pool and for completly released small pool and
+    ptr to this FREE block, enlarged to all free blocks around it (i.e.,
+    result ptr can be smaller, than source) */
+static QSMCC* CheckMerge(QSMCC*MM, u32t Caller) {
    /* free block and check for merging with next free block */
    if ((MM->Signature&CHECK_MASK)!=QSMCC_SIGN) (*MemError)(RET_INVALIDPTR,ChkMergeStr,Caller,MM);
       else
@@ -379,16 +391,16 @@ static int CheckMerge(QSMCC*MM,u32t Caller) {
       if (MM->Signature==QSMCL_SIGN) { // free global block
          long ii=MM->Link;
          if (LargePool[ii]==MM) {
-            // if (MultiThread) MutexGrab(SynchroG);
+            mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
             MM->Signature=0; // clean up signature
             CurMemUsed-=MM->Size<<LargeShift;
             mfree(MM);
             LargePool[ii]=NULL;
             while (!LargePool[LargeFree-1]&&LargeFree) LargeFree--;
-            // if (MultiThread) MutexRelease(SynchroG);
+            mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
          } else (*MemError)(RET_INVALIDPTR,ChkMergeStr,Caller,MM);
       } else {                // free small block
-         // if (MultiThread) MutexGrab(SynchroL);
+         mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
          MM->GlobalID=FREEQSMCC;
          MM->ObjectID=FREEQSMCC;
          qsmcc next(MM);
@@ -410,22 +422,21 @@ static int CheckMerge(QSMCC*MM,u32t Caller) {
          }
          next->Link=MM->Size;
          AddToCache(MM);
-         int gone=0;
          if (MM->Size<<4==PoolBlocks-HeaderSize) {
             while (FirstFree&&SmallPool[FirstFree-1]->Size<<4==PoolBlocks-HeaderSize&&
                  SmallPool[FirstFree-1]->GlobalID==FREEQSMCC)
             {
                RmvFromCache(SmallPool[--FirstFree]);
                SmallPool[FirstFree]->Signature=0;
-               if ((u32t)MM-(u32t)SmallPool[FirstFree]<PoolBlocks) gone=1;
+               if (MM && (u32t)MM-(u32t)SmallPool[FirstFree]<PoolBlocks) MM=0;
                if (!ExtPoolPtr[FirstFree]) mfree(SmallPool[FirstFree]);
                   else ExtPoolPtr[FirstFree]=0;
                SmallPool[FirstFree]=0;
                CurMemUsed-=PoolBlocks;
             }
          }
-         // if (MultiThread) MutexRelease(SynchroL);
-         return gone;
+         mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
+         return MM;
       }
    }
    return 0;
@@ -433,7 +444,7 @@ static int CheckMerge(QSMCC*MM,u32t Caller) {
 
 
 // free memory. Can be used both pointer(s) & QSMCC(s)
-extern "C" void memFree(void* M) {
+extern "C" void mem_free(void* M) {
    if (!MMInited) return;
    if (!M) return; //!!warning! added for clib free() compatibility
 
@@ -444,31 +455,31 @@ extern "C" void memFree(void* M) {
    if (ParanoidalChk) CheckMgr(Caller);
 }
 
-#define memDupStr "memDup()"
+#define memDupStr "mem_dup()"
 
-extern "C" void* memDup(void *M) {
+extern "C" void* mem_dup(void *M) {
    if (!MMInited) return 0;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefBlock((u8t*)M,memDupStr,Caller);
-   u32t size=actsize(mm);
-   void *mb=memAlloc(mm->GlobalID,mm->ObjectID,size-HeaderSize);
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefBlock((u8t*)M,memDupStr,Caller);
+   u32t   size = actsize(mm);
+   void    *mb = mem_alloc(mm->GlobalID,mm->ObjectID,size-HeaderSize);
    if (!mb) return NULL;
-   memcpy(mb,M,size-HeaderSize);
+   memcpy(mb, M, size-HeaderSize);
    return mb;
 }
 
-#define memReallocStr "memRealloc()"
+#define memReallocStr "mem_realloc()"
 
 // realloc memory block.
-extern "C" void *memRealloc(void *M,u32t NewSize) {
+extern "C" void *mem_realloc(void *M,u32t NewSize) {
    if (!NewSize) NewSize=16;
-   if (!M) return memAlloc(0,0,NewSize);
+   if (!M) return mem_alloc(0,0,NewSize);
    if (!MMInited) return 0;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefBlock((u8t*)M,memReallocStr,Caller),result=NULL;
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefBlock((u8t*)M,memReallocStr,Caller), result=NULL;
 
-   NewSize=Round16(NewSize+HeaderSize);
-   u32t size=actsize(mm);
+   NewSize     = Round16(NewSize+HeaderSize);
+   u32t   size = actsize(mm);
    if (NewSize==size) return M;
 
    if (ParanoidalChk) CheckMgr(Caller);
@@ -478,18 +489,18 @@ extern "C" void *memRealloc(void *M,u32t NewSize) {
       if (NewSize==size) return M;
       if (NewSize>=MaxSmallAlloc) {
          if (mm!=LargePool[mm->Link]) (*MemError)(RET_MCBDESTROYD,memReallocStr,Caller,mm);
-         // if (MultiThread) MutexGrab(SynchroG);
+         mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
          // hlp_memrealloc() will zero the end of new block for as
          result=(QSMCC*)hlp_memrealloc(mm,NewSize);
          if (result!=(QSMCC*)NULL) {
             LargePool[result->Link]=result;
             result->Size=NewSize>>LargeShift;
          }
-         // if (MultiThread) MutexRelease(SynchroG);
+         mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
       }
    }
    if (!result) {
-      // if (MultiThread) MutexGrab(SynchroL);
+      mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
       u32t NewSize16=NewSize>>4;
       if (NewSize>size) {
          if (mm->Signature==QSMCC_SIGN) {  // small block processing
@@ -534,10 +545,10 @@ extern "C" void *memRealloc(void *M,u32t NewSize) {
             result=mm;
          }
       }
-      // if (MultiThread) MutexRelease(SynchroL);
+      mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    }
    if (!result) {                               // common stupid processing
-      void *mb=memAlloc(mm->GlobalID,mm->ObjectID,NewSize-HeaderSize);
+      void *mb = mem_alloc(mm->GlobalID, mm->ObjectID, NewSize-HeaderSize);
       if (!mb) return NULL;
       result=(QSMCC*)mb-1;
       u32t copysz = actsize(mm)-HeaderSize;
@@ -547,73 +558,68 @@ extern "C" void *memRealloc(void *M,u32t NewSize) {
          memset((u8t*)mb+copysz,0, NewSize-HeaderSize-copysz);
 
       memcpy(mb,M,copysz);
-      memFree(M);
+      mem_free(M);
    }
    return result+=HeaderSize;
 }
 
 // zero entire memory block by it pointer.
-extern "C" void memZero(void *M) {
+extern "C" void mem_zero(void *M) {
    if (!MMInited) return;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefBlock((u8t*)M,"memZero()",Caller);
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefBlock((u8t*)M,"memZero()",Caller);
    memset(M,0,actsize(mm)-HeaderSize);
 }
 
-extern "C" unsigned long memBlockSize(void *M) {
+extern "C" unsigned long mem_blocksize(void *M) {
    if (!MMInited) return 0;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefBlock((u8t*)M,"memBlockSize()",Caller);
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefBlock((u8t*)M,"memBlockSize()",Caller);
    return actsize(mm)-HeaderSize;
 }
 
-extern "C" unsigned long memGetObjInfo(void *M,long *Owner,long *Pool) {
+extern "C" unsigned long mem_getobjinfo(void *M, long *Owner, long *Pool) {
    if (!MMInited) return 0;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefNonFatal((u8t*)M);
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefNonFatal((u8t*)M);
    if (!mm) return 0;
    if (Owner) *Owner=mm->GlobalID;
    if (Pool)  *Pool =mm->ObjectID;
    return actsize(mm)-HeaderSize;
 }
 
-extern "C" int __stdcall memSetObjInfo(void *M,long Owner,long Pool) {
+extern "C" int __stdcall mem_setobjinfo(void *M, long Owner, long Pool) {
    if (!MMInited||Owner==FREEQSMCC||Pool==FREEQSMCC) return 0;
-   u32t Caller=CALLER(M);
-   qsmcc mm=TryToRefNonFatal((u8t*)M);
+   u32t Caller = CALLER(M);
+   qsmcc    mm = TryToRefNonFatal((u8t*)M);
    if (!mm) return 0;
    mm->GlobalID = Owner;
    mm->ObjectID = Pool;
    return 1;
 }
 
-void __stdcall memGetUniqueID(long *Owner,long *Pool) {
-   //EnterUniqueSection(&SynchroPool);
-   *Owner=GETOWNERID;
-   *Pool =UniquePool++;
-   //LeaveUniqueSection(&SynchroPool);
-}
-
-
-// alias for memset()
-extern "C" void memZeroBlock(void* P,u32t Size) {
-   memset(P,0,Size);
+void __stdcall mem_uniqueid(long *Owner, long *Pool) {
+   mt_swlock(); //EnterUniqueSection(&SynchroPool);
+   *Owner = GETOWNERID;
+   *Pool  = UniquePool++;
+   mt_swunlock(); //LeaveUniqueSection(&SynchroPool);
 }
 
 // free by Owner/Pool
-extern "C" unsigned long memFreePool(long Owner,long Pool) {
+extern "C" unsigned long mem_freepool(long Owner, long Pool) {
    if (!MMInited) return 0;
    long ii;
    u32t Caller=CALLER(Owner), blockcnt=0;
-   // if (MultiThread) EnterUniqueSection(&SynchroL);
+   mt_swlock(); // if (MultiThread) EnterUniqueSection(&SynchroL);
    if (ParanoidalChk) CheckMgr(Caller);
    for (ii=0;ii<FirstFree;ii++) {
       qsmcc PP(SmallPool[ii]);
       while (true) {
          if (!PP->Size) break;
-         if (PP->GlobalID==Owner&&PP->ObjectID==Pool) {
+         if (PP->GlobalID==Owner && PP->ObjectID==Pool) {
             blockcnt++;
-            if (CheckMerge(PP,Caller)) break;
+            PP = CheckMerge(PP,Caller);
+            if (!PP) break;
          }
          PP++;
       }
@@ -625,15 +631,15 @@ extern "C" unsigned long memFreePool(long Owner,long Pool) {
          if (LargePool[ii]->GlobalID==Owner&&LargePool[ii]->ObjectID==Pool) {
             CheckMerge(LargePool[ii],Caller); blockcnt++;
          }
-   //if (MultiThread) LeaveUniqueSection(&SynchroG);
+   mt_swunlock(); //if (MultiThread) LeaveUniqueSection(&SynchroG);
    return blockcnt;
 }
 
-extern "C" unsigned long memFreeByOwner(long Owner) {
+extern "C" unsigned long mem_freeowner(long Owner) {
    if (!MMInited) return 0;
    long ii;
    u32t Caller=CALLER(Owner), blockcnt=0;
-   //if (MultiThread) EnterUniqueSection(&SynchroL);
+   mt_swlock(); //if (MultiThread) EnterUniqueSection(&SynchroL);
    if (ParanoidalChk) CheckMgr(Caller);
    for (ii=0;ii<FirstFree;ii++) {
       qsmcc PP(SmallPool[ii]);
@@ -641,7 +647,8 @@ extern "C" unsigned long memFreeByOwner(long Owner) {
          if (!PP->Size) break;
          if (PP->GlobalID==Owner) {
             blockcnt++;
-            if (CheckMerge(PP,Caller)) break;
+            PP = CheckMerge(PP,Caller);
+            if (!PP) break;
          }
          PP++;
       }
@@ -654,70 +661,16 @@ extern "C" unsigned long memFreeByOwner(long Owner) {
             CheckMerge(LargePool[ii],Caller);
             blockcnt++;
          }
-   //if (MultiThread) LeaveUniqueSection(&SynchroG);
+   mt_swunlock(); //if (MultiThread) LeaveUniqueSection(&SynchroG);
    return blockcnt;
 }
 
-extern "C" unsigned long memFreeByPool(long Pool) {
-   if (!MMInited) return 0;
-   long ii;
-   u32t Caller=CALLER(Pool), blockcnt=0;
-   //if (MultiThread) EnterUniqueSection(&SynchroL);
-   if (ParanoidalChk) CheckMgr(Caller);
-   for (ii=0;ii<FirstFree;ii++) {
-      qsmcc PP(SmallPool[ii]);
-      while (true) {
-         if (!PP->Size) break;
-         if (PP->ObjectID==Pool) {
-            blockcnt++;
-            if (CheckMerge(PP,Caller)) break;
-         }
-         PP++;
-      }
-   }
-   //if (MultiThread) LeaveUniqueSection(&SynchroL);
-   //if (MultiThread) EnterUniqueSection(&SynchroG);
-   for (ii=0;ii<LargeFree;ii++)
-      if (LargePool[ii])
-         if (LargePool[ii]->ObjectID==Pool) {
-            CheckMerge(LargePool[ii],Caller);
-            blockcnt++;
-         }
-   //if (MultiThread) LeaveUniqueSection(&SynchroG);
-   return blockcnt;
-}
-
-extern "C" void memFreeAll() {
-   if (!MMInited) return;
-   long ii;
-   u32t Caller=(u32t)&memFreeAll;
-   // if (MultiThread) MutexGrab(SynchroL);
-   if (ParanoidalChk) CheckMgr(Caller);
-   for (ii=0;ii<FirstFree;ii++) {
-      if (!ExtPoolPtr[ii]) mfree(SmallPool[ii]); else ExtPoolPtr[ii]=0;
-      SmallPool[ii]=0;
-   }
-   FirstFree=0;
-   for (ii=0;ii<TinySize16;ii++) { Cache[0][ii]=NULL; Cache[1][ii]=NULL; }
-   // if (MultiThread) MutexRelease(SynchroL);
-   // if (MultiThread) MutexGrab(SynchroG);
-   CurMemUsed-=FirstFree*PoolBlocks;
-   for (ii=0;ii<LargeFree;ii++)
-      if (LargePool[ii]) {
-         CurMemUsed-=LargePool[ii]->Size<<LargeShift;
-         mfree(LargePool[ii]);
-         LargePool[ii]=0;
-      }
-   LargeFree=0;
-   // if (MultiThread) MutexRelease(SynchroG);
-}
-
-extern "C" void memStat() {
+extern "C" void mem_stat() {
    u32t sp=0,lp=0;
    int ii;
    char buf[512],*ep;
-   u32t Caller=(u32t)&memStat;
-   // if (MultiThread) MutexGrab(SynchroG);
+   u32t Caller=(u32t)&mem_stat;
+   mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
    for (ii=0;ii<LargeFree;ii++)
       if (LargePool[ii]) lp+=LargePool[ii]->Size<<LargeShift;
    // if (MultiThread) MutexRelease(SynchroG);
@@ -739,7 +692,7 @@ extern "C" void memStat() {
       if ((ep+=sprintf(ep,"%ld:%ld/",totsize*100/(PoolBlocks-32),maxsize>>10))-buf>=480) break;
    }
    strcpy(ep," \n");
-   // if (MultiThread) MutexRelease(SynchroL);
+   mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    log_printf(buf);
 }
 
@@ -775,12 +728,12 @@ static StatMaxInfo *StatMaxUpdate(StatMaxInfo *stat,int &cnt,int &max,QSMCC*bloc
    return stat;
 }
 
-extern "C" void memStatMax(int topcount) {
+extern "C" void mem_statmax(int topcount) {
    int ii,alloc=4096,ca=0;
    u32t Caller=CALLER(topcount);
    log_printf("memStatMax():\n");
    StatMaxInfo *stat=(StatMaxInfo*)mget(alloc*sizeof(StatMaxInfo));
-   // if (MultiThread) MutexGrab(SynchroG);
+   mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
    for (ii=0;ii<LargeFree&&stat;ii++)
       if (LargePool[ii]) {
          if (LargePool[ii]->Signature!=QSMCL_SIGN)
@@ -800,7 +753,7 @@ extern "C" void memStatMax(int topcount) {
          PP++;
       }
    }
-   // if (MultiThread) MutexRelease(SynchroL);
+   mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    if (!stat) {
       log_printf("No mem for memStatMax()");
       return;
@@ -825,14 +778,31 @@ extern "C" void memStatMax(int topcount) {
       if (topcount>ca) topcount=ca;
 
       for (ii=0;ii<topcount;ii++) {
-         if ((u32t)stat[ii].owner>(u32t)0xFFFFE000&&(u32t)stat[ii].pool<(u32t)FREEQSMCC) {
-            char *Line=(char*)stat[ii].pool;
-            long  line=stat[ii].owner&0x1FFF;
-            log_printf("%4d. %8u bytes, %4u blocks, #%s %u\n",ii+1,stat[ii].size,
-               stat[ii].blocks,(u32t)Line>0x1000?Line:"(null)",line);
+         u32t owner = stat[ii].owner,
+               pool = stat[ii].pool;
+         if (owner>=QSMEMOWNER_LINENUM && owner<FREEQSMCC) {
+            char *Line = (char*)pool;
+            long  line = (owner&~QSMEMOWNER_LINENUM)+1;
+            log_printf("%4d. %8u bytes, %4u blocks, #%s %u\n", ii+1, stat[ii].size,
+               stat[ii].blocks, (u32t)Line>0x1000?Line:"(null)", line);
+         } else 
+         if (owner>=QSMEMOWNER_COTHREAD && owner<QSMEMOWNER_LINENUM) {
+            log_printf("%4d. %8u bytes, %4u blocks, PID %u, TID %u\n", ii+1,
+               stat[ii].size, stat[ii].blocks, pool, owner-QSMEMOWNER_COTHREAD+1);
+         } else
+         if (owner==QSMEMOWNER_COPROCESS) {
+            mt_prcdata *pd = (mt_prcdata*)pool;
+            log_printf("%4d. %8u bytes, %4u blocks, PID %u\n", ii+1,
+               stat[ii].size, stat[ii].blocks, pd->piPID);
+
+         } else
+         if (owner==QSMEMOWNER_COLIB) {
+            module *mh = (module*)pool;
+            log_printf("%4d. %8u bytes, %4u blocks, module %s (%s)\n", ii+1,
+               stat[ii].size, stat[ii].blocks, mh->name, mh->mod_path);
          } else {
-            log_printf("%4d. %8u bytes, %4u blocks, %u %u\n",ii+1,stat[ii].size,
-               stat[ii].blocks,stat[ii].owner,stat[ii].pool);
+            log_printf("%4d. %8u bytes, %4u blocks, %u %u\n", ii+1, stat[ii].size,
+               stat[ii].blocks, owner, pool);
          }
       }
       mfree(stat);
@@ -894,10 +864,10 @@ static void PrintMCBErr(QSMCC*ptr,int type,QSMCC *pool) {
 #define MCBError(PP,TYPE) { PrintMCBErr(PP,TYPE,SmallPool[ii]); result=0; break; }
 
 // Check structures...
-extern "C" int memCheckMgr() {
+extern "C" int mem_checkmgr() {
    if (!MMInited) return 0;
    long ii,jj,result=1;
-   // if (MultiThread) MutexGrab(SynchroL);
+   mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
    for (ii=0;ii<FirstFree;ii++) {
       qsmcc P=SmallPool[ii];
       u32t cnt=PoolBlocks-HeaderSize;
@@ -944,23 +914,37 @@ extern "C" int memCheckMgr() {
          // checking for pool field validity
          if (LargePool[ii]->Link!=ii) MCBError(LargePool[ii],11);
       }
-   // if (MultiThread) MutexRelease(SynchroG);
+   mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
    return result;
 }
 
 static void CheckMgr(u32t Caller) {
-   if (!memCheckMgr()) (*MemError)(RET_CHECKFAILED,"CheckMgr()",Caller,0);
+   if (!mem_checkmgr()) (*MemError)(RET_CHECKFAILED,"mem_checkmgr()",Caller,0);
 }
 
 static void DumpNewReport(QSMCC*P,u32t idx) {
-   if ((u32t)P->GlobalID>0xFFFFE000&&P->GlobalID<FREEQSMCC&&P->GlobalID!=GETOWNERID) {
-      char *Line=(char*)P->ObjectID;
-      long  line=P->GlobalID&0x1FFF;
+   u32t owner = (u32t)P->GlobalID,
+         pool = (u32t)P->ObjectID;
+   if (owner>=QSMEMOWNER_LINENUM && owner<FREEQSMCC) {
+      char *Line = (char*)pool;
+      long  line = (owner&~QSMEMOWNER_LINENUM)+1;
       log_printf("%4d.[%8.8X] #%s %u - %u\n",idx,P,(u32t)Line>0x1000?Line:"(null)",line,actsize(P));
+   } else 
+   if (owner>=QSMEMOWNER_COTHREAD && owner<QSMEMOWNER_LINENUM) {
+      log_printf("%4d.[%8.8X] pid %5d  tid %4d   - % 8d\n",idx,P,pool,
+         owner-QSMEMOWNER_COTHREAD+1,actsize(P));
+   } else
+   if (owner==QSMEMOWNER_COPROCESS) {
+      mt_prcdata *pd = (mt_prcdata*)pool;
+      log_printf("%4d.[%8.8X] pid %5d             - % 8d %s\n",idx,P,pd->piPID,
+         actsize(P),pd->piModule->mod_path);
+   } else
+   if (owner==QSMEMOWNER_COLIB) {
+      module *mh = (module*)pool;
+      log_printf("%4d.[%8.8X] %-21s - %8d\n",idx,P,mh->name,actsize(P));
    } else {
-      const char *cc=P->GlobalID==GETOWNERID?"<memGetUniqueID>":
-         (P->GlobalID==FREEQSMCC?"free":"");
-      log_printf("%4d.[%8.8X] % 8d % 8d - % 8d %s\n",idx,P,P->GlobalID,P->ObjectID,actsize(P),cc);
+      const char *cc = owner==GETOWNERID?"<memGetUniqueID>": (owner==FREEQSMCC?"free":"");
+      log_printf("%4d.[%8.8X] %10d %10d - %8d %s\n",idx,P,owner,pool,actsize(P),cc);
    }
 }
 
@@ -972,7 +956,7 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
    qsmcc  P;
    QSMCC *prev;
    log_printf("%s\n",TitleString);
-   // if (MultiThread) MutexGrab(SynchroL);
+   mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
    for (ii=0;ii<FirstFree;ii++) {
       /* some assumes used here:
          QSINIT always return memory aligned to 64k from own alloc. So if we
@@ -1012,10 +996,10 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
             DumpBlock(P);
          }
       }
-   // if (MultiThread) MutexRelease(SynchroG);
+   mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
 
    if (DumpAll) {
-      // if (MultiThread) MutexGrab(SynchroL);
+      mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
       log_printf("**** Free Block Stack\n",LargeFree);
 
       for (long jj=0;jj<2;jj++)
@@ -1056,7 +1040,7 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
                if (linebuf[0]) log_printf("%s\n",linebuf);
             }
          }
-      // if (MultiThread) MutexRelease(SynchroL);
+      mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    }
 
    log_printf("*************************************\n");
@@ -1064,20 +1048,20 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
    log_printf("* Peak memory usage     : %d\n",MaxMemUsed);
 }
 
-extern "C" void memDumpLog(const char *TitleString) {
+extern "C" void mem_dumplog(const char *TitleString) {
    _memDumpLog(TitleString,true);
 }
 
-extern "C" void memSetOptions(long Options) {
+extern "C" void mem_setopts(long Options) {
    ParanoidalChk = (Options&QSMEMMGR_PARANOIDALCHK)!=0;
    ClearBlocks   = (Options&QSMEMMGR_ZEROMEM)!=0;
    HaltOnNoMem   = (Options&QSMEMMGR_HALTONNOMEM)!=0;
 }
 
-extern "C" u32t memGetOptions(void) {
-  return (ParanoidalChk?QSMEMMGR_PARANOIDALCHK:0) |
-         (ClearBlocks?QSMEMMGR_ZEROMEM:0) |
-         (HaltOnNoMem?QSMEMMGR_HALTONNOMEM:0);
+extern "C" u32t mem_getopts(void) {
+   return (ParanoidalChk?QSMEMMGR_PARANOIDALCHK:0) |
+          (ClearBlocks?QSMEMMGR_ZEROMEM:0) |
+          (HaltOnNoMem?QSMEMMGR_HALTONNOMEM:0);
 }
 
 void DefMemError(u32t ErrType,const char *FromHere,u32t Caller,void *Pointer) {
@@ -1088,11 +1072,11 @@ void DefMemError(u32t ErrType,const char *FromHere,u32t Caller,void *Pointer) {
    int len=snprintf(msg,256,"MEMMGR FATAL: %s. Function %s.\n              Caller ",
       errmsg[ErrType],FromHere);
 
-   module *mi=mod_by_eip(Caller,&object,&offset,0);
+   module *mi = mod_by_eip(Caller,&object,&offset,0);
    if (mi) len+=snprintf(msg+len, 256-len, "\"%s\" %d:%8.8X.",mi->name,object+1,offset);
       else len+=snprintf(msg+len, 256-len, "unknown.");
 
-   if (ErrType==RET_INVALIDPTR||ErrType==RET_MCBDESTROYD)
+   if (ErrType==RET_INVALIDPTR||ErrType==RET_MCBDESTROYD||ErrType==RET_DOUBLEFREE)
       snprintf(msg+len, 256-len, " Location %8.8X.", Pointer);
 
    _memDumpLog(msg,0);
@@ -1105,22 +1089,13 @@ void DefMemError(u32t ErrType,const char *FromHere,u32t Caller,void *Pointer) {
    exit_pm32(QERR_MCBERROR);
 }
 
-extern "C" void memInit(void) {
-   //if (MultiThrd&&!MultiThread) MultiThread=1;
+extern "C" void mem_init(void) {
    if (MMInited) return;
-   MMInited   =1;
-   MemError   =DefMemError;
-   //MultiThread  =MultiThrd;
-   memZeroBlock(&Cache,sizeof(Cache));
-   memZeroBlock(&SmallPool,sizeof(SmallPool));
-   memZeroBlock(&LargePool,sizeof(LargePool));
-   memZeroBlock(&ExtPoolPtr,sizeof(ExtPoolPtr));
+   MMInited   = 1;
+   MemError   = DefMemError;
+   memset(&Cache, 0, sizeof(Cache));
+   memset(&SmallPool, 0, sizeof(SmallPool));
+   memset(&LargePool, 0, sizeof(LargePool));
+   memset(&ExtPoolPtr, 0, sizeof(ExtPoolPtr));
    CurMemUsed=0; MaxMemUsed=0; FirstFree=0;  LargeFree=0;
-}
-
-extern "C" void memDone(void) {
-   if (!MMInited) return;
-   memDumpLog("Memory stack before memDone");
-   memFreeAll();
-   MMInited=0;
 }

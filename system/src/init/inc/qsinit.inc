@@ -17,7 +17,7 @@ ifndef EFI_BUILD
           RIPLBASE       = 0800h                                ; lowest RIPL phys address
 
           QSM_STACK16    = 3072                                 ; internal 16-bit stack size
-          QSM_STACK32    = 8192                                 ; internal 32-bit stack size
+          QSM_STACK32    = 16384                                ; internal 32-bit stack size
 ;cc #if 0  // selectors in common & EFI build are different
           SELCODE        = 08h                                  ; TEXT16 code selector
           SELZERO        = 10h                                  ; selector of entire memory space

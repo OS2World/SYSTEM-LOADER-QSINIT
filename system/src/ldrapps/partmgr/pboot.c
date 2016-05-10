@@ -146,8 +146,6 @@ int _std exit_bootmbr(u32t disk, u32t flags) {
       // copy own code
       if (flags&EMBR_OWNCODE)
          memcpy(&mbr->MBR_Code, isgpt?&gptsect:&psect, sizeof(mbr->MBR_Code));
-      // place to 0:07C00
-      memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, mbr, 512);
       // setup DPMI
       memset(&regs, 0, sizeof(regs));
       regs.r_ip  = MBR_LOAD_ADDR;
@@ -155,7 +153,9 @@ int _std exit_bootmbr(u32t disk, u32t flags) {
       // shutdown all and go boot
       vio_clearscr();
       exit_prepare();
-      hlp_fdone();
+      // place to 0:07C00
+      memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, mbr, 512);
+
       hlp_rmcallreg(-1, &regs, RMC_EXITCALL);
    }
    return 0;
@@ -232,8 +232,6 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
          struct Disk_MBR *mbr = (struct Disk_MBR*)hlp_segtoflat(MBR_LOAD_ADDR+sectsize >> 4);
          mbr->MBR_Reserved    = 0xCC33;
       }
-      // place to 0:07C00
-      memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, br, sectsize);
       // setup DPMI
       memset(&regs, 0, sizeof(regs));
       regs.r_ip  = MBR_LOAD_ADDR;
@@ -241,7 +239,9 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
       // shutdown all and go boot
       vio_clearscr();
       exit_prepare();
-      hlp_fdone();
+      // place to 0:07C00
+      memcpy((char*)hlp_segtoflat(0)+MBR_LOAD_ADDR, br, sectsize);
+      // one way call!
       hlp_rmcallreg(-1, &regs, RMC_EXITCALL);
    }
    return 0;

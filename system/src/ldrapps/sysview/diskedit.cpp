@@ -100,6 +100,7 @@
 #define cmSectDlatEd   142
 #define cmCalculator   143
 #define cmMemEdit      144
+#define cmSetCodepage  145
 
 #define cmHelpIndex    200
 #define cmHelpCont     201
@@ -251,7 +252,8 @@ int TSysApp::askDlg(int MsgType, u32t arg) {
                                    "Turn it on?\n",                      // 8
                                "\3""There is no active partition in partition table!\n"
                                "\3""Continue?\n",                        // 9
-                               "\3""Set \"BIOS Bootable\" attribute for this partition?\n" // 10
+                               "\3""Set \"BIOS Bootable\" attribute for this partition?\n", // 10
+                               "\3""Codepage selection failed. Continue format?\n" // 11
                               };
    char *mptr = askMsgArray[MsgType];
 
@@ -480,6 +482,9 @@ void TSysApp::handleEvent(TEvent& event) {
             clipWindow->show();
          }
          break;
+      case cmSetCodepage:
+         if (!SetCodepage(0)) errDlg(MSGE_COMMONFAIL);
+         break;
       case cmPowerOff:
          PowerOFF();
          break;
@@ -593,6 +598,7 @@ TMenuBar *CreateMenuBar( TRect r ) {
           new TMenuItem("~S~ave",cmSaveLog,kbNoKey,hcSaveLog,"",
           new TMenuItem("Save ~P~ure",cmPureLog,kbNoKey,hcPureLog,""
          )))))+
+      *new TMenuItem("~S~elect codepage",cmSetCodepage,kbNoKey,hcSetCodepage,"")+
       newLine()+
       *new TMenuItem("~C~PU info",cmCpuInfo,kbNoKey,hcCpuInfo,"")+
       newLine()+

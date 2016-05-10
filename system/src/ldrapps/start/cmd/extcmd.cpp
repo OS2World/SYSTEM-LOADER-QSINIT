@@ -18,46 +18,34 @@
 #include "stdarg.h"
 #include "qspage.h"
 #include "qssys.h"
+#include "qserr.h"
 #include "qsmodext.h"
 
 #define SPACES_IN_WIDE_MODE       4      ///< spaces between names in wide "dir" mode
 
-void cmd_shellerr(int errorcode, const char *prefix) {
+void cmd_shellerr(u32t errtype, int errorcode, const char *prefix) {
    if (!prefix) prefix = "\r";
-   printf("%s",prefix);
-   switch (errorcode) {
-      case E2BIG  : printf("Argument list too big. \n"); break;
-      case EINVAL : printf("The syntax of the command is incorrect. \n"); break;
-      case ENOENT : printf("The system cannot find the file specified. \n"); break;
-      case ENOMEM : printf("Out of memory. \n"); break;
-      case ENOSPC : printf("Disk is full. \n"); break;
-      case EACCES : printf("Access denied. \n"); break;
-      case EIO    : printf("I/O error. \n"); break;
-      case ENODEV : printf("There is no such device. \n"); break;
-      case ENOTDIR: printf("Not a directory. \n"); break;
-      case EISDIR : printf("Specified name is a directory. \n"); break;
-      case ENOMNT : printf("Device is not mounted. \n"); break;
-      case EEXIST : printf("A duplicate file name exists. \n"); break;
-      case EMFILE : printf("Too many open files. \n"); break;
-      case ENOTBLK: printf("Block device required. \n"); break;
-      case EFAULT : printf("Memory access error. \n"); break;
-      case EBUSY  : printf("Device or resource busy. \n"); break;
-      case ENAMETOOLONG : printf("File name too long. \n"); break;
-      case ENOSYS : printf("Function is not supported on EFI host. \n"); break;
-      case EINVOP : printf("Invalid operation. \n"); break;
-      case ELIBACC: printf("Can not access a needed DLL module. \n"); break;
-      case EINTR  : break;
-      default:
-         printf("Error code %d. \n", errorcode); break;
-   }
+
+   char *msg = cmd_shellerrmsg(errtype, errorcode);
+   if (!msg)
+      msg = sprintf_dyn(errtype?"Error code %d.":"Error code %X.", errorcode);
+   // enable ANSI while help message printing...
+   u32t state = vio_setansi(1);
+   printf("%s%s", prefix, msg);
+   free(msg);
+   if (!state) vio_setansi(0);
+}
+
+char* _std cmd_shellerrmsg(u32t errtype, int errorcode) {
+   char msgn[16];
+   snprintf(msgn, 16, errtype?"_C_%05d":"_E_%06X", errorcode);
+   return cmd_shellgetmsg(msgn);
 }
 
 static u32t   pp_lines = 25,
              pp_lstart = 0,
             pp_logcopy = 0,
             pp_forcenp = 0; // force no pause until next init
-static int   pp_buflen = 0;
-static char *pp_buffer = 0; // static buffer up to 32k
 
 extern "C" module *mod_list; // loaded module list
 #pragma aux mod_list "_*";
@@ -115,22 +103,15 @@ static u32t pause_println(const char *line, int init_counter=0, u8t color=0) {
 
 int __cdecl cmd_printf(const char *fmt, ...) {
    if (!fmt) return 0;
-   int      prnlen;
    va_list  argptr;
    va_start(argptr, fmt);
-
-   if (!pp_buffer) pp_buffer = (char*)malloc(pp_buflen=4096);
-   while (1) {
-      prnlen = vsnprintf(pp_buffer, pp_buflen, fmt, argptr);
-      if (prnlen<pp_buflen || prnlen>32768) break;
-      pp_buffer = (char*)realloc(pp_buffer, prnlen+1);
-   }
+   char *outstr = vsprintf_dyn(fmt, argptr);
    va_end(argptr);
-
-   FILE *stdo = get_stdout();
-   fputs(pp_buffer,stdo);
-   if (pp_logcopy) log_it(2,"%s",pp_buffer);
-
+   int   prnlen = strlen(outstr);
+   FILE   *stdo = get_stdout();
+   fputs(outstr, stdo);
+   if (pp_logcopy) log_it(2,"%s", outstr);
+   free(outstr);
    if (!pp_forcenp && isatty(fileno(stdo))) pause_check(0);
 
    return prnlen;
@@ -140,14 +121,12 @@ u32t __cdecl cmd_printseq(const char *fmt, int flags, u8t color, ...) {
    if (!fmt) return pause_println(0, flags, color);
    va_list argptr;
    va_start(argptr, color);
-   if (!pp_buffer) pp_buffer = (char*)malloc(pp_buflen=4096);
-   while (1) {
-      int prnlen = vsnprintf(pp_buffer, pp_buflen, fmt, argptr);
-      if (prnlen<pp_buflen || prnlen>32768) break;
-      pp_buffer = (char*)realloc(pp_buffer, prnlen+1);
-   }
+   char *outstr = vsprintf_dyn(fmt, argptr);
    va_end(argptr);
-   return pause_println(pp_buffer, flags, color);
+   int   prnlen = strlen(outstr);
+   u32t     res = pause_println(outstr, flags, color);
+   free(outstr);
+   return res;
 }
 
 int ask_yn(int allow_all) {
@@ -209,7 +188,7 @@ str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
    va_start(argptr, values);
    process_args_common(al, args, values, argptr);
    va_end(argptr);
-   return ret_list ? str_getlist(al.Str) : 0;
+   return ret_list?str_getlist_local(al.Str):0;
 }
 
 #define AllowSet " ^\r\n"
@@ -259,8 +238,8 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                u8t  *is_boot = new u8t [al.Count()],
                       sfattr = _A_ARCH;
                u32t *bt_len  = frombp?new u32t[al.Count()]:0,
-                     bt_type = hlp_boottype(),
-                      sftime = 0,
+                     bt_type = hlp_boottype();
+               time_t sftime = 0,
                       sctime = 0;
 
                for (idx=0;idx<al.Count();idx++) al.Objects(idx)=0;
@@ -297,8 +276,8 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                      if (cpattr && !idx) {
                         dir_t fi;
                         if (!_dos_stat(al[idx](),&fi)) {
-                           sftime = ((u32t)fi.d_date)<<16|fi.d_time;
-                           sctime = ((u32t)fi.d_crdate)<<16|fi.d_crtime;
+                           sftime = fi.d_wtime;
+                           sctime = fi.d_ctime;
                            /* creation time zeroed by OS/2 on FAT and often
                               can be equal, flag it as missing too in the
                               second case */
@@ -375,11 +354,11 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                      fclose(dstf);
                      // creation time can be 0
                      if (cpattr && sftime) {
-                        if (sctime) _dos_setfiletime(dst(), sctime, _DT_CREATE);
-                        // if no creation time - set both to the same in one call
-                        _dos_setfiletime(dst(), sftime, (sctime?0:_DT_CREATE)|
-                           _DT_MODIFY);
-                        _dos_setfileattr(dst(), sfattr);
+                        io_handle_info  hi;
+                        hi.attrs = sfattr;
+                        io_timetoio(&hi.wtime, sftime);
+                        io_timetoio(&hi.ctime, sctime?sctime:sftime);
+                        io_setinfo(dst(), &hi, IOSI_ATTRS|IOSI_CTIME|IOSI_WTIME);
                      }
                      if (buf) hlp_memfree(buf);
                   }
@@ -396,7 +375,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (!quiet&&rc) cmd_shellerr(rc,errstr);
+   if (!quiet&&rc) cmd_shellerr(EMSG_CLIB,rc,errstr);
    if (errstr) free(errstr);
    return rc;
 }
@@ -458,7 +437,7 @@ u32t _std shl_type(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -528,11 +507,10 @@ static int __stdcall readtree_cb(dir_t *fp, void *cbinfo) {
          else sprintf(buf," %10u  ",fp->d_size);
       pp.insert(buf,0);
       // cvt selected time
-      dostimetotm(cbi->crtime ? (u32t)fp->d_crdate<<16|fp->d_crtime :
-         (u32t)fp->d_date<<16|fp->d_time, &tme);
+      localtime_r(cbi->crtime?&fp->d_ctime:&fp->d_wtime, &tme);
       // format time
-      sprintf(buf,"%02d.%02d.%04d  %02d:%02d ",tme.tm_mday,tme.tm_mon+1,
-         tme.tm_year+1900,tme.tm_hour,tme.tm_min);
+      sprintf(buf,"%02d.%02d.%04d  %02d:%02d ", tme.tm_mday, tme.tm_mon+1,
+         tme.tm_year+1900, tme.tm_hour, tme.tm_min);
       pp.insert(buf,0);
    }
    return readtree_prn(cbi, pp);
@@ -666,7 +644,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
             if (fi.d_attr&_A_SUBDIR) { drive=pp; name.clear(); }
          }
          if (!error) {
-            if (!drive) drive = hlp_curdir(hlp_curdisk()); else {
+            if (!drive) getcurdir(drive); else {
                char *fp = _fullpath(0,drive(),0);
                fp[0] = fp[0]-'A'+'0';
                drive = fp;
@@ -718,18 +696,23 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
             } else {
                // total files
                cbi.file_cnt += count;
-               if (!count && cbi.ppath_len==-1) error = get_errno();
+               // nobody home? checks directory and set error
+               if (!count && cbi.ppath_len==-1) {
+                  dir_t info;
+                  if (_dos_stat(drive(), &info)) error = ENOENT; else
+                     if ((info.d_attr&_A_SUBDIR)==0) error = ENOTDIR;
+               }
                // last cycle print
                ldrive = drive[0]-'0';
                if (rc<0 && !error && idx==al.Max()) dir_total(ldrive, &cbi);
             }
          }
-         if (error) cmd_shellerr(rc=error,0);
+         if (error) cmd_shellerr(EMSG_CLIB,rc=error,0);
       }
       if (rc<0) rc=0;
    } else {
       if (rc<0) rc = EINVAL;
-      if (rc) cmd_shellerr(rc,0);
+      if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    }
    return rc;
 }
@@ -752,7 +735,7 @@ u32t _std shl_restart(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -806,12 +789,12 @@ u32t _std shl_help(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
 u32t _std shl_mkdir(const char *cmd, str_list *args) {
-   int rc=-1;
+   u32t rc = E_SYS_INVPARM;
    if (args->count>0) {
       TPtrStrings al;
       str_getstrs(args,al);
@@ -821,14 +804,12 @@ u32t _std shl_mkdir(const char *cmd, str_list *args) {
       // process
       al.TrimEmptyLines();
       if (al.Count()>=1) {
-         mkdir(al[0]());
-         rc = get_errno();
+         rc = io_mkdir(al[0]());
+         if (rc>0) log_it(3, "mkdir err %d, dir \"%s\"\n", rc, al[0]());
       }
-      if (rc>0) log_it(3, "mkdir err %d, dir \"%s\"\n", rc, al[0]());
    }
-   if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
-   return rc;
+   if (rc) cmd_shellerr(EMSG_QS,rc,0);
+   return qserr2errno(rc);
 }
 
 /// internal chdir for CD / PUSHD / POPD commands
@@ -841,8 +822,8 @@ static int chdir_int(const char *path) {
 
    if (!rc && pstr[1]==':') {
       char disk = toupper(pstr[0]);
-      if (disk>='A'&&disk<='Z') disk+='0'-'A';
-      hlp_chdisk(disk - '0');
+      if (disk>='0' && disk<='9') disk+='A'-'0';
+      io_setdisk(disk - 'A');
    }
    return rc;
 }
@@ -859,11 +840,13 @@ u32t _std shl_chdir(const char *cmd, str_list *args) {
    if (al.Count()>=1) {
       rc = chdir_int(al[0]());
    } else {
-      printf("%s\n",hlp_curdir(hlp_curdisk()));
+      spstr cdir;
+      getcurdir(cdir);
+      printf("%s\n", cdir());
       rc = EZERO;
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -948,7 +931,7 @@ u32t _std shl_del(const char *cmd, str_list *args) {
                }
             }
             if (!error) {
-               if (!drive) drive = hlp_curdir(hlp_curdisk()); else {
+               if (!drive) getcurdir(drive); else {
                   char *fp = _fullpath(0,drive(),0);
                   fp[0] = fp[0]-'A'+'0';
                   drive = fp;
@@ -1027,7 +1010,7 @@ u32t _std shl_del(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -1100,7 +1083,7 @@ u32t _std shl_rmdir(const char *cmd, str_list *args) {
    } while (false);
 
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -1160,22 +1143,12 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
                   } else {
                      u32t res = mod_free(mod);
                      if (res && !quiet) {
-                        switch (res) {
-                           case MODFERR_SELF:
-                              cmd_printf("Unable to free self (\"%s\")\n", mdn());
-                              break;
-                           case MODFERR_SYSTEM:
-                              cmd_printf("Unable to free system module (\"%s\")\n", mdn());
-                              break;
-                           case MODFERR_LIBTERM:
-                              cmd_printf("DLL term function denied unloading (\"%s\")\n", mdn());
-                              break;
-                           case MODFERR_EXECINPROC:
-                              cmd_printf("Exec in progress (\"%s\")\n", mdn());
-                              break;
-                           default: 
-                              cmd_printf("Unload error %d for module \"%s\"\n", rc, mdn());
-                        }
+                        char *errmsg = cmd_shellerrmsg(EMSG_QS, res);
+                        if (errmsg) {
+                           cmd_printf("%s (\"%s\")\n", errmsg, mdn());
+                           free(errmsg);
+                        } else
+                           cmd_printf("Unload error %X for module \"%s\"\n", rc, mdn());
                      }
                      if (res) rc = EBUSY;
                   }
@@ -1186,9 +1159,11 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
                      rc = ENOENT;
                      if (!quiet) {
                         cmd_printf("Error loading module \"%s\".\n",mdn());
-                        spstr msg;
-                        msg.sprintf("_MOD%02d",error);
-                        cmd_shellhelp(msg(),VIO_COLOR_GRAY);
+                        char *msg = cmd_shellerrmsg(EMSG_QS, error);
+                        if (msg) {
+                           cmd_printseq("(%s)",0,VIO_COLOR_GRAY,msg);
+                           free(msg);
+                        }
                      }
                   }
                }
@@ -1198,7 +1173,7 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc && rc!=ENOENT && rc!=EBUSY) cmd_shellerr(rc,0);
+   if (rc && rc!=ENOENT && rc!=EBUSY) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -1250,7 +1225,7 @@ u32t _std shl_power(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1275,35 +1250,37 @@ u32t _std shl_label(const char *cmd, str_list *args) {
       if (al[0][1]==':') {
          char dch = toupper(al[0][0]);
          // correct A:..Z:
-         if (dch>='A'&&dch<='Z') dch-='A'-'0';
-         drive = dch-'0';
+         if (dch>='0'&&dch<='9') dch+='A'-'0';
+         drive = dch-'A';
          pos++;
       } else
-         drive = hlp_curdisk();
-      rc = hlp_vollabel(drive,al.Count()>pos?al[pos]():0)?0:EACCES;
+         drive = io_curdisk();
+
+      rc = io_vollabel(drive,al.Count()>pos?al[pos]():0);
+      if (rc) { cmd_shellerr(EMSG_QS, rc, 0); rc = EACCES; }
    } else {
       disk_volume_data vinf;
-      u8t drive = hlp_curdisk();
+      u8t drive = io_curdisk();
       hlp_volinfo(drive,&vinf);
       int  lbon = vinf.Label[0];
 
       printf(lbon?"Volume in drive %c is %s\n":"Volume in drive %c has no label\n",
-         drive+'0', vinf.Label);
+         drive+'A', vinf.Label);
       printf("Volume Serial Number is %04X-%04X\n",
          vinf.SerialNum>>16,vinf.SerialNum&0xFFFF);
       printf("Volume label (11 characters, ENTER - none, ESC)? ");
       char* label = key_getstr(label_cb);
+      printf("\n");
       if (label) {
-         rc = hlp_vollabel(drive,*label?label:0)?0:EACCES;
+         rc = io_vollabel(drive,*label?label:0);
+         if (rc) { cmd_shellerr(EMSG_QS, rc, 0); rc = EACCES; }
          free(label);
       } else {
          rc = 0;
       }
-      printf("\n");
    }
-   if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
-   return 0;
+   if (rc<0) cmd_shellerr(EMSG_CLIB, rc = EINVAL, 0); else rc = qserr2errno(rc);
+   return rc;
 }
 
 u32t _std shl_trace(const char *cmd, str_list *args) {
@@ -1340,7 +1317,7 @@ u32t _std shl_trace(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1375,7 +1352,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
    if (is_ren && al.Count()>1) rc = EINVAL;
 
    if (rc>=0) {
-      if (!quiet) cmd_shellerr(rc,0);
+      if (!quiet) cmd_shellerr(EMSG_CLIB,rc,0);
    } else
    while (al.Count()) {
       spstr dir, name;
@@ -1395,7 +1372,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
       } else
       if (dir.length()>=NAME_MAX-1 || dir.length()+tgt_name.length()>=NAME_MAX) {
          rc = ENAMETOOLONG;
-         if (!quiet) cmd_shellerr(rc,0);
+         if (!quiet) cmd_shellerr(EMSG_CLIB,rc,0);
          break;
       } else {
          char buf[NAME_MAX+NAME_MAX/2];
@@ -1440,7 +1417,7 @@ static int processRenMove(TPtrStrings &al, int is_ren, int quiet) {
             if (dlst[idx].length()>NAME_MAX) newrc = ENAMETOOLONG;
                else newrc = rename(slst[idx](), dlst[idx]()) ?get_errno():0;
             if (!newrc) counter++;
-            if (newrc && !quiet) cmd_shellerr(newrc,0);
+            if (newrc && !quiet) cmd_shellerr(EMSG_CLIB,newrc,0);
             if (newrc || rc<=0) rc = newrc;
          }
       }
@@ -1463,7 +1440,7 @@ u32t _std shl_ren(const char *cmd, str_list *args) {
 
       rc = processRenMove(al, 1, quiet);
    }
-   if (rc<0) cmd_shellerr(rc = EINVAL,0);
+   if (rc<0) cmd_shellerr(EMSG_CLIB,rc = EINVAL,0);
    return rc;
 }
 
@@ -1535,7 +1512,7 @@ u32t _std shl_date(const char *cmd, str_list *args) {
    }
 
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1604,7 +1581,7 @@ u32t _std shl_time(const char *cmd, str_list *args) {
    }
 
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1644,7 +1621,7 @@ u32t _std shl_msgbox(const char *cmd, str_list *args) {
    }
    // return 0 (cancel), but display EINVAL error message
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1688,7 +1665,7 @@ u32t _std shl_mode(const char *cmd, str_list *args) {
    }
    // return 0 (cancel), but display EINVAL error message
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1709,7 +1686,8 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
          cmd_printseq("%s mode.", -1, VIO_COLOR_LWHITE,
             host==QSHT_EFI?"64-bit paging":(in_pagemode?"PAE paging":"Flat non-paged"));
          if (mtlib)
-            if (mtlib->active()) printf("MT is on.\n");
+            if (mtlib->active())
+               cmd_printseq("MT mode is active.\n", -1, VIO_COLOR_LGREEN);
          if (!port) {
             printf("There is no debug COM port in use now.\n");
          } else {
@@ -1743,7 +1721,7 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
          if (al.IndexOfName("HEAPFLAGS")>=0) {
             spstr mstr = al.Value("HEAPFLAGS");
             if (!mstr) {
-               u32t flags = memGetOptions();
+               u32t flags = mem_getopts();
                mstr.clear();
                if (flags&QSMEMMGR_PARANOIDALCHK) mstr+="paranoidal, ";
                if (flags&QSMEMMGR_ZEROMEM) mstr+="zero memory, ";
@@ -1759,7 +1737,7 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
                if ((flags&~(QSMEMMGR_PARANOIDALCHK|QSMEMMGR_ZEROMEM|QSMEMMGR_HALTONNOMEM))) {
                   printf("Invalid heap flags value.\n");
                } else
-                  memSetOptions(flags);
+                  mem_setopts(flags);
             }
             rc = 0;
          }
@@ -1788,17 +1766,14 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
             rc = 0;
             if (!mtlib) printf("MTLIB module is missing.\n"); else {
                u32t err = mtlib->initialize();
-               if (err==EINTR)  printf("MT mode is disabled (by set MTLIB).\n"); else
-               if (err==EEXIST) printf("QSINIT already in MT mode.\n"); else
-               if (err==ENODEV) printf("Not supported on this CPU.\n"); else
-               if (err==EBUSY)  printf("Unable to install interrupt vectors.\n");
-                  else rc = err;
+               if (err==E_SYS_DONE) printf("QSINIT already in MT mode.\n"); else
+                  if (err) cmd_shellerr(EMSG_QS, err, 0);
             }
          }
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -1829,7 +1804,7 @@ u32t _std shl_autostub(const char *cmd, str_list *args) {
 
             if (func!=shl_autostub) return cmd_shellcall(func, 0, args);
          } else
-            log_printf("Error %d on loading \"%s\" handler module \"%s\"\n",
+            log_printf("Error %08X on loading \"%s\" handler module \"%s\"\n",
                error, cmd, mdfname());
       }
    }
@@ -1916,7 +1891,7 @@ u32t _std shl_log(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 #endif
@@ -1965,7 +1940,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
          }
       }
       if (!error) {
-         if (!drive) drive = hlp_curdir(hlp_curdisk()); else {
+         if (!drive) getcurdir(drive); else {
             char *fp = _fullpath(0,drive(),0);
             fp[0] = fp[0]-'A'+'0';
             drive = fp;
@@ -2012,10 +1987,13 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
                _dos_getfileattr(flist[ii](), &attrs);
 
                if (andmask!=FFFF) {
-                  u32t err = _dos_setfileattr(flist[ii](), attrs&andmask|ormask);
-                  if (!err || quiet) msg.clear(); else
-                     msg.sprintf("Unable to set attributes for \"%s\". Error %d",
-                        flist[ii](), err);
+                  u32t   err = _dos_setfileattr(flist[ii](), attrs&andmask|ormask);
+                  if (!err || quiet) msg.clear(); else {
+                     char *emsg = cmd_shellerrmsg(EMSG_QS, err);
+                     msg.sprintf("Unable to set attributes for \"%s\". Error %X: %s",
+                        flist[ii](), err, emsg?emsg:"");
+                     if (emsg) free(emsg);
+                  }
                } else {
                   msg.sprintf("%c%c%c%c%c  %s", attrs&_A_ARCH?'A':' ',
                      attrs&_A_RDONLY?'R':' ', attrs&_A_HIDDEN?'H':' ',
@@ -2029,7 +2007,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = 0;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -2052,7 +2030,6 @@ u32t _std shl_pushd(const char *cmd, str_list *args) {
    }
    if (al.Count()<=1) {
       process_context *pq = mod_context();
-      // GS register damaged?
       if (!pq) rc = EFAULT; else {
          char cd[NAME_MAX+1];
          TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
@@ -2068,7 +2045,7 @@ u32t _std shl_pushd(const char *cmd, str_list *args) {
    }
    if (quiet) return rc;
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -2086,7 +2063,6 @@ u32t _std shl_popd(const char *cmd, str_list *args) {
    }
    // get PUSHD stack from process context data
    process_context *pq = mod_context();
-   // GS register damaged?
    if (!pq) rc = EFAULT; else {
       TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
       if (pdlist)
@@ -2098,7 +2074,7 @@ u32t _std shl_popd(const char *cmd, str_list *args) {
    }
    if (quiet) return rc;
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -2120,7 +2096,7 @@ u32t _std shl_ansi(const char *cmd, str_list *args) {
       rc = 0;
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 
@@ -2137,7 +2113,7 @@ u32t _std shl_move(const char *cmd, str_list *args) {
 
       rc = processRenMove(al, 0, quiet);
    }
-   if (rc<0) cmd_shellerr(rc = EINVAL,0);
+   if (rc<0) cmd_shellerr(EMSG_CLIB,rc = EINVAL,0);
    return rc;
 }
 
@@ -2166,7 +2142,7 @@ u32t _std shl_reboot(const char *cmd, str_list *args) {
       rc = 0;
    }
    if (rc<0) rc = EINVAL;
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 

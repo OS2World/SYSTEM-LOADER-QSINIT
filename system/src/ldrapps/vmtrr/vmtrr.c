@@ -187,7 +187,7 @@ int main(int argc,char *argv[]) {
       error(6,"Default memory type is NOT \"uncacheable\". Unable to operate!\n");
 
    mtrr = (mtrrentry*)malloc(vregs*sizeof(mtrrentry));
-   memZero(mtrr);
+   mem_zero(mtrr);
 
    for (ii=0; ii<vregs; ii++) {
       u32t rstate;

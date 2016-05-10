@@ -14,7 +14,6 @@ void *Disk1Data;      // own data virtual disk
 u32t  Disk1Size = 0;  // and it`s size
 
 extern FATFS*    extdrv[_VOLUMES];
-extern FIL*      extfl [_VOLUMES];
 extern DWORD     FileCreationTime;
 extern u8t      *page_buf,
                  mod_delay;
@@ -23,6 +22,7 @@ void    init_vol1data(void);
 FRESULT f_mkfs2(void);
 
 int unpack_zip(int disk, ZIP *zz, u32t totalsize) {
+   FIL        fh;   // we have at least 16k stack, so 4k fits good.
    char *getpath;
    u32t  getsize=0;
    int   errors =0, errprev;
@@ -68,7 +68,7 @@ int unpack_zip(int disk, ZIP *zz, u32t totalsize) {
          // report zip file time to FAT engine
          FileCreationTime=zz->dostime;
          // create file
-         rc=f_open(extfl[disk],path,FA_WRITE|FA_CREATE_ALWAYS);
+         rc = f_open(&fh, path, FA_WRITE|FA_CREATE_ALWAYS);
          // no such path? trying to create it
          if (rc==FR_NO_PATH) {
             char *cc=path;
@@ -82,13 +82,13 @@ int unpack_zip(int disk, ZIP *zz, u32t totalsize) {
                cc=strchr(cc,'\\');
                if (cc) {
                   *cc=0;
-                  rc=f_mkdir(path);
+                  rc = f_mkdir(path);
                   *cc++='\\';
                   if (rc!=FR_EXIST && rc!=FR_OK) break;
                }
             } while (cc);
             // open file again
-            rc=f_open(extfl[disk],path,FA_WRITE|FA_CREATE_ALWAYS);
+            rc = f_open(&fh, path, FA_WRITE|FA_CREATE_ALWAYS);
          }
          // these messages scroll up from screen actual info in verbose build
 #ifndef INITDEBUG
@@ -98,8 +98,8 @@ int unpack_zip(int disk, ZIP *zz, u32t totalsize) {
          if (rc==FR_OK) {
             UINT rsize;
             if (getsize)
-               if (f_write(extfl[disk],filemem,getsize,&rsize)!=FR_OK) errors++;
-            if (f_close(extfl[disk])!=FR_OK) errors++;
+               if (f_write(&fh, filemem, getsize, &rsize)!=FR_OK) errors++;
+            if (f_close(&fh)!=FR_OK) errors++;
          } else errors++;
          if (errprev!=errors) log_printf("error %d\n",rc);
       }
@@ -150,9 +150,8 @@ void make_disk1(void) {
    zip_close(&zz);
    zip_open(&zz, zip, size);
    // mount & make internal disk with common loader code
-   rc=f_mount(extdrv[DISK_LDR], vp, 0);
+   rc = f_mount(extdrv[DISK_LDR], vp, 0);
    if (!rc) rc = f_mkfs2();
-   //if (!rc) rc = f_mount(extdrv[DISK_LDR], vp, 1);
    if (rc) {
 #ifdef INITDEBUG
       log_printf("mkfs: %d\n",rc);
@@ -167,7 +166,7 @@ void make_disk1(void) {
    // free zip if delay was turned off, else save it for future unpacks
    if (!mod_delay) hlp_memfree(zip); else 
       sto_save(STOKEY_ZIPDATA,zip,size,0);
-   hlp_chdisk(DISK_LDR);
+   // hlp_chdisk(DISK_LDR);
    // for mount list command
    init_vol1data();
 }

@@ -11,6 +11,7 @@
 #include "qsstor.h"
 #include "qsconst.h"
 #include "qsbinfmt.h"
+#include "qserr.h"
 #include "vio.h"
 
 #ifndef EFI_BUILD
@@ -55,7 +56,6 @@ mod_addfunc     *mod_secondary; // secondary function table, from "start" module
 extern
 cache_extptr      *cache_eproc; // cache module callbacks
 extern u8t*              ExCvt; // FatFs OEM case conversion
-extern u8t*          mount_buf; // buffer for hlp_mountvol()
 
 #define CRC32_SIZE     (1024)
 #define OEMTAB_SIZE     (128)
@@ -66,6 +66,7 @@ void get_ini_parm(void);
 void exit_init(u8t *memory);
 void make_crc_table(void *table);
 void memmgr_init(void);
+void hlp_finit(void);
 void _std make_reboot(int warm);
 
 void _std init_common(void) {
@@ -76,10 +77,9 @@ void _std init_common(void) {
    memmgr_init();
    // memmgr is ready, allocating memory for unzip tables and other misc stuff
    crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + PAGESIZE + int_mem_need +
-                  puff_bufsize + OEMTAB_SIZE + MAX_SECTOR_SIZE, "serv", QSMA_READONLY);
+                  puff_bufsize + OEMTAB_SIZE, "serv", QSMA_READONLY);
    page_buf    = (void*)(crc_table + CRC32_SIZE);
-   mount_buf   = page_buf + PAGESIZE;
-   puff_buf    = (void*)(mount_buf + MAX_SECTOR_SIZE);
+   puff_buf    = page_buf + PAGESIZE;
    ExCvt       = (u8t*)puff_buf + puff_bufsize;
    exit_init(ExCvt + OEMTAB_SIZE);
    make_crc_table(crc_table);
@@ -129,14 +129,13 @@ int _std init32(u32t rmstack) {
    {  // load and launch START module
       int rc = start_it();
       if (rc)
-         if (rc!=MODERR_NOORDINAL) {
+         if (rc!=E_MOD_NOORD) {
             char msg[64];
-            snprintf(msg,64,"start error %d...\n", rc);
+            snprintf(msg,64,"start error %X...\n", rc);
             vio_strout(msg);
          } else // no required ordunal - so just report about wrong file
             vio_strout("QSINIT.LDI version mismatch!\n");
    }
-   hlp_fdone();
    return 0;
 }
 
@@ -148,16 +147,16 @@ void exit_restart(char *loader) {
 
    if (!mod_secondary) return;
    // loading from boot drive, if failed - from virtual disk
-   ldrdata=hlp_freadfull(loader,&ldrsize,0);
-   if (!ldrdata) ldrdata=(*mod_secondary->freadfull)(loader,&ldrsize);
+   ldrdata = hlp_freadfull(loader,&ldrsize,0);
+   if (!ldrdata) ldrdata = mod_secondary->freadfull(loader,&ldrsize);
    if (!ldrdata||!ldrsize) return;
 
    // copying mini-fsd back to original location
    if (minifsd_ptr)
-      rc = (*mod_secondary->memcpysafe)((void*)hlp_segtoflat(filetable.ft_mfsdseg),
+      rc = mod_secondary->memcpysafe((void*)hlp_segtoflat(filetable.ft_mfsdseg),
          minifsd_ptr, filetable.ft_mfsdlen, 1);
    else {
-      u32t bootfs = hlp_volinfo(DISK_BOOT, 0),
+      u32t bootfs = mod_secondary->hlp_volinfo(DISK_BOOT, 0),
           rootlen = BootBPB.BPB_RootEntries * 32;
 
       if ((bootfs==FST_FAT12 || bootfs==FST_FAT16) && rootlen && !dd_bootflags) {
@@ -176,7 +175,7 @@ void exit_restart(char *loader) {
                original place */
             if (hlp_diskread(QDSK_VOLUME|DISK_BOOT, bpb->BPB_ResSectors +
                bpb->BPB_FATCopies*bpb->BPB_SecPerFAT, nsec, btr+1)==nsec)
-                  rc = (*mod_secondary->memcpysafe)((char*)hlp_segtoflat(dd_rootseg)+
+                  rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_rootseg)+
                      dd_rootofs, btr+1, rootlen, 1);
          }
          hlp_memfree(btr);
@@ -185,7 +184,7 @@ void exit_restart(char *loader) {
    }
    // copy BPB back to initial location (if available)
    if (rc && (dd_bootflags&BF_NOMFSHVOLIO)==0)
-      rc = (*mod_secondary->memcpysafe)((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs,
+      rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs,
          &BootBPB, sizeof (BootBPB), 1);
    // copy new loader to the right place
    if (rc) memcpy((void*)hlp_segtoflat(LdrRstCS),ldrdata,ldrsize);

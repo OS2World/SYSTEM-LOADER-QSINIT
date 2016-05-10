@@ -219,7 +219,7 @@ u32t _std shl_pci(const char *cmd, str_list *args) {
    }
    if (rc<0) {
       rc = EINVAL;
-      if (rc) cmd_shellerr(rc,0);
+      if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    }
    return rc;
 }
@@ -310,7 +310,7 @@ u32t _std shl_log(const char *cmd, str_list *args) {
       free(args);
    }
    if (rc<0) rc = EINVAL;
-   if (rc && rc!=EINTR) cmd_shellerr(rc,0);
+   if (rc && rc!=EINTR) cmd_shellerr(EMSG_CLIB,rc,0);
    return 0;
 }
 

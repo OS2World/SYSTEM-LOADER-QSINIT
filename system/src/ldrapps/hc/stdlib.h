@@ -22,7 +22,7 @@ extern "C" {
 #define _MAX_FNAME  256   ///< maximum length of file name component
 #define _MAX_EXT    256   ///< maximum length of extension component
 #define _MAX_NAME   256   ///< maximum length of file name (with extension)
-#define _MAX_PATH   260
+#define _MAX_PATH   QS_MAXPATH
 
 typedef unsigned  size_t;
 typedef signed   ssize_t;
@@ -73,6 +73,8 @@ char*  __stdcall strdup (const char *str);
 
 int    __cdecl   sscanf (const char *in_string, const char *format, ...);
 
+/** stricmp function.
+    current code page affects on comparition! */
 int    __stdcall stricmp(const char *s1, const char *s2);
 
 char*  __stdcall strncat(char *dst, const char *src, size_t n);
@@ -167,7 +169,8 @@ int    __stdcall fdetach(FILE *fp);
     PID used to determine files to close.
     Called automatically after process exit.
     @attention function will close all files (except detached by fdetach()),
-               opened by global DLLs while this "process" was active */
+               opened by global DLLs while this "process" was active
+    @return number of closed files or EOF on error */
 int    __stdcall fcloseall(void);
 
 extern FILE  *stdin, *stdout, *stderr, *stdaux;
@@ -209,7 +212,7 @@ char*  __stdcall _tempnam(char *dir, char *prefix);
 
 /** get existing temp dir path from one of TMP, TEMP, TMPDIR, TEMPDIR
     environment variables.
-    @param  buffer  buffer with full name size (NAME_MAX) or 0 for static.
+    @param  buffer  buffer with full name size (_MAX_PATH+1) or 0 for static.
     @return path in buffer/static buffer or 0 if no such variable/dir */
 char*  __stdcall tmpdir(char *buffer);
 
@@ -217,6 +220,8 @@ char*  __stdcall tmpdir(char *buffer);
 #define fileno(fp) ((int)(fp))
 
 long   __stdcall filelength(int handle);
+
+s64t   __stdcall _filelengthi64(int handle);
 
 int    __stdcall isatty(int handle);
 
@@ -230,6 +235,13 @@ int    __stdcall _chsize(int handle, u32t size);
 
 void   __stdcall _splitpath(const char *path, char *drive, char *dir, char *fname, char *ext);
 
+/** get full path.
+    This function is compatible with watcom _fullpath.
+    @param  buffer  target path buffer. NULL can be used - result value will
+                    be malloc()-ed
+    @param  path    file or path name. NULL can be used for current dir
+    @param  size    length of buffer
+    @return full path. If buffer was 0 - it must be free()-d */
 char*  __stdcall _fullpath(char *buffer, const char *path, size_t size);
 
 char*  __stdcall getenv (const char *name);
@@ -237,18 +249,22 @@ char*  __stdcall getenv (const char *name);
 /** change environment variable.
     function simulate to watcom setenv.
     @attention this call may invalidate all pointers, returned by getenv
-    @param name       variable name
-    @param newvalue   variable new value
-    @param overwrite  allow overwrite previous value
+    @param name            variable name
+    @param newvalue        variable new value
+    @param overwrite       allow overwrite previous value
     @return zero on success */
 int    __stdcall setenv (const char *name, const char *newvalue, int overwrite);
 
 int    __stdcall clearenv(void);
 
 /** searches for the file.
-    searches for the file specified by name in the list of directories assigned
+    Watcom clib compatible function.
+    Searches for the file specified by name in the list of directories assigned
     to the environment variable specified by env_var.
-    Common values for env_var are PATH, LIB and INCLUDE. */
+    Common values for env_var are PATH, LIB and INCLUDE.
+
+    @param [out] pathname  buffer for target path (_MAX_PATH+1 bytes)
+    @return path in "pathname" or empty string in it */
 void   __stdcall _searchenv(const char *name, const char *env_var, char *pathname);
 
 #define  R_OK    4   ///< test for read permission
@@ -332,6 +348,16 @@ void   __stdcall srand(u32t seed);
     @return number of "ch" characters in string */
 u32t   __stdcall strccnt(const char *str, char ch);
 
+// bit scan functions, returns -1 if value us 0
+#ifdef __WATCOMC__
+int    bsf32(u32t value);
+int    bsr32(u32t value);
+#pragma aux bsf32 "_*" parm routine modify exact [eax];
+#pragma aux bsr32 "_*" parm routine modify exact [eax];
+#else
+int    __stdcall bsf32(u32t value);
+int    __stdcall bsr32(u32t value);
+#endif
 /** bit scan reverse (BSR) for 64bit value.
     @return -1 if value is 0 */
 int    __stdcall bsr64(u64t value);
@@ -371,7 +397,7 @@ u64t*  __stdcall memrchrnq(const u64t*mem, u64t chr, u32t buflen);
 // exchange data in two memory blocks
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
-/** string to uint. 
+/** string to uint.
     Unlike strtol() makes only hex & dec convertions, but not octal.
     Pair str2long() function available in clib.h for int values */
 u32t  __stdcall str2ulong(const char *str);

@@ -62,9 +62,13 @@ void con_init(void) {
          char *lp = lst->item[ii];
          if (strnicmp(lp,"MODES=",6)==0) enabled_modemask = strtoul(lp+6, 0, 0);
             else
-         if (strnicmp(lp,"MAXW=",5)==0) modelimit_x = strtoul(lp+5, 0, 0);
+         if (strnicmp(lp,"MAXW=" ,5)==0) modelimit_x = strtoul(lp+5, 0, 0);
             else
-         if (strnicmp(lp,"MAXH=",5)==0) modelimit_y = strtoul(lp+5, 0, 0);
+         if (strnicmp(lp,"MODEX=",6)==0) modelimit_x = strtoul(lp+6, 0, 0);
+            else
+         if (strnicmp(lp,"MAXH=" ,5)==0) modelimit_y = strtoul(lp+5, 0, 0);
+            else
+         if (strnicmp(lp,"MODEY=",6)==0) modelimit_y = strtoul(lp+6, 0, 0);
             else
          if (stricmp(lp,"NOFB")==0) fbaddr_enabled = 0;
 
@@ -74,7 +78,7 @@ void con_init(void) {
    }
    // mref array allocated here, but "modes" - in platform code
    mref = (con_intinfo*)malloc(sizeof(con_intinfo)*(MAXVESA_MODES+PREDEFINED_MODES+MAXEMU_MODES+1));
-   memZero(mref);
+   mem_zero(mref);
    // call platform mode detection (BIOS of EFI)
    pl_setup();
    // init current_mode and reset to 80x25 if we`re not in text mode
@@ -314,7 +318,7 @@ u32t _std shl_mkshot(const char *cmd, str_list *args) {
          rc = con_instshot(args->count==2?args->item[1]:0);
       }
    }
-   if (rc) cmd_shellerr(rc,0);
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
    return rc;
 }
 
@@ -572,7 +576,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
       }
    }
    // show message only if error code was not set above
-   if (rc<0) cmd_shellerr(rc=EINVAL,0);
+   if (rc<0) cmd_shellerr(EMSG_CLIB,rc=EINVAL,0);
    return rc;
 }
 

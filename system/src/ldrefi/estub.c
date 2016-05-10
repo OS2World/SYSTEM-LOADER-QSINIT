@@ -21,7 +21,6 @@
 u64t           page0_fptr;
 u32t             BaudRate = 115200;
 u16t          ComPortAddr = 0;
-u16t        state_rec_len = sizeof(struct xcpt64_data);
 stoinit_entry   storage_w[STO_BUF_LEN];
 struct Disk_BPB   BootBPB; // empty BPB (for now)
 extern u32t         sel64;

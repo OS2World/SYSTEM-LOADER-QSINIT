@@ -11,6 +11,7 @@
 #include "qslog.h"
 #include "qslxfmt.h"
 #include "internal.h"
+#include "qspdata.h"
 
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
 
@@ -28,7 +29,8 @@ void log_mdtdump_int(printf_function pfn) {
          int      len;
          pfn("\n");
          pfn("%s, %d objects, base addr: 0x%08X, usage %d\n", md->name,
-            md->objects,md->baseaddr,md->usage);
+            md->objects, md->baseaddr, md->usage);
+         pfn("  module path: %s\n", md->mod_path);
          pfn("  objects:\n");
          for (obj=0;obj<md->objects;obj++) {
             u16t objsel = md->obj[obj].sel;
@@ -58,7 +60,7 @@ void log_mdtdump_int(printf_function pfn) {
          }
          if (len) { pfn("\n"); pfn("%s\n",st); }
          if (md->exports) {
-            pfn("\n"); 
+            pfn("\n");
             pfn("  exports:\n");
             for (obj=0;obj<md->exports;obj++) {
                mod_export *ee=md->exps+obj;
@@ -93,6 +95,8 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres, u32t *m
    u32t          ii, cnt;
    char        sigstr[8];
    sigstr[4] = 0;
+
+   mt_swlock();
    log_it(2,"<=====QS memory dump=====>\n");
    log_it(2,"Total : %d kb\n",memblocks<<6);
    for (ii=0,cnt=0;ii<memblocks;ii++,cnt++) {
@@ -129,28 +133,48 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres, u32t *m
          }
          log_it(2,"\n");
       }
+   mt_swunlock();
 }
 
-/// dump process tree to log
-void _std mod_dumptree(void) {
+void _std log_dumppctx(process_context* pq) {
+   char     fmtstr[32];
+   u32t         ii;
+   mt_prcdata  *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
+
+   log_it(2," PID %4d : %s\n", pq->pid, pq->self->name);
+   if (pq->self)
+      log_it(2,"   module : %08X, path : %s\n", pq->self, pq->self->mod_path);
+   if (pq->parent)
+      log_it(2,"   parent : %08X, path : %s\n", pq->parent, pq->parent->mod_path);
+   log_it(2,"    flags : %08X\n", pq->flags);
+   log_it(2,"  env.ptr : %08X\n", pq->envptr);
+
+   // buffers can grow in next revisions - so print it in this way
+   ii = sizeof(pq->rtbuf)/4;
+   snprintf(fmtstr, 24, "    rtbuf : %%%dlb\n", ii/2);
+   log_it(2, fmtstr, pq->rtbuf);
+   memcpy(fmtstr, "          ", 10);
+   log_it(2, fmtstr, pq->rtbuf+ii);
+
+   ii = sizeof(pq->userbuf)/4;
+   snprintf(fmtstr, 24, "  userbuf : %%%dlb\n", ii/2);
+   log_it(2, fmtstr, pq->userbuf);
+   memcpy(fmtstr, "          ", 10);
+   log_it(2, fmtstr, pq->userbuf+ii);
+
+   if (!pd) log_it(2,"  procinfo ptr is NULL!\n"); else {
+      char *cdv = pd->piCurDir[pd->piCurDrive];
+      log_it(2,"  cur.dir : %c:\\%s\n", pd->piCurDrive+'A', cdv?cdv+3:"");
+   }
+}
+
+/** dump process tree to log.
+    This dump replaced by MTLIB when it active */
+void _std START_EXPORT(mod_dumptree)(void) {
    process_context* pq = mod_context();
    log_it(2,"== Process Tree ==\n");
    while (pq) {
-      char fmtstr[32];
-      log_it(2," PID %4d : %s\n", pq->pid, pq->self->name);
-      if (pq->self)
-         log_it(2,"   module : %08X, path : %s\n", pq->self, pq->self->mod_path);
-      if (pq->parent)
-         log_it(2,"   parent : %08X, path : %s\n", pq->parent, pq->parent->mod_path);
-      log_it(2,"    flags : %08X\n", pq->flags);
-      log_it(2,"  env.ptr : %08X\n", pq->envptr);
-
-      // buffers can grow in next revisions - so print it in this way
-      snprintf(fmtstr, 24, "    rtbuf : %%%dlb\n", sizeof(pq->rtbuf)/4);
-      log_it(2, fmtstr, pq->rtbuf);
-      snprintf(fmtstr, 24, "  userbuf : %%%dlb\n", sizeof(pq->userbuf)/4);
-      log_it(2, fmtstr, pq->userbuf);
-      
+      log_dumppctx(pq);
       pq = pq->pctx;
       if (pq) log_it(2,"------------------\n");
    }

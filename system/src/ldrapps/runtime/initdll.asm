@@ -53,13 +53,13 @@ __exit:
 CODE32          ends
 
 _DATA           segment dword public USE32 'DATA'
-                public  __Module
-                public  __RandSeed
+                public  __Module, __RandSeed, __IsDll
 @@exitfname     db      "(dll init)",0
 ; this is module* struct, referenced in qsmod.h. DO NOT modify contents, this
 ; is a system data actually ;)
 __Module        dd      0
 __RandSeed      dd      1
+__IsDll         dd      1
 _DATA           ends
 
 ;STACK32         segment dword public USE32 'STACK'
