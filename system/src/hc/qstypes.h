@@ -21,6 +21,7 @@ typedef unsigned char       u8t;
 typedef signed char         s8t;
 typedef void             *pvoid;
 typedef unsigned long     qserr;
+typedef unsigned long  qshandle;
 
 #ifndef _STDDEF_H_INCLUDED
 typedef unsigned long ptrdiff_t;

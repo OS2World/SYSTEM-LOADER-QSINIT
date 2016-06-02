@@ -419,6 +419,7 @@ exports = {
    _shl_ansi         = { index =347  group = "shell"   format = "usp"   }
    _shl_move         = { index =348  group = "shell"   format = "usp"   }
    _shl_reboot       = { index =349  group = "shell"   format = "usp"   }
+   _shl_delay        = { index =350  group = "shell"   format = "usp"   }
 
    # log support
 
@@ -534,7 +535,8 @@ exports = {
 
    _sys_tssalloc     = { index =380  group = "system"  format = "@hph"  }
    _sys_tssfree      = { index =381  group = "system"  format = "i@h"   }
-   # ordinals 382-383 reserved (moved to QSINIT)
+   # ordinal 382 reserved (moved to QSINIT)
+   _sys_notifyevent  = { index =383  group = "system"  format = "u@up"  }
    _sys_gdtdump      = { index =384  group = "system"  format = "vv"    }
    _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
    _sys_is64mode     = { index =386  group = "system"  format = "iv"    }

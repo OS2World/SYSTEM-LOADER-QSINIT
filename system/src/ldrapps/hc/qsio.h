@@ -17,8 +17,8 @@ extern "C" {
 #define QS_MAXPATH 260
 #endif
 
-typedef u32t   io_handle;
-typedef u32t  dir_handle;
+typedef qshandle   io_handle;
+typedef qshandle  dir_handle;
 
 u8t      _std io_curdisk  (void);
 qserr    _std io_setdisk  (u8t drive);

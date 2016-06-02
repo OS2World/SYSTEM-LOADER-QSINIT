@@ -6,6 +6,7 @@
 #include "qsutil.h"
 #include "qslog.h"
 #include "qsmod.h"
+#include "qssys.h"
 #include "memmgr.h"
 #include "qsshell.h"
 #include "pscan.h"
@@ -18,7 +19,7 @@ void set_hooks(void);
 void remove_hooks(void);
 void lvm_buildcrc(void);
 
-void on_exit(void) {
+void _std on_exit(sys_eventinfo *info) {
    if (!lib_ready) return;
    cmd_shellrmv("FORMAT",shl_format);
    cmd_shellrmv("UMOUNT",shl_umount);
@@ -29,7 +30,7 @@ void on_exit(void) {
    remove_hooks();
    scan_free();
    cache_free();
-   lib_ready    = 0;
+   lib_ready = 0;
 }
 
 unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
@@ -38,7 +39,7 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
          log_printf("%s already loaded!\n",selfname);
          return 0;
       }
-      exit_handler(&on_exit,1);
+      sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
       cmd_shelladd("GPT"   ,shl_gpt);
       cmd_shelladd("LVM"   ,shl_lvm);
       cmd_shelladd("DMGR"  ,shl_dmgr);
@@ -50,8 +51,8 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       lvm_buildcrc();
       set_hooks();
    } else {
-      exit_handler(&on_exit,0);
-      on_exit();
+      sys_notifyevent(0, on_exit);
+      on_exit(0);
       log_printf("%s unloaded!\n",selfname);
    }
    return 1;

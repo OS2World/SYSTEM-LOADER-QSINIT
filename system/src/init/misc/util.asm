@@ -17,6 +17,7 @@
                 extrn   _page0_fptr   :dword                    ;
                 extrn   _mt_new       :near                     ;
                 extrn   _mt_exit      :near                     ;
+                extrn   _clockint     :near                     ;
                 extrn   _ExCvt        :dword                    ;
 ifndef EFI_BUILD
                 extrn   _syscr3       :dword                    ;
@@ -1607,6 +1608,27 @@ _vio_readbuf    proc    near                                    ;
                 push    eax                                     ;
                 jmp     _vio_bufcommon                          ;
 _vio_readbuf    endp                                            ;
+
+
+;----------------------------------------------------------------
+;clock_t _std sys_clock(void);
+                public  _sys_clock                              ;
+_sys_clock      proc    near                                    ;
+                pop     eax                                     ;
+                push    0                                       ;
+                push    eax                                     ;
+                jmp     _clockint                               ;
+_sys_clock      endp                                            ;
+
+;----------------------------------------------------------------
+;clock_t _std clock(void);
+                public  _clock                                  ;
+_clock          proc    near                                    ;
+                call    _mod_context                            ;
+                xchg    eax,[esp]                               ;
+                push    eax                                     ;
+                jmp     _clockint                               ;
+_clock          endp                                            ;
 
 ;----------------------------------------------------------------
 ifndef EFI_BUILD

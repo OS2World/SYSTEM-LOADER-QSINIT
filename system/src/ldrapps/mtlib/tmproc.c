@@ -34,31 +34,31 @@ static int check_in_service(void) {
 static void check_lcaller(void) {
    u64t now = hlp_tscread();
    if (lockcaller)
-       if (lockcaller==mt_exechooks.mtcb_llcaller) {
-          if (now-lockstart>>tsc_shift > 3000) {
-             static char errstr[128];
-             u32t   object, offset;
-             module    *mi;
-             // disable mt_yield call until the end of printing
-             mt_exechooks.mtcb_yield = 0;
+      if (lockcaller==mt_exechooks.mtcb_llcaller) {
+         if (now-lockstart>>tsc_shift > 3000) {
+            static char errstr[128];
+            u32t   object, offset;
+            module    *mi;
+            // disable mt_yield call until the end of printing
+            mt_exechooks.mtcb_yield = 0;
 
-             snprintf(errstr, 128, "Too long lock from %08X", lockcaller);
-             hlp_seroutstr(errstr);
-             // this can produce trap, so print it in separate step
-             mi = mod_by_eip(lockcaller, &object, &offset, get_flatcs());
-             if (mi) {
-                snprintf(errstr, 128, "(\"%s\": %d:%08X)", mi->name, object+1, offset);
-                hlp_seroutstr(errstr);
-             }
-             hlp_seroutstr("\n");
-             // restore things, damaged by printing
-             mt_exechooks.mtcb_yield    = &yield;
-             mt_exechooks.mtcb_llcaller = lockcaller;
+            snprintf(errstr, 128, "Too long lock from %08X", lockcaller);
+            hlp_seroutstr(errstr);
+            // this can produce trap, so print it in separate step
+            mi = mod_by_eip(lockcaller, &object, &offset, get_flatcs());
+            if (mi) {
+               snprintf(errstr, 128, "(\"%s\": %d:%08X)", mi->name, object+1, offset);
+               hlp_seroutstr(errstr);
+            }
+            hlp_seroutstr("\n");
+            // restore things, damaged by printing
+            mt_exechooks.mtcb_yield    = &yield;
+            mt_exechooks.mtcb_llcaller = lockcaller;
 
-             lockstart = hlp_tscread();
-          }
-          return;
-       }
+            lockstart = hlp_tscread();
+         }
+         return;
+      }
    lockcaller = mt_exechooks.mtcb_llcaller;
    lockstart  = hlp_tscread();
 }

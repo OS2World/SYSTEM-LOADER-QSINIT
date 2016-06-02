@@ -5,6 +5,7 @@
 #include "stdlib.h"
 #include "qsutil.h"
 #include "qslog.h"
+#include "qssys.h"
 #include "qsshell.h"
 #include "errno.h"
 #include "qsmod.h"
@@ -99,13 +100,8 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
 static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio,
    cc_enable, cc_invalidate, cc_invalidate_vol, cc_stat};
 
-// data is not used and no any signature checks in this class
-typedef struct {
-   u32t     reserved;
-} cc_data;
-
 u32t _std cc_setsize_str(void *data, const char *size) {
-   if (stricmp(size,"OFF")==0) { cc_setsize(data, 0); return 1; }
+   if (stricmp(size,"OFF")==0) { cc_setsize(0, 0); return 1; }
       else
    if (isdigit(size[0])) {
       char *errptr = 0;
@@ -114,27 +110,17 @@ u32t _std cc_setsize_str(void *data, const char *size) {
          u32t availmax;
          if (value>50) value = 50;
          hlp_memavail(&availmax,0);
-         cc_setsize(data, (availmax>>20) * value /100);
+         cc_setsize(0, (availmax>>20) * value /100);
       } else
-         cc_setsize(data, value);
+         cc_setsize(0, value);
       // do not make noise to screen, because can be called from partmgr init
       return 1;
    }
    return 0;
 }
 
-static void _std cc_init(void *instance, void *data) {
-   cc_data *cpd  = (cc_data*)data;
-   cpd->reserved = 0xCC;
-}
-
-static void _std cc_done(void *instance, void *data) {
-   cc_data *cpd  = (cc_data*)data;
-   cpd->reserved = 0;
-}
-
 // shutdown handler
-void on_exit(void) {
+void _std on_exit(sys_eventinfo *info) {
    if (!lib_ready) return;
    lib_ready = 0;
    unload_all();
@@ -149,13 +135,12 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          return 0;
       }
       classid = exi_register("qs_cachectrl", methods_list,
-         sizeof(methods_list)/sizeof(void*), sizeof(cc_data),
-            cc_init, cc_done, 0);
+         sizeof(methods_list)/sizeof(void*), 0, 0, 0, 0);
       if (!classid) {
          log_printf("unable to register class!\n");
          return 0;
       }
-      exit_handler(&on_exit, 1);
+      sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
       cmd_shelladd("CACHE", shl_cache);
 
       lib_ready = 1;
@@ -166,8 +151,8 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       if (classid) return 0;
 
       cmd_shellrmv("CACHE",shl_cache);
-      exit_handler(&on_exit,0);
-      on_exit();
+      sys_notifyevent(0, on_exit);
+      on_exit(0);
    }
    return 1;
 }

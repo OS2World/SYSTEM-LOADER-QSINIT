@@ -16,15 +16,17 @@ extern u16t         state_rec_len;
 extern mod_addfunc *mod_secondary;
 
 mt_prcdata* _std mt_new(process_context *pq) {
-   u32t   alloc_len = sizeof(mt_prcdata) + sizeof(mt_thrdata) + sizeof(mt_fibdata);
+   u32t   alloc_len = sizeof(mt_prcdata) + sizeof(mt_thrdata) + sizeof(mt_fibdata)
+                      + sizeof(mt_thrdata*) * PREALLOC_THLIST;
    mt_prcdata   *pc = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR,
                       (u32t)pq->self, alloc_len): hlp_memallocsig(alloc_len,
                       "MDta", QSMA_READONLY);
    mt_thrdata   *td = (mt_thrdata*)(pc+1);
    mt_fibdata   *fd = (mt_fibdata*)(td+1);
+   mt_thrdata **thl = (mt_thrdata**)(fd+1);
    // guarantee zero-fill
    if (mod_secondary) memset(pc, 0, alloc_len);
-
+   thl[0]           = td;
    pc->piSign       = PROCINFO_SIGN;
    pc->piPID        = pq->pid;
    pc->piParentPID  = pq->parent?pq->pctx->pid:0;
@@ -33,8 +35,8 @@ mt_prcdata* _std mt_new(process_context *pq) {
    pc->piExitCode   = FFFF;
    pc->piContext    = pq;
    pc->piModule     = pq->self;
-   pc->piList       = td;
-   pc->piListAlloc  = 1;
+   pc->piList       = thl;
+   pc->piListAlloc  = PREALLOC_THLIST;
    pc->piMiscFlags  = (pc->piModule->flags&MOD_SYSTEM?PFLM_SYSTEM:0)|PFLM_EMBLIST;
    // b:\ is initial start dir
    pc->piCurDrive   = DISK_LDR;

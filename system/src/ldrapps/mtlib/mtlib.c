@@ -18,9 +18,8 @@
 #define INT_SPURIOUS    207
 #define INT_STACK32    8192      ///< stack for 32-bit timer interrupt
 
-int            lib_ready = 0; // lib is ready
 int                mt_on = 0;
-int               regs64 = 0;
+int                sys64 = 0;
 u32t             classid = 0; // class id
 u32t               *apic = 0; // pointer to LAPIC
 u32t             cmstate = 0; // current intel's clock modulation state
@@ -37,6 +36,7 @@ volatile u64t next_rdtsc = 0;
 u16t            main_tss = 0; // main tss (or 0 in 64-bit or 32-bit safe mode)
 pf_memset        _memset = 0;
 pf_memcpy        _memcpy = 0;
+pf_usleep        _usleep = 0;
 pf_mtstartcb  mt_startcb = 0;
 u32t           mh_qsinit = 0,
                 mh_start = 0;
@@ -53,6 +53,7 @@ void spurious32(void);
 void update_clocks(void) {
    cmstate    = hlp_cmgetstate();
    tick_timer = (u64t)tics55  * tick_ms * 1000 / 54932;
+   rdtsc55    = hlp_tscin55ms();
    tsc_100mks = rdtsc55 * 100 / 54932;
    tick_rdtsc = rdtsc55 * tick_ms * 1000 / 54932;
    tsc_shift  = bsr64(tsc_100mks*10);
@@ -65,28 +66,28 @@ void update_clocks(void) {
    next_rdtsc = hlp_tscread() + tick_rdtsc;
 }
 
-/** tm_calibrate() exit hook.
-    update "tsc in 55ms" counter here, not required, but still for possible AMD support */
-static int _std catch_calibrate(mod_chaininfo *info) {
-   rdtsc55 = hlp_tscin55ms();
-   return 1;
-}
-
-/// clock modulation exit hook
-static int _std catch_setcm(mod_chaininfo *info) {
-   u32t cmnew = hlp_cmgetstate();
-   if (cmstate!=cmnew) update_clocks();
-   return 1;
+static void _std notify_callback(sys_eventinfo *info) {
+   if (info->eventtype&SECB_CMCHANGE) {
+      // clock modulation changed, update values for safeness
+      u32t cmnew = hlp_cmgetstate();
+      if (cmstate!=cmnew) update_clocks();
+   }
 }
 
 static u32t catch_functions(void) {
-   if (mod_apichain(mh_qsinit, ORD_QSINIT_tm_calibrate, APICN_ONEXIT, catch_calibrate) &&
-      mod_apichain(mh_start, ORD_START_hlp_cmsetstate, APICN_ONEXIT, catch_setcm) &&
-         mod_apichain(mh_start, ORD_START_mod_dumptree, APICN_REPLACE, mt_dumptree) &&
-            mod_apichain(mh_start, ORD_START_mt_getthread, APICN_REPLACE, mt_gettid))
-               return 0;
-   log_it(2, "unable to catch!\n");
-   return E_MOD_NOORD;
+   if (!mod_apichain(mh_start, ORD_START_mod_dumptree, APICN_REPLACE, mt_dumptree) ||
+      !mod_apichain(mh_start, ORD_START_mt_getthread, APICN_REPLACE, mt_gettid) ||
+         !mod_apichain(mh_qsinit, ORD_QSINIT_usleep, APICN_REPLACE, mt_usleep))
+   {
+      log_it(2, "unable to replace api!\n");
+      return E_MOD_NOORD;
+   }
+   if (!sys_notifyevent(SECB_GLOBAL|SECB_CMCHANGE, notify_callback)) {
+      /* this is not critical, actually. Intel`s clock modulation has no effect on timer
+         values, it just called for order */
+      log_it(2, "sys_notifyevent() error!\n");
+   }
+   return 0;
 }
 
 static u32t mt_start(void) {
@@ -153,9 +154,9 @@ static u32t mt_start(void) {
    mem_zero(tmstack32);
    // initial esp value
    tmstack32+= INT_STACK32;
-   regs64    = sys_is64mode();
+   sys64     = sys_is64mode();
 
-   if (regs64) {
+   if (sys64) {
       u64t rc;
       sys_tmirq64(timer64cb);
       // set 64-bit irq vectors (special code hosted in EFI binary)
@@ -187,10 +188,14 @@ static u32t mt_start(void) {
    tls_prealloc = sys_queryinfo(QSQI_TLSPREALLOC, 0);
    // init process/thread data
    init_process_data();
+   // register mutex class provider
+   register_mutex_class();
    // !!!
    mt_on = 1;
    // start timer, at last!
    apic[APIC_LVT_TMR]  = 0x20000|apic_timer_int;
+   // launch "system idle" thread
+   start_idle_thread();
    // inform START about MT is happen ;)
    if (mt_startcb) mt_startcb();
    // we are done
@@ -214,13 +219,22 @@ qserr _std cmt_tlsset(void *data, u32t idx, u64t value) { return mt_tlsset(idx, 
 
 qserr _std cmt_tlsaddr(void *data, u32t idx, u64t **pa) { return mt_tlsaddr(idx, pa); }
 
+mt_tid _std cmt_createthread(void *data, mt_threadfunc thread, u32t flags,
+                          mt_ctdata *optdata, void *arg)
+{
+   return mt_createthread(thread, flags, optdata, arg);
+}
+
+qserr _std cmt_resumethread(void *data, u32t pid, u32t tid) { return mt_resumethread(pid, tid); }
+
 u32t _std cmt_getmodpid(void *data, u32t mh) {
    if (!mh) return 0;
    return pid_by_module((module*)mh);
 }
 
-static void *methods_list[] = { cmt_initialize, cmt_state, cmt_getmodpid, cmt_tlsalloc,
-                                cmt_tlsfree, cmt_tlsget, cmt_tlsset, cmt_tlsaddr };
+static void *methods_list[] = { cmt_initialize, cmt_state, cmt_getmodpid,
+   cmt_tlsalloc, cmt_tlsfree, cmt_tlsget, cmt_tlsset, cmt_tlsaddr,
+   cmt_createthread, cmt_resumethread };
 
 // data is not used and no any signature checks in this class
 typedef struct {
@@ -235,12 +249,6 @@ static void _std mt_init(void *instance, void *data) {
 static void _std mt_done(void *instance, void *data) {
    mt_data *cpd  = (mt_data*)data;
    cpd->reserved = 0;
-}
-
-// shutdown handler
-void on_exit(void) {
-   if (!lib_ready) return;
-   lib_ready = 0;
 }
 
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
@@ -259,15 +267,14 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          any possible chaining */
       _memset    = (pf_memset)mod_apidirect(mh_qsinit, ORD_QSINIT_memset);
       _memcpy    = (pf_memcpy)mod_apidirect(mh_qsinit, ORD_QSINIT_memcpy);
+      _usleep    = (pf_usleep)mod_apidirect(mh_qsinit, ORD_QSINIT_usleep);
       /* callback in START, importing it in common way, i.e. chaining is
          possible on it! ;)
          Any way, it must be catched by exit chain, not entry and never
          replace. The reason is possible START module internal adjustments */
       mt_startcb = (pf_mtstartcb)mod_getfuncptr(mh_start, ORD_START_mt_startcb);
 
-      pxcpt_top = mt_exechooks.mtcb_pxcpttop;
-      // install shutdown handler
-      exit_handler(&on_exit,1);
+      pxcpt_top  = mt_exechooks.mtcb_pxcpttop;
 
       classid = exi_register("qs_mtlib", methods_list,
          sizeof(methods_list)/sizeof(void*), sizeof(mt_data),
@@ -278,8 +285,6 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       }
       // set system flag on self, no any unload from this point
       ((module*)hmod)->flags |= MOD_SYSTEM;
-
-      lib_ready = 1;
    }
    return 1;
 }

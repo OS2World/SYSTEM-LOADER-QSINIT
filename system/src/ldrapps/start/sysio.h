@@ -98,4 +98,3 @@ typedef struct {
 }
 #endif // __cplusplus
 #endif // QSINIT_SYSIO_REF
-

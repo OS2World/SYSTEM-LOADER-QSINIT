@@ -129,7 +129,7 @@ exports = {
   _IODelay         = { index=129 offset = yes }                   # i/o delay value
   _page0_fptr      = { index=130 offset = yes }                   # 48-bit writable page 0 ptr
   _exit_prepare    = { index=131 }                                # call exit list
-  _exit_handler    = { index=132 }                                # add/remove exit callbacks
+  # 132 removed (_exit_handler)
   _hlp_boottype    = { index=133 }                                # query boot type
   _hlp_getcpuid    = { index=134 }                                # cpuid call
   _hlp_readmsr     = { index=135 }                                # read msr call
@@ -166,10 +166,7 @@ exports = {
   _mod_secondary   = { index=165 offset = yes }                   # internal variables and
   _mod_list        = { index=166 offset = yes }                   # functions
   _mod_ilist       = { index=167 offset = yes }                   #
-  _mod_listadd     = { index=168 }                                #
-  _mod_listdel     = { index=169 }                                #
-  _mod_listlink    = { index=170 }                                #
-  _mod_listflags   = { index=172 }                                #
+  # 168..172 removed (mod_list* functions)
   _mod_context     = { index=173 }                                # query module context
   _mod_query       = { index=174 }                                # is module loaded?
   _mod_apidirect   = { index=175 group="module" format="p@uu" }   #
@@ -191,6 +188,7 @@ exports = {
   _tm_calibrate    = { index=194 }                                # calibrate i/o delay
   _clock           = { index=195 group="time"   format="@qv" }    # just clock()
   _hlp_tscin55ms   = { index=196 group="system" format="@qv" }    # rtdsc cycles in 55 ms
+  _sys_clock       = { index=197 group="time"   format="@qv" }    # mks sys reboot
 
   _vio_getshape    = { index=200 group="vio"    format="@hv" }    # get cursor shape
   _vio_getpos      = { index=201 }                                # get cursor pos

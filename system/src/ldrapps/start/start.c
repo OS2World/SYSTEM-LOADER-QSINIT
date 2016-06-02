@@ -20,6 +20,7 @@ void setup_memory(void);
 void setup_fileio(void);
 void setup_storage(void);
 void setup_hardware(void);
+void check_version(void);
 int  get_ini_parms(void);
 void setup_fio(void);
 void done_ini(void);
@@ -53,6 +54,8 @@ void _std mod_main(void) {
    setup_cache();
    // install shell commands
    setup_shell();
+   // check version (if we`re still alive)
+   check_version();
    // left shift was pressed (safe mode)
    if (hlp_insafemode()) {
       cmd_state cst;

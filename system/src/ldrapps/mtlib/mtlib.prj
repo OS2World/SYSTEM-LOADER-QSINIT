@@ -46,7 +46,8 @@ copy=cp
 ..\runtime\qsinit.ord ..\runtime\start.ord
 ..\..\ldrefi\inc\efnlist.inc ..\..\hc\inc\seldesc.inc
 ..\..\init\inc\qspdata.inc ..\..\hc\inc\cpudef.inc
-mtlib.c timer.asm tmproc.c process.c procutil.asm sched.c thread.c
+mtlib.c timer.asm tmproc.c process.c procutil.asm sched.c thread.c mutex.c
+wobj.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

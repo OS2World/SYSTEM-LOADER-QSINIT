@@ -919,11 +919,14 @@ u32t _std START_EXPORT(hlp_cmsetstate)(u32t state) {
       rc = state==CPUCLK_MAXFREQ ? 0x0E : 0x10 + state;
       rc = hlp_setmsrsafe(MSR_IA32_CLOCKMODULATION, rc, 0);
    }
-   if (rc) tm_calibrate();
+   if (rc) {
+      tm_calibrate();
+      sys_notifyexec(SECB_CMCHANGE, 0);
+   }
    return rc?0:ENODEV;
 }
 
-static void cm_restore(void) {
+static void _std cm_restore(sys_eventinfo *info) {
    if (!sto_dword(STOKEY_CMMODE)) {
       u32t state = hlp_cmgetstate();
       if (state>0 && state<CPUCLK_MAXFREQ) hlp_cmsetstate(CPUCLK_MAXFREQ);
@@ -970,6 +973,8 @@ void _std mt_startcb(void) {
    // we need this pointer too ;)
    if (!mtlib) get_mtlib();
    in_mtmode = 1;
+   // run funcs, waiting for this happen
+   sys_notifyexec(SECB_MTMODE, 0);
 }
 
 u32t _std sys_queryinfo(u32t index, void *outptr) {
@@ -993,7 +998,7 @@ void setup_hardware(void) {
             cmv = 10000/CPUCLK_MAXFREQ*cmv;
             log_it(0, "CPU at %u.%2.2u%%!!!\n", cmv/100, cmv%100);
          }
-         exit_handler(&cm_restore, 1);
+         sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, cm_restore);
       }
    }
    if (!cpu_phys_bits) init_baseinfo();

@@ -62,8 +62,8 @@ static void exi_makethunks(cl_ref *ref, cl_header *hdr) {
       // jump to chaining thunks or directly to function
       u32t   addr = chainon ? (u32t)ref->thunks[ii] : ((u32t*)(ref+1))[ii];
       memcpy(thc, thunkcode, THUNK_SIZE);
-      // store user data offset into push instruction
-      *(u32t*)(thc+2) = dataptr;
+      // store user data offset into push instruction (or 0 if no user data)
+      *(u32t*)(thc+2) = ref->datasize ? dataptr : 0;
       // store jump to actual function into jmp rel32 instruction
       *(u32t*)(thc+8) = addr - (u32t)(thc+12);
       // store thunk ptr to public struct
@@ -109,7 +109,7 @@ void* _std exi_createid(u32t classid) {
    // make code
    exi_makethunks(ref, hdr);
    // constructor
-   if (ref->init) ref->init(funcs,(u8t*)funcs+ftabsize);
+   if (ref->init) ref->init(funcs, ref->datasize?(u8t*)funcs+ftabsize:0);
    return funcs;
 }
 
@@ -192,7 +192,8 @@ void _std exi_free(void *instance) {
    // clear sign to prevent recursive call from destructor
    ch->sign = 0;  ch->next = 0;  ch->prev = 0;
    // call destructor
-   if (ref->done) ref->done(instance,(u8t*)(instance)+sizeof(void*)*ref->fncount);
+   if (ref->done)
+      ref->done(instance, ref->datasize?(u8t*)(instance)+sizeof(void*)*ref->fncount:0);
    // free object
    free(ch);
 }

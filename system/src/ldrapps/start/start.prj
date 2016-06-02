@@ -26,7 +26,8 @@ ld=@wlink
 *ord=$(outdir)\$(*cur_fp)_ord.h|$(*cur_pref).ref| @echo $(*cur_name) | \
      ref2lbc ord $(*cur_pref).ref $@
 
-aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init -fo=
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init \
+       -i=$(outdir) -fo=
 
 cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) \
        -i=$(outdir) -i=. -i=..\hc\rt -i=%(QS_BASE)\init \
@@ -43,6 +44,7 @@ outdir=$(bld_dir)\$(config)
 outname=$(name)
 &lnk=$(outdir)\$(name).lnk
 &bldlevel=$(outdir)\bldlevel.lnk
+&vercheck=$(outdir)\vercheck.inc
 ; if no svn - use "svnrev" env. variable
 revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 
@@ -61,7 +63,7 @@ misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c
 cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
 misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
-main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp
+main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp main\notify.c
 pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiofat.c
 
 [make_footer]
@@ -81,6 +83,9 @@ cmd\extcmd.cpp : cmd\zz.cpp cmd\shpci.cpp
 
 [&bldlevel]
 @#QS:$(vershort).$(revnum)#@  QSinit loader
+
+[&vercheck]
+db 'QSinit $(vershort), rev $(revnum)',0
 
 [&lnk]
 sys os2v2_dll

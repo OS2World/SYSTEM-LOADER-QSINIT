@@ -85,7 +85,7 @@ u32t    _std exi_query(const char *classname);
 
 /// @name exi_query() value
 //@{
-#define EXIQ_UNKNOWN    0x0000    ///< class name known
+#define EXIQ_UNKNOWN    0x0000    ///< class name unknown
 #define EXIQ_KNOWN      0x0001    ///< class known, but NOT available
 #define EXIQ_AVAILABLE  0x0003    ///< class name present and its supporting module is loaded
 //@}
@@ -128,7 +128,9 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
                         will be auto-generated.
     @param  funcs       Pointer to list of funcions.
     @param  funcscount  Number of funcions.
-    @param  datasize    Size of user data in instance.
+    @param  datasize    Size of user data in instance, can be 0. If data size
+                        is 0 - both constructor/destructor and method functions
+                        will recieve 0 in data pointer field.
     @param  constructor Constructor function or 0.
     @param  destructor  Destructor function or 0.
     @param  module      Module handle of module with class code.

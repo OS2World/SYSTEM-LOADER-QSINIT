@@ -268,6 +268,8 @@ typedef struct {
    qserr   _std (*unlink)(const char *path);
    /// batch free
    u32t    _std (*mem_freepool)(long Owner, long Pool);
+   /// notification on system events
+   void    _std (*sys_notifyexec)(u32t eventtype, u32t infovalue);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()
@@ -307,18 +309,6 @@ typedef struct {
 */
 int  _std mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
                   u32t destaddr, void *extreq);
-
-/// link module to list
-void _std mod_listadd(module **list, module *module);
-
-/// unlink module from list
-void _std mod_listdel(module **list, module *module);
-
-/// merge two module lists
-void _std mod_listlink(module **to, module *first);
-
-/// apply flags to all modules in list ( | and &~ )
-void _std mod_listflags(module *first, u32t fl_or, u32t fl_andnot);
 
 /** query module by eip.
     @attention warning! function located in "start" module

@@ -465,6 +465,9 @@ u32t      _std shl_reboot (const char *cmd, str_list *args);
 /// CHCP command.
 u32t      _std shl_chcp   (const char *cmd, str_list *args);
 
+/// DELAY command.
+u32t      _std shl_delay  (const char *cmd, str_list *args);
+
 #ifdef __cplusplus
 }
 #endif

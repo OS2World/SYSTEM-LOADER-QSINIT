@@ -37,7 +37,7 @@ piContext       dd      ?          ;/< process context
 piPrio          dd      ?          ;/<
 ;ct module*
 piModule        dd      ?          ;/< exe file module
-;ct mt_thrdata*
+;ct mt_thrdata**
 piList          dd      ?
 piListAlloc     dd      ?          ;/< allocated size of piList
 
@@ -70,6 +70,7 @@ THRD_STATEMAX   equ     3
 THWR_CHILDEXEC  equ     0          ;/< child process exit
 THWR_TIDMAIN    equ     1          ;/< main thread waits for other active threads
 THWR_TIDEXIT    equ     2          ;/< thread waits other to exit
+THWR_WAITOBJ    equ     3          ;/< thread waits in mt_waitobject() func
 
 ;cc // thread info
 mt_threadinfo   struc
@@ -111,7 +112,7 @@ mt_threadinfo   ends
 TFLM_MAIN       equ     1          ;/< main thread (exit will cause process termination)
 TFLM_EMBLIST    equ     2          ;/< list embedded into thread info memoryblock
 TFLM_SYSTEM     equ     4          ;/< system thread (kill disabled)
-TFLM_AVAIL      equ     8          ;/< empty thread slot
+TFLM_NOSCHED    equ     8          ;/< skip it in scheduler enumeration
 
 mt_fiberstate   struc
 fiSign          dd      ?          ;/< header signature
@@ -151,14 +152,14 @@ mtcb_llcaller   dd      ?          ;/< last mt_swlock() caller addr
 mtcb_pxcpttop   dd      ?
 ;ct process_context*
 mtcb_ctxmem     dd      ?
-;ct pmt_yield
-mtcb_pgoncb     dd      ?          ;/< callback for pag_enable()
 mtcb_ctid       dd      ?          ;/< current thread (pid in mtcb_ctxmem)
 mt_proc_cb_s    ends
 
 ;cc typedef struct mt_proc_cb_s  mt_proc_cb;
 
 MAX_TID_BITS    equ     12         ;/< max 4096 threads per process (2^12)
+
+PREALLOC_THLIST equ     32
 
 ;cc #ifdef __cplusplus
 ;cc }

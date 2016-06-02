@@ -74,37 +74,42 @@ void yield(void);
     @param  stacksize stack size to allocate or 0
     @param  eip       starting point
     @return fiber index or FFFF on error */
-u32t mt_allocfiber(mt_thrdata *th, u32t type, u32t stacksize, u32t eip);
+u32t        mt_allocfiber(mt_thrdata *th, u32t type, u32t stacksize, u32t eip);
 
 /** free fiber data.
     Function just throws trap screen on any error ;)
     @param  th        thread
     @param  index     fiber index
     @param  fini      do not reinitialize it (final free) - 1/0 */
-void mt_freefiber(mt_thrdata *th, u32t index, int fini);
+void        mt_freefiber(mt_thrdata *th, u32t index, int fini);
 
-/// allocate new thread
+/** allocates new thread.
+    Must be called inside MT lock only! */
 mt_thrdata *mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize);
 
 /** free thread data.
+    Must be called inside MT lock only!
     Function just throws trap screen on any error ;)
     @param  th        thread
     @param  fini      do not reinitialize it (final free) - 1/0 */
-void mt_freethread(mt_thrdata *th, int fini);
+void        mt_freethread(mt_thrdata *th, int fini);
 
 /// real mt_getthread(), chained into START to replace stub function
-u32t _std mt_gettid(void);
+u32t _std   mt_gettid(void);
+
+/// usleep() replacement to yield time to other threads/hlp function
+void _std   mt_usleep(u32t usec);
 
 /// must be called inside lock only!
 mt_prcdata* get_by_pid(u32t pid);
 
 mt_thrdata* get_by_tid(mt_prcdata *pd, u32t tid);
 
-u32t pid_by_module(module* handle);
+u32t        pid_by_module(module* handle);
 
-void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue);
+void        update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue);
 /// just retn
-void pure_retn(void);
+void        pure_retn(void);
 
 /// non-reenterable tree walking start (whole process should be locked)
 mt_prcdata *walk_start(void);
@@ -112,13 +117,17 @@ mt_prcdata *walk_start(void);
 mt_prcdata *walk_next(mt_prcdata *cur);
 
 /// thread`s exit point
-void mt_exitthreada(u32t rc);
+void        mt_exitthreada(u32t rc);
 #pragma aux mt_exitthreada "_*" parm [eax];
 
+void        register_mutex_class(void);
+/// start system idle thread
+void        start_idle_thread(void);
 
-typedef void* _std (*pf_memset)(void *dst, int c, u32t length);
-typedef void* _std (*pf_memcpy)(void *dst, const void *src, u32t length);
+typedef void* _std (*pf_memset)   (void *dst, int c, u32t length);
+typedef void* _std (*pf_memcpy)   (void *dst, const void *src, u32t length);
 typedef void  _std (*pf_mtstartcb)(void);
+typedef void  _std (*pf_usleep)   (u32t usec);
 
 extern u32t           *apic;      ///< APIC, really - in dword addressing mode
 extern u8t   apic_timer_int;      ///< APIC timer interrupt number
@@ -127,19 +136,23 @@ volatile u64t    next_rdtsc;
 extern u64t      tick_rdtsc,
                  tsc_100mks;      ///< counters in 0.1 ms
 extern u32t       tsc_shift;
+extern u32t         tick_ms;      ///< timer tick in ms
 extern u16t        main_tss;
 extern int            mt_on;
-extern int           regs64;      ///< 64-bit register in fiber data
+extern int            sys64;      ///< 64-bit host mode
 extern u32t       mh_qsinit,
                    mh_start;
 extern pf_memset    _memset;      ///< direct memset call, without chunk
 extern pf_memcpy    _memcpy;      ///< direct memcpy call, without chunk
+extern pf_usleep    _usleep;      ///< direct original usleep call
 extern
 pf_mtstartcb     mt_startcb;
 extern
 mt_prcdata       *pd_qsinit;      ///< top of process tree
 extern volatile
 mt_thrdata      *pt_current;      ///< current active thread (!!!)
+extern
+mt_thrdata      *pt_sysidle;      ///< "system idle" thread
 extern
 mt_proc_cb     mt_exechooks;      ///< this thing is import from QSINIT module
 #pragma aux mt_exechooks "_*";
@@ -156,6 +169,32 @@ mt_prcdata       **pid_ptrs;
 extern
 u32t              pid_alloc,      ///< number of allocated entires in pid_list
                tls_prealloc;      ///< number of preallocated TLS entires
+
+typedef struct _we_list_entry {
+   mt_thrdata   *caller;
+   int         signaled;          ///< result, -1 while waiting
+   u32t            ecnt;          ///< number of entries in we
+   u32t          clogic;          ///< combine logic
+   struct
+   _we_list_entry *prev,
+                  *next;
+   u8t            *sigf;          ///< "entry signaled" array (bool value)
+   mt_waitentry      we[1];       ///< array, actually
+} we_list_entry;
+
+/** inform about process/thread exit and check wait lists for action.
+    Must be called inside MT lock only!
+    @param pid         if tid==0 - this pid has ended, else this tid
+                       has ended (i.e. pid/tid pair) or just 0 to skip.
+    @param tid         this tid has ended (or 0).
+    @param special     return 1 if this special wait list is success and can
+                       continue executing. Can be 0 if no special check.
+    @return 0 or 1 if special arg check was success */
+int  w_check_conditions(u32t pid, u32t tid, we_list_entry *special);
+/// must be called inside MT lock only!
+void w_add(we_list_entry *entry);
+/// must be called inside MT lock only!
+void w_del(we_list_entry *entry);
 
 #define memset      _memset
 #define memcpy      _memcpy

@@ -1,9 +1,8 @@
 //
 // QSINIT "start" module
-// volume functions
+// system i/o and handle processing
 // -------------------------------------
 //
-// moved here from QSINIT binary
 
 #include "qsutil.h"
 #include "qsint.h"
@@ -1403,10 +1402,10 @@ time_t _std io_iototime(io_time *src) {
 int io_checktime(io_time *src) {
    static const s8t is_31[12] = { 1,-1,1,0,1,0,1,1,0,1,0,1 };
    if (!src) return 0;
-   if (src->dsec>99 || src->dsec>59 || src->min>59 || src->hour>23 || src->day ||
+   if (src->dsec>99 || src->sec>59 || src->min>59 || src->hour>23 || !src->day ||
       src->mon>11) return 0;
    if (src->day>30+is_31[src->mon]) return 0;
-    return 1;
+   return 1;
 }
 
 mt_prcdata *get_procinfo(void) {

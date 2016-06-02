@@ -91,6 +91,11 @@ u32t  __stdcall mt_cmpxchgd(u32t volatile *src, u32t value, u32t cmpvalue);
     is still supported as lowest cpu by QSINIT ;) */
 u64t  __stdcall mt_cmpxchgq(u64t volatile *src, u64t value, u64t cmpvalue);
 
+/** delay function (in mks).
+    Uses simple calibrated loop, up to 4294 sec (enough for common use).
+
+    MTLIB replaces it by own variant, which makes the same if delay is
+    smaller, than half of timer tick, else yields time via mt_waitobject(). */
 void  __stdcall usleep  (u32t usec);
 
 /** string to int conversion.
@@ -98,7 +103,7 @@ void  __stdcall usleep  (u32t usec);
     Accept spaces before, -, dec & hex values */
 long  __stdcall str2long(const char *str);
 
-u32t  __stdcall crc32(u32t crc, const u8t* buf, u32t len);
+u32t  __stdcall crc32   (u32t crc, const u8t* buf, u32t len);
 
 u32t get_esp(void);
 #pragma aux get_esp = "mov eax,esp" value [eax];

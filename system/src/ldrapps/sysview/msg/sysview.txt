@@ -505,3 +505,21 @@ This is QSINIT internal drive letter, not OS/2.
 * C:..J: - available to mount (use disk management dialog or MOUNT command)
 
 To go directly to directory - type it path in this line too.
+
+.topic SetCodepage=2125
+ Select codepage dialogÜ
+  ßßßßßßßßßßßßßßßßßßßßßß
+You can select code page from a short list of supported by QSINIT here.
+
+Code page affects on some things over system:
+
+* long names with national symbols (chr codes > 127) on FAT volumes. These
+files unaccessible without codepage selected.
+
+* HPFS format. Without code page, HPFS formatted with 850 page number (which
+assumed as common by HPFS design). Because HPFS.IFS codepage support is broken
+millenium ago, it is better to select native page number before formatting
+new partition.
+
+Code page selection is NOT mean visibility of national language characters.
+QSINIT still uses BIOS fonts by default - and these fonts have no such graphic.

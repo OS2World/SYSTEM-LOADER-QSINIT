@@ -82,6 +82,11 @@ int __stdcall mem_threadblock(void *block) {
    return mem_setobjinfo(block, QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid());
 }
 
+// unpublished
+int __stdcall mem_threadblockex(void *block, u32t pid, u32t tid) {
+   return mem_setobjinfo(block, QSMEMOWNER_COTHREAD+tid-1, pid);
+}
+
 int __stdcall mem_localblock(void *block) {
    return mem_setobjinfo(block, QSMEMOWNER_COPROCESS, (u32t)get_procinfo());
 }

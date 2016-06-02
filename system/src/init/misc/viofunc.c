@@ -5,11 +5,13 @@
 #include "qsint.h"
 #include "clib.h"
 #include "vio.h"
+#include "../ldrapps/hc/qssys.h"
 
 #define TEXTMEM_SEG  0xB800
-extern u64t  countsIn55ms,
-                rdtscprev;
-extern u8t  rtdsc_present;
+extern u64t          countsIn55ms,
+                        rdtscprev;
+extern u8t          rtdsc_present;
+extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
@@ -119,8 +121,12 @@ void _std vio_bufcommon(int toscr, u32t col, u32t line, u32t width,
 }
 
 void _std tm_calibrate(void) {
+   mt_swlock();
    rmcall(calibrate_delay,0);
-   log_printf("new delay: %hu\n",IODelay);
+   if (mod_secondary) mod_secondary->sys_notifyexec(SECB_IODELAY, IODelay);
+   mt_swunlock();
+
+   log_printf("new delay: %hu\n", IODelay);
 }
 
 u64t _std hlp_tscin55ms(void) {
@@ -140,12 +146,13 @@ u64t _std hlp_tscin55ms(void) {
    return countsIn55ms;
 }
 
-u64t _std clock(void) {
-   process_context *pq = mod_context();
+u64t _std clockint(process_context *pq) {
+//   process_context *pq = mod_context();
    // init everything
    if (hlp_tscin55ms()) {
       int    state = sys_intstate(0);
-      u64t     res = (tm_counter() - pq->rtbuf[RTBUF_STCLOCK]) * 54932; // 55 ms in clock tick
+      // 55 ms in clock tick
+      u64t     res = (tm_counter() - (pq?pq->rtbuf[RTBUF_STCLOCK]:0)) * 54932;
       u32t  mksrem = 0;
       // tsc since last timer interrupt
       if (rdtscprev) mksrem = (hlp_tscread() - rdtscprev) * 54932LL / countsIn55ms;

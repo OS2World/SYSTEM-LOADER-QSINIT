@@ -212,6 +212,46 @@ u32t     _std sys_queryinfo(u32t index, void *outptr);
 #define QSQI_TLSPREALLOC  0x0010    ///< number of constantly used TLS entries
 //@}
 
+typedef struct {
+   u32t   eventtype;
+   u32t        info;
+} sys_eventinfo;
+
+/** callback procedure for sys_notifyevent().
+    Callback called asynchronously, in other process/thread context and
+    locked MT state! */
+typedef void _std (*sys_eventcb)(sys_eventinfo *info);
+
+/** register callback procedure for selected system events.
+    By default, callback function marked as "current process" owned. After
+    process exit it will be removed automatically.
+    To use it in global modules (DLLs) - SECB_GLOBAL bit should be added.
+
+    SECB_THREAD flag is accepted even if MT mode is off, callback just failed
+    to run if MT mode will be off when event occurs. I.e. you can install
+    new thread launch at the moment of MT mode activation (for example).
+
+    Also note, what SECB_QSEXIT flag cannot be combined with SECB_THREAD.
+
+    @param   eventmask  Bit mask of events to call cbfunc (SECB_*).
+    @param   cbfunc     Callback function, one address can be specified only
+                        once, futher calls only change the mask, use 0 to 
+                        remove callback at all.
+    @return success flag (1/0) */
+u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
+
+/// event masks for sys_notifyevent()
+//@{
+#define SECB_QSEXIT   0x00000001    ///< QSINIT exit
+#define SECB_PAE      0x00000002    ///< PAE page mode activated
+#define SECB_MTMODE   0x00000004    ///< MTLIB activated (multithreading)
+#define SECB_CMCHANGE 0x00000008    ///< CPU clock modulation changed
+#define SECB_IODELAY  0x00000010    ///< IODelay value changed (value in info field)
+
+#define SECB_THREAD   0x40000000    ///< callback is new thread in process context
+#define SECB_GLOBAL   0x80000000    ///< global callback (see sys_notifyevent())
+//@}
+
 
 /// flags for hlp_setupmem()
 //@{

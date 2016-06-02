@@ -4,6 +4,13 @@
 ;
                 .586p
 
+
+_DATA           segment dword public USE32 'DATA'
+                public aboutstr_local
+aboutstr_local  label near
+                include vercheck.inc
+_DATA           ends
+
 CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 

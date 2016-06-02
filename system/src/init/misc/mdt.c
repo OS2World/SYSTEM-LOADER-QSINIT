@@ -50,7 +50,7 @@ static u32t mod_makeaddr(module *md, u32t Obj, u32t offset) {
 void mod_listadd(module **list, module *module) {
    module->prev = 0;
    if ((module->next = *list)) module->next->prev = module;
-   *list=module;
+   *list = module;
 }
 
 // unlink module from list
@@ -67,20 +67,20 @@ void mod_listdel(module **list, module *module) {
 void mod_listlink(module **to, module *first) {
    module *lf=*to;
    if (!first) return;
-   first->prev=0;
-   *to=first;
+   first->prev = 0;
+   *to = first;
    if (!lf) return;
-   while (first->next) first=first->next;
-   lf->prev=first;
-   first->next=lf;
+   while (first->next) first = first->next;
+   lf->prev    = first;
+   first->next = lf;
 }
 
 void mod_listflags(module *first, u32t fl_or, u32t fl_andnot) {
-   module *lf=first;
+   module *lf = first;
    while (lf) {
-      lf->flags|=fl_or;
-      lf->flags&=~fl_andnot;
-      lf=lf->next;
+      lf->flags |= fl_or;
+      lf->flags &=~fl_andnot;
+      lf = lf->next;
    }
 }
 
@@ -884,10 +884,17 @@ u32t mod_free(u32t mh) {
    mod_unloadimports(md);
    // free export table (common unload callback to START)
    if (mod_secondary) (*mod_secondary->mod_freeexps)(md);
-   // free selectors (zero values will be ignored)
-   for (oi=0; oi<md->objects; oi++) hlp_selfree(md->obj[oi].sel);
    // unlink self from lists
    mod_listdel(md->flags&MOD_LOADING?&mod_ilist:&mod_list, md);
+   /* free selectors (zero values will be ignored) and fill module memory
+      with 0xCC (code objects) and 0 (data objects). This increasing a chance
+      to catch forgotten references to it, at least until this memory will be
+      reused */
+   for (oi=0; oi<md->objects; oi++) {
+      mod_object *obj = md->obj + oi;
+      hlp_selfree(obj->sel);
+      memset(obj->address, obj->flags&OBJEXEC?0xCC:0x00, obj->size);
+   }
    // free module header(md itself) + module objects
    md->sign=0;
    hlp_memfree(md->baseaddr);

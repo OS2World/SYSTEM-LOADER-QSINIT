@@ -25,7 +25,7 @@ extern "C" {
 #define QSMA_READONLY 0x001
 /// return 0 instead of immediate panic on block alloc failure
 #define QSMA_RETERR   0x002
-/// do not clear block (flag affect only first alloc, but not further reallocs)
+/// do not clear block (affects only on first alloc, not further reallocs)
 #define QSMA_NOCLEAR  0x004
 //@}
 
@@ -57,13 +57,13 @@ u32t  _std hlp_memqconst(u32t *array, u32t pairsize);
 u32t  _std hlp_memgetsize(void *addr);
 
 /** try to reserve (allocate) physical memory.
-    This call allocate memory at specified physical address - if this
+    This call allocates memory at specified physical address - if this
     range included into memory manager space and not used.
 
-    QSINIT memory manager use memory starting from 16Mb to first hole
+    QSINIT memory manager uses memory starting from 16Mb to first hole
     in PC memory map.
     Use of memory below 16Mb is prohibited (it reserved for OS/2 boot).
-    Other memory (not belonged to memory manager) can be allocated by
+    Other memory (not belonging to memory manager) can be allocated by
     sys_markmem() call in qssys.h.
 
     Function return aligned down to 64k address of reserved block (block
@@ -211,6 +211,8 @@ int  _std hlp_fddline(u32t disk);
 u32t _std hlp_diskmode(u32t disk, u32t flags);
 
 /** try to mount a part of disk as FAT/FAT32 partition.
+    This is low level mount function, use vol_mount() for partition based
+    mounting.
     @param  drive     Drive number: 2..9 only, remounting of 0,1 is not allowed.
     @param  disk      Disk number.
     @param  sector    Start sector of partition
@@ -245,7 +247,7 @@ typedef struct {
 //@}
 
 /** mounted volume info.
-    Actually function is bad designed, it return FST_NOTMOUNTED both
+    Actually function is bad designed, it returns FST_NOTMOUNTED both
     on non-mounted volume and mounted non-FAT volume. To check volume
     presence info.TotalSectors can be used, it will always be 0 if volume
     is not mounted.
@@ -428,6 +430,7 @@ u32t _std hlp_querybios(u32t index);
     @return bool - yes/no. */
 u32t _std hlp_insafemode(void);
 
+
 /// @name exit_pm32 error codes
 //@{
 #define QERR_NO486       1
@@ -493,7 +496,7 @@ u32t _std exit_poweroff(int suspend);
 void _std exit_reboot(int warm);
 
 /** prepare to leave QSINIT.
-    This function calls all installed exit callbacks.
+    This function calls all installed exit callbacks (see sys_notifyevent()).
     This function stops MT mode (actually, set MT lock forewer).
     This function terminates both micro-FSD and virtual disk management!
 
@@ -510,34 +513,24 @@ void _std exit_reboot(int warm);
     of services like cache, console, virtual disks and so on - terminated
     already and using it will cause unpredicted results.
 
-    Any exit API functions make this call this internally, i.e. it must be
-    called only by custom exit ways, like direct jumping to real mode code
+    Any exit API functions make this call internally, i.e. it must be
+    called only in custom exit ways, like direct jumping to real mode code
     (as in in example above).
 
     @see exit_handler() */
 void _std exit_prepare(void);
 
 /** internal call: exit_prepare() was called or executing just now.
-    @return 0 - for no, 1 - if called already and 2 if you called from
-            exit_handler() callback */
+    @return 0 - for no, 1 - if called already and 2 if you calling from
+            exit notification callback (i.e. exit_prepare() is in progress) */
 u32t _std exit_inprocess(void);
-
-/// exit QSINIT callback function, called from exit_prepare.
-typedef void (*exit_callback)(void);
-
-/** add/remove exit_callback handler.
-    Note, what callbacks called in context of process, which initiate
-    QSINIT`s exit. Thread switching (in MT mode) is blocked at this time.
-
-    @param func  Callback ptr
-    @param add   bool - add/remove */
-void _std exit_handler(exit_callback func, u32t add);
 
 /** setup PIC reset on QSINIT exit.
     By default QSINIT restores PIC mapping to 08h/70h (BIOS based version).
     This call can be used to skip this (leave PIC mapped to 50h/70h).
     Function works for all exit functions, can be called multiple times
     before real exit.
+    Affects BIOS host version only, of course.
     @param on    Flag - 1=restore default mapping, 0=leave as it is */
 void _std exit_restirq(int on);
 

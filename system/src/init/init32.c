@@ -43,7 +43,6 @@ u8t               bootio_avail; // boot partition disk i/o is available
 extern
 MKBIN_HEADER      *pbin_header;  // use pointer to be compat. with EFI build
 extern u8t           *memtable;
-extern u32t       int_mem_need; // internal memory needs (exit list, etc)
 extern u8t           *page_buf; // 4k buffer for various needs
 extern u8t           pminitres, // result of PM init
                       safeMode; // safe mode flag
@@ -63,7 +62,6 @@ extern u8t*              ExCvt; // FatFs OEM case conversion
 int  start_it(void);
 void make_disk1(void);
 void get_ini_parm(void);
-void exit_init(u8t *memory);
 void make_crc_table(void *table);
 void memmgr_init(void);
 void hlp_finit(void);
@@ -76,12 +74,11 @@ void _std init_common(void) {
    // init common memory manager
    memmgr_init();
    // memmgr is ready, allocating memory for unzip tables and other misc stuff
-   crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + PAGESIZE + int_mem_need +
-                  puff_bufsize + OEMTAB_SIZE, "serv", QSMA_READONLY);
+   crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + PAGESIZE + puff_bufsize +
+                 OEMTAB_SIZE, "serv", QSMA_READONLY);
    page_buf    = (void*)(crc_table + CRC32_SIZE);
    puff_buf    = page_buf + PAGESIZE;
    ExCvt       = (u8t*)puff_buf + puff_bufsize;
-   exit_init(ExCvt + OEMTAB_SIZE);
    make_crc_table(crc_table);
    memset(ExCvt, '.', OEMTAB_SIZE);
    // save some storage keys for start module

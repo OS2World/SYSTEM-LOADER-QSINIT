@@ -6,6 +6,7 @@
 #include "qsutil.h"
 #include "qslog.h"
 #include "qsmod.h"
+#include "qssys.h"
 #include "vio.h"
 #include "console.h"
 #include "memmgr.h"
@@ -580,7 +581,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
    return rc;
 }
 
-void on_exit(void) {
+void _std on_exit(sys_eventinfo *info) {
    if (!lib_ready) return;
    /* reset mode if it was changed, installed hook will also make call to
       con_unsetmode() */
@@ -622,7 +623,7 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
          return 0;
       }
       con_init();
-      exit_handler(&on_exit,1);
+      sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
       // install screenshot shell command
       cmd_shelladd("MKSHOT",shl_mkshot);
       // install "mode con" shell command
@@ -632,8 +633,8 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       // we are ready! ;)
       log_printf("console.dll is loaded!\n");
    } else {
-      exit_handler(&on_exit,0);
-      on_exit();
+      sys_notifyevent(0, on_exit);
+      on_exit(0);
       log_printf("console.dll unloaded!\n");
    }
    return 1;

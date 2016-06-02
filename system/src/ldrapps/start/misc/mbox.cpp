@@ -6,8 +6,6 @@
 
 #define WDT_WIDE    70
 #define WDT_NORM    50
-#define HDT_MAX     21
-
 #define MAX_BUTTYPE  5
 
 #undef  COLOR_SEL  // dialog color changing by 1..4 + up & down arrows
@@ -90,15 +88,18 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
    if ((flags>>4&0xF)>=MAX_BUTTYPE) return 0;
    TStrings lst;
    spstr    hdr(header);
-   u32t   width = flags&MSG_WIDE?WDT_WIDE:WDT_NORM,
-        viscols = width - 4, lines, vislines, ii,
-        keymode = flags>>4&0xF, borderlines = keymode?6:4;
+   u32t   width = flags&MSG_WIDE?WDT_WIDE:WDT_NORM, viscols, lines, vislines, ii,
+        keymode = flags>>4&0xF, borderlines = keymode?6:4, 
+            m_x = 80, m_y = 25;
+   vio_getmode(&m_x, &m_y);
+   // add a third of additional width to box width
+   if (m_x>80) width += (m_x-80)/3;
+   viscols = width - 4;
    /* note, that splittext() takes ANSI in mind, but msgbox ignoring it
       and shows as usual symbols, so ansi seqs in text will cause chaos */
    splittext(text, viscols, lst);
    // drop lines behind maximum height
-   if (lst.Count()>HDT_MAX-borderlines)
-      lst.Delete(lines, lst.Count()-(HDT_MAX-borderlines));
+   if (lst.Count() > m_y-4-borderlines) lst.Delete(m_y-4-borderlines, lst.Count());
    vislines = lst.Count();
    lines    = vislines + borderlines;
    // trim long header
@@ -129,7 +130,7 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
          }
       }
    }
-   u32t mx=80, my=25, cs = flags&0x0F, outln, psv_x, psv_y, sel;
+   u32t cs = flags&0x0F, outln, psv_x, psv_y, sel;
    // hide cursor & save its pos
    u16t oldshape = vio_getshape();
    vio_setshape(0x20,0);
@@ -140,33 +141,32 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
    sel = (flags&0xC00)>>10;
    if (sel>=mb_buttons[keymode]) sel = 0;
    // calc pos
-   vio_getmode(&mx, &my);
-   mx = mx-width>>1;
-   my = my-lines>>1;
+   m_x = m_x-width>>1;
+   m_y = m_y-lines>>1;
    // save screen data
    void *savedata = malloc_local((width+1)*(lines+1)*2);
-   vio_readbuf(mx, my, width+1, lines+1, savedata, 0);
+   vio_readbuf(m_x, m_y, width+1, lines+1, savedata, 0);
 #ifdef COLOR_SEL
    u32t act=0;
 drawagain:
 #endif
    // draw box
-   draw_border(mx, my, width, lines, mb_color[cs][0]);
-   draw_shadow(mx, my, width, lines);
+   draw_border(m_x, m_y, width, lines, mb_color[cs][0]);
+   draw_shadow(m_x, m_y, width, lines);
    // draw header text
    vio_setcolor(mb_color[cs][0]);
-   vio_setpos(my,mx+(width-hdr.length()-2>>1));
+   vio_setpos(m_y, m_x+(width-hdr.length()-2>>1));
    vio_charout(' '); vio_strout(hdr()); vio_charout(' ');
 
-   outln = my+2 + (vislines-lst.Count()>>1);
+   outln = m_y + 2;
    for (ii=0; ii<lst.Count(); ii++) {
-      vio_setpos(outln+ii, mx+2);
+      vio_setpos(outln+ii, m_x+2);
       vio_setcolor(mb_color[cs][1]);
       vio_strout(lst[ii]());
    }
    vio_setcolor(VIO_COLOR_RESET);
 
-   drawkeys(keymode, my+3+vislines, cs, sel);
+   drawkeys(keymode, m_y + 3 + vislines, cs, sel);
    u32t dlgres = MRES_CANCEL;
 
    int cbrc = -1;
@@ -225,7 +225,7 @@ drawagain:
 #endif
          }
       }
-      if (selprev!=sel) drawkeys(keymode, my+3+vislines, cs, sel);
+      if (selprev!=sel) drawkeys(keymode, m_y + 3 + vislines, cs, sel);
    }
 #ifdef COLOR_SEL
    log_it(3, "scheme=%04b\n",&mb_color[cs]);
@@ -233,7 +233,7 @@ drawagain:
    if (cbfunc)
       if ((cbrc=(*cbfunc)(KEY_LEAVEMBOX))>=0) dlgres = cbrc;
    // restore screen & cursor state
-   vio_writebuf(mx, my, width+1, lines+1, savedata, 0);
+   vio_writebuf(m_x, m_y, width+1, lines+1, savedata, 0);
    vio_setpos(psv_y, psv_x);
    vio_setshape(oldshape>>8,oldshape&0xFF);
    free(savedata);

@@ -6,8 +6,8 @@
           file and trace info file.
   Format is self-explaining, basically.
 
-  "Exports" section (one per file) contain list of functions to import/export
-  from module. Data fields:
+  "Exports" section (one per file) contains list of functions to import/export
+  from the module. Data fields:
 
     * offset   = yes - direct export/import, without creating asm thunk
                        (flag must be used for any exported data).

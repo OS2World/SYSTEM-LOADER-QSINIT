@@ -646,8 +646,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
          if (!error) {
             if (!drive) getcurdir(drive); else {
                char *fp = _fullpath(0,drive(),0);
-               fp[0] = fp[0]-'A'+'0';
-               drive = fp;
+               drive    = fp;
                free(fp);
             }
             // print header on dir mismatch only
@@ -656,7 +655,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                disk_volume_data vinf;
                dir_total(ldrive, &cbi);
 
-               hlp_volinfo(drive[0]-'0',&vinf);
+               hlp_volinfo(drive[0]-'A',&vinf);
                int lbon = vinf.Label[0];
                head.sprintf("  Directory of %s\n"
                             "  Volume in drive %c %ss %s\n"
@@ -703,7 +702,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                      if ((info.d_attr&_A_SUBDIR)==0) error = ENOTDIR;
                }
                // last cycle print
-               ldrive = drive[0]-'0';
+               ldrive = drive[0]-'A';
                if (rc<0 && !error && idx==al.Max()) dir_total(ldrive, &cbi);
             }
          }
@@ -933,8 +932,7 @@ u32t _std shl_del(const char *cmd, str_list *args) {
             if (!error) {
                if (!drive) getcurdir(drive); else {
                   char *fp = _fullpath(0,drive(),0);
-                  fp[0] = fp[0]-'A'+'0';
-                  drive = fp;
+                  drive    = fp;
                   free(fp);
                }
                TStrings  dellist, dirlist;
@@ -1942,8 +1940,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
       if (!error) {
          if (!drive) getcurdir(drive); else {
             char *fp = _fullpath(0,drive(),0);
-            fp[0] = fp[0]-'A'+'0';
-            drive = fp;
+            drive    = fp;
             free(fp);
          }
          TStrings  flist;
@@ -2146,6 +2143,27 @@ u32t _std shl_reboot(const char *cmd, str_list *args) {
    return 0;
 }
 
+u32t _std shl_delay(const char *cmd, str_list *args) {
+   int rc = -1;
+   if (args->count==1) {
+      // is it help?
+      if (strcmp(args->item[0],"/?")==0) {
+         cmd_shellhelp(cmd,CLR_HELP); 
+         return 0; 
+      } else {
+         u32t value = str2ulong(args->item[0]);
+         if (value && value<FFFF/1000) { usleep(value*1000); rc = 0; }
+      }
+   } else
+   if (args->count==0) {
+      usleep(CLOCKS_PER_SEC);
+      rc = 0;
+   }
+   if (rc<0) rc = EINVAL;
+   if (rc) cmd_shellerr(EMSG_CLIB,rc,0);
+   return 0;
+}
+
 #include "zz.cpp"
 #include "shpci.cpp"
 
@@ -2184,6 +2202,7 @@ void setup_shell(void) {
    cmd_shelladd("ANSI"   , shl_ansi   );
    cmd_shelladd("MOVE"   , shl_move   );
    cmd_shelladd("REBOOT" , shl_reboot );
+   cmd_shelladd("DELAY"  , shl_delay  );
 
    // install MODE SYS handler
    cmd_modeadd("SYS", shl_mode_sys);

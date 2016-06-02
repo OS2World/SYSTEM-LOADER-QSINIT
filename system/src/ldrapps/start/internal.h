@@ -60,6 +60,13 @@ FILE* get_stdin(void);
 
 int   fcloseall_as(u32t pid);
 
+/// free notification callbacks for specified pid
+void  sys_notifyfree(u32t pid);
+/// exec notification list (SECB_* in qssys.h)
+void _std sys_notifyexec(u32t eventtype, u32t infovalue);
+/// set thread owner
+int  _std mem_threadblockex(void *block, u32t pid, u32t tid);
+
 /** global printed lines counter.
     Used for pause message calculation, updated by common vio functions and
     CONSOLE (in virtual modes) */

@@ -87,5 +87,7 @@
 #define E_MT_ACCESS         (E_TYPE_MT +0x0007)  ///< main or system thread cannot be terminated
 #define E_MT_GONE           (E_TYPE_MT +0x0008)  ///< thread has finished
 #define E_MT_TLSINDEX       (E_TYPE_MT +0x0009)  ///< TLS slot number is invalid
+#define E_MT_BADPID         (E_TYPE_MT +0x000A)  ///< unknown process ID
+#define E_MT_NOTSUSPENDED   (E_TYPE_MT +0x000B)  ///< thread is not suspended
 
 #endif // QS_ERR_NUMBERS

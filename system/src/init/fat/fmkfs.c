@@ -8,7 +8,7 @@
 // ram-disk memory is zero-filled, so some init ops skipped to save code size
 #define MEM_ZEROED
 
-#define N_ROOTDIR	256		/* Number of root dir entries for FAT12/16 */
+#define N_ROOTDIR	128		/* Number of root dir entries for FAT12/16 */
 #define N_FATS		1		/* Number of FAT copies (1 or 2) */
 
 FRESULT f_mkfs2(void) {

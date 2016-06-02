@@ -15,72 +15,62 @@
 #define TLS_GROW_SIZE   64    ///< TLS array one time grow size
 
 mt_thrdata* mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize) {
-   mt_thrdata *rc = 0;
-   u32t        ii;
+   u32t   ii, tid = 0;
 
    if (pd->piSign!=PROCINFO_SIGN) return 0;
 
    if (pd->piThreads<pd->piListAlloc) {
       for (ii=0; ii<pd->piListAlloc; ii++)
-         if (pd->piList[ii].tiMiscFlags&TFLM_AVAIL) { rc = pd->piList+ii; break; }
-      if (!rc) {
+         if (pd->piList[ii]==0) { tid = ii+1; break; }
+      if (!tid) {
          log_it(0, "prcdata err (%08X,%u,%s) alloc %u\n", pd, pd->piPID,
             pd->piModule->name, pd->piListAlloc);
       }
    }
-   // allocates new area
-   if (!rc) {
-      u32t        pa = pd->piListAlloc;
-      mt_thrdata *nl = (mt_thrdata*)malloc_shared((pd->piListAlloc = (pa+5) * 2) * sizeof(mt_thrdata));
-      mt_thrdata *pl = pd->piList;
-      u32t   oldrpos = sizeof(mt_thrdata)*pa, ii,
-             newrpos = sizeof(mt_thrdata)*pd->piListAlloc;
+   // expand thread ptr list
+   if (!tid) {
+      u32t         pa = pd->piListAlloc;
+      mt_thrdata **nl = (mt_thrdata**)malloc((pd->piListAlloc = (pa+5) * 2) * sizeof(mt_thrdata*));
+      mt_thrdata **pl = pd->piList;
+      u32t    oldrpos = sizeof(mt_thrdata*)*pa, ii,
+              newrpos = sizeof(mt_thrdata*)*pd->piListAlloc;
       // copy fiber data & zero added space
       memcpy(nl, pl, oldrpos);
       memset(nl+pa, 0, newrpos-oldrpos);
-      // init new fiber data slots
-      for (ii=pa; ii<pd->piListAlloc; ii++) {
-         nl[ii].tiSign   = THREADINFO_SIGN;
-         nl[ii].tiPID    = pd->piPID;
-         nl[ii].tiTID    = FFFF;
-         nl[ii].tiParent = pd;
-         nl[ii].tiMiscFlags = TFLM_AVAIL;
-      }
-      // this is new list!
+      // this is the new list!
       pd->piList = nl;
-      // update pt_current!!!
-      if (pt_current->tiPID==pd->piPID) pt_current = pd->piList + (pt_current->tiTID - 1);
-
       if ((pd->piMiscFlags&PFLM_EMBLIST)==0) free(pl); else
          pd->piMiscFlags &= ~PFLM_EMBLIST;
-
-      rc = pd->piList + pa;
+      // first avail slot
+      tid = pa;
    }
-   if (rc) {
-      u32t idx,
-           tid = (rc-pd->piList) + 1;
-      if (rc->tiPID!=pd->piPID || rc->tiParent!=pd || rc->tiFibers ||
-         rc->tiSign!=THREADINFO_SIGN) THROW_ERR_PD(pd);
-      /* limit to 4096 running threads per process now ;)
-         this limitation is used for heap blocks handling */
-      if (tid > 1<<MAX_TID_BITS) return 0;
+   /* limit to 4096 running threads per process now ;)
+      this limitation used at least for heap blocks handling */
+   if (tid && tid <= 1<<MAX_TID_BITS) {
+      u32t          idx;
+      mt_thrdata    *rt = (mt_thrdata*)calloc(1,sizeof(mt_thrdata));
 
-      rc->tiFiberIndex = 0;
-      rc->tiState      = THRD_SUSPENDED;
-      rc->tiMiscFlags  = 0;
-      rc->tiTID        = tid;
+      pd->piList[tid-1] = rt;
+      rt->tiSign        = THREADINFO_SIGN;
+      rt->tiPID         = pd->piPID;
+      rt->tiTID         = tid;
+      rt->tiParent      = pd;
+      rt->tiMiscFlags   = 0;
+      rt->tiFiberIndex  = 0;
+      rt->tiState       = THRD_SUSPENDED;
       // allocate TLS ptr array and storage for all existing variables
-      rc->tiTLSArray   = (u64t**)calloc_shared(pd->piTLSSize,sizeof(u64t*));
+      rt->tiTLSArray   = (u64t**)calloc(pd->piTLSSize,sizeof(u64t*));
       for (ii=0; ii<pd->piTLSSize; ii++)
-         if (pd->piList->tiTLSArray[ii])
-            rc->tiTLSArray[ii] = (u64t*)alloc_thread_memory(pd->piPID, tid, TLS_VARIABLE_SIZE);
+         if (pd->piList[0]->tiTLSArray[ii])
+            rt->tiTLSArray[ii] = (u64t*)alloc_thread_memory(pd->piPID, tid, TLS_VARIABLE_SIZE);
 
-      idx = mt_allocfiber(rc, FIBT_MAIN, stacksize, eip);
+      idx = mt_allocfiber(rt, FIBT_MAIN, stacksize, eip);
       if (idx) THROW_ERR_PD(pd);
 
       pd->piThreads++;
+      return rt;
    }
-   return rc;
+   return 0;
 }
 
 void mt_freethread(mt_thrdata *th, int fini) {
@@ -88,35 +78,30 @@ void mt_freethread(mt_thrdata *th, int fini) {
    mt_fibdata *fd = th->tiList;
    u32t    ii, la = th->tiListAlloc,
                el = th->tiMiscFlags&TFLM_EMBLIST;
-   // check it all: we must have active secondary thread here, at least
-   if (th->tiSign!=THREADINFO_SIGN || (th->tiMiscFlags&TFLM_AVAIL) || !pd ||
-      !fd || th->tiPID!=pd->piPID) THROW_ERR_PD(pd);
+   // check it a bit
+   if (!th || th->tiSign!=THREADINFO_SIGN || !pd || th->tiPID!=pd->piPID ||
+      !th->tiTID || th!=pd->piList[th->tiTID-1] || !fd) THROW_ERR_PD(pd);
 
    for (ii=0; ii<th->tiListAlloc; ii++)
       if (th->tiList[ii].fiType!=FIBT_AVAIL) mt_freefiber(th,ii,fini);
    // free tls array
    if (th->tiTLSArray) free(th->tiTLSArray);
-   /* free heap blocks, belonging to this thread,
-      for the main thread this call is in the process data freeing code */
-   if (th->tiTID>1) mem_freepool(QSMEMOWNER_COTHREAD+th->tiTID-1, pd->piPID);
 
-   memset(th, 0, sizeof(mt_thrdata));
-
+   if ((th->tiMiscFlags&TFLM_EMBLIST)==0) {
+      free(th->tiList);
+      th->tiListAlloc = 0;
+      th->tiList = 0;
+   }
+   pd->piList[th->tiTID-1] = 0;
+   /* free heap blocks, belonging to this thread and mt_thrdata itself.
+      For main thread heap call is in the process freeing code and mt_thrdata
+      is always embedded to process data block */
+   if (th->tiTID>1) {
+      mem_freepool(QSMEMOWNER_COTHREAD+th->tiTID-1, pd->piPID);
+      memset(th, 0, sizeof(mt_thrdata));
+      free(th);
+   }
    pd->piThreads--;
-
-   if (!el) free(fd); else
-   if (!fini) {
-      th->tiList      = fd;
-      th->tiListAlloc = la;
-   }
-   // empty slot
-   if (!fini) {
-      th->tiSign      = THREADINFO_SIGN;
-      th->tiMiscFlags = TFLM_AVAIL|el;
-      th->tiPID       = pd->piPID;
-      th->tiTID       = FFFF;
-      th->tiParent    = pd;
-   }
 }
 
 u32t mt_allocfiber(mt_thrdata *th, u32t type, u32t stacksize, u32t eip) {
@@ -195,10 +180,9 @@ void mt_freefiber(mt_thrdata *th, u32t index, int fini) {
    mt_fibdata *fd = th->tiList + index;
    mt_prcdata *pd = th->tiParent;
 
-   if (th->tiSign!=THREADINFO_SIGN || (th->tiMiscFlags&TFLM_AVAIL) || !pd ||
-      !fd || th->tiPID!=pd->piPID || index>=th->tiListAlloc ||
-         fd->fiSign!=FIBERSTATE_SIGN || fd->fiType==FIBT_AVAIL)
-            THROW_ERR_PD(pd);
+   if (!th || th->tiSign!=THREADINFO_SIGN || !pd || th->tiPID!=pd->piPID ||
+      index>=th->tiListAlloc || !fd || fd->fiSign!=FIBERSTATE_SIGN ||
+         fd->fiType==FIBT_AVAIL) THROW_ERR_PD(pd);
 
    if (fd->fiStack)
       if (fd->fiStackSize<_64KB) free(fd->fiStack); else
@@ -239,23 +223,26 @@ u32t _std mt_tlsalloc(void) {
    mt_swlock();
    th  = (mt_thrdata*)pt_current;
    pd  = th->tiParent;
-   pos = (u64t**) memrchrd((u32t*)th->tiTLSArray, 0, pd->piTLSSize);
+   pos = (u64t**)memrchrd((u32t*)th->tiTLSArray, 0, pd->piTLSSize);
    // grow array in every thread
    if (!pos) {
       u32t nsz = pd->piTLSSize + TLS_GROW_SIZE;
-      for (ii=0; ii<pd->piThreads; ii++) {
-         mt_thrdata *tl = pd->piList+ii;
-         tl->tiTLSArray = (u64t**)realloc(tl->tiTLSArray, sizeof(u64t**)*nsz);
-         memset(tl->tiTLSArray+pd->piTLSSize, 0, TLS_GROW_SIZE*sizeof(u64t**));
+      for (ii=0; ii<pd->piListAlloc; ii++) {
+         mt_thrdata *tl = pd->piList[ii];
+         if (tl) {
+            tl->tiTLSArray = (u64t**)realloc(tl->tiTLSArray, sizeof(u64t**)*nsz);
+            memset(tl->tiTLSArray+pd->piTLSSize, 0, TLS_GROW_SIZE*sizeof(u64t**));
+         }
       }
       pos = th->tiTLSArray + pd->piTLSSize;
       pd->piTLSSize += TLS_GROW_SIZE;
    }
    idx = pos - th->tiTLSArray;
-   /// storage for every thread 
-   for (ii=0; ii<pd->piThreads; ii++) {
-      mt_thrdata *tl = pd->piList+ii;
-      tl->tiTLSArray[idx] = (u64t*)alloc_thread_memory(pd->piPID, th->tiTID, TLS_VARIABLE_SIZE);
+   /// storage for every thread
+   for (ii=0; ii<pd->piListAlloc; ii++) {
+      mt_thrdata *tl = pd->piList[ii];
+      if (tl) tl->tiTLSArray[idx] = (u64t*)alloc_thread_memory(pd->piPID,
+         tl->tiTID, TLS_VARIABLE_SIZE);
    }
    mt_swunlock();
    return idx;
@@ -272,10 +259,12 @@ qserr _std mt_tlsfree(u32t index) {
    if (index>=pd->piTLSSize) rc = E_MT_TLSINDEX; else
    if (index<tls_prealloc) rc = E_SYS_ACCESS; else
    if (th->tiTLSArray[index]==0) rc = E_MT_TLSINDEX; else {
-      for (ii=0; ii<pd->piThreads; ii++) {
-         mt_thrdata *tl = pd->piList+ii;
-         free(tl->tiTLSArray[index]);
-         tl->tiTLSArray[index] = 0;
+      for (ii=0; ii<pd->piListAlloc; ii++) {
+         mt_thrdata *tl = pd->piList[ii];
+         if (tl) {
+            free(tl->tiTLSArray[index]);
+            tl->tiTLSArray[index] = 0;
+         }
       }
    }
    mt_swunlock();
@@ -290,7 +279,6 @@ void _std mt_dumptree(void) {
    pd = walk_start();
    while (pd) {
       process_context* pq = pd->piContext;
-      mt_thrdata      *th = pd->piList;
       u32t             ii;
 
       log_dumppctx(pq);
@@ -299,8 +287,9 @@ void _std mt_dumptree(void) {
       log_printf("  parent pid %d, tid %d\n", pd->piParentPID, pd->piParentTID);
       log_printf("  threads: %d (alloc %d)\n", pd->piThreads, pd->piListAlloc);
 
-      for (ii=0; ii<pd->piListAlloc; ii++, th++) {
-         if ((th->tiMiscFlags&TFLM_AVAIL)==0) {
+      for (ii=0; ii<pd->piListAlloc; ii++) {
+         mt_thrdata *th = pd->piList[ii];
+         if (th) {
             static const char *thstate[THRD_STATEMAX+1] = { "RUNNING", "SUSPENDED",
                "FINISHED", "WAITING"};
             char    modinfo[144];
@@ -308,8 +297,8 @@ void _std mt_dumptree(void) {
             module      *mi;
             mt_fibdata *cfb = th->tiList + th->tiFiberIndex;
 
-            log_printf("%stid %d : %s\n", th==pt_current?">>":"  ", th->tiTID,
-               thstate[th->tiState]);
+            log_printf("%stid %d [%10LX]: %s\n", th==pt_current?">>":"  ", th->tiTID,
+               th->tiTime, thstate[th->tiState]);
 
             if (th->tiState==THRD_WAITING) {
                switch (th->tiWaitReason) {
@@ -322,6 +311,21 @@ void _std mt_dumptree(void) {
                   case THWR_TIDEXIT  :
                      log_printf("    waiting for tid %d\n", th->tiWaitHandle);
                      break;
+                  case THWR_WAITOBJ  : {
+                     we_list_entry *we = (we_list_entry*)th->tiWaitHandle;
+                     u32t          idx;
+                     log_printf("    wait object, %08X, %u entries, lmask %08X\n",
+                        we, we->ecnt, we->clogic);
+                     for (idx=0; idx<we->ecnt; idx++) {
+                        static const char *wt = "?TPCM";
+                        mt_waitentry     *pwe = we->we + idx;
+                        u32t            htype = pwe->htype;
+                        log_printf("      %3u. [%u] %08X %c %LX %LX\n", idx+1,
+                           we->sigf[idx], pwe->group, wt[htype], pwe->htype==QWHT_CLOCK?
+                              pwe->tme:pwe->pid, pwe->htype==QWHT_CLOCK?pwe->reserved:0);
+                     }
+                     break;
+                  }
                }
             }
             mi = mod_by_eip(cfb->fiRegisters.tss_eip, &object, &offset, cfb->fiRegisters.tss_cs);
@@ -333,7 +337,7 @@ void _std mt_dumptree(void) {
             if (th->tiMiscFlags)
                log_printf("    %s%s%s%s\n", th->tiMiscFlags&TFLM_MAIN?"main ":"",
                   th->tiMiscFlags&TFLM_EMBLIST?"emb ":"", th->tiMiscFlags&TFLM_SYSTEM?"sys ":"",
-                     th->tiMiscFlags&TFLM_AVAIL?"avail ":"");
+                     th->tiMiscFlags&TFLM_NOSCHED?"idle ":"");
             log_printf("    fibers %d, active %d, th %08X, stack %08X..%08X, eip %08X %s\n",
                th->tiFibers, th->tiFiberIndex, th, cfb->fiStack,
                   (u32t)cfb->fiStack+cfb->fiStackSize-1, cfb->fiRegisters.tss_eip, modinfo);

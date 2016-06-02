@@ -7,6 +7,7 @@
 #include "qsshell.h"
 #include "qsmod.h"
 #include "qslog.h"
+#include "qssys.h"
 #include "errno.h"
 #include "vio.h"
 #include "qcl/rwdisk.h"
@@ -158,7 +159,7 @@ const char *selfname = "VHDD",
             *cmdname = "VHDD";
 
 // shutdown handler - delete all disks
-void on_exit(void) {
+void _std on_exit(sys_eventinfo *info) {
    done_rwdisk();
 }
 
@@ -173,7 +174,7 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
          return 0;
       }
       // install shutdown handler
-      exit_handler(&on_exit,1);
+      sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
       // add shell command
       cmd_shelladd(cmdname, shl_vhdd);
 #ifdef SEP_MODULE
@@ -185,7 +186,8 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       // DENY unload if class was not unregistered
       if (!done_rwdisk()) return 0;
       // remove shutdown handler
-      exit_handler(&on_exit,0);
+      sys_notifyevent(0, on_exit);
+      // remove shell command
       cmd_shellrmv(cmdname, shl_vhdd);
       log_printf("%s unloaded!\n",selfname);
    }

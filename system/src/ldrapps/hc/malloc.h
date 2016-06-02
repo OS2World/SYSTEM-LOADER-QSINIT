@@ -48,6 +48,10 @@ system. This requires additional block type setup call in some cases. */
 
 #include "memmgr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /// Watcom C runtime _msize() function analogue
 #define _msize(block) mem_blocksize(block)
 
@@ -109,5 +113,9 @@ int __stdcall mem_modblock(void *block);
     @param  info    misc info value, 0...8191 */
 #define __set_shared_block_info(p, str, info) \
    mem_setobjinfo(p, (info)|QSMEMOWNER_LINENUM, (long)str);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // QSINIT_MALLOC

@@ -634,7 +634,7 @@ void _std cc_invalidate_vol(void *data, u8t drive) {
    disk_volume_data info;
    hlp_volinfo(drive,&info);
    if (info.TotalSectors)
-      cc_invalidate(data, info.Disk, info.StartSector, info.TotalSectors);
+      cc_invalidate(0, info.Disk, info.StartSector, info.TotalSectors);
 }
 
 // warning! it called with data=0 from cache_write() above

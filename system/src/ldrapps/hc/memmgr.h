@@ -50,19 +50,23 @@ unsigned long __stdcall mem_getobjinfo(void *M, long *Owner, long *Pool);
 /** change object`s Owner & Pool.
     Function is not recommended at all, because many Owner & Pool
     combinations are reserved and outside code can free this block by
-    batch free functions (memFreePool, memFreeByOwner).
+    batch free functions (mem_freepool, mem_freeowner).
     @param  M             memory block
     @param  Owner         new Owner value, cannot be -1
     @param  Pool          new Pool value, cannot be -1.
     @return success flag = 1/0. */
 int           __stdcall mem_setobjinfo(void *M, long Owner, long Pool);
 
-/// get unique id. Owner is always==-2, and Pool is unique.
+/** get unique id. 
+    Owner is constant usually and Pool is unique, this guarantee
+    ~4G of unique values */
 void          __stdcall mem_uniqueid(long *Owner, long *Pool);
 
-/// return number of freed blocks
+/** free all blocks with Owner/Pool combination over system.
+    @return number of freed blocks */
 unsigned long __stdcall mem_freepool(long Owner, long Pool);
-/// return number of freed blocks
+/** free all blocks with Owner value over system.
+    @return number of freed blocks */
 unsigned long __stdcall mem_freeowner(long Owner);
 
 void          __stdcall mem_dumplog(const char *TitleString);

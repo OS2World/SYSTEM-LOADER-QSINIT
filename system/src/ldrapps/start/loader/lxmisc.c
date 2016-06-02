@@ -18,18 +18,20 @@
 #include "qsshell.h"
 #include "qsint.h"
 #include "sysio.h"
-#include "vio.h"
+#include "vioext.h"
 #include "start_ord.h"
 #include "internal.h"
 #include "qsclass.h"
 #include "qsxcpt.h"
 #include "qserr.h"
 
-extern u16t  _std IODelay;
-extern u32t  M3BufferSize;
-static u8t  *M3Buffer = 0;
-extern FILE     **pstdout,
-                 **pstdin;
+extern u16t      _std IODelay;
+extern u32t      M3BufferSize;
+static u8t          *M3Buffer = 0;
+extern FILE         **pstdout,
+                     **pstdin;
+extern char _std     aboutstr[];
+extern char    aboutstr_local[];
 
 // decompression routines
 u32t _std DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
@@ -338,7 +340,8 @@ int _std mod_startcb(process_context *pq) {
     note, that callbacks are called in CALLER context! */
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    int errtype = 0;
-
+   // should be the first, because this code can be called after main()`s end
+   sys_notifyfree(pq->pid);
    // !!!
    fcloseall_as(pq->pid);
    io_close_as(pq->pid, IOHT_FILE|IOHT_DIR);
@@ -377,6 +380,20 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
    return rc;
 }
 
+void check_version(void) {
+   int len = strlen(aboutstr_local);
+   // at every place on Earth we can find at least one hero, who gets such message ;)
+   if (strncmp(aboutstr, aboutstr_local, len)) {
+      char *about = strdup(aboutstr), *msg;
+      about[len] = 0;
+      msg = sprintf_dyn("Boot module is \"%s\",^but LDI version is \"%s\"."
+                         "^^Continue at own risc.", about, aboutstr_local);
+      vio_msgbox("QSINIT.LDI version mismatch!", msg, MSG_OK|MSG_RED|MSG_WIDE, 0);
+      free(about);
+      free(msg);
+   }
+}
+
 u32t _std mod_getmodpid(u32t module) {
    qs_mtlib      mtlib = get_mtlib();
 
@@ -395,7 +412,7 @@ mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
    &mod_freeexps, &mem_alloc, &mem_realloc, &mem_free, &freadfull, &log_pushtm,
    &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
    &hlp_memcpy, &mod_loaded, &sys_exfunc4, &hlp_volinfo, &io_fullpath,
-   &getcurdir_dyn, &io_remove, &mem_freepool};
+   &getcurdir_dyn, &io_remove, &mem_freepool, &sys_notifyexec};
 
 extern module*_std _Module;
 

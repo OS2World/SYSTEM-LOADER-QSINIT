@@ -282,9 +282,8 @@ int _std pag_enable(void) {
       mov  ss, ax
       nop
    }
-   // call MT lib if present
-   if (mt_exechooks.mtcb_pgoncb) mt_exechooks.mtcb_pgoncb();
    mt_swunlock();
-
+   // notify about success
+   sys_notifyexec(SECB_PAE, 0);
    return 0;
 }

@@ -11,12 +11,9 @@
 #include "qsstor.h"
 #include "qsinit.h"
 #include "qspdata.h"
+#include "../ldrapps/hc/qssys.h"
 
-#define CNT_EXITLIST    256  // exitlist size
-
-u32t int_mem_need = sizeof(exit_callback)*CNT_EXITLIST;
-extern stoinit_entry storage_w[STO_BUF_LEN];
-
+extern stoinit_entry    storage_w[STO_BUF_LEN];
 extern u8t*              logrmbuf;
 extern u16t              logrmpos;
 extern u16t           ComPortAddr;
@@ -25,7 +22,6 @@ extern u32t             DiskBufPM; // disk buffer address
 extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 static int           in_exit_call = 0;
 static u8t            exit_called = 0;
-volatile exit_callback  *exitlist;
 u32t             FileCreationTime; // custom file creation time (for unzip)
 extern mt_proc_cb    mt_exechooks;
 #ifndef EFI_BUILD
@@ -70,18 +66,15 @@ void _std exit_prepare(void) {
       return; 
    } else {
       in_exit_call = 1;
-#ifndef EFI_BUILD
-      // remove real mode irq0 handler, used for speaker sound
-      rmcall(rmvtimerirq,0);
-#endif
       cache_ctrl(CC_FLUSH, DISK_LDR);
       // process exit list
-      if (exitlist) {
-         u32t ii;
-         for (ii=0; ii<CNT_EXITLIST; ii++)
-            if (exitlist[ii]) (*exitlist[ii])();
-      }
-      // shotdown internal i/o
+      if (mod_secondary) mod_secondary->sys_notifyexec(SECB_QSEXIT, 0);
+#ifndef EFI_BUILD
+      /* remove real mode irq0 handler, used for speaker sound & tsc calibration,
+         call should be after exit notification */
+      rmcall(rmvtimerirq,0);
+#endif
+      // shutdown internal i/o
       hlp_fdone();
       exit_called  = 1;
       in_exit_call = 0;
@@ -92,22 +85,6 @@ void _std exit_restirq(int on) {
 #ifndef EFI_BUILD
    restirq = on?1:0;
 #endif
-}
-
-void _std exit_handler(exit_callback func, u32t add) {
-   u32t ii, *ptr;
-   if (!exitlist) return;
-   //log_misc(2,"exit_handler(%08X,%d)\n",func,add);
-   mt_swlock();
-   do {
-      ptr = memchrd ((u32t*)exitlist, (u32t)func, CNT_EXITLIST);
-      if (ptr) *ptr = 0;
-   } while (ptr);
-   if (add) {
-      ptr = memchrd ((u32t*)exitlist, 0, CNT_EXITLIST);
-      if (ptr) *ptr = (u32t)func;
-   }
-   mt_swunlock();
 }
 
 // ******************************************************************
@@ -175,11 +152,8 @@ AcpiMemInfo* _std hlp_int15mem(void) {
       return rc;
    }
 }
-/**************************************************************************/
 
-void exit_init(u8t *memory) {
-   exitlist = (exit_callback*)memory;
-}
+/**************************************************************************/
 
 /* internal version of log_it, start module will export
    actual version for all other users */

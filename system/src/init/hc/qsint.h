@@ -143,7 +143,7 @@ typedef struct {
 } cache_extptr;
 
 /** install/remove external cache processor.
-    Call should be made in MT locked state. CACHE module is a single used of
+    Call should be made in MT locked state. CACHE module is a single user of
     this function.
     @param  fptr  Function, use NULL to remove handler.
     @return success flag (1/0) */
@@ -175,7 +175,14 @@ typedef struct {
 /// setup FatFs i/o to specified codepage
 void _std hlp_setcpinfo(codepage_info *info);
 
-/// lock context switching over system
+/** lock context switching over system.
+    Note, what this is internal call for system api implementation, not user
+    level apps.
+    Lock has counter, number of mt_swunlock() calls should be equal to number
+    of mt_swlock().
+    Process/thread exit resets lock to 0.
+
+    @attention mt_waitobject() function resets lock to 0 on enter. */
 void      mt_swlock  (void);
 /// unlock context switching
 void      mt_swunlock(void);

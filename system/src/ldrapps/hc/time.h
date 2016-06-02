@@ -52,11 +52,15 @@ void    _std dostimetotm(u32t dostime, struct tm *dt);
 /// convert time_t to DOS time
 u32t    _std timetodostime(time_t time);
 
+/// convert DOS time to time_t
 time_t  _std dostimetotime(u32t dostime);
 
 #define CLOCKS_PER_SEC   1000000
 
 clock_t _std clock(void);
+
+/// return # of microseconds since reboot
+clock_t _std sys_clock(void);
 
 #ifdef __cplusplus
 }

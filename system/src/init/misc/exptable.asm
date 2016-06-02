@@ -77,9 +77,6 @@
                 extrn   _mod_getfuncptr :near
                 extrn   _mod_exec       :near
                 extrn   _mod_free       :near
-                extrn   _mod_listadd    :near
-                extrn   _mod_listdel    :near
-                extrn   _mod_listlink   :near
                 extrn   _key_read       :near
                 extrn   _key_pressed    :near
                 extrn   _exit_restart   :near
@@ -92,13 +89,11 @@
                 extrn   _memchr         :near
                 extrn   _vio_setmode    :near
                 extrn   _vio_resetmode  :near
-                extrn   _mod_listflags  :near
                 extrn   _usleep         :near
                 extrn   _key_wait       :near
                 extrn   _hlp_memreserve :near
                 extrn   _hlp_memprint   :near
                 extrn   _exit_prepare   :near
-                extrn   _exit_handler   :near
                 extrn   _mod_context    :near
                 extrn   _memsetw        :near
                 extrn   _memsetd        :near
@@ -212,6 +207,7 @@
                 extrn   _mt_safedxor    :near
                 extrn   _mt_cmpxchgd    :near
                 extrn   _clock          :near
+                extrn   _sys_clock      :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -248,8 +244,9 @@ _exptable_data:
                 dd      offset _sys_settr                       ; #9
 ;----------------------------------------------------------------
 ;                nextord <10>                                    ;
-                dd      offset _hlp_seroutchar                  ; #10
-                dd      offset _hlp_seroutstr                   ;
+                next_offsets <2>
+                dd      offset _hlp_seroutchar                  ; * #10
+                dd      offset _hlp_seroutstr                   ; * not chunked
                 dd      offset _log_printf                      ;
                 dd      offset _log_flush                       ;
                 dd      offset _hlp_seroutinfo                  ;
@@ -373,7 +370,7 @@ _exptable_data:
                 dd      offset _IODelay                         ; *
                 dd      offset _page0_fptr                      ; *
                 dd      offset _exit_prepare                    ;
-                dd      offset _exit_handler                    ;
+                dd      0                                       ;
                 dd      offset _hlp_boottype                    ;
                 dd      offset _hlp_getcpuid                    ;
                 dd      offset _hlp_readmsr                     ;
@@ -415,11 +412,7 @@ _exptable_data:
                 dd      offset _mod_secondary                   ; *
                 dd      offset _mod_list                        ; *
                 dd      offset _mod_ilist                       ; *
-                dd      offset _mod_listadd                     ;
-                dd      offset _mod_listdel                     ;
-                dd      offset _mod_listlink                    ;
-                dd      0                                       ;
-                dd      offset _mod_listflags                   ;
+                nextord <173>                                   ; 168..172 removed
                 dd      offset _mod_context                     ;
                 dd      offset _mod_query                       ;
                 dd      offset _mod_apidirect                   ;
@@ -443,6 +436,7 @@ _exptable_data:
                 dd      offset _tm_calibrate                    ;
                 dd      offset _clock                           ;
                 dd      offset _hlp_tscin55ms                   ;
+                dd      offset _sys_clock                       ;
 ;----------------------------------------------------------------
                 nextord <200>                                   ;
                 dd      offset _vio_getshape                    ;

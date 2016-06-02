@@ -42,7 +42,10 @@ mt_prcdata *walk_next(mt_prcdata *cur) {
 /* Function must be called inside lock for manual context switch
    (anything except SWITCH_TIMER) - and it will reset lock to 0 (!)
    on exit in this case.
-   For SWITCH_TIMER interrupts should be disabled at this moment. */
+   For SWITCH_TIMER interrupts should be disabled at this moment.
+   
+   Thread/process exit must go through this func because is calls
+   w_check_conditions() for it and free belonging wait lists */
 void _std switch_context(mt_thrdata *thread, u32t reason) {
    mt_thrdata *th = (mt_thrdata*)pt_current;
    u64t       now = hlp_tscread();
@@ -63,18 +66,21 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          thread->tiState  = THRD_RUNNING;
          break;
       case SWITCH_PROCEXIT:
+         w_check_conditions(th->tiPID, 0, 0);
          // no context saving
-         th = 0;
+         th    = 0;
          break;
       case SWITCH_WAIT:
          // tiWaitReason must be filled by caller
          th->tiState      = THRD_WAITING;
          break;
       case SWITCH_EXIT:
-         // free it, but leave slot for re-use
+         // we must call it when thread data still valid!
+         w_check_conditions(th->tiPID, th->tiTID, 0);
+         // free it
          mt_freethread(th,0);
          // inform switch code below about to skip context saving
-         th = 0;
+         th    = 0;
          break;
       case SWITCH_FIBER:
          thread           = th;
@@ -86,7 +92,8 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          th->tiState      = THRD_RUNNING;  // just update
          break;
    }
-
+   // check waiting conditions (except exit cases, was called above)
+   if (th) w_check_conditions(0,0,0);
    // search for suitable thread
    if (!thread) {
       u64t        cdiff = 0;
@@ -95,14 +102,15 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
 
       for (ti=0; ti<pid_alloc; ti++) {
          mt_prcdata  *pd = pid_ptrs[ti];
-         mt_thrdata *cth;
-
          if (!pd) continue;
-         
-         cth = pd->piList;
+
          // walking over running threads
-         for (ii=0; ii<pd->piListAlloc; ii++, cth++)
-            if ((cth->tiMiscFlags&TFLM_AVAIL)==0 && cth->tiState==THRD_RUNNING) {
+         for (ii=0; ii<pd->piListAlloc; ii++) {
+            mt_thrdata *cth = pd->piList[ii];
+
+            if (cth && cth->tiState==THRD_RUNNING && 
+                (cth->tiMiscFlags&TFLM_NOSCHED)==0) 
+            {
                /* thread with zero LastTime has priority above all, which cause
                   timeslice for any new thread and for all threads just after
                   MTLIB start */
@@ -112,6 +120,7 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
                      else ztime = cth;
                }
             }
+         }
          if (!pd) break;
       }
       // this is me again :)
@@ -121,9 +130,7 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          log_it(0, "tid %i -> %d %X %X\n", th?th->tiTID:-1, thread?thread->tiTID:-1, th, thread);
 #endif
    }
-   if (!thread && th && th->tiState==THRD_RUNNING) thread = th;
-   // we will hang on next lines, so dump tree here without any precaution
-   if (!thread) mt_dumptree();
+   if (!thread) thread = pt_sysidle;
 
    if (thread!=th || reason==SWITCH_FIBER) {
       // swap pt_current, process context and xcpt_top in START module
