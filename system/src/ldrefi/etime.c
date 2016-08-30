@@ -4,10 +4,9 @@
 #include "qsutil.h"
 #include "qstime.h"
 #include "qecall.h"
-#include "../ldrapps/hc/qshm.h"
-#include "../ldrapps/hc/qssys.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qshm.h"
+#include "qssys.h"
+#include "qsmodint.h"
 
 extern u16t               IODelay;
 /* note that the same var present in BIOS host files, but with sligtly

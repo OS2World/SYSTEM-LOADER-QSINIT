@@ -36,7 +36,18 @@ int  pag_unmappages(u32t virt, u32t len);
 
 void pag_inittables(void);
 
+/// lock meminit/pager mutex
+void pag_lock(void);
+/// lock meminit/unpager mutex
+void pag_unlock(void);
+
 #ifdef __cplusplus
 }
+
+class PAGEMUX_THIS_FUNC {
+public:
+   PAGEMUX_THIS_FUNC() { pag_lock(); }
+   ~PAGEMUX_THIS_FUNC() { pag_unlock(); }
+};
 #endif
 #endif // QSINIT_MEMINT

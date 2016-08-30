@@ -339,7 +339,7 @@ This list contain available actions for selected partition:
 
 * "Delete" - delete this partition.
 
-* "Format" - format partition to FAT/FAT32 file system.
+* "Format" - format partition to FAT/FAT32/exFAT or HPFS file system.
 
 * "Make active" - make primary partition active. 
 
@@ -347,25 +347,40 @@ For GPT disks this command set "BIOS Bootable" attribute to partition.
 I.e. this partition will be booted in "BIOS mode boot", by MBR code of
 GPT disk. 
 
-You also need to replace MBR code to provided by QSINIT.
+You, also, must replace MBR code to provided by QSINIT to create full boot path.
 
-* "Mount" - mount partition to QSINIT drive letter
+* "Mount" - mount partition to QSINIT drive letter.
 
-* "Unmount" - unmount partition from QSINIT
+* "Unmount" - unmount partition from QSINIT.
 
-* "LVM drive letter" - set OS/2 LVM drive letter
+* "LVM drive letter" - set OS/2 LVM drive letter.
 
-* "LVM rename" - set OS/2 LVM volume name
+* "LVM rename" - set OS/2 LVM volume name.
 
-* "Set type GUID" - set partition type on GPT disks
+* "Set type GUID" - set partition type on GPT disks.
 
 * "Clone" - clone partition data to another existing partition.
+
+* "Dirty state" - switch file system`s dirty state. Looks like some
+OS/IFS combinations ignore this flag, but as a common case, partition
+check should start on system boot.
 
 * "Create logical" - create logical partition on selected free space
 
 * "Create primary" - create primary partition on selected free space
 
-* "Sector view" - go to first sector of this partition in disk editor window.
+* "Sector view" - go to first sector of this partition or free space in disk
+editor window.
+
+* "Sector goto" - opens disk editor windows on one of known sectors on
+partition filesystem.
+
+* "Update bootstrap code" - update boot sector code (all FAT types and HPFS).
+Both FAT16 and HPFS boot code written to be compatible with IBM OS2LDR.
+
+* "Install QSINIT" - install QSINIT binaries and bootstrap code (now only to
+any type of FAT). To boot from this partition you must add it into your
+boot manager, of course.
 
 .topic DmgrDlg=2077
  Disk management Ü

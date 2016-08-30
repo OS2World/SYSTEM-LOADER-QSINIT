@@ -111,18 +111,19 @@ int TSysApp::SetCodepage(int format) {
 
    qs_cpconvert cpl = NEW(qs_cpconvert);
    if (!cpl) return 0;
-   u16t     current = cpl->getsyscp(),
-            *cplist = cpl->cplist();
+   u16t     current = cpl->getsyscp();
    TSItem     *list = 0, *next;
    char         tmp[8];
    // no ask in format sequence and selected codepage
    if (format && current) { destroy(dlg); DELETE(cpl); return 1; }
-
+   // get codepahge list (in heap block)
+   u16t *cpla = cpl->cplist(), *cplist = cpla;
    while (*cplist) {
       itoa(*cplist++, tmp, 10);
       TSItem *item = new TSItem(tmp,0);
       if (!list) next = list = item; else { next->next = item; next = item; }
    }
+   free(cpla); cpla = 0;
 
    control = new TCombo(TRect(19, 4+format, 22, 5+format), cpline, cbxOnlyList |
                        cbxDisposesList | cbxNoTransfer, list);
@@ -155,6 +156,8 @@ int TSysApp::SetCodepage(int format) {
    DELETE(cpl);
    destroy(dlg);
    return res;
+#else
+   return -1;
 #endif
 }
 
@@ -167,22 +170,22 @@ static TDialog* makePercentDlg() {
    TDialog* dlg = new TDialog(TRect(18, 10, 61, 13), prc_head);
    if (!dlg) return 0;
    dlg->options |= ofCenterX | ofCenterY;
-   
+
    prc_state = new TColoredText(TRect(2, 1, 41, 2), "", 0x7C);
    dlg->insert(prc_state);
-   
+
    dlg->selectNext(False);
    return dlg;
 }
 
 void _std TSysApp::PercentDlgCallback(u32t percent, u32t size) {
    static u32t lsize = 0, lprc;
-   int        insdlg = 0, 
+   int        insdlg = 0,
               drawme = 0;
 
    if (!prc_dlg && percent<50) {
       prc_dlg = makePercentDlg();
-      insdlg  = 1; 
+      insdlg  = 1;
       lsize   = 0;
       lprc    = FFFF;
    }

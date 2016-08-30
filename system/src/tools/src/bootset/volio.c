@@ -23,7 +23,7 @@ Bool volume_open (char letter, volh *handle) {
    char openpath[64];
    HANDLE   rc;
    DWORD    SectorsPerCluster, BytesPerSector, NumberOfFreeClusters,
-            TotalNumberOfClusters;
+            TotalNumberOfClusters, Count;
    voldata *vh;
    sprintf(openpath,"%c:\\",letter);
    if (!GetDiskFreeSpace(openpath,&SectorsPerCluster, &BytesPerSector,
@@ -35,6 +35,11 @@ Bool volume_open (char letter, volh *handle) {
          FILE_FLAG_NO_BUFFERING|FILE_FLAG_WRITE_THROUGH, NULL);
    *handle = 0;
    if (rc==INVALID_HANDLE_VALUE) return False;
+   /** this is not required by FAT32 driver, but exFAT switches volume to r/o
+       after writing below, FSCTL_LOCK_VOLUME can`t help too.
+       GetLogicalDrives() after close should mount it back as MSDN says - and
+       it looks true */
+   if (!DeviceIoControl(rc, FSCTL_DISMOUNT_VOLUME, 0, 0, 0, 0, &Count, 0)) return False;
 
    vh = (voldata*)malloc(sizeof(voldata));
    vh->dh      = rc;
@@ -159,8 +164,11 @@ u32 volume_write(volh handle, u32 sector, u32 count, void *data) {
 }
 
 void volume_close(volh handle) {
+   HANDLE   rc;
    voldata *vh = (voldata*)handle;
    CloseHandle(vh->dh);
+   // force windows to mount volume back
+   GetLogicalDrives();
    memset(vh, 0, sizeof(voldata));
    free(vh);
 }

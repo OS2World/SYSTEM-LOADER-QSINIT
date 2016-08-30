@@ -3,27 +3,18 @@
 // secondary LE/LX support code
 //
 #define LOG_INTERNAL
-#define MODULE_INTERNAL
 #define STORAGE_INTERNAL
-#include "qslog.h"
-#include "clib.h"
-#include "qsutil.h"
-#include "qsmod.h"
+#include "qsbase.h"
 #include "qsmodext.h"
 #include "qslxfmt.h"
 #include "malloc.h"
 #include "stdlib.h"
 #include "qsconst.h"
-#include "qsstor.h"
-#include "qsshell.h"
 #include "qsint.h"
 #include "sysio.h"
 #include "vioext.h"
 #include "start_ord.h"
 #include "internal.h"
-#include "qsclass.h"
-#include "qsxcpt.h"
-#include "qserr.h"
 
 extern u16t      _std IODelay;
 extern u32t      M3BufferSize;
@@ -32,13 +23,12 @@ extern FILE         **pstdout,
                      **pstdin;
 extern char _std     aboutstr[];
 extern char    aboutstr_local[];
-
+static qshandle     ldr_mutex = 0,
+                    mfs_mutex = 0;
 // decompression routines
 u32t _std DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
 u32t _std DecompressM3(u32t DataLen, u8t* Src, u8t *Dst, u8t *Buffer);
 void _std log_memtable(void*, void*, u8t*, u32t*, u32t);
-/// reset ini file cache
-void  reset_ini_cache(void);
 /// call trace on parocess start
 void  trace_start_hook(module *mh);
 /// call trace on module free
@@ -49,7 +39,6 @@ u32t _std cache_read (u32t disk, u64t pos, u32t ssize, void *buf);
 u32t _std cache_write(u32t disk, u64t pos, u32t ssize, void *buf);
 
 extern mod_addfunc* _std mod_secondary;
-extern mod_export*  _std mod_findexport(module *mh, u16t ordinal);
 
 #define checkexps(x) if (expsmax<=(x)) { \
    exp=mh->exps=realloc(mh->exps,(expsmax*=2)*sizeof(mod_export)); \
@@ -148,7 +137,7 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
    return 0;
 }
 
-u32t _std mod_searchload(const char *name, u32t *error) {
+u32t _std mod_searchload(const char *name, u32t flags, qserr *error) {
    char path[QS_MAXPATH+1],
        mname[E32MODNAME+5], *epos;
    strncpy(mname,name,E32MODNAME);
@@ -172,7 +161,7 @@ u32t _std mod_searchload(const char *name, u32t *error) {
       _searchenv(mname,"PATH",path);
    }
    if (!*path) return 0;
-   return mod_load(path, 0, error, 0);
+   return mod_load(path, flags, error, 0);
 }
 
 /* unpack code works as IBM one and it search for zero at the end of iterated
@@ -306,12 +295,14 @@ int _std unzip_ldi(void *mem, u32t size, const char *path) {
 /** module loaded callback.
     Called before returning ok to user. But module is not guaranteed to
     be in loaded list at this time, it can be the one of loading imports
-    for someone. */
+    for someone.
+    ldr_mutex is captured at this time */
 void _std mod_loaded(module *mh) {
    trace_start_hook(mh);
 }
 
-/// module free callback.
+/** module free callback.
+    ldr_mutex is captured at this time */
 void _std mod_freeexps(module *mh) {
    mh->exports=0;
    // free exports, not used below
@@ -329,23 +320,22 @@ void _std mod_freeexps(module *mh) {
 }
 
 /** process start callback.
+    function is not covered by MT lock, nor by ldr_mutex!
     note, that callbacks are called in CALLER context! */
 int _std mod_startcb(process_context *pq) {
-   reset_ini_cache();
    init_stdio(pq);
    return 0;
 }
 
 /** process exit callback.
-    note, that callbacks are called in CALLER context! */
+    note, that callbacks are called in CALLER context! 
+    To catch something in CALLEE context use mt_pexitcb() for tid 1.
+    Function is not covered by MT lock, nor by ldr_mutex! */
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    int errtype = 0;
-   // should be the first, because this code can be called after main()`s end
-   sys_notifyfree(pq->pid);
    // !!!
    fcloseall_as(pq->pid);
-   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR);
-
+   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR|IOHT_MUTEX);
 
    if (pq->rtbuf[RTBUF_PUSHDST]) {
       pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
@@ -382,7 +372,7 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
 
 void check_version(void) {
    int len = strlen(aboutstr_local);
-   // at every place on Earth we can find at least one hero, who gets such message ;)
+   // at every place on Earth we can find a hero, who gets such message ;)
    if (strncmp(aboutstr, aboutstr_local, len)) {
       char *about = strdup(aboutstr), *msg;
       about[len] = 0;
@@ -395,31 +385,40 @@ void check_version(void) {
 }
 
 u32t _std mod_getmodpid(u32t module) {
-   qs_mtlib      mtlib = get_mtlib();
-
-   if (mtlib->active()) return mtlib->getmodpid(module); else {
+   if (!in_mtmode) {
       process_context *pq = mod_context();
       while (pq) {
          if ((u32t)pq->self==module) return pq->pid;
          pq = pq->pctx;
       }
-   }
+   } else
+      return get_mtlib()->getmodpid(module);
    return 0;
 }
 
 mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
-   &mod_buildexps, &mod_searchload, &mod_unpack1, &mod_unpack2, &mod_unpack3,
-   &mod_freeexps, &mem_alloc, &mem_realloc, &mem_free, &freadfull, &log_pushtm,
-   &sto_save, &sto_flush, &unzip_ldi, &mod_startcb, &mod_exitcb, &log_memtable,
-   &hlp_memcpy, &mod_loaded, &sys_exfunc4, &hlp_volinfo, &io_fullpath,
-   &getcurdir_dyn, &io_remove, &mem_freepool, &sys_notifyexec};
+   mod_buildexps, mod_searchload, mod_unpack1, mod_unpack2, mod_unpack3,
+   mod_freeexps, mem_alloc, mem_realloc, mem_free, freadfull, log_pushtm,
+   sto_save, sto_flush, unzip_ldi, mod_startcb, mod_exitcb, log_memtable,
+   hlp_memcpy, mod_loaded, sys_exfunc4, hlp_volinfo, io_fullpath,
+   getcurdir_dyn, io_remove, mem_freepool, sys_notifyexec, 0, 0, 0,
+   mt_muxcapture, mt_muxwait, mt_muxrelease};
 
-extern module*_std _Module;
+void setup_loader_mt(void) {
+   qserr   rc;
+   if (table.in_mtmode) log_it(0, "????\n");
+   table.in_mtmode = 1;
+
+   if (mt_muxcreate(0, "__lxloader_mux__", &table.ldr_mutex) ||
+      io_setstate(table.ldr_mutex, IOFS_DETACHED, 1) ||
+         mt_muxcreate(0, "__microfsd_mux__", &table.mfs_mutex) ||
+            io_setstate(table.mfs_mutex, IOFS_DETACHED, 1))
+               log_it(0, "ldr/fsd mutexes err!\n");
+}
 
 void setup_loader(void) {
-   process_context *pq;
    // export function table
-   mod_secondary=&table;
+   mod_secondary = &table;
    // flush log first time
    log_flush();
    // minor print

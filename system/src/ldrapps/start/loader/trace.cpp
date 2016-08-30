@@ -1,5 +1,4 @@
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qschain.h"
 #include "qsmodext.h"
 #include "internal.h"
@@ -306,7 +305,7 @@ static void trace_mhcommon(TraceInfo *mti, int idx, TList &list, int add) {
    }
 }
 
-int trace_common(const char *module, const char *group, int quiet, int on) {
+static int trace_common(const char *module, const char *group, int quiet, int on) {
    TraceInfo *mti = trace_find(module,quiet,on); // load only on "trace on"
    if (!mti) return 0;
    TList difflist;
@@ -365,7 +364,8 @@ int trace_common(const char *module, const char *group, int quiet, int on) {
 }
 
 int trace_onoff(const char *module, const char *group, int quiet, int on) {
-   log_it(2,"trace_onoff(%s,%s,%i,%i)\n",module,group,quiet,on);
+   log_it(2,"trace_onoff(%s,%s,%i,%i)\n", module, group, quiet, on);
+   MTLOCK_THIS_FUNC lk;
 
    if (!module || strcmp(module,"*")==0) {
       if (!lti) return 1;
@@ -382,57 +382,68 @@ int trace_onoff(const char *module, const char *group, int quiet, int on) {
 }
 
 void trace_list(const char *module, const char *group, int pause) {
+   TStrings out;
+   spstr     st;
+   int       ii;
+   // collect output data in MT locked state, then print it
+   mt_swlock();
    if (!module) {
       if (!lti || !lti->Count()) {
-         printf("There is no active trace files\n");
-         return;
-      }
-      cmd_printseq(0,1,0);
-      for (int ii=0; ii<lti->Count(); ii++) {
-         int cnt=0, jj;
-         TraceInfo *mti = (TraceInfo*)lti->Objects(ii);
-         for (jj=0; jj<mti->groups.Count(); jj++) 
-            cnt += mti->groups.Objects(jj)&TRACEF_ON?1:0;
-
-         cmd_printseq("%-16s  %d groups (%d active)",pause?0:-1,0,(*lti)[ii](),
-            mti->groups.Count(), cnt);
+         out<<"There is no active trace files";
+      } else {
+         for (ii=0; ii<lti->Count(); ii++) {
+            int cnt=0, jj;
+            TraceInfo *mti = (TraceInfo*)lti->Objects(ii);
+            for (jj=0; jj<mti->groups.Count(); jj++) 
+               cnt += mti->groups.Objects(jj)&TRACEF_ON?1:0;
+            st.sprintf("%-16s  %d groups (%d active)", (*lti)[ii](),
+               mti->groups.Count(), cnt);
+            out<<st;
+         }
       }
    } else {
       TraceInfo *mti = trace_find(module,1,1);
       if (!mti) {
-         printf("There is no trace info for module '%s'\n", module);
-         return;
-      }
-      if (!group) {
-         cmd_printseq(0,1,0);
-         for (int ii=0; ii<mti->groups.Count(); ii++)
-            cmd_printseq("%c  %-30s : %s",pause?0:-1,0,
-               mti->groups.Objects(ii)&TRACEF_CLASS?'c':'g',
-                  mti->groups[ii](), mti->groups.Objects(ii)&TRACEF_ON?"ON":"OFF");
+         st.sprintf("There is no trace info for module '%s'", module);
+         out<<st;
       } else {
-         int  idx = mti->groups.IndexOf(group), isclass;
-         if (idx<0) {
-            printf("There is no group '%s' in module '%s'\n", group, module);
-            return;
+         if (!group) {
+            for (ii=0; ii<mti->groups.Count(); ii++) {
+               st.sprintf("%c  %-30s : %s", mti->groups.Objects(ii)&TRACEF_CLASS?'c':'g',
+                  mti->groups[ii](), mti->groups.Objects(ii)&TRACEF_ON?"ON":"OFF");
+               out<<st;
+            }
+         } else {
+            int  idx = mti->groups.IndexOf(group), isclass;
+            if (idx<0) {
+               st.sprintf("There is no group '%s' in module '%s'", group, module);
+               out<<st;
+            } else {
+               isclass = mti->groups.Objects(idx)&TRACEF_CLASS;
+               for (ii=0; ii<mti->name.Count(); ii++)
+                  if (mti->fmt.Objects(ii)==idx) {
+                     if (isclass)
+                        st.sprintf("method %s (%s)", mti->name[ii](), mti->fmt[ii]());
+                     else
+                        st.sprintf("ordinal %4d, name %s (%s)", mti->name.Objects(ii),
+                           mti->name[ii](), mti->fmt[ii]());
+                     out<<st;
+                  }
+            }
          }
-         isclass = mti->groups.Objects(idx)&TRACEF_CLASS;
-         cmd_printseq(0,1,0);
-         for (int ii=0; ii<mti->name.Count(); ii++)
-            if (mti->fmt.Objects(ii)==idx)
-               if (isclass)
-                  cmd_printseq("method %s (%s)",pause?0:-1,0, mti->name[ii](),
-                     mti->fmt[ii]());
-               else
-                  cmd_printseq("ordinal %4d, name %s (%s)",pause?0:-1,0,
-                     mti->name.Objects(ii), mti->name[ii](), mti->fmt[ii]());
       }
    }
+   mt_swunlock();
+   // print can`t be done in locked state because it slow & pauseable
+   cmd_printseq(0,1,0);
+   for (ii=0; ii<out.Count(); ii++) cmd_printseq("%s", pause?0:-1, 0, out[ii]());
 }
 
 /// start module callback (need to enum all modules here!)
 extern "C"
 void trace_start_hook(module *mh) {
-   TraceInfo *mti = trace_find(mh->name,1);
+   MTLOCK_THIS_FUNC lk;
+   TraceInfo      *mti = trace_find(mh->name,1);
    if (!mti) return;
    TList difflist;
    int ii;
@@ -450,7 +461,8 @@ void trace_start_hook(module *mh) {
 /// free module callback
 extern "C"
 void trace_unload_hook(module *mh) {
-   TraceInfo *mti = trace_find(mh->name,1);
+   MTLOCK_THIS_FUNC lk;
+   TraceInfo      *mti = trace_find(mh->name,1);
    if (!mti) return;
    /* mod_apiunchain() was called in lxmisc.c, classes trace thunks must
       be removed by unregister, so only clearing own structs here */
@@ -473,8 +485,13 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
          *ehbuf = in && outs? (u32t*)mem_alloc(TRACE_OWNER, activelist[idx], 
                   sizeof(u32t)*outs) : (u32t*)info->mc_userdata;
 
-   strcpy(buf, in?"In : ":"Out: ");
-   strcpy(buf+5, fnname);
+   if (in_mtmode) {
+      sprintf(buf, "<<%u:%u>> %s : ", mod_getpid(), mt_getthread(), in?"In":"Out");
+      strcat(buf, fnname);
+   } else {
+      strcpy(buf, in?"In : ":"Out: ");
+      strcpy(buf+5, fnname);
+   }
    buf+=strlen(buf);
    // non-void result
    if (!in && fmt[pos]!='v') *buf++='=';

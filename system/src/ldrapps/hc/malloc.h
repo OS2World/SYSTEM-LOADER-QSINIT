@@ -11,7 +11,7 @@ Heap actually is the one for entire system and processes.
 
 But there are four types of allocation available:
 @li common, belonging to current process - malloc(), realloc(), calloc().
-    System will free it when process exits. 
+    System will free it when process exits.
     API & clib functions returns such memory.
 
 @li thread-owned memory, which is auto-released when THREAD exits -
@@ -55,13 +55,13 @@ extern "C" {
 /// Watcom C runtime _msize() function analogue
 #define _msize(block) mem_blocksize(block)
 
-#define free(pp) mem_free(pp)
+void* __stdcall malloc (unsigned long size);
 
-void* __stdcall malloc(unsigned long size);
-
-void* __stdcall calloc(unsigned long n, unsigned long size);
+void* __stdcall calloc (unsigned long n, unsigned long size);
 
 void* __stdcall realloc(void *old_blk, unsigned long size);
+
+void  __stdcall free   (void *ptr);
 
 void* __stdcall malloc_thread(unsigned long size);
 
@@ -110,7 +110,7 @@ int __stdcall mem_modblock(void *block);
     String is visible in heap dump as a "file name".
     This macro also switches block type to shared if it was not so.
     @param  str     string, must be valid until the end of use.
-    @param  info    misc info value, 0...8191 */
+    @param  info    misc info value, 0...8190 */
 #define __set_shared_block_info(p, str, info) \
    mem_setobjinfo(p, (info)|QSMEMOWNER_LINENUM, (long)str);
 

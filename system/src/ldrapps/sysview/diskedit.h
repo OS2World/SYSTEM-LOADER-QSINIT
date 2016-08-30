@@ -19,6 +19,9 @@
 #include "binedit.h"
 #include "diskdlg.h"
 #include "direct.h"   // NAME_MAX
+#ifdef __QSINIT__
+#include "qsdm.h"
+#endif
 
 void SwitchRegDialogCmd(int on);
 
@@ -163,6 +166,9 @@ public:
   void   Unmount(u8t vol);
   void   BootPartition(u32t disk, long index);
   void   FormatDlg(u8t vol, u32t disk, u32t index);
+  void   BootCodeDlg(u8t vol, u32t disk, u32t index);
+  void   QSInstDlg(u8t vol, u32t disk, u32t index);
+  void   ChangeDirty(u8t vol, u32t disk, u32t index);
   void   CreatePartition(u32t disk, u32t index, int logical);
   void   MountDlg(Boolean qsmode, u32t disk, u32t index, char letter = 0);
   void   SetGPTType(u32t disk, u32t index);
@@ -189,6 +195,8 @@ public:
   #define MSGTYPE_PT    0
   #define MSGTYPE_LVM   1
   #define MSGTYPE_FMT   2
+  #define MSGTYPE_QS    3
+  #define MSGTYPE_CLIB  4
   char*  GetPTErr(u32t rccode, int msgtype = MSGTYPE_PT);
   void   PrintPTErr(u32t rccode, int msgtype = MSGTYPE_PT);
 
@@ -226,6 +234,8 @@ public:
 #define MSGI_LENTRUNCTDISK (4)
 #define MSGI_SAMEPOS       (5)
 #define MSGI_LVMOK         (6)
+#define MSGI_BOOTCODEOK    (7)
+#define MSGI_BOOTQSOK      (8)
 
 #define MSGE_FLOPPY        (0)
 #define MSGE_NOTSUPPORTED  (1)
@@ -264,6 +274,12 @@ public:
 #define MSGE_VMOUNTERR    (34)
 #define MSGE_INVDISK      (35)
 #define MSGE_FILECREATERR (36)
+#define MSGE_NOBOOTFILES  (37)
+#define MSGE_UNCKFS       (38)
+#define MSGE_ABOVE2TB     (39)
+#define MSGE_CROSS2TB     (40)
+#define MSGE_BOOTFN11     (41)
+#define MSGE_QSWRITEERR   (42)
 
 extern TSysApp SysApp;
 
@@ -300,6 +316,38 @@ public:
    {
       memEd   = 0;
       helpCtx = hcMemEdit;
+   }
+};
+
+/** mount volume until the end of scope.
+    Volume will be unmounted in destructor, but only if was mounted here */
+class TempVolumeMounter {
+   int remove_me;
+   u8t      mvol;
+public:
+   TempVolumeMounter(u8t &vol, u32t disk, u32t index, Boolean noremove = False) {
+      remove_me = 0; mvol = 0;
+      if (!vol || vol==0xFF) {
+#ifdef __QSINIT__
+         vol = 0;
+         u32t rc = vol_mount(&vol, disk, index);
+         if (rc && rc!=DPTE_MOUNTED) {
+            SysApp.PrintPTErr(rc);
+            // reset it to incorrect value
+            vol = 0xFF;
+            return;
+         } else {
+            // DPTE_MOUNTED means - no remove at caller`s end
+            remove_me = !rc && !noremove;
+            mvol = vol;
+         }
+#endif
+      }
+   }
+   ~TempVolumeMounter() {
+#ifdef __QSINIT__
+      if (remove_me) hlp_unmountvol(mvol);
+#endif
    }
 };
 

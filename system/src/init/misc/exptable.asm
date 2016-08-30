@@ -147,7 +147,6 @@
                 extrn   _sys_tmirq64    :near
                 extrn   _sys_settr      :near
                 extrn   _mod_apidirect  :near
-                extrn   _mod_findexport :near
                 extrn   _hlp_diskadd    :near
                 extrn   _hlp_diskremove :near
                 extrn   _log_vprintf    :near
@@ -208,6 +207,8 @@
                 extrn   _mt_cmpxchgd    :near
                 extrn   _clock          :near
                 extrn   _sys_clock      :near
+                extrn   _hlp_blistadd   :near
+                extrn   _hlp_blistdel   :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -416,7 +417,6 @@ _exptable_data:
                 dd      offset _mod_context                     ;
                 dd      offset _mod_query                       ;
                 dd      offset _mod_apidirect                   ;
-                dd      offset _mod_findexport                  ;
 ;----------------------------------------------------------------
                 nextord <180>                                   ;
                 dd      offset _key_read                        ;
@@ -480,12 +480,14 @@ _exptable_data:
                 dd      offset _memsetq                         ;
                 dd      offset _memchrq                         ;
                 dd      offset _memchrnq                        ;
-                next_offsets <5>                                ;
+                next_offsets <7>                                ;
                 dd      offset _mt_safedadd                     ; *
                 dd      offset _mt_safedand                     ; *
                 dd      offset _mt_safedor                      ; *
                 dd      offset _mt_safedxor                     ; *
                 dd      offset _mt_cmpxchgd                     ; *
+                dd      offset _hlp_blistadd                    ; *
+                dd      offset _hlp_blistdel                    ; *
 ;----------------------------------------------------------------
                 nextord <0>                                     ;
 _DATA           ends                                            ;

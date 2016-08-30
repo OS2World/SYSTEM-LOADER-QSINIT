@@ -2,11 +2,9 @@
 // QSINIT
 // process initial setup
 //
-
-#define MODULE_INTERNAL
 #include "clib.h"
 #include "qsint.h"
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsutil.h"
 #include "qspdata.h"
 #include "seldesc.h"

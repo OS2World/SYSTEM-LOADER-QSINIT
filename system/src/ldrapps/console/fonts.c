@@ -23,7 +23,7 @@ ptr_list sysfnt = 0;
 
 void con_queryfonts(void) {
    if (sysfnt) return;
-   sysfnt = (ptr_list)exi_create("ptr_list");
+   sysfnt = NEW_G(ptr_list);
    // call "platform" function
    pl_addfont();
 }

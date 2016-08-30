@@ -14,16 +14,10 @@
 #include "internal.h"
 #include "limits.h"
 
-static int common_errno = 0;
-
-int* __stdcall _get_errno(void) {
-   if (!in_mtmode) return &common_errno; else {
-      u64t    *vaddr;
-      qs_mtlib    mt = get_mtlib();
-      // return thread local errno storage if it available
-      if (mt->tlsaddr(QTLS_ERRNO,&vaddr)) return &common_errno; else
-         return (int*)vaddr;
-   }
+int* __stdcall _get_errno(void) { 
+   u64t *rc;
+   mt_tlsaddr(QTLS_ERRNO, &rc);
+   return (int*)rc;
 }
 
 // translated to _get_errno() call
@@ -306,6 +300,11 @@ u32t __stdcall strccnt(const char *str, char ch) {
    return rc;
 }
 
+char __stdcall strclast(const char *str) {
+   if (!str || !*str) return 0;
+   return str[strlen(str)-1];
+}
+
 void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
    if (count&&dst) {
       if (flags&SBIT_STREAM) { // bit stream bits array
@@ -400,7 +399,7 @@ void __stdcall qsort(void *base, size_t num, size_t width,
    }
 }
 
-int qserr2errno(qserr errv) {
+int __stdcall qserr2errno(qserr errv) {
    switch (errv) {
       case E_OK               :return 0;
       case E_SYS_DONE         :return EALREADY;
@@ -428,7 +427,12 @@ int qserr2errno(qserr errv) {
       case E_SYS_PRIVATEHANDLE:return EPERM;
       case E_SYS_SEEKERR      :return ESPIPE;
       case E_SYS_DELAYED      :return EINPROGRESS;
-
+      case E_SYS_BROKENFILE   :return EPIPE;
+      case E_SYS_NONINITOBJ   :
+      case E_SYS_INITED       :return EINVOP;
+      case E_SYS_READONLY     :return EROFS;
+      case E_SYS_TOOLARGE     :
+      case E_SYS_TOOSMALL     :return EINVAL;
       case E_DSK_IO           :return EIO;
       case E_DSK_NOTREADY     :
       case E_DSK_WP           :return EROFS;
@@ -501,7 +505,7 @@ dir_t* __stdcall START_EXPORT(opendir)(const char *dpath) {
       set_errno_qserr(err);
       return 0;
    }
-   strcat(si->dirpath, "\\");
+   if (strclast(si->dirpath)!='\\') strcat(si->dirpath, "\\");
    rc->d_sysdata = si;
    si->sign      = STAT_SIGN;
    si->call      = 1;
@@ -808,10 +812,8 @@ void __stdcall START_EXPORT(_splitpath)(const char *path, char *drive, char *dir
 char* __stdcall START_EXPORT(_fullpath)(char *buffer, const char *path, size_t size) {
    qserr err;
    char  *rc = io_fullpath_int(buffer, path, size, &err);
-   if (err) {
-      // log_it(2, "_fullpath(%08X,%s,%u) -> %08X\n", buffer, path, size, err);
-      set_errno_qserr(err);
-   }
+   //log_it(2, "_fullpath(%08X,%s,%u) -> %08X (%s) (err:%08X)\n", buffer, path, size, rc, rc, err);
+   if (err) set_errno_qserr(err);
    return err?0:rc;
 }
 

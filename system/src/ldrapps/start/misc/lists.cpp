@@ -30,53 +30,53 @@ static const char *errmsg = "warning! invalid list ptr: %08X (%d)\n";
 #define list_type(size) list##size##_ptr
 
 #define makep_checkret_void(x,size)                          \
-   list_type(size) *x=(list_type(size)*)lst;                 \
-   if (!lst||x->sign!=LST##size##_SIGN) {                    \
-      log_printf(errmsg,lst,__LINE__);                       \
+   list_type(size) *x=(list_type(size)*)data;                \
+   if (!data||x->sign!=LST##size##_SIGN) {                   \
+      log_printf(errmsg,data,__LINE__);                      \
       return;                                                \
    }                                                         
                                                              
 #define makep_checkret_value(x,v,size)                       \
-   list_type(size) *x=(list_type(size)*)lst;                 \
-   if (!lst||x->sign!=LST##size##_SIGN) {                    \
-      log_printf(errmsg,lst,__LINE__);                       \
+   list_type(size) *x=(list_type(size)*)data;                \
+   if (!data||x->sign!=LST##size##_SIGN) {                   \
+      log_printf(errmsg,data,__LINE__);                      \
       return v;                                              \
    }                                                         
                                                              
 #define lst_create(size)                                     \
-void _std lst##size##_create(void *inst,void *lst) {         \
-   list_type(size) *lp = (list_type(size)*)lst;              \
+void _std lst##size##_create(void *inst,void *data) {        \
+   list_type(size) *lp = (list_type(size)*)data;             \
    lp->sign = LST##size##_SIGN;                              \
    lp->list.Init();                                          \
 }                                                            
                                                              
 #define lst_free(size)                                       \
-void _std lst##size##_free(void *inst,void *lst) {           \
+void _std lst##size##_free(void *inst,void *data) {          \
    makep_checkret_void(lp,size);                             \
    lp->sign = 0;                                             \
    lp->list.Clear();                                         \
 }                                                            
                                                              
 #define lst_value(size,tpret)                                \
-tpret _std lst##size##_value(void *lst, u32t index) {        \
+tpret _exicc lst##size##_value(EXI_DATA, u32t index) {       \
    makep_checkret_value(lp,0,size);                          \
    return lp->list[index];                                   \
 }
 
 #define lst_max(size)                                        \
-long _std lst##size##_max(void *lst) {                       \
+long _exicc lst##size##_max(EXI_DATA) {                      \
    makep_checkret_value(lp,-1,size);                         \
    return lp->list.Max();                                    \
 }
 
 #define lst_count(size)                                      \
-u32t _std lst##size##_count(void *lst) {                     \
+u32t _exicc lst##size##_count(EXI_DATA) {                    \
    makep_checkret_value(lp,0,size);                          \
    return lp->list.Count();                                  \
 }
 
 #define lst_assign(size)                                     \
-void _std lst##size##_assign(void *lst, void *src) {         \
+void _exicc lst##size##_assign(EXI_DATA, void *src) {        \
    list_type(size) *lps=(list_type(size)*)src;               \
    makep_checkret_void(lpd,size);                            \
    if (!lps||lps->sign!=LST##size##_SIGN) return;            \
@@ -84,37 +84,37 @@ void _std lst##size##_assign(void *lst, void *src) {         \
 }
 
 #define lst_array(size,tpret)                                \
-tpret*_std lst##size##_array(void *lst) {                    \
+tpret*_exicc lst##size##_array(EXI_DATA) {                   \
    makep_checkret_value(lp,0,size);                          \
    return (tpret*)lp->list.Value();                          \
 }
 
 #define lst_compact(size)                                    \
-void _std lst##size##_compact(void *lst) {                   \
+void _exicc lst##size##_compact(EXI_DATA) {                  \
    makep_checkret_void(lp,size);                             \
    lp->list.Compact();                                       \
 }
 
 #define lst_clear(size)                                      \
-void _std lst##size##_clear(void *lst) {                     \
+void _exicc lst##size##_clear(EXI_DATA) {                    \
    makep_checkret_void(lp,size);                             \
    lp->list.Clear();                                         \
 }
 
 #define lst_exchange(size)                                   \
-void _std lst##size##_exchange(void *lst, u32t idx1, u32t idx2) { \
+void _exicc lst##size##_exchange(EXI_DATA, u32t idx1, u32t idx2) { \
    makep_checkret_void(lp,size);                             \
    lp->list.Exchange(idx1,idx2);                             \
 }
 
 #define lst_insert(size,tpv)                                 \
-void _std lst##size##_insert(void *lst, u32t pos, tpv value, u32t repeat) { \
+void _exicc lst##size##_insert(EXI_DATA, u32t pos, tpv value, u32t repeat) { \
    makep_checkret_void(lp,size);                             \
    lp->list.Insert(pos,value,repeat);                        \
 }
 
 #define lst_insert_l(size)                                   \
-void _std lst##size##_insert_l(void *lst, u32t pos, void *src) { \
+void _exicc lst##size##_insert_l(EXI_DATA, u32t pos, void *src) { \
    list_type(size) *lps=(list_type(size)*)src;               \
    makep_checkret_void(lpd,size);                            \
    if (!lps||lps->sign!=LST##size##_SIGN) return;            \
@@ -122,13 +122,13 @@ void _std lst##size##_insert_l(void *lst, u32t pos, void *src) { \
 }
 
 #define lst_del(size)                                        \
-void _std lst##size##_del(void *lst, u32t pos, u32t count) { \
+void _exicc lst##size##_del(EXI_DATA, u32t pos, u32t count) { \
    makep_checkret_void(lp,size);                             \
    lp->list.Delete(pos,count);                               \
 }
 
 #define lst_equal(size)                                      \
-int  _std lst##size##_equal(void *lst, void *src) {          \
+int  _exicc lst##size##_equal(EXI_DATA, void *src) {         \
    list_type(size) *lps=(list_type(size)*)src;               \
    makep_checkret_value(lpd,0,size);                         \
    if (!lps||lps->sign!=LST##size##_SIGN) return 0;          \
@@ -136,31 +136,31 @@ int  _std lst##size##_equal(void *lst, void *src) {          \
 }
 
 #define lst_add(size,tpv)                                    \
-u32t _std lst##size##_add(void *lst, tpv value) {            \
+u32t _exicc lst##size##_add(EXI_DATA, tpv value) {           \
    makep_checkret_value(lp,0,size);                          \
    return lp->list.Add(value);                               \
 }
 
 #define lst_inccount(size)                                   \
-void _std lst##size##_inccount(void *lst, u32t incvalue) {   \
+void _exicc lst##size##_inccount(EXI_DATA, u32t incvalue) {  \
    makep_checkret_void(lp,size);                             \
    lp->list.IncCount(incvalue);                              \
 }
 
 #define lst_setcount(size)                                   \
-void _std lst##size##_setcount(void *lst, u32t count) {      \
+void _exicc lst##size##_setcount(EXI_DATA, u32t count) {     \
    makep_checkret_void(lp,size);                             \
    lp->list.SetCount(count);                                 \
 }
 
 #define lst_indexof(size,tpv)                                \
-long _std lst##size##_indexof(void *lst, tpv value, u32t startpos) { \
+long _exicc lst##size##_indexof(EXI_DATA, tpv value, u32t startpos) { \
    makep_checkret_value(lp,-1,size);                         \
    return lp->list.IndexOf(value,startpos);                  \
 }
 
 #define lst_sort(size,tu,tl)                                 \
-void _std lst##size##_sort(void *lst, int is_signed, int forward) { \
+void _exicc lst##size##_sort(EXI_DATA, int is_signed, int forward) { \
    makep_checkret_void(lp,size);                             \
                                                              \
    if (lp->list.Count()>1) {                                 \
@@ -188,7 +188,7 @@ void _std lst##size##_sort(void *lst, int is_signed, int forward) { \
 }
 
 #define lst_delvalue(size,tpv)                               \
-u32t _std lst##size##_delvalue(void *lst, tpv value) {       \
+u32t _exicc lst##size##_delvalue(EXI_DATA, tpv value) {      \
    l idx, count = 0;                                         \
    makep_checkret_value(lp,0,size);                          \
    do {                                                      \
@@ -201,7 +201,7 @@ u32t _std lst##size##_delvalue(void *lst, tpv value) {       \
 }
 
 #define lst_freeitems(size)                                  \
-void _std lst##size##_freeitems(void *lst, u32t first, u32t last) { \
+void _exicc lst##size##_freeitems(EXI_DATA, u32t first, u32t last) { \
    makep_checkret_void(lp,size);                             \
    if (!lp->list.Count()) return;                            \
    if (last>=lp->list.Count()) last=lp->list.Count()-1;      \
@@ -237,18 +237,18 @@ void *f_dq_list[LIST_M_COUNT] = { lstq_value, lstq_max, lstq_count,
 // register
 void register_lists(void) {
    u32t check = exi_register("dd_list", f_dd_list, LIST_M_COUNT, 
-                sizeof(listd_ptr), lstd_create, lstd_free, 0);
+                sizeof(listd_ptr), 0, lstd_create, lstd_free, 0);
    if (check!=EXID_dd_list) {
       exi_unregister(check);
       log_printf("register lists err (%d)\n",check);
       return;
    }
-   exi_register("dds_list", f_dd_list, LIST_M_COUNT, sizeof(listd_ptr), 
+   exi_register("dds_list", f_dd_list, LIST_M_COUNT, sizeof(listd_ptr), 0,
       lstd_create, lstd_free, 0);
-   exi_register("ptr_list", f_dd_list, LIST_M_COUNT+1, sizeof(listd_ptr), 
+   exi_register("ptr_list", f_dd_list, LIST_M_COUNT+1, sizeof(listd_ptr), 0,
       lstd_create, lstd_free, 0);
-   exi_register("dq_list" , f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 
+   exi_register("dq_list" , f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 0,
       lstq_create, lstq_free, 0);
-   exi_register("dqs_list", f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 
+   exi_register("dqs_list", f_dq_list, LIST_M_COUNT, sizeof(listq_ptr), 0,
       lstq_create, lstq_free, 0);
 }

@@ -3,35 +3,11 @@
 // dinamycally expanded virtual HDD for partition management testing
 //
 #include "stdlib.h"
-#include "qsutil.h"
-#include "qsshell.h"
+#include "qsbase.h"
 #include "qsmod.h"
-#include "qslog.h"
-#include "qssys.h"
-#include "errno.h"
-#include "vio.h"
-#include "qcl/rwdisk.h"
+#include "qstask.h"
+#include "qcl/qsvdimg.h"
 #include "qsdm.h"
-
-/* now VHDD included into common LDI and help moved to msg.ini,
-   old code just leaved here as demo of command help update */
-#undef SEP_MODULE
-
-#ifdef SEP_MODULE
-static const char *help_text = "Creates dinamically expanded virtual HDD:^^"
-   "VHDD MAKE filename size [sector]^"
-   "VHDD MOUNT filename^"
-   "VHDD INFO diskname^"
-   "VHDD UMOUNT diskname^"
-   "\xdd\tMAKE\t\tcreate new disk image^"
-   "\xdd\tMOUNT\t\tmount disk image^"
-   "\xdd\tINFO\t\tshows info about disk image^"
-   "\xdd\tUMOUNT\t\tumount disk image^"
-   "\xdd\tsize\t\tdisk size in gigabytes^"
-   "\xdd\tfilename\tname of image file on mounted partition to create/use^"
-   "\xdd\tsector\t\tsector size (512, 1024, 2048 or 4096, default is 512)^"
-   "\xdd\tdiskname\tQSINIT disk name";
-#endif
 
 int  init_rwdisk(void);
 int  done_rwdisk(void);
@@ -39,9 +15,9 @@ int  done_rwdisk(void);
 extern qs_emudisk    mounted[];
 // disk info static buffer
 static disk_geo_data di_info;
-static char          di_fpath[_MAX_PATH+1];
-static u32t          di_total, di_used;
-
+static char         di_fpath[_MAX_PATH+1];
+static u32t         di_total, di_used;
+static qshandle         cmux = 0;
 
 static void print_diskinfo(void) {
    printf("Size: %s (%LX sectors, %d bytes per sector)\n",
@@ -51,8 +27,15 @@ static void print_diskinfo(void) {
       di_total, di_used, di_used*100/di_total);
 }
 
+// grab vhdd command execution mutex
+static void shell_lock(void) { if (cmux) mt_muxcapture(cmux); }
+// release vhdd command mutex
+static void shell_unlock(void) { if (cmux) mt_muxrelease(cmux); }
+
 static void mount_action(qs_emudisk dsk, char *prnname) {
-   s32t disk = dsk->mount();
+   s32t  disk;
+   shell_lock();
+   disk = dsk->mount();
    if (disk<0) {
       printf("Error mouting disk!\n");
       DELETE(dsk);
@@ -60,11 +43,13 @@ static void mount_action(qs_emudisk dsk, char *prnname) {
       printf("File \"%s\" mounted as disk %s\n", prnname, dsk_disktostr(disk,0));
       if (dsk->query(&di_info, di_fpath, &di_total, &di_used)==0) print_diskinfo();
    }
+   shell_unlock();
 }
 
 u32t _std shl_vhdd(const char *cmd, str_list *args) {
    static char fpath[_MAX_PATH+1];
-   int rc = EINVAL;
+   qserr          rc = E_SYS_INVPARM;
+   int       showerr = 1;
 
    if (args->count==1 && strcmp(args->item[0],"/?")==0) {
       cmd_shellhelp(cmd,CLR_HELP);
@@ -95,15 +80,19 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
          }
 
          if (sector && sectors) {
-            qs_emudisk dsk = NEW(qs_emudisk);
+            qs_emudisk dsk = NEW_G(qs_emudisk);
             rc = dsk->make(args->item[1], sector, sectors);
             switch (rc) {
-               case EFBIG :printf("Disk too large!\n"); rc=0;
-                           break;
-               case EEXIST:printf("File \"%s\" already exists!\n", args->item[1]); rc=0;
-                           break;
-               case 0     :if (!m_and_m) printf("File ready!\n");
-                           break;
+               case E_SYS_TOOLARGE:
+                  printf("Disk too large!\n"); showerr = 0;
+                  break;
+               case E_SYS_EXIST:
+                  printf("File \"%s\" already exists!\n", args->item[1]);
+                  showerr = 0;
+                  break;
+               case 0:
+                  if (!m_and_m) printf("File ready!\n");
+                  break;
             }
             // it it make & mount - do it, else release
             if (!rc && m_and_m) mount_action(dsk, args->item[1]);
@@ -111,24 +100,41 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
          }
       } else
       if (strcmp(args->item[0],"MOUNT")==0 && args->count==2) {
-         qs_emudisk dsk = NEW(qs_emudisk);
+         qs_emudisk dsk = NEW_G(qs_emudisk);
          rc = dsk->open(args->item[1]);
          // compact it on mount
          //if (rc==0) dsk->compact(1);
          if (rc==0) mount_action(dsk, args->item[1]); else {
-            if (rc==EBADF) {
+            if (rc==E_DSK_UNCKFS) {
                printf("File \"%s\" is not an disk image!\n", args->item[1]);
-               rc=0;
+               showerr = 0;
             }
             DELETE(dsk);
          }
+      } else
+      if (strcmp(args->item[0],"LIST")==0 && args->count==1) {
+         u32t ii, any;
+         shell_lock();
+         for (ii=0, any=0; ii<=QDSK_DISKMASK; ii++)
+            if (mounted[ii])
+               if (mounted[ii]->query(&di_info, di_fpath, 0, 0)==0) {
+                  printf("%s: %8s  %s\n", dsk_disktostr(ii,0), dsk_formatsize(di_info.SectorSize,
+                     di_info.TotalSectors,0,0), di_fpath);
+                  any++;
+               }
+         shell_unlock();
+         if (!any) printf("There is no VHDD disks mounted.\n");
+         rc = 0;
       } else
       if ((strcmp(args->item[0],"INFO")==0 || strcmp(args->item[0],"UMOUNT")==0
          || strcmp(args->item[0],"TRACE")==0) && args->count==2)
       {
          u32t  disk = dsk_strtodisk(args->item[1]);
-         if (disk==FFFF) rc = ENODEV; else {
+         if (disk==FFFF) rc = E_DSK_NOTMOUNTED; else {
             rc = 0;
+            // lock it for mounted[] array safeness & also allows static vars usage
+            shell_lock();
+
             if (disk>=QDSK_FLOPPY) printf("Invalid disk type!\n"); else
             if (!mounted[disk]) printf("Not a VHDD disk!\n"); else
 
@@ -147,16 +153,26 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
                if (!rc) printf("Disk %s unmounted!\n", dsk_disktostr(disk,0));
                DELETE(dinst);
             }
+            shell_unlock();
          }
       }
    }
 
-   if (rc) cmd_shellerr(EMSG_CLIB,rc,"VHDD: ");
+   if (rc) {
+      if (showerr) cmd_shellerr(EMSG_QS,rc,"VHDD: ");
+      rc = qserr2errno(rc);
+   }
    return rc;
 }
 
 const char *selfname = "VHDD",
             *cmdname = "VHDD";
+
+// mutes creation
+void _std on_mtmode(sys_eventinfo *info) {
+   if (mt_muxcreate(0, "__vhdd_mux__", &cmux) || io_setstate(cmux, IOFS_DETACHED, 1))
+      log_it(0, "mutex init error!\n");
+}
 
 // shutdown handler - delete all disks
 void _std on_exit(sys_eventinfo *info) {
@@ -175,16 +191,18 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       }
       // install shutdown handler
       sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
+      // catch MT mode
+      if (!mt_active()) sys_notifyevent(SECB_MTMODE|SECB_GLOBAL, on_mtmode);
+         else on_mtmode(0);
       // add shell command
       cmd_shelladd(cmdname, shl_vhdd);
-#ifdef SEP_MODULE
-      // add shell help message
-      cmd_shellsetmsg(cmdname, help_text);
-#endif
       log_printf("%s is loaded!\n",selfname);
    } else {
       // DENY unload if class was not unregistered
       if (!done_rwdisk()) return 0;
+      // mutex should be free, because no more disk instances
+      if (!cmux) sys_notifyevent(0, on_mtmode); else
+         if (mt_closehandle(cmux)) log_it(2, "mutex fini error!\n");
       // remove shutdown handler
       sys_notifyevent(0, on_exit);
       // remove shell command
@@ -193,3 +211,4 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
    }
    return 1;
 }
+

@@ -3,7 +3,7 @@
 // multitasking support
 // ----------------------------------------------------
 //
-// !WARNING! this API is unfinished now and a huge parts of QSINIT
+// !WARNING! this API is unfinished now and some parts of QSINIT
 //           code still thread-unsafe.
 //
 #ifndef QSINIT_TASKF
@@ -40,18 +40,17 @@ u32t     _std mt_active(void);
     It just will be ignored in single-task mode. */
 void          mt_yield(void);
 
+#ifdef __WATCOMC__
+#pragma aux mt_yield "_*" modify exact [];
+#endif
+
 /// thread function type
 typedef u32t _std (*mt_threadfunc)(void *arg);
 
 /// thread enter/exit callback type
 typedef u32t _std (*mt_threadcb  )(mt_tid tid);
 
-/** thread creation data.
-    Note, that thread termination hook called in thread context, but with
-    custom 4k stack. This hook can be used to deny thread termination, as
-    advance. It can switch back to fiber 0 and then kill this fiber. As a
-    result - thread will continue execution, but it stops mt_termthread()
-    caller until this thread`s real exit. */
+/// thread creation data.
 typedef struct {
    u32t             size;    ///< structure size
    void           *stack;    ///< pre-allocated stack pointer
@@ -85,7 +84,7 @@ mt_tid   _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optda
    @param  tid           Thread ID
    @retval E_MT_BADTID   Bad thread ID
    @retval E_MT_ACCESS   TID 1 or system thread cannot be terminated
-   @retval E_MT_BUSY     Thread in waiting state
+   @retval E_MT_BUSY     Thread is waiting for child process
    @retval E_MT_GONE     Thread terminated already
    @retval E_OK          Thread terminated */
 u32t     _std mt_termthread  (mt_tid tid, u32t exitcode);
@@ -117,14 +116,24 @@ u32t     _std mt_getfiber    (void);
    @retval E_MT_GONE     Thread terminated already */
 u32t     _std mt_setfiber    (mt_tid tid, u32t fiber);
 
+/** set thread comment.
+   Actually, comment is simple TLS var (16 bytes), which can be
+   accessed directly. This comment string will be printed in
+   thread dump and trap screen dump, at least.
+
+   @param  str           Comment string */
+qserr    _std mt_threadname  (const char *str);
+
 /** dump process/thread list to log (in MT look).
-    This function replaces mod_dumptree() call (Ctrl-F5) after
+    This function replaces mod_dumptree() call (Ctrl-Alt-F5) after
     success mt_initialize(). */
 void     _std mt_dumptree    (void);
 
 /* TLS */
 
-/// allocate thread local storage slot.
+/** allocate thread local storage slot.
+    Note, what all tls functions works in non-MT mode too and have no
+    dependence on MTLIB library. */
 u32t     _std mt_tlsalloc    (void);
 
 /** free thread local storage slot.
@@ -161,7 +170,11 @@ qserr    _std mt_tlsset      (u32t index, u64t value);
 //@{
 #define QTLS_ERRNO        0x0000       ///< runtime errno value for this thread
 #define QTLS_ASCTMBUF     0x0001       ///< asctime() buffer address
-#define QTLS_MAXSYS       0x0001       ///< maximum pre-allocated slot index
+#define QTLS_COMMENT      0x0002       ///< thread name string (up to 16 chars)
+#define QTLS_SFINT1       0x0003       ///< system internal
+#define QTLS_DSKSTRBUF    0x0004       ///< dsk_disktostr() buffer
+#define QTLS_DSKSZBUF     0x0005       ///< dsk_formatsize() buffer
+#define QTLS_MAXSYS       0x0005       ///< maximum pre-allocated slot index
 //@}
 #define TLS_VARIABLE_SIZE     16       ///< size of TLS slot (two qwords)
 
@@ -188,20 +201,23 @@ typedef struct {
    There are 32 groups is possible, every object can belong to all of
    them (this defined by bit mask "group" in mt_waitentry structure).
 
-   If any defined group is signaled - function returns. For objects, not
+   If any one defined group is signaled - function returns. For objects, not
    included into groups (mt_waitentry.group==0), default OR logic is applied
    (i.e. first signaled will terminate waiting).
 
    Timeout can be defined by those rules too (i.e. just add QWHT_CLOCK wait
    entry with mt_waitentry.group = 0 or as separate group).
 
+   Note, what clib usleep() function in MT mode calls this for a long waiting
+   periods (more, than half of timer tick).
+
    @param  list             Objects list
    @param  count            Objects list size
    @param  glogic           Bit mask of group combining logic for 32 possible
                             groups (QWCF_OR or QWCF_AND)
    @param  [out] signaled   Group number of first signaled group. This will
-                            be 0 if no groups defined, or 1..32 - group index,
-                            can be 0.
+                            be 0 if no groups defined, or 1..32 - group index.
+                            Can be 0.
 
    @return 0 on success, E_MT_DISABLED if MT lib still not initialized,
       E_SYS_INVPARM and some handle related errors */
@@ -223,34 +239,65 @@ qserr    _std mt_waitobject  (mt_waitentry *list, u32t count, u32t glogic,
 
 /* Mutex */
 
-qshandle _std mt_muxcreate   (int initialowner, const char *name);
+/** create mutex.
+   @param  initialowner     Set this thread as initial owner
+   @param  name             Global mutex name (optional, can be 0). Named
+                            mutexes can be opened via mt_muxopen().
+   @param  [out] res        Mutex handle on success. Note, what this handle is
+                            is common handle and it accepted by io_setstate(),
+                            io_getstate() and io_duphandle().
+                            I.e., mutex handle can be detached from process as
+                            file handle can.
 
-qshandle _std mt_muxopen     (const char *name);
+   @retval 0                on success
+   @retval E_MT_DUPNAME     duplicate mutex name */
+qserr    _std mt_muxcreate   (int initialowner, const char *name, qshandle *res);
 
-/// wait for mutex available
-#define       mt_muxcapture(mtx) { u32t rc; \
-   mt_waitentry we = { QWHT_MUTEX, 0 }; we.mux = mtx; \
-   mt_waitobject(&we, 1, 0, &rc); } 
+/** open existing mutex.
+   @param  name             Mutex name.
+   @param  [out] res        Mutex handle on success.
+   @retval 0                on success
+   @retval E_SYS_NOPATH     no such mutex */
+qserr    _std mt_muxopen     (const char *name, qshandle *res);
 
-/// wait "timeout_ms" milliseconds for mutex, "rc" will be 0 if time expiried.
-#define       mt_muxwait(rc, mtx, timeout_ms) { \
-   mt_waitentry we[2] = {{ QWHT_CLOCK, 0}, {QWHT_MUTEX, 1 }; \
-   we[0].tme = sys_clock() + (timeout_ms)*1000; \
-   we[1].mux = mtx; \
-   mt_waitobject(&we, 2, 0, &rc); } 
+/** waiting for mutex available.
+    As in most systems, usage count is present. I.e. number of mt_muxrelease()
+    calls should be equal to number of successful waitings and mt_muxcapture()
+    calls. */
+qserr    _std mt_muxcapture  (qshandle handle);
 
+/** waiting for mutex with timeout.
+   @param  handle           Mutex handle.
+   @retval 0                success
+   @retval E_SYS_TIMEOUT    timeout reached */
+qserr    _std mt_muxwait     (qshandle handle, u32t timeout_ms);
+
+/** query mutex state (by owner only).
+   @param  handle           Mutex handle.
+   @param  [out] lockcnt    Lock count (can be 0)
+   @retval 0                mutex owned by current thread, lockcnt valid.
+   @retval E_MT_NOTOWNER    thread is not an owner
+   @retval E_MT_SEMFREE     mutex is free */
+qserr    _std mt_muxstate    (qshandle handle, u32t *lockcnt);
+
+/** release mutex.
+   @param  handle           Mutex handle.
+   @retval 0                on success
+   @retval E_MT_NOTOWNER    current thread does not own the semaphore
+   @retval E_SYS_INVHTYPE   invalid handle (another handle specific errors
+                            is possible here and in all mutex functions) */
 qserr    _std mt_muxrelease  (qshandle mtx);
 
-qserr    _std io_closehandle (qshandle handle);
+/** close/delete mutex.
+   @param  handle           Mutex handle.
+   @retval 0                on success
+   @retval E_MT_SEMBUSY     mutex still owned by someone */
+qserr    _std mt_closehandle (qshandle handle);
 
 /// wait for thread exit
 #define       mt_waitthread(tid) { u32t rc; \
    mt_waitentry we = { QWHT_TID, 0 }; we.tid = tid; \
-   mt_waitobject(&we, 1, 0, &rc); } 
-
-#ifdef __WATCOMC__
-#pragma aux mt_yield "_*" modify exact [];
-#endif
+   mt_waitobject(&we, 1, 0, &rc); }
 
 #ifdef __cplusplus
 }

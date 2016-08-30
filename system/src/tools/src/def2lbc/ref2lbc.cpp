@@ -438,8 +438,9 @@ int main(int argc, char *argv[]) {
                errstr.sprintf("Invalid or duplicate class name \"%s\"!", clname());
                break;
             }
-            if (FindVarPos(*cti,"entires")<0) {
-               errstr.sprintf("Missing ENTIRES section in class \"%s\"!", clname());
+            // it was named "entires" a year or two ;)
+            if (FindVarPos(*cti,"entries")<0 && FindVarPos(*cti,"entires")<0) {
+               errstr.sprintf("Missing ENTRIES section in class \"%s\"!", clname());
                break;
             }
             groups.AddObject(clname,0);
@@ -471,8 +472,12 @@ int main(int argc, char *argv[]) {
          pos = -1;
          while ((pos = FindVarPos(*refs,"class","name",0,pos+1)) >= 0) {
             TTreeList *cti = (TTreeList*)refs->Objects(pos);
-            l          eps = FindVarPos(*cti,"entires");
-            TTreeList  *el = (TTreeList*)cti->Objects(eps);
+            l          eps = FindVarPos(*cti,"entries");
+            TTreeList  *el;
+            // fine bug, wrong spelling just was cloned over all ref files ;)
+            if (eps<0) eps = FindVarPos(*cti,"entires");
+            
+            el = (TTreeList*)cti->Objects(eps);
             // number of methods
             trf.Push(el->Count()|0x8000);
             for (ii=0; ii<el->Count(); ii++) {

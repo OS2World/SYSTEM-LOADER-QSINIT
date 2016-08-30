@@ -9,7 +9,8 @@
 #include "classes.hpp"
 #include "qsshell.h"
 
-/// convert TStrings to string list for usage in pure C code
+/** convert TStrings to string list for usage in pure C code.
+    warning! it trims spaces in the supplied source list! */
 str_list* str_getlist(TStringVector &lst);
 
 /// convert string list to TStrings

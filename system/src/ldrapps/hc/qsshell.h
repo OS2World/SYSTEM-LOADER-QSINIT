@@ -11,34 +11,6 @@ extern "C" {
 #include "qstypes.h"
 
 //===================================================================
-//  ini file management
-//-------------------------------------------------------------------
-
-/// full analogue of wnd`s GetPrivateProfileString
-u32t _std ini_getstr(const char *Section, const char *Key, const char *Def,
-                     char *Buf, u32t BufSize, const char *IniName);
-
-/** read string key from ini.
-    @param IniName  ini file name
-    @param Section  ini section name, can be 0
-    @param key      key name
-    @return 0 if no key, section or ini, else string made by stddup(). */
-char*_std ini_readstr(const char *IniName, const char *Section, const char *Key);
-
-/// full analogue of wnd`s WritePrivateProfileString
-u32t _std ini_setstr(const char *Section, const char *Key, const char *Str,
-                     const char *IniName);
-
-/// full analogue of wnd`s GetPrivateProfileInt (except nefative result support)
-long _std ini_getint(const char *Section, const char *Key, long Value,
-                     const char *IniName);
-
-/// store int value to .ini file
-u32t _std ini_setint(const char *Section, const char *Key, long Value,
-                     const char *IniName);
-
-
-//===================================================================
 //  string lists
 //-------------------------------------------------------------------
 
@@ -65,37 +37,6 @@ str_list* _std str_settext(const char *text, u32t len);
 
 /// create list from array of char*
 str_list* _std str_fromptr(char **list, int size);
-
-/** return list of keys in specified Section of IniName.
-    @param [in]  IniName  name of ini file
-    @param [in]  Section  name of section
-    @param [out] values   list of values for returning keys (can be 0)
-    @return list of keys or 0 */
-str_list* _std str_keylist(const char *IniName, const char *Section, str_list**values);
-
-/// return list of sections in IniName
-str_list* _std str_seclist(const char *IniName);
-
-/// @name str_getsec flags
-//@{
-#define GETSEC_NOEMPTY        1  ///< do not return empty and commented lines (";" at 1st pos)
-#define GETSEC_NOEKEY         2  ///< do not return lines with empty key
-#define GETSEC_NOEVALUE       4  ///< do not return lines with empty value
-//@}
-
-/** return entire Section of IniName.
-    @param IniName  name of ini file
-    @param Section  name of section
-    @param flags    options to ignore empty values (GETSEC_*)
-    @return string list */
-str_list* _std str_getsec(const char *IniName, const char *Section, u32t flags);
-
-/** query Section presence in init file "IniName".
-    @param IniName     name of ini file
-    @param Section     name of section
-    @param flags       ignore sections with only empty values (GETSEC_* flags)
-    @return presence flag (1/0) */
-u32t      _std str_secexist(const char *IniName, const char *Section, u32t flags);
 
 /// split string by command line parsing rules (with "" support)
 str_list* _std str_splitargs(const char *str);
@@ -292,6 +233,8 @@ void      _std cmd_shellsetmsg(const char *topic, const char *text);
 str_list* _std cmd_shellmsgall(str_list**values);
 
 /** direct shell command call.
+    Arguments united in orger argsa+argsb. Func can be shell common command or
+    "mode" subcommand.
     @param func     shell command function
     @param argsa    arguments, can be 0
     @param argsb    arguments, can be 0
@@ -343,6 +286,8 @@ str_list* _std cmd_modeqall(void);
 //-------------------------------------------------------------------
 
 /** COPY command.
+    Use cmd_shellcall() for easy processing.
+
     @param cmd      "COPY" string
     @param args     arguments.
     @return 0, errorlevel or CMDR_RETERROR, CMDR_RETEND. See cmd_eproc. */

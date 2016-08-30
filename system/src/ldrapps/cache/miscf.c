@@ -8,11 +8,22 @@
     @param  [out] length  Sector count
     @return success flag (1/0) */
 int get_sys_area(u8t vol, u32t *disk, u64t *start, u32t *length) {
-   disk_volume_data info;
-   if (hlp_volinfo(vol,&info)!=FST_NOTMOUNTED) {
-      if (disk)   *disk   = info.Disk;
-      if (start)  *start  = info.StartSector;
-      if (length) *length = info.DataSector - info.StartSector;
+   disk_volume_data vi;
+   u32t         fstype = hlp_volinfo(vol,&vi);
+
+   if (fstype!=FST_NOTMOUNTED) {
+      if (disk)   *disk   = vi.Disk;
+      if (start)  *start  = vi.StartSector;
+      if (length) {
+         *length = vi.DataSector - vi.StartSector;
+         // add bitmap & root dir 1st cluster for exFAT
+         if (fstype==FST_EXFAT) {
+             u32t bmsize = ((Round8(vi.ClTotal)>>8) + vi.SectorSize - 1) / vi.SectorSize;
+             // 1-2 clusters for upcase table, 1 for root dir + x for bitmap
+             u32t clsize = 3 + (bmsize + vi.ClSize - 1) / vi.ClSize;
+             *length += clsize * vi.ClSize;
+         }
+      }
       return 1;
    } else {
       if (disk)   *disk   = FFFF;

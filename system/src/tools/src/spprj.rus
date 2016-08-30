@@ -116,6 +116,11 @@ defs.h defs.cpp
 ##tool\sprtlsm.lst 
 #@section
 
+; дополнительные зависимости для файлов из секции files могут быть
+; заданы в [deps] в виде - имя_файла = dep1 dep2 dep3 ...
+[deps]
+cmd\extcmd.cpp = cmd\zz.cpp cmd\shpci.cpp
+
 [config.0] ; паpаметpы компиляции для каждого файла в виде;
            ; выходной файл (target) | dependencies | команда1 [| команда2 ...
            ; *out - единственный "главный" файл, обpабатывается последним

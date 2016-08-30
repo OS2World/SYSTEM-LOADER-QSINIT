@@ -2,14 +2,12 @@
 // QSINIT "boot menu" module
 // temporary menu implementation
 //
-#include "qsutil.h"
-#include "qsshell.h"
+#include "qsbase.h"
+#include "qsdm.h"
 #include "stdlib.h"
 #include "ksline.h"
-#include "vio.h"
-#include "qsdm.h"
-#include "time.h"
 #include "vioext.h"
+#include "time.h"
 
 #define ML_Y   (1)           ///< vertical menu position
 #define HELP_Y (-2)          ///< offset of help str from the bottom of screen
@@ -18,8 +16,6 @@
 static const char *palette_key = "MENUPALETTE",
                    *msg_header = "Boot menu";
 
-extern char    *menu_ini;
-static char     *ininame = "1:\\qsinit.ini";
 static char  *kmenu_help = 0,
              *cmenu_help = 0,
              *pmenu_help = 0,
@@ -154,14 +150,14 @@ void InitParameters(void) {
    u32t ii;
    if (m_inited) return;
    m_inited   = 1;
-   kmenu_help = ini_readstr(menu_ini,"common","km_help");
-   cmenu_help = ini_readstr(menu_ini,"common","cm_help");
-   pmenu_help = ini_readstr(menu_ini,"common","pm_help");
-   eline_help = ini_readstr(menu_ini,"common","nw_help");
+   kmenu_help = m_ini->getstr("common", "km_help", "[Esc] - shell, menu.ini is missing!");
+   cmenu_help = m_ini->getstr("common", "cm_help", "");
+   pmenu_help = m_ini->getstr("common", "pm_help", "");
+   eline_help = m_ini->getstr("common", "nw_help", "");
    for (ii=0; ii<12; ii++) {
       char key[12];
       snprintf(key,12,"F%d",ii+1);
-      FXaction[ii] = ini_readstr(menu_ini,"common",key);
+      FXaction[ii] = m_ini->getstr("common",key,0);
    }
    no_clock = env_istrue("menu_no_clock");
    if (no_clock<0) no_clock = 0;
@@ -180,7 +176,7 @@ void DoneParameters(void) {
 }
 
 static void run_onmenu(void) {
-   char *cmd = ini_readstr(menu_ini,"common","on_menu");
+   char *cmd = m_ini->getstr("common","on_menu",0);
    if (cmd) {
       cmd_state cst = cmd_init(cmd,0);
       cmd_run(cst,CMDR_ECHOOFF);
@@ -221,21 +217,21 @@ static int NoMenuWait(char *rcline) {
 }
 
 int IsMenuPresent(const char *section) {
-   return str_secexist(ininame, section, GETSEC_NOEMPTY|GETSEC_NOEKEY);
+   return ld_ini->secexist(section, GETSEC_NOEMPTY|GETSEC_NOEKEY);
 }
 
 int MenuKernel(char *rcline, int errors) {
-   str_list* kl = str_getsec(ininame,"kernel",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
-   int   defcfg = ini_getint("config", "DEFAULT", 1, ininame),
-        timeout = ini_getint("config", "TIMEOUT",-1, ininame),
-        usebeep = ini_getint("config", "USEBEEP", 0, ininame),
+   str_list* kl = ld_ini->getsec("kernel",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
+   int   defcfg = ld_ini->getint("config", "DEFAULT", 1),
+        timeout = ld_ini->getint("config", "TIMEOUT",-1),
+        usebeep = ld_ini->getint("config", "USEBEEP", 0),
        forcekey = 0, viodebug = 0, nologo = 0, preload = 0, optmenu = 0,
          goedit = 0,
          tmwmax = timeout;
    u32t   lines = 25;
    char *initln = rcline,
       *cmdstart = 0;
-   MenuPalette.pl = ini_getint("config", palette_key, 0x0F070F01, ininame);
+   MenuPalette.pl = ld_ini->getuint("config", palette_key, 0x0F070F01);
    // fix wrong number
    if (defcfg<=0 || defcfg>kl->count) defcfg=1;
 
@@ -388,8 +384,8 @@ int MenuKernel(char *rcline, int errors) {
    if (defcfg<=0) strcpy(rcline,"OS2KRNL "); else
    {
       char *args = 0, *modname = rcline, *argpos;
-      // save last pos on virtual disk
-      if (optmenu) ini_setint("config", "DEFAULT", defcfg, ininame);
+      // save last pos
+      if (optmenu) ld_ini->setint("config", "DEFAULT", defcfg);
       // kernel file name
       if (!kl->count||defcfg>kl->count) {
          strcpy(rcline,"OS2KRNL ");
@@ -408,7 +404,7 @@ int MenuKernel(char *rcline, int errors) {
       if (forcekey) sprintf(rcline+strlen(rcline),"PKEY=0x%04X,",forcekey);
       if (forcekey==0x1200||viodebug) strcat(rcline,"NODBCS,");
       // merge with config
-      if (cmd_mergeopts(rcline,args,ininame)<0) {
+      if (cmd_mergeopts(rcline,args,ld_fname)<0) {
          // restart specified?
          *argpos--=0;
          while (*argpos==' ') *argpos--=0;
@@ -440,13 +436,13 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
    str_list *keys, *values;
    u32t ii, selected = pos?pos:1, rc = 1, lines=25;
    if (!menu) return 0;
-   keys = str_keylist(menu_ini, menu, &values);
+   keys = m_ini->keylist(menu, &values);
    if (!keys) return 0;
    if (!keys->count) { free(keys); free(values); return 0; }
 
    vio_getmode(0,&lines);
 
-   MenuPalette.pl = ini_getint("common", palette_key, 0x0F070F01, menu_ini);
+   MenuPalette.pl = m_ini->getuint("common", palette_key, 0x0F070F01);
    if (selected>keys->count) selected = 1;
 
    vio_clearscr();
@@ -523,17 +519,17 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
 }
 
 int MenuPtBoot(char *rcline) {
-   str_list* kl = str_getsec(ininame,"partition",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
-   int   defcfg = ini_getint("config", "default_partition", 1, ininame),
-        timeout = ini_getint("config", "TIMEOUT",-1, ininame),
-        usebeep = ini_getint("config", "USEBEEP", 0, ininame),
+   str_list* kl = ld_ini->getsec("partition", GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
+   int   defcfg = ld_ini->getint("config", "default_partition", 1),
+        timeout = ld_ini->getint("config", "TIMEOUT",-1),
+        usebeep = ld_ini->getint("config", "USEBEEP", 0),
          goedit = 0,
          tmwmax = timeout,
              rc = 1,
            done = 0;
    u32t   lines = 25;
    char *initln = rcline;
-   MenuPalette.pl = ini_getint("common", "ptpalette", 0x0F070F01, menu_ini);
+   MenuPalette.pl = m_ini->getuint("common", "ptpalette", 0x0F070F01);
 
    vio_getmode(0,&lines);
    // fix wrong number

@@ -5,13 +5,14 @@
 #include "stdlib.h"
 #include "seldesc.h"
 #include "vio.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodext.h"
+#include "qsint.h"
 #include "qsxcpt.h"
 #include "qslog.h"
 #include "qsinit.h"
 #include "qsutil.h"
 #include "qsinit_ord.h"
+#include "internal.h"
 #include "qssys.h"
 #include "efnlist.h"
 #include "cpudef.h"
@@ -38,7 +39,7 @@ static char buffer[PRNBUF_SIZE],
 static char *trapinfo1="EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfo2="ESI=%08X EDI=%08X EBP=%08X ESP=%08X DR7=%08X",
             *trapinfo3="DS=%04X ES=%04X SS=%04X GS=%04X FS=%04X TR=%04X Error Code: %04X",
-            *trapinfo4="CS:EIP=%04X:%08X      PID=%04d  TID=%04d",
+            *trapinfo4="CS:EIP=%04X:%08X      PID=%04d  TID=%04d    %s",
             *trapinfo5="Unhandled exception in file %s, line %d",
             *trapinfoA="RAX=%016LX  RBX=%016LX  RCX=%016LX",
             *trapinfoB="RDX=%016LX  RSI=%016LX  RDI=%016LX",
@@ -84,9 +85,10 @@ module *_std mod_by_eip(u32t eip,u32t *object,u32t *offset,u16t cs) {
    int ii, obj;
    if (object) *object=0;
    if (offset) *offset=0;
-   if (!cs) cs=get_flatcs();
-   for (ii=0;ii<2;ii++) {
-      module *rc=ii?mod_ilist:mod_list;
+   if (!cs) cs = get_flatcs();
+   mt_swlock();
+   for (ii=0; ii<2; ii++) {
+      module *rc = ii?mod_ilist:mod_list;
       while (rc) {
          for (obj=0;obj<rc->objects;obj++) {
             int   big = rc->obj[obj].flags&OBJBIGDEF?1:0;
@@ -98,12 +100,14 @@ module *_std mod_by_eip(u32t eip,u32t *object,u32t *offset,u16t cs) {
             {
                if (object) *object=obj;
                if (offset) *offset=eip-base;
+               mt_swunlock();
                return rc;
             }
          }
          rc=rc->next;
       }
    }
+   mt_swunlock();
    return 0;
 }
 
@@ -156,6 +160,7 @@ static void get_flags_str(char *str, u32t flags) {
 /** system trap screen.
     file & line will be filled only on catched trap */
 void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
+   char   th_rem[17];
    u32t   height = 11;
 
    stop_timer();
@@ -186,8 +191,9 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    get_flags_str(buffer, ti->tss_eflags);
    vio_setpos(8,3);
    trap_out(buffer);
+   memcpy(th_rem, mt_getthreadname(), 16); th_rem[16] = 0;
    snprintf(buffer, PRNBUF_SIZE, trapinfo4, ti->tss_cs, ti->tss_eip,
-      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid);
+      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid, th_rem);
    vio_setpos(9,3);
    trap_out(buffer);
    vio_setshape(0x20,0);
@@ -232,6 +238,27 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
          while (len++<blen) strncat(combuf, "?? ", COMBUF_SIZE);
          strncat(combuf, "\n", COMBUF_SIZE);
          hlp_seroutstr(combuf);
+      }
+      /// walk over ebp frames
+      if (ti->tss_ebp) {
+         u32t ebpv = ti->tss_ebp;
+         for (pass=0; pass<10 && ebpv; pass++) {
+            u32t  vbuf[2], object, offset,
+                   len = hlp_copytoflat(&vbuf, ebpv, ti->tss_ss, 8);
+            module *mi;
+            if (len<8) break;
+            mi = mod_by_eip(vbuf[1], &object, &offset, ti->tss_cs);
+
+            snprintf(combuf, COMBUF_SIZE, pass?"           ":"Call stack:");
+
+            if (mi)
+               snprintf(combuf+11, COMBUF_SIZE-11, " %08X  \"%s\": %d:%08X\n",
+                  vbuf[1], mi->name, object+1, offset);
+            else
+               snprintf(combuf+11, COMBUF_SIZE-11, " %08X\n", vbuf[1]);
+            hlp_seroutstr(combuf);
+            ebpv = vbuf[0];
+         }
       }
    }
 }

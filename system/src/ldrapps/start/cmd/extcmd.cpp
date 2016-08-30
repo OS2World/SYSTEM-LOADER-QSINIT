@@ -2,11 +2,9 @@
 // QSINIT "start" module
 // external shell commands
 //
-#include "qsshell.h"
+#include "qsbase.h"
 #include "stdlib.h"
 #include "qs_rt.h"
-#include "qsutil.h"
-#include "qsstor.h"
 #include "errno.h"
 #include "vioext.h"
 #include "internal.h"
@@ -14,11 +12,7 @@
 #include "time.h"
 #include "qsint.h"
 #include "qsdm.h"
-#include "qshm.h"
 #include "stdarg.h"
-#include "qspage.h"
-#include "qssys.h"
-#include "qserr.h"
 #include "qsmodext.h"
 
 #define SPACES_IN_WIDE_MODE       4      ///< spaces between names in wide "dir" mode
@@ -31,7 +25,7 @@ void cmd_shellerr(u32t errtype, int errorcode, const char *prefix) {
       msg = sprintf_dyn(errtype?"Error code %d.":"Error code %X.", errorcode);
    // enable ANSI while help message printing...
    u32t state = vio_setansi(1);
-   printf("%s%s", prefix, msg);
+   printf("%s%s\n", prefix, msg);
    free(msg);
    if (!state) vio_setansi(0);
 }
@@ -208,10 +202,41 @@ u32t _std cmd_printtext(const char *text, int pause, int init, u8t color) {
    return 0;
 }
 
+static void _std freadfull_callback(u32t percent, u32t readed) {
+   char *cp = (char*)mt_tlsget(QTLS_SFINT1);
+   if (cp) {
+      u32t cols = 80,
+            len = strlen(cp);
+      vio_getmode(&cols, 0);
+      // we need to cut long file name (one per load)
+      if (len>cols-24) {
+         char *dp = cp+len-cols+24+3;
+         cp[0]='.'; cp[1]='.'; cp[2]='.';
+         memmove(cp+3, dp, strlen(dp)+1);
+      }
+      if (percent)
+         printf("\rcaching %s ... %02u%% ", cp, percent); else
+      if ((readed & _1MB-1)==0)
+         printf("\rcaching %s ... %u Mb ", cp, readed>>20);
+   }
+}
+
+
+void* hlp_freadfull_progress(const char *name, u32t *bufsize) {
+   char *srcname = 0;
+   mt_tlsset(QTLS_SFINT1, (u32t)(srcname = strdup(name)));
+//                            printf("caching %s ",al[idx]());
+   void *ptr = hlp_freadfull(name, bufsize, freadfull_callback);
+   free(srcname);
+   printf("\n");
+   return ptr;
+}
 
 u32t _std shl_copy(const char *cmd, str_list *args) {
-   char *errstr = 0;
-   int    quiet = 0, rc = -1;
+   char  *errstr = 0;
+   int     quiet = 0, rc = -1;
+   u32t  errtype = EMSG_CLIB;
+
    if (args->count>0) {
       int frombp = 0, cpattr = 0;
 
@@ -238,11 +263,11 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                u8t  *is_boot = new u8t [al.Count()],
                       sfattr = _A_ARCH;
                u32t *bt_len  = frombp?new u32t[al.Count()]:0,
-                     bt_type = hlp_boottype();
+                     bt_type = hlp_boottype(), opena;
                time_t sftime = 0,
                       sctime = 0;
-
-               for (idx=0;idx<al.Count();idx++) al.Objects(idx)=0;
+               // zero source pointers/handles
+               for (idx=0; idx<al.Count(); idx++) al.Objects(idx) = 0;
                rc = 0;
                for (idx=0;idx<al.Count();idx++) {
                   is_boot[idx] = 0;
@@ -257,16 +282,16 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                   // from boot partition?
                   if (is_boot[idx]) {
                      if (bt_type==QSBT_PXE) {
-                        if (!quiet) printf("caching %s ",al[idx]());
-                        void *ptr = hlp_freadfull(al[idx](),bt_len+idx,0);
-                        printf("\n");
+                        void *ptr = quiet?hlp_freadfull(al[idx](), bt_len+idx, 0):
+                                          hlp_freadfull_progress(al[idx](), bt_len+idx);
                         if (!ptr) { rc=ENOENT; break; }
-                        al.Objects(idx)=ptr;
+                        al.Objects(idx) = ptr;
                      } else
                      if (bt_type==QSBT_FSD) {
                         // only check presence here
                         if (hlp_fopen(al[idx]())==FFFF) { rc=ENOENT; break; }
                         hlp_fclose();
+                        al.Objects(idx) = 0;
                      } else {
                         // unknown boot type or no partition
                         rc=ENODEV; break;
@@ -285,75 +310,98 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                            sfattr = fi.d_attr;
                         }
                      }
-                     // opens source
-                     FILE *ff = fopen(al[idx](),"rb");
-                     if (!ff) {
-                        rc     = get_errno();
-                        errstr = sprintf_dyn("%s : ", al[idx]());
+                     // open source file
+                     io_handle  ff = 0;
+                     rc = io_open(al[idx](), IOFM_OPEN_EXISTING|IOFM_READ|
+                                  IOFM_SHARE_READ|IOFM_SHARE_DEL|IOFM_SHARE_REN, &ff, &opena);
+                     if (rc) {
+                        errtype = EMSG_QS;
+                        errstr  = sprintf_dyn("%s : ", al[idx]());
                         break;
                      }
-                     al.Objects(idx)=ff;
+                     al.Objects(idx) = (void*)ff;
                   }
                }
                if (!rc) {
-                  FILE  *dstf = fopen(dst(),"wb");
-                  int openerr = get_errno(); // save it for printing below
-                  if (!dstf) {
+                  io_handle dstf = 0;
+                  // close on del on destination! will be reset on success
+                  rc = io_open(dst(), IOFM_CREATE_ALWAYS|IOFM_WRITE|IOFM_SHARE_READ|
+                               IOFM_CLOSE_DEL, &dstf, &opena);
+                  if (rc) {
                      // is this a dir? try to merge file name to it
-                     dir_t dstinfo;
-                     if (dst.lastchar()==('/')||dst.lastchar()==('\\')) dst.dellast();
-                     if (_dos_stat(dst(),&dstinfo)==0) {
-                        if (dstinfo.d_attr&_A_SUBDIR) {
-                           spstr name, ext;
-                           _splitpath(al[0](),0,0,name.LockPtr(_MAX_FNAME+1),
-                              ext.LockPtr(_MAX_EXT+1));
+                     io_handle_info  di;
+                     if (io_pathinfo(dst(), &di)==0) {
+                        if (di.attrs&IOFA_DIR) {
+                           spstr  name, ext;
+                           _splitpath(al[0](),0,0,name.LockPtr(QS_MAXPATH+1), ext.LockPtr(QS_MAXPATH+1));
                            name.UnlockPtr(); ext.UnlockPtr();
-                           dst +="\\";
-                           dst +=name+ext;
-                           dstf = fopen(dst(),"wb");
+                           dst += "\\";
+                           dst += name+ext;
+                           rc   = io_open(dst(), IOFM_CREATE_ALWAYS|IOFM_WRITE|
+                              IOFM_SHARE_READ|IOFM_CLOSE_DEL, &dstf, &opena);
                         }
                      }
                   }
 
-                  if (!dstf) {
-                     rc     = openerr;
-                     errstr = sprintf_dyn("%s : ", dst());
+                  if (rc) {
+                     errtype = EMSG_QS;
+                     errstr  = sprintf_dyn("%s : ", dst());
                   } else {
-                     const u32t memsize = _128KB;
+                     u32t memsize = _128KB, maxblock;
+                     hlp_memavail(&maxblock, 0);
+                     // 1-2Mb buffer
+                     if (maxblock>_64MB) memsize<<=4; else
+                        if (maxblock>_32MB) memsize<<=3;
                      void *buf = hlp_memalloc(memsize,QSMA_RETERR);
-                     if  (!buf) rc=ENOMEM;
+                     if  (!buf) rc = ENOMEM;
 
                      idx = 0;
                      while (idx<al.Count() && !rc) {
                         if (!quiet) printf("%s ",al[idx]());
                         if (is_boot[idx] && bt_type==QSBT_PXE) {
                            if (bt_len[idx])
-                              if (fwrite(al.Objects(idx),1,bt_len[idx],dstf)!=bt_len[idx])
-                                 rc=ENOSPC;
+                              if (io_write(dstf, al.Objects(idx), bt_len[idx]) != bt_len[idx]) {
+                                 errtype = EMSG_QS;
+                                 rc = io_lasterror(dstf);
+                              }
                         } else {
-                           FILE *sf = (FILE*)al.Objects(idx);
-                           u32t len = sf?filelength(fileno(sf)):hlp_fopen(al[idx]()),
-                                pos = 0;
-                           if (len==FFFF) { rc=EIO; break; }
+                           io_handle sf = (io_handle)al.Objects(idx);
+                           u64t     len, pos = 0;
+
+                           if (sf) {
+                              rc = io_size(sf, &len);
+                              if (rc) errtype = EMSG_QS;
+                           } else {
+                              len = hlp_fopen(al[idx]());
+                              if (len==FFFF) rc = EIO;
+                           }
+                           if (rc) break;
 
                            while (len) {
                               u32t copysize = len<memsize?len:memsize;
-                              u32t   actual = sf?fread(buf,1,copysize,sf):
-                                              hlp_fread(pos,buf,copysize);
-                              if (actual!=copysize) { rc=EIO; break; }
-                              actual = fwrite(buf,1,copysize,dstf);
-                              if (actual!=copysize) { rc=ENOSPC; break; }
-                              len-=copysize;
-                              pos+=copysize;
+                              u32t   actual = sf?io_read(sf, buf, copysize):
+                                              hlp_fread(pos, buf, copysize);
+                              if (actual!=copysize) { rc = EIO; break; }
+                              actual = io_write(dstf, buf, copysize);
+                              if (actual!=copysize) {
+                                 errtype = EMSG_QS;
+                                 rc = io_lasterror(dstf);
+                              }
+                              len-=copysize; pos+=copysize;
                            }
                            if (!sf) hlp_fclose();
                         }
                         if (!quiet) printf("\n");
                         idx++;
                      }
-                     fclose(dstf);
+                     // we have no error - then leave file on its place
+                     if (!rc) {
+                        io_setstate(dstf, IOFS_DELONCLOSE, 0);
+                        rc = io_close(dstf);
+                     } else
+                        io_close(dstf);
                      // creation time can be 0
-                     if (cpattr && sftime) {
+                     if (!rc && cpattr && sftime) {
                         io_handle_info  hi;
                         hi.attrs = sfattr;
                         io_timetoio(&hi.wtime, sftime);
@@ -366,7 +414,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                for (idx=0;idx<al.Count();idx++)
                   if (al.Objects(idx))
                      if (is_boot[idx]) hlp_memfree(al.Objects(idx));
-                        else fclose((FILE*)al.Objects(idx));
+                        else io_close((io_handle)al.Objects(idx));
                delete bt_len;
                delete is_boot;
             }
@@ -375,7 +423,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
       }
    }
    if (rc<0) rc = EINVAL;
-   if (!quiet&&rc) cmd_shellerr(EMSG_CLIB,rc,errstr);
+   if (!quiet && rc) cmd_shellerr(errtype, rc, errstr);
    if (errstr) free(errstr);
    return rc;
 }
@@ -495,7 +543,9 @@ static int __stdcall readtree_cb(dir_t *fp, void *cbinfo) {
       }
    }
    // print it
-   cbi->sizetotal += Round1k(fp->d_size)>>10;
+   cbi->sizetotal += fp->d_size>>10;
+   if ((fp->d_size&_1KB-1)) cbi->sizetotal++;
+
    // full relative name
    spstr pp;
    dir_mkrelpath(cbi, fp, pp);
@@ -503,8 +553,8 @@ static int __stdcall readtree_cb(dir_t *fp, void *cbinfo) {
    if (!cbi->shortfmt) {
       struct tm tme;
       char      buf[64];
-      if (fp->d_attr&_A_SUBDIR) strcpy(buf,"  <DIR>      ");
-         else sprintf(buf," %10u  ",fp->d_size);
+      if (fp->d_attr&_A_SUBDIR) strcpy(buf, "   <DIR>     ");
+         else sprintf(buf," %10Lu  ", fp->d_size);
       pp.insert(buf,0);
       // cvt selected time
       localtime_r(cbi->crtime?&fp->d_ctime:&fp->d_wtime, &tme);
@@ -572,7 +622,9 @@ static void dir_wide(dir_t *pd, dir_cbinfo *cbi, TPtrStrings &dstack) {
       *cp = 0;
       outline += cname;
 
-      cbi->sizetotal += Round1k(pd[ii].d_size)>>10;
+      cbi->sizetotal += pd[ii].d_size>>10;
+      if ((pd[ii].d_size&_1KB-1)) cbi->sizetotal++;
+
       if (eol) {
          readtree_prn(cbi, outline);
          outline.clear();
@@ -656,14 +708,18 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                dir_total(ldrive, &cbi);
 
                hlp_volinfo(drive[0]-'A',&vinf);
-               int lbon = vinf.Label[0];
-               head.sprintf("  Directory of %s\n"
-                            "  Volume in drive %c %ss %s\n"
-                            "  Volume Serial Number is %04X-%04X\n", drive(),
-                               drive[0], lbon?"i":"ha", lbon?vinf.Label:"no label",
-                               vinf.SerialNum>>16,vinf.SerialNum&0xFFFF);
-
+               if (vinf.FsVer==0) {
+                  head.sprintf("File system in drive %c is not recognized\n", drive[0]);
+               } else {
+                  int lbon = vinf.Label[0];
+                  head.sprintf("  Directory of %s\n"
+                               "  Volume in drive %c %ss %s\n"
+                               "  Volume Serial Number is %04X-%04X\n", drive(),
+                                  drive[0], lbon?"i":"ha", lbon?vinf.Label:"no label",
+                                  vinf.SerialNum>>16,vinf.SerialNum&0xFFFF);
+               }
                if (pause_println(head(),cbi.dir_npmode)) return EINTR;
+               if (vinf.FsVer==0) continue;
             }
             dir_t *fdl = 0;
             // update for comparing above
@@ -889,7 +945,7 @@ u32t _std shl_del(const char *cmd, str_list *args) {
    int rc=-1;
    if (args->count>0) {
       int askall=0, force=0, subdir=0, quiet=0, nopause=0, mask=0, nquiet=0,
-          edirs=0, breakable=1;
+          edirs=0, breakable=1, fileonly=-1, ignore=0;
 
       TPtrStrings al;
       str_getstrs(args,al);
@@ -897,11 +953,11 @@ u32t _std shl_del(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/p|/f|/s|/q|/e|/qn|/np|/nb";
-      static short argval[] = { 1, 1, 1, 1, 1,  1,  1,  0};
+      static char *argstr   = "/p|/f|/s|/q|/e|/qn|/np|/nb|/ad|/af|/i";
+      static short argval[] = { 1, 1, 1, 1, 1,  1,  1,  0,  0,  1, 1};
       process_args(al, argstr, argval,
-                   &askall, &force, &subdir, &quiet, &edirs,
-                   &nquiet, &nopause, &breakable);
+                   &askall, &force, &subdir, &quiet, &edirs, &nquiet,
+                   &nopause, &breakable, &fileonly, &fileonly, &ignore);
 
       al.TrimEmptyLines();
       if (al.Count()>=1) {
@@ -910,97 +966,100 @@ u32t _std shl_del(const char *cmd, str_list *args) {
          pause_println(0,1);
          // delete files
          for (idx=0; idx<al.Count(); idx++) {
-            // fix and split path
-            spstr pp(al[idx]), drive, dir, name, ext;
-            splitpath(pp,drive,dir,name,ext);
-
-            mask = name.cpos('*')>=0 || name.cpos('?')>=0;
-
-            int  error = 0;
             dir_t   fi;
+            spstr  dir, name, pp(al[idx]);
+            
+            if (!fullpath(pp)) rc = get_errno(); else {
+               splitfname(pp, dir, name);
+               mask = name.cpos('*')>=0 || name.cpos('?')>=0;
 
-            if (!mask) {
-               if (_dos_stat(pp(),&fi)) {
-                  if (!subdir) error = ENOENT;
-               } else
-               if (fi.d_attr&_A_SUBDIR) {
-                  drive = pp;
-                  name  = "*.*";
-                  mask  = true;
+               if (!mask) {
+                  if (_dos_stat(pp(), &fi)) rc = ENOENT; else
+                  if (fi.d_attr&_A_SUBDIR) {
+                     if (fileonly>0) rc = EISDIR; else {
+                        dir   = pp;
+                        name  = "*.*";
+                        mask  = true;
+                     }
+                  } else
+                  if (fileonly==0) rc = ENOTDIR;
                }
             }
-            if (!error) {
-               if (!drive) getcurdir(drive); else {
-                  char *fp = _fullpath(0,drive(),0);
-                  drive    = fp;
-                  free(fp);
-               }
-               TStrings  dellist, dirlist;
-               spstr     dname(drive);
-               if (dname.length() && dname.lastchar()!='\\') dname+="\\";
-               dname+=name;
+            if (rc>0) {
+               if (ignore) {
+                  spstr np(pp); np+=": ";
+                  cmd_shellerr(EMSG_CLIB, rc, np());
+                  rc = 0;
+                  continue;
+               } else break;
+            }
+            if (dir.length() && dir.lastchar()!='\\') dir+="\\";
+            TStrings  dellist, dirlist;
+            spstr dname = dir + name;
 
-               if (mask || subdir) {
-                  // read tree
-                  dir_t *info = 0;
-                  u32t cnt = _dos_readtree(drive(),name(),&info,subdir,0,0);
-                  if (info) {
-                     if (cnt) dir_to_list(drive, info, (force?0:_A_RDONLY)|
-                        _A_SUBDIR|_A_VOLID, dellist, edirs?&dirlist:0);
-                     _dos_freetree(info);
+            if (mask || subdir) {
+               // read tree
+               dir_t *info = 0;
+               u32t cnt = _dos_readtree(dir(), name(), &info,subdir, 0, 0);
+               if (info) {
+                  if (cnt) dir_to_list(dir, info, (force?0:_A_RDONLY)|
+                     _A_SUBDIR|_A_VOLID, dellist, edirs?&dirlist:0);
+                  _dos_freetree(info);
 
-                     u32t todel = dellist.Count()+dirlist.Count();
+                  u32t todel = dellist.Count()+dirlist.Count();
 
-                     if (todel && !quiet && (mask || todel>1)) {
-                         printf("Delete %s (%d files) (y/n/esc)?",dname(),todel);
-                         int yn = ask_yn();
-                         printf("\n");
-                         if (yn<0) return EINTR;
-                         if (!yn) { dellist.Clear(); dirlist.Clear(); }
-                     }
+                  if (todel && !quiet && (mask || todel>1)) {
+                      printf("Delete %s (%d files) (y/n/esc)?", dname(), todel);
+                      int yn = ask_yn();
+                      printf("\n");
+                      if (yn<0) return EINTR;
+                      if (!yn) { dellist.Clear(); dirlist.Clear(); }
                   }
-               } else
-                  dellist.AddObject(dname,fi.d_attr);
+               }
+            } else
+               dellist.AddObject(dname, fi.d_attr);
 
-               if (dellist.Count() + dirlist.Count()) {
-                  int ii;
-                  spstr msg;  // put it here to prevent malloc on every file
+            if (dellist.Count() + dirlist.Count()) {
+               int ii;
+               spstr msg;  // put it here to prevent malloc on every file
 
-                  for (ii=0; ii<dellist.Count(); ii++) {
-                     int doit = 1;
-                     if (askall) {
-                        printf("Delete %s (y/n/esc)?",dellist[ii]());
-                        doit = ask_yn();
-                        printf("\n");
-                        if (doit<0) return EINTR;
-                     } else
-                     if (breakable) // check for ESC key pressed
-                        if (key_pressed())
-                           if ((key_read()&0xFF)==27) {
-                              printf("Break this DEL command (y/n)?");
-                              int yn = ask_yn();
-                              printf("\n");
-                              if (yn==1) return EINTR;
-                           }
-                     if (doit) {
-                        if ((dellist.Objects(ii)&_A_RDONLY)!=0)
-                           if (force) {
-                               unsigned attributes = _A_NORMAL;
-                               _dos_getfileattr(dellist[ii](),&attributes);
-                               _dos_setfileattr(dellist[ii](),attributes&~_A_RDONLY);
-                           }
-                        if (unlink(dellist[ii]())==0) {
-                           msg.sprintf("Deleted file - \"%s\"",dellist[ii]());
-                           fcount++;
-                        } else {
-                           msg.sprintf("Unable to delete \"%s\". Error %d",dellist[ii](),get_errno());
+               for (ii=0; ii<dellist.Count(); ii++) {
+                  int doit = 1;
+                  spstr dfname(dellist[ii]);
+                  dfname.replacechar('/','\\');
+                  
+                  if (askall) {
+                     printf("Delete %s (y/n/esc)?", dfname());
+                     doit = ask_yn();
+                     printf("\n");
+                     if (doit<0) return EINTR;
+                  } else
+                  if (breakable && (ii&7)==0) // check for ESC key pressed
+                     if (key_pressed())
+                        if ((key_read()&0xFF)==27) {
+                           printf("Break this DEL command (y/n)?");
+                           int yn = ask_yn();
+                           printf("\n");
+                           if (yn==1) return EINTR;
                         }
-                        if (!nquiet)
-                           if (pause_println(msg(),nopause?-1:0)) return EINTR;
-                     }
+                  if (doit) {
+                     if ((dellist.Objects(ii)&_A_RDONLY)!=0)
+                        if (force) {
+                            unsigned attributes = _A_NORMAL;
+                            _dos_getfileattr(dfname(), &attributes);
+                            _dos_setfileattr(dfname(), attributes&~_A_RDONLY);
+                        }
+                     if (unlink(dellist[ii]())==0) {
+                        msg.sprintf("Deleted file - \"%s\"", dfname());
+                        fcount++;
+                     } else
+                        msg.sprintf("Unable to delete \"%s\". Error %d", dfname(),
+                           get_errno());
+                     if (!nquiet)
+                        if (pause_println(msg(),nopause?-1:0)) return EINTR;
                   }
-                  for (ii=dirlist.Max(); ii>=0; ii--) rmdir(dirlist[ii]());
                }
+               for (ii=dirlist.Max(); ii>=0; ii--) rmdir(dirlist[ii]());
             }
          }
          if (rc<0) rc=0;
@@ -1910,7 +1969,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
 
       process_args(al, argstr, argval,
                    &subdir, &idirs, &nopause, &a_R, &a_R, &a_S, &a_S,
-                   &a_H, &a_H, &a_A, &a_A);
+                   &a_H, &a_H, &a_A, &a_A, &quiet);
       al.TrimEmptyLines();
    }
    if (!al.Count()) al.Add("*");
@@ -1981,6 +2040,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
             spstr msg;
             for (ii=0; ii<flist.Count(); ii++) {
                unsigned attrs = _A_NORMAL;
+               flist[ii].replacechar('/','\\');
                _dos_getfileattr(flist[ii](), &attrs);
 
                if (andmask!=FFFF) {
@@ -2029,12 +2089,14 @@ u32t _std shl_pushd(const char *cmd, str_list *args) {
       process_context *pq = mod_context();
       if (!pq) rc = EFAULT; else {
          char cd[NAME_MAX+1];
+         mt_swlock();
          TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
          if (!pdlist) pdlist = new TStrings;
 
          getcwd(cd, NAME_MAX+1);
          pdlist->Add(cd);
          pq->rtbuf[RTBUF_PUSHDST] = (u32t)pdlist;
+         mt_swunlock();
 
          if (al.Count()==1) rc = chdir_int(al[0]());
          if (rc<0) rc = 0;
@@ -2061,6 +2123,7 @@ u32t _std shl_popd(const char *cmd, str_list *args) {
    // get PUSHD stack from process context data
    process_context *pq = mod_context();
    if (!pq) rc = EFAULT; else {
+      mt_swlock();
       TStrings *pdlist = (TStrings*)pq->rtbuf[RTBUF_PUSHDST];
       if (pdlist)
          if (pdlist->Count()) {
@@ -2068,6 +2131,7 @@ u32t _std shl_popd(const char *cmd, str_list *args) {
             pdlist->Delete(pdlist->Max());
          }
       if (rc<0) rc = 0;
+      mt_swunlock();
    }
    if (quiet) return rc;
    if (rc<0) rc = EINVAL;
@@ -2195,7 +2259,6 @@ void setup_shell(void) {
    cmd_shelladd("TIME"   , shl_time   );
    cmd_shelladd("MSGBOX" , shl_msgbox );
    cmd_shelladd("MODE"   , shl_mode   );
-//   cmd_shelladd("LOG"    , shl_log    );
    cmd_shelladd("ATTRIB" , shl_attrib );
    cmd_shelladd("PUSHD"  , shl_pushd  );
    cmd_shelladd("POPD"   , shl_popd   );

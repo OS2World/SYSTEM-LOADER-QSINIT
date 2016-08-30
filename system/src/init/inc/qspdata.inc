@@ -11,8 +11,7 @@
 ;cc #ifdef __cplusplus
 ;cc extern "C" {
 ;cc #endif
-;cc #define MODULE_INTERNAL
-;cc #include "qsmod.h"
+;cc #include "qsmodint.h"
 ;cc #include "seldesc.h"
 
 PROCINFO_SIGN   equ     72705351h  ; QSpr
@@ -77,6 +76,7 @@ mt_threadinfo   struc
 tiSign          dd      ?          ;/< header signature
 tiPID           dd      ?
 tiTID           dd      ?
+tiSession       dd      ?
 ;ct mt_prcdata*
 tiParent        dd      ?
 tiFibers        dd      ?          ;/< number of active fibers
@@ -106,6 +106,8 @@ tiList          dd      ?          ;/< thread fibers
 tiListAlloc     dd      ?          ;/< allocated size of tiList (1 by default)
 
 tiMiscFlags     dd      ?
+;ct void*
+tiFirstMutex    dd      ?          ;/< first owned mutex (mutex_data*)
 
 mt_threadinfo   ends
 
@@ -160,6 +162,9 @@ mt_proc_cb_s    ends
 MAX_TID_BITS    equ     12         ;/< max 4096 threads per process (2^12)
 
 PREALLOC_THLIST equ     32
+
+TLS_FAKE_PTR    equ    0FFFFFFFFh  ;///< value for used, but unallocated slot
+
 
 ;cc #ifdef __cplusplus
 ;cc }

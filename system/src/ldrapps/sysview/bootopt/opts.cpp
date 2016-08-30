@@ -4,22 +4,14 @@
 #include <errno.h>
 
 #ifdef __QSINIT__
-#include "qsshell.h"
-#include "qsutil.h"
-#include "qslog.h"
+#include "qsbase.h"
 #include "stdlib.h"
-#include "ioint13.h"
-#include "vio.h"
 #include "qsint.h"
-#include "qshm.h"
-#include "direct.h"
 #include "qssys.h"
+#include "direct.h"
 #include "qsxcpt.h"
-#include "qspage.h"
 #include "diskedit.h"
 
-extern "C"
-extern struct Disk_BPB __cdecl BootBPB;
 str_list *opl = 0;
 
 // is key present? (with argument or not)
@@ -65,7 +57,7 @@ u32t  opts_port() {
 }
 
 char  opts_bootdrive() {
-   return BootBPB.BPB_BootLetter&0x80?(BootBPB.BPB_BootLetter&0x7F)+'C':0;
+   return (char)sys_queryinfo(QSQI_OS2LETTER,0);
 }
 
 void  opts_bootkernel(char *name, char *opts) {

@@ -16,27 +16,37 @@ typedef u32t  mux_handle_int;
 
 /** mutex handle conversion service function.
     Function converts public handle back to mux_handle_int. This service
-    provided by START module for mutex implementation module (MTLIB). */
-typedef qserr _std (*qs_muxcvtfunc)(qshandle mutex, mux_handle_int *rc);
+    provided by START module for mutex implementation module (MTLIB).
+    Must be called inside MT lock only. */
+typedef qserr _std (*qs_muxcvtfunc)(qshandle mutex, mux_handle_int *res);
+
+typedef struct {
+   int        state;
+   u32t         pid;
+   u32t         tid;
+   u32t     waitcnt;
+   u32t      sft_no;
+   int        owner;   ///< caller is current owner (just to speed up mt_muxstate())
+} qs_sysmutex_state;
 
 /** Low level mutex api.
     This code is internal and should not be used on user level (even if 
     you can acquire such ptr in some way).
-    This is interface to mutex implemetation, which is used by system
-    functions to handle mutexes as common system handles */
+    This is the interface to mutex implemetation, used by system functions to
+    handle mutexes as common system handles */
 typedef struct qs_sysmutex_s {
    /// common init call.
-   void      _std (*init   )(qs_muxcvtfunc sfunc);
+   void      _exicc (*init   )(qs_muxcvtfunc sfunc);
    /// create mutex.
-   qserr     _std (*create )(mux_handle_int *res);
-   /// capture mutex to current pid/tid.
-   qserr     _std (*capture)(mux_handle_int res);
+   qserr     _exicc (*create )(mux_handle_int *res, u32t sft_no);
    /// release mutex.
-   qserr     _std (*release)(mux_handle_int res);
+   qserr     _exicc (*release)(mux_handle_int muxh);
    /// delete mutex.
-   qserr     _std (*free   )(mux_handle_int res);
-   /// is mutex free?
-   int       _std (*isfree )(mux_handle_int res);
+   qserr     _exicc (*free   )(mux_handle_int muxh, int force);
+   /** return mutex state.
+       info can be 0.
+       @return -1 on error, 0 if mutex free, else current lock count */
+   int       _exicc (*state  )(mux_handle_int muxh, qs_sysmutex_state *info);
 } _qs_sysmutex, *qs_sysmutex;
 
 #ifdef __cplusplus

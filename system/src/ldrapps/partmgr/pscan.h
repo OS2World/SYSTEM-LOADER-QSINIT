@@ -179,6 +179,20 @@ int  _std hpfs_dirty(u8t vol, int on);
 
 void*_std hpfs_freadfull(u8t vol, const char *name, u32t *bufsize);
 
+u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
+
+/** update exFAT boot record.
+    @param  disk        disk number
+    @param  sector      boot sector
+    @param  data        one or more sectors
+    @param  nsec        # of sectors in data
+    @param  zerorem     zero remain sectors in boot area (bool flag = 1/0)
+    @return boolean (success flag) */
+int  exf_updatevbr(u32t disk, u64t sector, void *data, u32t nsec, u32t zerorem);
+
+/// exFAT checksum calc
+u32t exf_sum(u8t src, u32t sum);
+
 /// fill sectors by "value" (expanded version of dsk_emptysector()
 u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
 

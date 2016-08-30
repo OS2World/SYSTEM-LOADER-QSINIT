@@ -41,17 +41,19 @@
 // size of page table entry (8 bytes)
 #define PTESIZE      (_4KB/PTEINPAGE)
 
-static u64t   *pdpt = 0,         // 32-aligned pointer
-             *pdptf = 0;         // real pointer, for free
-static u64t  *pdmem = 0;         // page dirs
-u8t     in_pagemode = 0;         // QSINIT in page mode
-static int   global = 0;         // PGE extension present
-static u32t    vcr3 = 0,         // cr3 value
-               vcr4 = 0;         // cr4 value
+static u64t    *pdpt = 0,         // 32-aligned pointer
+              *pdptf = 0;         // real pointer, for free
+static u64t   *pdmem = 0;         // page dirs
+u8t      in_pagemode = 0;         // QSINIT in page mode
+static int    global = 0;         // PGE extension present
+static u32t     vcr3 = 0,         // cr3 value
+                vcr4 = 0;         // cr4 value
 
 // page tables (128 blocks of 64kb, only allocated if used one).
-static void    *pta[PTAENTRIES];
+static void     *pta[PTAENTRIES];
+static qshandle pmux = 0;
 
+extern qshandle              mhimux;
 extern u64t       _std   page0_fptr;   // 48-bit pointer to page 0 in QSINIT
 extern mt_proc_cb _std mt_exechooks;   // MT service hooks
 
@@ -184,6 +186,22 @@ int pag_mappages(u32t virt, u32t len, u64t phys, u32t flags) {
 
 int pag_unmappages(u32t virt, u32t len) {
    return map_common(virt, len, 0, 0);
+}
+
+void pag_lock(void) {
+   if (in_mtmode) mt_muxcapture(pmux);
+}
+
+void pag_unlock(void) {
+   if (in_mtmode) mt_muxrelease(pmux);
+}
+
+void setup_pagman_mt(void) {
+   if (mt_muxcreate(0, "__pgmem_mux__", &pmux) ||
+      io_setstate(pmux, IOFS_DETACHED, 1) ||
+         mt_muxcreate(0, "__hicopymux__", &mhimux) ||
+            io_setstate(mhimux, IOFS_DETACHED, 1))
+               log_it(0, "pager mutex err!\n");
 }
 
 int _std pag_enable(void) {

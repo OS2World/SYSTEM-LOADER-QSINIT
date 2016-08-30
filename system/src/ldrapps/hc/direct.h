@@ -28,7 +28,7 @@ struct dirent {
    char     d_attr;             ///< file's attribute
    time_t   d_wtime;            ///< file's time
    time_t   d_ctime;            ///< file's creation time
-   u32t     d_size;             ///< file's size
+   u64t     d_size;             ///< file's size
    char     d_name[NAME_MAX+1]; ///< file's name
    char    *d_openpath;         ///< path specified to opendir (with trailing \)
    void    *d_sysdata;          ///< internal data

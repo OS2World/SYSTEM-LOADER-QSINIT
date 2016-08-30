@@ -21,6 +21,7 @@ chmod +111 system/src/tools/src/mkbin/make.sh
 chmod +111 system/src/tools/src/tinc2h/make.sh
 chmod +111 system/src/tools/src/hd4disk/make.sh
 chmod +111 system/src/tools/src/vpcfcopy/make.sh
+chmod +111 system/src/tools/src/watsym/make.sh
 chmod +111 system/src/tools/t_unx/bin2h
 chmod +111 system/src/tools/t_unx/dos2unix
 chmod +111 system/src/tools/t_unx/chgnam
@@ -30,3 +31,4 @@ chmod +111 system/src/tools/t_unx/mkbin
 chmod +111 system/src/tools/t_unx/ref2lbc
 chmod +111 system/src/tools/t_unx/spprj
 chmod +111 system/src/tools/t_unx/vpcfcopy
+chmod +111 system/src/tools/t_unx/watsym

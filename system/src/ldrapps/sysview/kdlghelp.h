@@ -114,4 +114,8 @@ const int
   hcVolCloneDisk         = 2122,
   hcVolClonePart         = 2123,
   hcFileDlgCommon        = 2124,
-  hcSetCodepage          = 2125;
+  hcSetCodepage          = 2125,
+  hcBootCodeFName        = 2126,
+  hcBootCodeQSInst       = 2127,
+  hcBootCode             = 2128,
+  hcQSInst               = 2129;

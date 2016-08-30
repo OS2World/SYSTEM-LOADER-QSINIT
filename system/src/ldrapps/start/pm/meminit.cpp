@@ -169,6 +169,9 @@ void setup_memory(void) {
 
 void _std hlp_memcprint(void) {
    log_it(2,"<=====PC memory dump=====>\n");
+   // lock pager mutex!
+   PAGEMUX_THIS_FUNC lk;
+
    for (u32t ii=0; ii<pcmem.Count(); ii++) {
       u64t start = pcmem[ii].start,
              len = pcmem[ii].len;
@@ -180,6 +183,8 @@ void _std hlp_memcprint(void) {
 }
 
 pcmem_entry* _std sys_getpcmem(int freeonly) {
+   PAGEMUX_THIS_FUNC lk;
+
    if (!pcmem.Count()) return 0;
    pcmem_entry *rc = (pcmem_entry*)malloc_local((pcmem.Count()+1)*sizeof(pcmem_entry));
    u32t ii=0, ti=0;
@@ -244,6 +249,8 @@ static u32t _std sys_markprocess(u64t address, u32t pages, u32t owner) {
    u32t bf, bl, ii, cnt;
    if ((address&PAGEMASK) || !pages) return EINVAL;
    if ((owner & ~(PCMEM_HIDE|PCMEM_TYPEMASK))!=0) return EINVAL;
+   // lock pager mutex!
+   PAGEMUX_THIS_FUNC lk;
 
    cnt = find_block(address, pages, bf, bl);
    if (!cnt) return ENOENT;
@@ -326,6 +333,8 @@ u32t _std sys_unmarkmem(u64t address, u32t pages) {
 }
 
 u32t _std hlp_setupmem(u32t fakemem, u32t *logsize, u32t *removemem, u32t flags) {
+   PAGEMUX_THIS_FUNC lk;   // lock entire func
+
    u32t lphysaddr = 0, ii, jj, icnt = pcmem.Count(), ccount, csize,
          lactsize = logsize? *logsize : 0;
    // search for first block above 4Gb
@@ -533,8 +542,6 @@ static void insert_block_b(vmem_entry &nb) {
 }
 
 void* pag_physmap(u64t address, u32t size, u32t flags) {
-   MTLOCK_THIS_FUNC _lk;
-
    if (!in_pagemode) {
       if (address>(u64t)FFFF) return 0;
       if (address+size>(u64t)FFFF+1) return 0;
@@ -556,9 +563,12 @@ void* pag_physmap(u64t address, u32t size, u32t flags) {
       return 0;
    } else {
       u32t  zero = hlp_segtoflat(0), ii;
+      // lock pager mutex from this point!
+      PAGEMUX_THIS_FUNC lk;
+
       // called before structs init?
       if (!memx.Count()) return 0;
-      /* in plane non-paged mode we MUST bound this request to partially
+      /* in plain non-paged mode we MUST bound this request to partially
          intersected existing map (to avoid dupes), so catch any kind of
          such entries and merge it */
       if (!in_pagemode) merge_nonpaged(address, size);
@@ -630,12 +640,12 @@ void* pag_physmap(u64t address, u32t size, u32t flags) {
 }
 
 u32t pag_physunmap(void *address) {
-   MTLOCK_THIS_FUNC _lk;
-
    u32t zero = hlp_segtoflat(0),
         addr = (u32t)address - zero;
    // fake unmap of common memory
    if (addr<maxmap4g) return 1;
+   // lock pager mutex!
+   PAGEMUX_THIS_FUNC lk;
    // real unmap, with decrementing and address match
    if (!memx.Count()) return 0;
    int idx = pag_findidx(addr, 1);
@@ -667,6 +677,9 @@ void pag_inittables(void) {
 
 void hlp_pgprint(void) {
    log_it(2,"<=====PG memory dump=====>\n");
+   // lock pager mutex!
+   PAGEMUX_THIS_FUNC lk;
+
    for (u32t ii=0; ii<memx.Count(); ii++) {
       u32t start = memx[ii].start,
              len = memx[ii].len,

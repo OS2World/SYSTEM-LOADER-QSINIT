@@ -2,12 +2,15 @@
 #include "qsint.h"
 #include "qsinit.h"
 #include "qsutil.h"
+#include "qssys.h"
 #include "clib.h"
 #include "ffconf.h"
 #include "qsconst.h"
 #include "dskinfo.h"
+#include "qsmodint.h"
 #ifndef EFI_BUILD
 #include "ioint13.h"
+#include "filetab.h"
 extern struct   Disk_BPB BootBPB;
 #endif
 extern void           *Disk1Data;
@@ -17,12 +20,15 @@ extern
 struct qs_diskinfo      qd_array[MAX_QS_DISK];
 extern u8t      qd_fdds, qd_hdds;
 extern int            qd_bootidx; // index of boot disk info in qd_array, -1 if no
-extern u8t           dd_bootdisk,
+extern u8t          dd_bootflags, // boot flags
+                     dd_bootdisk,
                     bootio_avail;
 extern u16t               cp_num;
 extern vol_data*          extvol;
 extern u8t*                ExCvt; // FatFs OEM case conversion
 cache_extptr        *cache_eproc;
+extern
+mod_addfunc       *mod_secondary; // secondary function table, from "start" module
 // real mode thunk (this thunk pop parameters from stack)
 // disk info parameter must be placed in DGROUP (16-bit offset used in RM)
 u8t _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
@@ -348,6 +354,8 @@ s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
 
       rc = ii - MAX_QS_FLOPPY;
    }
+   // "disk added" notification
+   if (rc>=0 && mod_secondary) mod_secondary->sys_notifyexec(SECB_DISKADD, rc);
    mt_swunlock();
    return rc;
 }
@@ -384,6 +392,9 @@ int  _std hlp_diskremove(u32t disk) {
 
    mt_swlock();
    if ((qe->qd_flags&(HDDF_PRESENT|HDDF_HOTSWAP))==(HDDF_PRESENT|HDDF_HOTSWAP)) {
+      // "disk removing" notification
+      if (rc>=0 && mod_secondary) mod_secondary->sys_notifyexec(SECB_DISKREM, disk);
+
       memset(qe, 0, sizeof(struct qs_diskinfo));
       // drop used flags if next disk is not used
       if (disk+1>=MAX_QS_DISK || (qe[1].qd_flags&HDDF_PRESENT)==0) {
@@ -407,14 +418,23 @@ void bootdisk_setup() {
    if (bootio_avail) {
       int ii;
       vol_data *vdta   = extvol;
-      vdta->length     = BootBPB.BPB_TotalSec;
-      if (!vdta->length) vdta->length = BootBPB.BPB_TotalSecBig;
-      vdta->start      = BootBPB.BPB_HiddenSec;
+
+      if (dd_bootflags&BF_NEWBPB) {
+         struct Disk_NewPB *npb = (struct Disk_NewPB*)&BootBPB;
+         // > 2Tb exFAT should be denied by boot sector installer
+         vdta->length     = (u32t)npb->NPB_VolSize;
+         vdta->start      = npb->NPB_VolStart;
+         vdta->sectorsize = npb->NPB_BytesPerSec;
+      } else {
+         vdta->length     = BootBPB.BPB_TotalSec;
+         if (!vdta->length) vdta->length = BootBPB.BPB_TotalSecBig;
+         vdta->start      = BootBPB.BPB_HiddenSec;
+         vdta->sectorsize = BootBPB.BPB_BytesPerSec;
+      }
       // cannot use BootBPB here - it can be FAT32 and it can contain 0x80
       // from boot sector instead of actual value
       vdta->disk       = dd_bootdisk^QDSK_FLOPPY;
       vdta->flags      = VDTA_ON;
-      vdta->sectorsize = BootBPB.BPB_BytesPerSec;
       // locate boot disk in qd_array for easy access
       for (ii=0; ii<MAX_QS_DISK; ii++) {
          struct qs_diskinfo *qe = qd_array + ii;
@@ -452,7 +472,7 @@ WCHAR ff_wtoupper (WCHAR src) {
 }
 
 /** setup FatFs i/o to specified codepage.
-    setup itself and function usage above is closed by cli to guarantee
+    setup itself and function usage above is covered by cli to guarantee
     thread-safeness duaring convertion/setup calls */
 void _std hlp_setcpinfo(codepage_info *info) {
    int state = sys_intstate(0);

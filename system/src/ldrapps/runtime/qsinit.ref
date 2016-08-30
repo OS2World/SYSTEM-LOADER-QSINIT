@@ -40,15 +40,15 @@ exports = {
   _hlp_memreserve  = { index=28 }                                 # reserve mem at phys addr
   _hlp_memallocsig = { index=29 }                                 # global malloc with signature
 
-  _hlp_fopen       = { index=31 }                                 # open file
-  _hlp_fread       = { index=32 }                                 # read file
-  _hlp_fclose      = { index=33 }                                 # close file
-  _hlp_freadfull   = { index=34 }                                 # open/read/close file
+  _hlp_fopen       = { index=31 group="mfs"    format="us"  }     # open file
+  _hlp_fread       = { index=32 group="mfs"    format="u@upu" }   # read file
+  _hlp_fclose      = { index=33 group="mfs"    format="vv"  }     # close file
+  _hlp_freadfull   = { index=34 group="mfs"    format="ps&*up" }  # open/read/close file
 
   _f_mount         = { index=40 group="fatfs"  format="bpsb"  }   # mount virtual disk
   _f_open          = { index=41 group="fatfs"  format="bps@c" }   # open file
   _f_read          = { index=42 group="fatfs"  format="bppu&*u" } # read file
-  _f_lseek         = { index=43 group="fatfs"  format="bpu"   }   # seek file
+  _f_lseek         = { index=43 group="fatfs"  format="bp@q"  }   # seek file
   _f_close         = { index=44 group="fatfs"  format="bp"    }   # close file
   _f_opendir       = { index=45 group="fatfs"  format="bps"   }   # open dir
   _f_readdir       = { index=46 group="fatfs"  format="bpp"   }   # read dir
@@ -158,11 +158,11 @@ exports = {
   _mt_exechooks    = { index=158 offset = yes }                   # internal (mtlib support)
   _mt_swunlock     = { index=159 }                                # dec global mt lock
 
-  _mod_load        = { index=160 }                                # load module
+  _mod_load        = { index=160 group="module" format="@us@u&*up" } # load module
   _mod_unpackobj   = { index=161 }                                # unpack module object
   _mod_getfuncptr  = { index=162 }                                # get pointer to exp. function
   _mod_exec        = { index=163 }                                # exec loaded exe module
-  _mod_free        = { index=164 }                                # free module
+  _mod_free        = { index=164 group="module" format="@u@u" }   # free module
   _mod_secondary   = { index=165 offset = yes }                   # internal variables and
   _mod_list        = { index=166 offset = yes }                   # functions
   _mod_ilist       = { index=167 offset = yes }                   #
@@ -170,7 +170,6 @@ exports = {
   _mod_context     = { index=173 }                                # query module context
   _mod_query       = { index=174 }                                # is module loaded?
   _mod_apidirect   = { index=175 group="module" format="p@uu" }   #
-  _mod_findexport  = { index=176 }                                # internal
 
   _key_read        = { index=180 group="key"    format="@hv" }    # read character
   _key_pressed     = { index=181 }                                # is character pressed?
@@ -229,4 +228,6 @@ exports = {
   _mt_safedor      = { index=245 }                                #
   _mt_safedxor     = { index=246 }                                #
   _mt_cmpxchgd     = { index=247 }                                #
+  _hlp_blistadd    = { index=248 }                                # atomic list link
+  _hlp_blistdel    = { index=249 }                                # atomic list unlink
 }

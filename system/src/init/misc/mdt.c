@@ -1,7 +1,6 @@
 #include "clib.h"
 #include "qsint.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsutil.h"
 #include "ff.h"
 #include "seldesc.h"
@@ -13,26 +12,33 @@
 /** delete module file from disk after success load.
     Flag is not published in qsmod.h - just for safeness ;) */
 #define LDM_UNLINKFILE  0x0001
+/** this is static linking!
+    Flag is used to split current module recursive loading process & dynamic
+    load by module init function. */
+#define LDM_STATIC      0x0002
+
+typedef  _std (*pf_mtpexitcb)(mt_thrdata *td);
 
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
-module          *mod_ilist = 0; // currently loading modules list
+module          *mod_ilist = 0; // loading modules list (recursive mod_load())
 module           *mod_self = 0, // QSINIT module reference
                 *mod_start = 0; // START module reference
-u8t              *page_buf = 0; // 4k buffer for various needs
 u32t           lastusedpid = 1; // unique pid for processes
 #ifdef INITDEBUG
 u8t              mod_delay = 0; // exe delayed unpack
 #else
 u8t              mod_delay = 1; // exe delayed unpack
 #endif
+static
+pf_mtpexitcb    mt_pexitcb = 0;
 
 static char     qsinit_str[] = MODNAME_QSINIT;
 extern u32t  exptable_data[];
 extern u16t    qsinit_size;
 extern
 MKBIN_HEADER  *pbin_header;
-extern u32t       highbase;     // base of 32bit object
+extern u32t       highbase;     // base of 32-bit QSINIT`s object
 extern volatile
 mt_proc_cb    mt_exechooks;
 
@@ -40,31 +46,27 @@ mt_proc_cb    mt_exechooks;
 u32t _std launch32(module *md, u32t env, u32t cmdline);
 u32t _std dll32init(module *md, u32t term);
 int  _std mod_buildexps(module *mh, lx_exe_t *eh);
+int  _std sys_intstate(int on);
 
 static u32t mod_makeaddr(module *md, u32t Obj, u32t offset) {
    if ((md->obj[--Obj].flags&OBJBIGDEF)==0) return 0; else
       return (u32t)md->obj[Obj].address+offset;
 }
 
-// link module to list
-void mod_listadd(module **list, module *module) {
-   module->prev = 0;
-   if ((module->next = *list)) module->next->prev = module;
-   *list = module;
+// link module to list (atomic op)
+static void mod_listadd(module **list, module *mh) {
+   hlp_blistadd(mh, FIELDOFFSET(module,prev), (void**)list, 0);
 }
 
-// unlink module from list
-void mod_listdel(module **list, module *module) {
+// unlink module from list (atomic op)
+static void mod_listdel(module **list, module *mh) {
    // not linked?
-   if (!module->prev && !module->next && module!=*list) return;
-   if (module->prev) module->prev->next=module->next; else *list=module->next;
-   if (module->next) module->next->prev=module->prev;
-   module->next=0;
-   module->prev=0;
+   if (!mh->prev && !mh->next && mh!=*list) return;
+   hlp_blistdel(mh, FIELDOFFSET(module,prev), (void**)list, 0);
 }
 
 // merge two module lists
-void mod_listlink(module **to, module *first) {
+static void mod_listlink(module **to, module *first) {
    module *lf=*to;
    if (!first) return;
    first->prev = 0;
@@ -75,7 +77,7 @@ void mod_listlink(module **to, module *first) {
    first->next = lf;
 }
 
-void mod_listflags(module *first, u32t fl_or, u32t fl_andnot) {
+static void mod_listflags(module *first, u32t fl_or, u32t fl_andnot) {
    module *lf = first;
    while (lf) {
       lf->flags |= fl_or;
@@ -84,7 +86,21 @@ void mod_listflags(module *first, u32t fl_or, u32t fl_andnot) {
    }
 }
 
-mod_export *mod_findexport(module *mh, u16t ordinal) {
+// grab fsd file mutex
+static void ldr_lock(void) {
+   if (mod_secondary && mod_secondary->in_mtmode)
+      mod_secondary->muxcapture(mod_secondary->ldr_mutex);
+}
+
+/** release fsd file mutex.
+    Note, that exit code in START will call hlp_fclose() if this semaphore
+    owned by exiting thread */
+static void ldr_unlock(void) {
+   if (mod_secondary && mod_secondary->in_mtmode)
+      mod_secondary->muxrelease(mod_secondary->ldr_mutex);
+}
+
+static mod_export *mod_findexport(module *mh, u16t ordinal) {
    //log_misc(3, "searching %s.%d\n", mh->name, ordinal);
    if (mh&&mh->exports&&mh->exps) {
       mod_export *exp = mh->exps;
@@ -123,14 +139,13 @@ static void mod_unloadimports(module *md) {
 
 // call init/term for single dll module
 static u32t mod_initterm(module *md, u32t term) {
-   u32t rc;
    if ((md->flags&MOD_LIBRARY)==0) return 1;
-   if (!md->start_ptr||(md->flags&(term?MOD_TERMDONE:MOD_INITDONE))!=0||
-      term&&md->usage>1) return 1;
-   rc = dll32init(md,term);
-   // flag about function was called at least once ;)
-   if (rc) md->flags|=term?MOD_TERMDONE:MOD_INITDONE;
-   return rc;
+   if (!md->start_ptr || (md->flags&(term?MOD_TERMDONE:MOD_INITDONE)) ||
+      term && md->usage>1) return 1;
+   /* flag about function was called at least once ;)
+      it must be *before* call, else say hello to recursive madness */
+   md->flags |= term?MOD_TERMDONE:MOD_INITDONE;
+   return dll32init(md, term);
 }
 
 /* call init/term for all modules, used by module "md" and for
@@ -138,17 +153,17 @@ static u32t mod_initterm(module *md, u32t term) {
 static u32t mod_initterm_all(module *md, u32t term, u32t modlim) {
    u32t ii,rc=1;
    // terminate self first
-   if (term&&(md->flags&MOD_LIBRARY)!=0) rc=mod_initterm(md,1);
-   for (ii=0;ii<modlim&&md->impmod[ii];ii++) {
-      module *mst=md->impmod[ii];
-      rc=mod_initterm(mst,term);
+   if (term && (md->flags&MOD_LIBRARY)!=0) rc = mod_initterm(md,1);
+   for (ii=0; ii<modlim&&md->impmod[ii]; ii++) {
+      module *mst = md->impmod[ii];
+      rc = mod_initterm(mst, term);
       // failed on init?
-      if (!rc&&!term) break;
+      if (!rc && !term) break;
    }
    // init self after all used modules
-   if (rc&&!term&&(md->flags&MOD_LIBRARY)!=0) rc=mod_initterm(md,0);
+   if (rc && !term && (md->flags&MOD_LIBRARY)!=0) rc = mod_initterm(md,0);
    // error: terminating already inited modules and exit
-   if (!rc&&!term) mod_initterm_all(md,1,ii);
+   if (!rc && !term) mod_initterm_all(md,1,ii);
    return rc;
 }
 
@@ -157,6 +172,8 @@ u32t mod_query(const char *name, u32t searchtype) {
       noinc = (searchtype&MODQ_NOINCR)!=0;
    if (!len) len=strlen(name);
    if (len>E32MODNAME) return 0;
+   // catch mutex
+   ldr_lock();
    if (!mod_self) {
       // adding QSINIT
       u32t   sz16 = Round16(sizeof(module) + 255*sizeof(mod_export));
@@ -215,30 +232,33 @@ u32t mod_query(const char *name, u32t searchtype) {
             if (!strnicmp(list->name,name,len) && strlen(list->name)==len)
                if (pos) pos--; else {
                   if (!noinc) list->usage++;
+                  ldr_unlock();
                   return (u32t)list;
                }
             list=list->next;
          }
       }
    // log_misc(2, "no mod: %s\n", name);
+   ldr_unlock();
    return 0;
 }
 
-u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
-   if (error) *error=0;
+u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
+   if (error) *error = 0;
    if (!path) return 0; else {
-      char   *buf;
-      u32t     rc = 0, size;
-      char   *img;
-      void   *mod = 0;                              // module location
-      module  *md = 0;                              // module data
+      char     *buf, *img,
+            lock_on = 0;
+      u32t       rc = 0, size;
+      void     *mod = 0;
+      module    *md = 0;
 
       if (mod_secondary) {
          buf = (char*)mod_secondary->freadfull(path, &size);
          img = buf;
          if (!img) rc = E_SYS_NOFILE; else
-            if (*(u32t*)img==0) // file is empty, may be delayed \ unpack?
-               if (!mod_secondary->unzip_ldi(img, size, path)) rc = E_MOD_CRCERROR;
+            if (*(u32t*)img==UNPDELAY_SIGN) // file is delayed -> unpack
+               if (!mod_secondary->unzip_ldi(img, size, path))
+                  rc = E_MOD_CRCERROR;
       } else {
          u32t  len = strlen(path),
               used = len+4+sizeof(FIL)+4;           // +4 bytes for unpack
@@ -250,11 +270,11 @@ u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
             buf[0]='0'+DISK_LDR; buf[1]=':'; buf[2]='\\';
             strcpy(buf+3, path);
          } else strcpy(buf, path);
-         // reading module
+         // reading module (
          do {
             rc   = f_open(fl, buf, FA_READ);
             if (rc!=FR_OK) { rc=E_SYS_NOFILE; break; }
-            size = fl->fsize;
+            size = f_size(fl);
             buf  = (char*)hlp_memrealloc(buf, size+used);
             fl   = (FIL*)(buf+len+4);                  // update pointer
             img  = buf + used;                         // module dest.
@@ -387,7 +407,14 @@ u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
          if (rc) break;
          // modify offsets to LX header start
          eh->e32_datapage-=oldhdr_size;
-         // adding self into the loading modules list
+
+         // first time we need a lock!
+         ldr_lock();
+         lock_on = 1;
+         /* adding self into the loading modules list.
+            mod_ilist usage is exclusive for single loading process and mutex
+            capture above guarantee this, but also it cause huge locks on any
+            mod_* function in other threads */
          md->flags|=MOD_LOADING|(!mod_ilist?MOD_LOADER:0);
          mod_listadd(&mod_ilist, md);
          // fill entry table
@@ -408,7 +435,7 @@ u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
                if (!dll)
                   if (!mod_secondary) rc = E_MOD_NOEXTCODE; else {
                      u8t svbyte=table[len]; table[len]=0;
-                     dll = (module*)(*mod_secondary->mod_searchload)(table,&rc);
+                     dll = (module*)(*mod_secondary->mod_searchload)(table,LDM_STATIC,&rc);
                      table[len]=svbyte;
                   }
                if (!dll) break;
@@ -448,17 +475,23 @@ u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
             md->start_ptr, md->stack_ptr);
       } while (false);
 
-      // this module was first in recursive calls, so here we are done
-      if (!rc&&md&&(md->flags&MOD_LOADER)!=0) {
-         u32t rci = mod_initterm_all(md,0,FFFF);
-         if (!rci) rc=E_MOD_INITFAILED; else {
-            // drop loader flags
-            mod_listflags(mod_ilist,0,MOD_LOADING|MOD_LOADER);
-            // merge loading and loaded lists
-            mod_listlink(&mod_list, mod_ilist);
-            mod_ilist=0;
+      /* this module was first in recursive calls, so here we are done
+         OR we`re loaded dynamically, by module init/term function below */
+      if (!rc && md && ((md->flags&MOD_LOADER) || (flags&LDM_STATIC)==0)) {
+            u32t rci = mod_initterm_all(md,0,FFFF);
+            if (!rci) rc = E_MOD_INITFAILED; else 
+            if ((md->flags&MOD_LOADER)) {
+               /* this should be atomic too, as any mod_list/mod_ilist
+                  modification */
+               int state = sys_intstate(0);
+               // drop loader flags
+               mod_listflags(mod_ilist, 0, MOD_LOADING|MOD_LOADER);
+               // merge loading and loaded lists
+               mod_listlink(&mod_list, mod_ilist);
+               mod_ilist = 0;
+               sys_intstate(state);
+            }
          }
-      }
       // process error
       if (error) *error=rc;
       if (rc) {
@@ -471,16 +504,20 @@ u32t mod_load(char *path, u32t flags, qserr *error, void *extdta) {
             // unlink self from loading list
             mod_listdel(&mod_ilist, md);
          }
+         if (lock_on) ldr_unlock();
          if (mod) hlp_memfree(mod);
          return 0;
-      } else
+      }
+      // callback to START
+      if (md&&mod_secondary) (*mod_secondary->mod_loaded)(md);
+      // rc==0 is always mean lock()
+      ldr_unlock();
+
       if (flags&LDM_UNLINKFILE)
          if (mod_secondary) mod_secondary->unlink(md->mod_path); else
             f_unlink(md->mod_path);
       // free module image
       hlp_memfree(buf);
-      // callback to START
-      if (md&&mod_secondary) (*mod_secondary->mod_loaded)(md);
 
       return (u32t)md;
    }
@@ -496,13 +533,16 @@ static void fixup_err(char where, u8t *prev, u8t *curr, u32t pos) {
 #define FIXUP_ORD(where) { fixup_err(where,prev,cstart,start-cstart); return E_MOD_NOORD; }
 #define FIXUP_SUP(where) { fixup_err(where,prev,cstart,start-cstart); return E_MOD_UNSUPPORTED; }
 
-/** load and unpack objects
-    e32_datapage must be changed to offset from LX header, not begin of file */
-int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
-   u32t destaddr, void *extreq)
+/** load and unpack objects.
+    e32_datapage must be changed to offset from LX header, not begin of file.
+
+    NEVER must be called directly (it grab mutex, but release code is in the
+    caller stub function) */
+static int mod_unpobj_int(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
+   u32t destaddr, void *extreq, int *lock_on)
 {
-   register lx_obj_t  *oe=ot+object;
-   modobj_extreq *strange=(modobj_extreq*)extreq;
+   register lx_obj_t  *oe = ot+object;
+   modobj_extreq *strange = (modobj_extreq*)extreq;
    u32t  size = PAGEROUND(oe->o32_size),
            ii = oe->o32_mapsize,
           idx = oe->o32_pagemap-1,
@@ -510,9 +550,9 @@ int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
        sflags = strange?strange->flags:0;
    if ((idx+=ii-1)>eh->e32_mpages) return E_MOD_OBJLOADERR;
 
-   log_misc(2, "obj %d base %08X sz %d\n",object+1,destaddr,oe->o32_size);
+   log_misc(2, "obj %d base %08X sz %d\n", object+1, destaddr, oe->o32_size);
    // zero-fill entire object
-   memset((void*)destaddr,0,size);
+   memset((void*)destaddr, 0, size);
    // LE page table
    if (eh->e32_magic==LEMAGIC) {
       le_map_t *pt = (le_map_t*)((char*)eh + eh->e32_objmap);
@@ -523,7 +563,6 @@ int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
 /*
 log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    pt->pageflags,eh->e32_datapage+(idx<<PAGESHIFT));*/
-
          if (LEPAGEIDX(*pt)!=idx+1) return E_MOD_INVPAGETABLE;
          switch (pt->pageflags&LE_ZEROED) {
             case LE_VALID:
@@ -589,6 +628,10 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
 #ifdef INITDEBUG
    //log_misc(3, "fixuping %s, obj %d\n", mh->name, object+1);
 #endif
+   /* lock it because of module table using (at least in mod_findexport()).
+      unlock placed in callee stub function */
+   ldr_lock();
+   *lock_on = 1;
    // process fixups
    for (ii=0;ii<oe->o32_mapsize;ii++) {
       u32t *fxpos = (u32t*)((char*)eh+eh->e32_fpagetab)+ii+oe->o32_pagemap-1;
@@ -719,24 +762,39 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    return 0;
 }
 
-// get pointer to module function by index
-void *mod_getfuncptr(u32t mh, u32t index) {
-   module  *md=(module*)mh;
+/** stub for load and unpack objects.
+    Do it in this way because of tonns of "return" in fixup handling.
+
+    e32_datapage must be changed to offset from LX header, not begin of file */
+int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
+   u32t destaddr, void *extreq)
+{
+   int lock_on = 0,
+           res = mod_unpobj_int(mh, eh, ot, object, destaddr, extreq, &lock_on);
+   if (lock_on) ldr_unlock();
+   return res;
+}
+
+static void *mod_getindex(u32t mh, u32t index, int direct) {
+   module  *md = (module*)mh;
+   void   *res = 0;
+   ldr_lock();
    if (md->sign==MOD_SIGN) {
       mod_export *exp = mod_findexport(md, index);
-      if (exp) return (void*)exp->address;
+      if (exp) res = (void*)(direct?exp->direct:exp->address);
    }
-   return 0;
+   ldr_unlock();
+   return res;
+}
+
+// get pointer to module function by index
+void *mod_getfuncptr(u32t mh, u32t index) {
+   return mod_getindex(mh, index, 0);
 }
 
 // the same, but direct
 void *mod_apidirect(u32t mh, u32t index) {
-   module  *md=(module*)mh;
-   if (md->sign==MOD_SIGN) {
-      mod_export *exp = mod_findexport(md, index);
-      if (exp) return (void*)exp->direct;
-   }
-   return 0;
+   return mod_getindex(mh, index, 1);
 }
 
 static u32t env_length(const char *env) {
@@ -763,24 +821,21 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    char    *envseg, *cmdline;
    process_context   *newctx;
    module                *md = (module*)mh;
-
-   if (md->sign!=MOD_SIGN) return -1;
-   if (md->flags&MOD_LIBRARY) return -1;
-   if (md->flags&MOD_EXECPROC) return -1;
-
+   // lock mutex
+   ldr_lock();
+   if (md->sign!=MOD_SIGN || (md->flags&MOD_LIBRARY) ||
+      (md->flags&MOD_EXECPROC)) { ldr_unlock(); return -1; }
+   /* envinonment allocation.
+      hlp_memalloc(r) is used for the first launch only */
    envlen    = env?env_length(env):0;
    parmlen   = params?strlen(params)+1:0;
    pathlen   = strlen(md->mod_path)+1;
-   /* envinonment allocation.
-      hlp_memalloc(r) is used for the first launch only */
    env_sz    = envlen + 2 + parmlen + 2 + pathlen*2;
    alloc_len = env_sz +sizeof(process_context);
    envseg    = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR, mh, alloc_len):
                hlp_memallocsig(alloc_len, "MCtx", QSMA_NOCLEAR|QSMA_READONLY);
    // zero it all
    memset(envseg, 0, alloc_len);
-   // here we entering critical part
-   mt_swlock();
    // fill process context data
    newctx = (process_context*)(envseg + env_sz);
    newctx->size   = sizeof(process_context);
@@ -802,12 +857,15 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
    // command line pointer
    newctx->cmdline = cmdline;
 
+   // process data init call must be in MT lock
+   mt_swlock();
    // allocates process data
    newctx->rtbuf[RTBUF_PROCDAT] = (u32t)mt_exechooks.mtcb_init(newctx);
    // flag we`re running
    md->flags |= MOD_EXECPROC;
-
-   // leaving critical part
+   /* leaving critical part. It is safe because MOD_EXECPROC prevents free
+      action on module */
+   ldr_unlock();
    mt_swunlock();
    rc = 0;
    if (md!=mod_self) {
@@ -816,7 +874,7 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
       rc = mod_secondary->start_cb(newctx);
       // launch it if was not denied by callback
       if (!rc) {
-         log_it(LOG_HIGH,"exec %s\n",md->mod_path);
+         log_it(LOG_HIGH, "exec %s\n", md->mod_path);
          /* if we have MT exec - it process context switching for us, we just
             calls it here it sleeps until exit.
             In non-MT mode - just swap current context here. */
@@ -825,8 +883,11 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
             mt_exechooks.mtcb_ctid   = 1;
             rc = launch32(md, (u32t)envseg, (u32t)cmdline);
             // restore context only if still no MT mode!
-            if (!mt_exechooks.mtcb_exec)
+            if (!mt_exechooks.mtcb_exec) {
+               // callback in callee context (pid)
+               mt_pexitcb(0);
                mt_exechooks.mtcb_ctxmem = newctx->pctx;
+            }
          }
          rc = mod_secondary->exit_cb(newctx, rc);
       }
@@ -839,6 +900,7 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
                if (newctx->flags&PCTX_BIGMEM) hlp_memfree(newctx->envptr); else
                   mod_secondary->mem_free(newctx->envptr);
       }
+      // must be the last command
       mt_safedand(&md->flags, ~MOD_EXECPROC);
    } else {
       /* START module launching.
@@ -846,6 +908,7 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
          but ptr to START.189 - main function in START.
          Called via dll32init() to use its simple save/restore features. */
       mt_exechooks.mtcb_ctxmem = newctx;
+      mt_exechooks.mtcb_ctid   = 1;
       dll32init(md,0);
       //log_printf("warning! \"start\" module exited!\n");
    }
@@ -853,52 +916,63 @@ s32t mod_exec(u32t mh, const char *env, const char *params) {
 }
 
 // free and unload module (decrement usage)
-u32t mod_free(u32t mh) {
+qserr mod_free(u32t mh) {
    process_context *pq = mod_context();
    module          *md = (module*)mh;
-   u32t             oi;
+   u32t        oi, res = 0;
+   char      unlock_me = 1;
 
-   if (md->sign!=MOD_SIGN) return E_MOD_HANDLE;
+   ldr_lock();
+   if (md->sign!=MOD_SIGN) res = E_MOD_HANDLE; else
    // do not allow to free self while running
-   if (pq && pq->self == md) return E_MOD_FSELF;
+   if (pq && pq->self==md) res = E_MOD_FSELF; else
    // block main modules final free
    if ((md==mod_start || md==mod_self || (md->flags&MOD_SYSTEM)) && md->usage==1)
-      return E_MOD_FSYSTEM;
+      res = E_MOD_FSYSTEM;
+   else
    // dec usage
-   if (--md->usage>0) return 0;
-   log_printf("unload %s\n",md->mod_path);
-   // is it running check for EXE and call term function for DLL
-   if ((md->flags&MOD_LIBRARY)==0) {
-      if ((md->flags&MOD_EXECPROC)) {
-         log_printf("\"%s\" is running!\n",md->mod_path);
-         md->usage++;
-         return E_MOD_EXECINPROC;
+   if (--md->usage==0) {
+      log_printf("unload %s\n",md->mod_path);
+      // is it running check for EXE and call term function for DLL
+      if ((md->flags&MOD_LIBRARY)==0) {
+         if ((md->flags&MOD_EXECPROC)) {
+            log_printf("\"%s\" is running!\n",md->mod_path);
+            md->usage++;
+            res = E_MOD_EXECINPROC;
+         }
+      } else
+         if (mod_initterm(md,1)==0) {
+            log_printf("\"%s\" deny unload\n",md->mod_path);
+            md->usage++;
+            res = E_MOD_LIBTERM;
+         }
+      if (!res) {
+         // free all used modules
+         mod_unloadimports(md);
+         // free export table (common module unload callback to START)
+         if (mod_secondary) (*mod_secondary->mod_freeexps)(md);
+         // unlink self from lists
+         mod_listdel(md->flags&MOD_LOADING?&mod_ilist:&mod_list, md);
+         // invalidate header and free mutex
+         md->sign  = 0;
+         unlock_me = 0;
+         ldr_unlock();
+         /* free selectors (zero values will be ignored) and fill module memory
+            with 0xCC (code objects) and 0 (data objects). This increasing a
+            chance to catch forgotten references to it, at least until this
+            memory will be reused */
+         for (oi=0; oi<md->objects; oi++) {
+            mod_object *obj = md->obj + oi;
+            hlp_selfree(obj->sel);
+            memset(obj->address, obj->flags&OBJEXEC?0xCC:0x00, obj->size);
+         }
+         // free module header(md itself) + module objects
+         hlp_memfree(md->baseaddr);
       }
-   } else
-      if (mod_initterm(md,1)==0) {
-         log_printf("\"%s\" deny unload\n",md->mod_path);
-         md->usage++;
-         return E_MOD_LIBTERM;
-      }
-   // free all used modules
-   mod_unloadimports(md);
-   // free export table (common unload callback to START)
-   if (mod_secondary) (*mod_secondary->mod_freeexps)(md);
-   // unlink self from lists
-   mod_listdel(md->flags&MOD_LOADING?&mod_ilist:&mod_list, md);
-   /* free selectors (zero values will be ignored) and fill module memory
-      with 0xCC (code objects) and 0 (data objects). This increasing a chance
-      to catch forgotten references to it, at least until this memory will be
-      reused */
-   for (oi=0; oi<md->objects; oi++) {
-      mod_object *obj = md->obj + oi;
-      hlp_selfree(obj->sel);
-      memset(obj->address, obj->flags&OBJEXEC?0xCC:0x00, obj->size);
    }
-   // free module header(md itself) + module objects
-   md->sign=0;
-   hlp_memfree(md->baseaddr);
-   return 0;
+   // successful path released it earlier
+   if (unlock_me) ldr_unlock();
+   return res;
 }
 
 // build export table (boot time only, for START module)
@@ -944,7 +1018,8 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
 }
 
 int start_it() {
-   mod_export *stmain;
+   mod_export *stmain,
+             *stpexit;
    u32t           err;
    /* loading START module (this is DLL now, not EXE like it was until rev.287)
       file also will be deleted ramdisk to guarantee some free space */
@@ -953,12 +1028,15 @@ int start_it() {
    // mark it as "system"
    mod_start->flags |= MOD_SYSTEM;
    // query "main" address
-   stmain    = mod_findexport(mod_start, 189);
-   if (!stmain) return E_MOD_NOORD;
+   stmain  = mod_findexport(mod_start, 189);
+   stpexit = mod_findexport(mod_start, 187);
+   if (!stmain || !stpexit) return E_MOD_NOORD;
    // make sure mod_self is ready
    if (!mod_self) mod_query(MODNAME_QSINIT, 0);
    // REPLACE init function to use it in mod_exec()
    mod_self->start_ptr = stmain->direct;
+   // exit callback
+   mt_pexitcb = (pf_mtpexitcb)stpexit->direct;
    /* some kind of hack - simulate "QSINIT" launch to create 1st process
       context (mod_exec() knows what to do in this case) */
    mod_exec((u32t)mod_self, 0, 0);

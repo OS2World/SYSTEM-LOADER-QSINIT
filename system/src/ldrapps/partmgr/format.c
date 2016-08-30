@@ -10,6 +10,8 @@
 #include "parttab.h"
 #include "qstime.h"
 #include "qcl/qslist.h"
+#include "qcl/bitmaps.h"
+#include "qcl/cplib.h"
 #include "pscan.h"
 #include "stdlib.h"
 #include "qsint.h"
@@ -17,30 +19,31 @@
 #include "qsstor.h"
 #include "vio.h"
 
-#define MIN_FAT16    4086    // minimum number of clusters for FAT16
-#define MIN_FAT32   65526    // minimum number of clusters for FAT32
+#define MIN_FAT16       4086    // min # of clusters for FAT16
+#define MIN_FAT32      65526    // min # of clusters for FAT32
+#define MAX_EXFAT 0x7FFFFFFD    // max # of exFAT clusters (limited by implementation)
 
-#define FORCE_64K      48    // force 64k cluster starting from this number of Gbs
+#define FORCE_64K         48    // force 64k cluster starting from this number of Gbs
 
-#define _FAT12          1
-#define _FAT16          2
-#define _FAT32          3
+#define _FAT12             1
+#define _FAT16             2
+#define _FAT32             3
 
-#define N_ROOTDIR     512    // number of root dir entries for FAT12/16
-#define N_ROOTFDD     224
-#define SZ_DIR         32    // directory entry size
+#define N_ROOTDIR        512    // number of root dir entries for FAT12/16
+#define N_ROOTFDD        224
+#define SZ_DIR            32    // directory entry size
 
 extern char  bsect16[512],   // VBR code
-             bsect32[512];
+             bsect32[512],
+               bsectexf[];
+extern u8t   exf_bsacount;   ///< # of addtional sectors in exFAT array
 
 static int check_esc(u32t disk, u64t sector) {
    u16t key = key_wait(0);
    if ((key&0xFF)==27)
       if (confirm_dlg("Break format process?^Partition will be unusable!")) {
          // zero boot sector for incomplete partition format
-         char   buffer[MAX_SECTOR_SIZE];
-         memset(buffer, 0, MAX_SECTOR_SIZE);
-         hlp_diskwrite(disk|QDSK_DIRECT, sector, 1, buffer);
+         dsk_emptysector(disk|QDSK_DIRECT, sector, 1);
          return 1;
       }
    return 0;
@@ -52,6 +55,70 @@ static int check_esc(u32t disk, u64t sector) {
          if (pf) hlp_memfree(pf);                 \
          return DFME_UBREAK;                      \
       }
+
+static u32t _std vol_scansurface(u32t disk, int checkonly, u64t startsector,
+   u32t datapos, u32t clusters, u32t cloffset, u32t unitsize, dd_list bclist,
+   void *buf32k, int kbask, read_callback cbprint)
+{
+   u32t   percent = 0,
+         sectsize = dsk_sectorsize(disk),
+           sin32k = _32KB/sectsize,          // sectors in 32k
+               ii = (clusters - cloffset) * unitsize;
+   u64t     total = ii,
+            wsect = startsector + datapos + unitsize * cloffset;
+   // print callback
+   if (cbprint) cbprint(0,0);
+   // data to write
+   memset(buf32k, FMT_FILL, _32KB);
+
+   disk |= QDSK_DIRECT;
+
+   while (ii) {
+      u32t  cpy = ii>sin32k?sin32k:ii,
+        success = 0;
+      // write 32k, read 32k and compare ;)
+      if (checkonly || hlp_diskwrite(disk, wsect, cpy, buf32k)==cpy)
+         if (hlp_diskread(disk, wsect, cpy, buf32k)==cpy)
+            if (checkonly || !memchrnb((u8t*)buf32k, FMT_FILL, _32KB))
+               success = 1;
+      if (success) { // good 32k
+         wsect+= cpy;
+         ii   -= cpy;
+      } else {       // at least one sector is bad, check it all
+         u32t lastbad = bclist->max()>=0?bclist->value(bclist->max()):FFFF,
+              cluster;
+         // clear array after error
+         memset(buf32k, FMT_FILL, _32KB);
+
+         while (cpy) {
+            cluster = (wsect-datapos-startsector) / unitsize + 2;
+            // do not check other sectors of bad cluster
+            if (cluster!=lastbad) {
+               success = 0;
+               if (checkonly || hlp_diskwrite(disk, wsect, 1, buf32k))
+                  if (hlp_diskread(disk, wsect, 1, buf32k))
+                     if (checkonly || !memchrnb((u8t*)buf32k, FMT_FILL, sectsize))
+                        success = 1;
+               // add cluster to bad list
+               if (!success) {
+                  memset(buf32k, FMT_FILL, sectsize);
+                  bclist->add(lastbad = cluster);
+               }
+            }
+            ii--; wsect++; cpy--;
+         }
+      }
+      if (cbprint) {
+         u32t tmpp = (total - ii) * 100/ total;
+         if (tmpp != percent) cbprint(percent=tmpp,0);
+      }
+      // check for esc
+      if (kbask)
+         if (check_esc(disk, startsector)) return DFME_UBREAK;
+   }
+   if (bclist->count()) log_it(2, "%d bad clusters found\n", bclist->count());
+   return 0;
+}
 
 u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
    static u16t vst[] = { 1024,  512, 256, 128,  64,   32,  16,   8,   4,   2,  0};
@@ -154,28 +221,14 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    if (di.TotalSectors < loc_data + unitsize - di.StartSector)
       return DFME_SMALL;
 
-   log_printf("Formatting vol %c, disk %02X, index %d with FAT%s\n",
-      vol+'0', di.Disk, volidx, fmt==_FAT16?"16":(fmt==_FAT32?"32":"12"));
-   log_it(2, "Reserved=%d, FAT size=%d, pos %010LX, Data pos %010LX\n",
-      reserved, fatsize, loc_fat, loc_data);
-
-   // align data to 4k
-   if (align) {
-#if 0 // both FAT copies now aligned by code above...
-
-      /* dirsize is always even on FAT16, 1st FAT copy aligned to 4k,
-         so our difference will always be even and we can divide it by
-         fatcnt freely */
-      ii = ((loc_data + sectin4k - 1) & ~(sectin4k - 1)) - loc_data;
-      fatsize  += ii / fatcnt; // expand FAT size
-      loc_data += ii;
-      loc_dir  += ii;
-      log_it(2, "Aligned: FAT size=%d, pos %010LX, Data pos %010LX\n",
-         fatsize, loc_fat, loc_data);
-#endif
-   }
    // determine number of clusters and final check of validity of the FAT type
    clusters = (di.TotalSectors - reserved - fatsize * fatcnt - dirsize) / unitsize;
+
+   log_printf("Formatting vol %c, disk %02X, index %d to FAT%s\n",
+      vol+'A', di.Disk, volidx, fmt==_FAT16?"16":(fmt==_FAT32?"32":"12"));
+   log_it(2, "Reserved=%d, FAT size=%d, pos %010LX, Data pos %010LX, Clusters %u\n",
+      reserved, fatsize, loc_fat, loc_data, clusters);
+
    if (fmt==_FAT16 && clusters < MIN_FAT16 || fmt==_FAT32 && clusters < MIN_FAT32)
       return DFME_FTYPE;
 
@@ -238,7 +291,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       ii    = reserved-1;
       while (ii) {
          u32t cpy = ii>pfcnt?pfcnt:ii;
-         if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)) {
+         if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)!=cpy) {
             hlp_memfree(pf);
             return DFME_IOERR;
          }
@@ -272,7 +325,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       while (pv) {
          u32t cpy = pv>pfcnt?pfcnt:pv;
          // write 32k at time (i/o buffer size)
-         if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)) {
+         if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
             hlp_memfree(pf);
             return DFME_IOERR;
          }
@@ -288,7 +341,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    ii = fmt==_FAT32?unitsize:dirsize;
    while (ii) {
       u32t cpy = ii>pfcnt?pfcnt:ii;
-      if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)) {
+      if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
          hlp_memfree(pf);
          return DFME_IOERR;
       }
@@ -299,59 +352,14 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    }
 
    // read/erase data area
-   if ((flags&DFMT_WIPE)!=0 || (flags&DFMT_QUICK)==0) {
+   if ((flags&DFMT_WIPE) || (flags&DFMT_QUICK)==0) {
       dd_list bclist = NEW(dd_list);
-      int   readonly = flags&DFMT_WIPE?0:1;
-      u64t     total;
-      u32t   percent = 0;
-      ii    = (clusters - (fmt==_FAT32?1:0)) * unitsize - 1;
-      total = ii;
-      // print callback
-      if (cbprint) cbprint(0,0);
-      // data to write
-      memset(pf,FMT_FILL,_32KB);
-
-      while (ii) {
-         u32t  cpy = ii>pfcnt?pfcnt:ii,
-           success = 0;
-         // write 32k, read 32k and compare ;)
-         if (readonly || hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)==cpy)
-            if (hlp_diskread(di.Disk|QDSK_DIRECT, wsect, cpy, pf)==cpy)
-               if (readonly || !memchrnb((u8t*)pf,FMT_FILL,_32KB)) success = 1;
-
-         if (success) { // good 32k
-            wsect+= cpy;
-            ii   -= cpy;
-         } else {       // at least one sector is bad, check it all
-            u32t lastbad = bclist->max()>=0?bclist->value(bclist->max()):FFFF,
-                 cluster;
-            // clear array after error
-            memset(pf,FMT_FILL,_32KB);
-
-            while (cpy) {
-               cluster = (wsect-loc_data) / unitsize + 2;
-               // do not check other sectors of bad cluster
-               if (cluster!=lastbad) {
-                  success = 0;
-                  if (readonly || hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, 1, pf))
-                     if (hlp_diskread(di.Disk|QDSK_DIRECT, wsect, 1, pf))
-                        if (readonly || !memchrnb((u8t*)pf,FMT_FILL,di.SectorSize))
-                           success = 1;
-                  // add cluster to bad list
-                  if (!success) {
-                     memset(pf,FMT_FILL,di.SectorSize);
-                     bclist->add(lastbad = cluster);
-                  }
-               }
-               ii--; wsect++; cpy--;
-            }
-         }
-         if (cbprint) {
-            u32t tmpp = (total - ii) * 100/ total;
-            if (tmpp != percent) cbprint(percent=tmpp,0);
-         }
-         // check for esc
-         CHECK_ESC();
+      u32t   scanres = vol_scansurface(di.Disk, flags&DFMT_WIPE?0:1, di.StartSector,
+         loc_data-di.StartSector, clusters, fmt==_FAT32?1:0, unitsize, bclist, pf,
+            kbask, cbprint);
+      if (scanres) {
+         if (pf) hlp_memfree(pf);
+         return scanres;
       }
       // bad clusters found? reinitialize FAT
       if (bclist->count()) {
@@ -359,7 +367,6 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
          // sort bad cluster list
          bclist->sort(0,1);
          badcnt = bclist->count();
-         log_it(2, "%d bad clusters found\n", badcnt);
          // FAT entries per read buffer
          switch (fmt) {
             case _FAT12: epbuf = _32KB*3/2; break;
@@ -404,7 +411,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
                }
                clpos+=epbuf;
                // write this 32k (i/o buffer size)
-               if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)) {
+               if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
                   hlp_memfree(pf);
                   return DFME_IOERR;
                }
@@ -459,7 +466,7 @@ u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t ba
          default: if (rc) return DFME_INTERNAL;
       }
    }
-   // force rescanning of disk if it (big) floppy
+   // force rescanning of disk if it is a (big) floppy
    if (di.StartSector==0) dsk_ptrescan(di.Disk,1);
    // mount volume back
    if (!hlp_mountvol(vol, di.Disk, di.StartSector, di.TotalSectors))
@@ -477,7 +484,7 @@ u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t ba
    return 0;
 }
 
-u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize, 
+u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
    read_callback cbprint)
 {
    if (fsname) {
@@ -485,6 +492,250 @@ u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
          return vol_format(vol, flags, unitsize, cbprint);
       if (stricmp(fsname,"HPFS")==0)
          return hpfs_format(vol, flags, cbprint);
+      if (stricmp(fsname,"EXFAT")==0)
+         return exf_format(vol, flags, unitsize, cbprint);
    }
    return DFME_UNKFS;
+}
+
+u32t exf_sum(u8t src, u32t sum) {
+   return (sum&1?0x80000000:0) + (sum>>1) + src;
+}
+
+u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
+   int            align = flags&DFMT_NOALIGN?0:1,  // AF align flag
+                  kbask = flags&DFMT_BREAK?1:0;    // allow keyboard ESC break
+   u8t             *buf, secshift;
+   long          volidx, ptbyte;
+   u32t         bufsize, fatpos, fatsize, bmsize, bm_nsec, bufnsec, utsize,
+                 badcnt = 0, sectin4k, datapos, ii, jj, sum, err, uptab_crc,
+             n_clusters;
+   u32t         ftab[3];
+   u64t           wsect;
+   bit_map          cbm = 0;
+   dd_list       bclist = 0;
+   qs_cpconvert     cpi = 0;
+   struct Boot_RecExFAT *bre;
+   disk_volume_data  di;
+
+   hlp_volinfo(vol, &di);
+   if (!di.TotalSectors) return DFME_NOMOUNT;
+   if (di.TotalSectors<0x1000) return DFME_SMALL;
+   volidx = vol_index(vol,0);
+   // allow floppies and big floppies
+   if (volidx<0 && di.StartSector) return DFME_VINDEX;
+   // GPT partition?
+   if (volidx>=0)
+      if (dsk_isgpt(di.Disk,volidx)==1) flags|=DFMT_NOPTYPE;
+   // turn off align for floppies
+   if ((di.Disk&QDSK_FLOPPY)!=0) align = 0;
+   // sectors in 4k
+   sectin4k = 4096 / di.SectorSize;
+   if (!sectin4k || 4096 % di.SectorSize) return DFME_SSIZE;
+   /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
+      flag, so no any volume caching will occur until the end of format */
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
+   // cluster size auto selection
+   if (!unitsize) {
+      unitsize = 8;
+      if (di.TotalSectors>=0x70000000) unitsize = 512; else // >= 900Gb
+      if (di.TotalSectors>=0x4000000) unitsize = 256; else  // >= 64MS
+      if (di.TotalSectors>=0x80000) unitsize = 64;          // >= 512KS
+   } else {
+      // should be a single bit
+      if (bsf32(unitsize)!=bsr32(unitsize)) return DFME_CSIZE;
+      unitsize /= di.SectorSize;
+      if (unitsize == 0) unitsize = 1;
+      if (unitsize > 32768) unitsize = 32768;
+   }
+   fatpos     = 32;
+   // align FAT to 4k
+   if (align)
+      fatpos  = ((di.StartSector + fatpos + sectin4k - 1) & ~(sectin4k-1)) -
+         di.StartSector;
+   n_clusters = (di.TotalSectors - fatpos) / unitsize;
+   fatsize    = (n_clusters * 4 + 8 + di.SectorSize - 1) / di.SectorSize;
+   // align FAT size to 4k
+   if (align) fatsize = fatsize + sectin4k - 1 & ~(sectin4k-1);
+   // it must be aligned by FAT`s pos/size
+   datapos    = fatpos + fatsize;
+   secshift   = bsf32(di.SectorSize);
+   n_clusters = (di.TotalSectors - datapos) / unitsize;
+
+   if (datapos >= di.TotalSectors/2) return DFME_SMALL;
+   if (n_clusters<16) return DFME_SMALL;
+   if (n_clusters>MAX_EXFAT) return DFME_LARGE;
+   // unable to operate without CPLIB here!
+   cpi     = NEW(qs_cpconvert);
+   if (!cpi) return DFME_CPLIB;
+
+   log_printf("Formatting vol %c, disk %02X, index %d to exFAT\n",
+      vol+'A', di.Disk, volidx);
+   log_it(2, "FAT size=%u, pos %010LX, Data pos %010LX, Clusters %u\n",
+      fatsize, di.StartSector+fatpos, di.StartSector+datapos, n_clusters);
+
+   // size of cluster bitmap
+   bmsize  = Round8(n_clusters)>>3;
+   // # of bitmap file clusters & sectors
+   ftab[0] = (bmsize + (unitsize<<secshift) - 1) / (unitsize<<secshift);
+   bm_nsec = (bmsize + di.SectorSize - 1) / di.SectorSize;
+   // # of rootdir clusters
+   ftab[2] = 1;
+   buf     = (u8t*)malloc(bufsize = _32KB);
+   bufnsec = bufsize>>secshift;    // will be at least 8
+
+   // create a compressed uppercase table
+   wsect  = di.StartSector + datapos + unitsize * ftab[0];  // start sector of table file
+   err    = 0;
+   if (cpi) {
+      wchar_t si = 0, ch;
+      u32t    st = 0;
+      uptab_crc=0; ii=0; jj=0; utsize=0;
+      do {
+         switch (st) {
+            case 0:
+               ch = cpi->towupper(si);
+               if (ch!=si) { si++; break; } // store the up-case char if exist
+               // get run length of no-case block
+               for (jj=1; (wchar_t)(si+jj) && (wchar_t)(si+jj)==cpi->towupper((wchar_t)(si+jj)); jj++) ;
+               // compress the no-case block if run is >= 128
+               if (jj>=128) { ch = 0xFFFF; st = 2; break; }
+               // do not compress short run
+               st = 1;
+            case 1:
+               ch = si++; // fill the short run
+               if (--jj==0) st = 0;
+               break;
+            default:
+               ch = (wchar_t)jj; si+=jj; // # of characters to skip
+               st = 0;
+         }
+         uptab_crc = exf_sum(buf[ii+0] = (u8t)ch, uptab_crc);       /* Put it into the write buffer */
+         uptab_crc = exf_sum(buf[ii+1] = (u8t)(ch>>8), uptab_crc);
+         ii+=2; utsize+=2;
+         if (!si || ii==bufsize) {      /* Write buffered data when buffer full or end of process */
+            sum = ii + di.SectorSize - 1 >> secshift;
+            if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, sum, buf)!=sum) {
+               err = DFME_IOERR;
+               break;
+            }
+            wsect+=sum; ii=0;
+         }
+      } while (si);
+      DELETE(cpi);
+      cpi  = 0;
+   }
+   if (!err) {
+      u32t ncused;
+      // # of upcase file clusters
+      ftab[1] = (utsize + (unitsize<<secshift) - 1) / (unitsize<<secshift);
+      cbm     = NEW(bit_map);
+      // make internal bitmap buffer sector-aligned to write from it directly
+      cbm->alloc(bm_nsec<<secshift+3);
+      log_it(2, "n_clusters %X cbm alloc %X\n", n_clusters, cbm->size());
+      // mark used clusters
+      ncused = ftab[0]+ftab[1]+ftab[2];
+      cbm->set(1, 0, ncused);
+
+      // read/erase data area
+      if ((flags&DFMT_WIPE) || (flags&DFMT_QUICK)==0) {
+         bclist = NEW(dd_list);
+         err    = vol_scansurface(di.Disk, flags&DFMT_WIPE?0:1, di.StartSector,
+            datapos, n_clusters, ncused, unitsize, bclist, buf, kbask, cbprint);
+         badcnt = bclist->count();
+      }
+   }
+   if (!err) {
+      bre    = (struct Boot_RecExFAT*)buf;
+      memset(bre, 0, 1+exf_bsacount<<secshift);
+      // we should never reach 4k * 8 sectors
+      for (ii = 0; ii<=exf_bsacount; ii++)
+         memcpy(buf+(ii<<secshift), &bsectexf[ii*512], 512);
+      // exFAT bpb
+      bre->BR_ExF_VolStart = di.StartSector;
+      bre->BR_ExF_VolSize  = di.TotalSectors;
+      bre->BR_ExF_FATPos   = fatpos;
+      bre->BR_ExF_FATSize  = fatsize;
+      bre->BR_ExF_DataPos  = datapos;
+      bre->BR_ExF_NumClus  = n_clusters;
+      bre->BR_ExF_RootClus = 2 + ftab[0] + ftab[1];
+      bre->BR_ExF_Serial   = tm_getdate();
+      bre->BR_ExF_FsVer    = 0x100;
+      bre->BR_ExF_SecSize  = secshift;
+      bre->BR_ExF_ClusSize = bsf32(unitsize);
+      bre->BR_ExF_FATCnt   = 1;
+      bre->BR_ExF_PhysDisk = 0x80;
+
+      if (!exf_updatevbr(di.Disk|QDSK_DIRECT, di.StartSector, buf, 1+exf_bsacount, 1))
+         err = DFME_IOERR;
+   }
+   // write FAT
+   if (!err) {
+      u32t *pf = (u32t*)buf, pv, clpos, bpos;
+      wsect = di.StartSector+fatpos;
+      // zero buffer
+      memset(pf, 0, _32KB);
+      pf[0] = 0xFFFFFFF8;
+      pf[1] = FFFF;
+      // entries for bitmap, upcase file and root dir
+      for (jj = 0, ii = 2; jj < 3; jj++)
+         for (pv = ftab[jj]; pv; pv--) {  pf[ii] = pv>=2?ii+1:FFFF; ii++; }
+      // fill FAT entries
+      pv    = fatsize;
+      clpos = 0;
+      bpos  = 0;
+      while (pv) {
+         u32t cpy = pv>bufnsec ? bufnsec : pv;
+         // fill bad entries for current potion of FAT
+         if (bclist)
+            while (bpos<bclist->count() && bclist->value(bpos) < clpos+_32KB/4) {
+               u32t bb = bclist->value(bpos++);
+               // mask cluster as bad both in FAT & bitmap
+               cbm->set(1, bb-2, 1);
+               pf[bb-clpos] = 0xFFFFFFF7;
+            }
+         clpos+= _32KB/4;
+         // write this 32k (i/o buffer size)
+         if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
+            err = DFME_IOERR;
+            break;
+         }
+         wsect+= cpy;
+         pv   -= cpy;
+         // zero buffer
+         memset(pf, 0, _32KB);
+      }
+   }
+   // write bitmap
+   if (!err)
+      if (hlp_diskwrite(di.Disk|QDSK_DIRECT, di.StartSector+datapos, bm_nsec,
+         cbm->mem()) < bm_nsec) err = DFME_IOERR;
+   // write root directory
+   if (!err) {
+      memset(buf, 0, di.SectorSize);
+      buf[SZ_DIR * 0 + 0] = 0x83;     /* 83 entry (volume label) */
+      buf[SZ_DIR * 1 + 0] = 0x81;     /* 81 entry (allocation bitmap) */
+      *(u32t*)(buf + SZ_DIR * 1 + 20) = 2;
+      *(u32t*)(buf + SZ_DIR * 1 + 24) = bmsize;
+      buf[SZ_DIR * 2 + 0] = 0x82;     /* 82 entry (up-case table) */
+      *(u32t*)(buf + SZ_DIR * 2 + 4)  = uptab_crc;
+      *(u32t*)(buf + SZ_DIR * 2 + 20) = 2 + ftab[0];
+      *(u32t*)(buf + SZ_DIR * 2 + 24) = utsize;
+      wsect = di.StartSector + datapos + unitsize * (ftab[0] + ftab[1]);
+
+      if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, 1, buf) ||
+         unitsize>1 && dsk_emptysector(di.Disk|QDSK_DIRECT, wsect+1, unitsize-1))
+            err = DFME_IOERR;
+   }
+   if (bclist) DELETE(bclist);
+   DELETE(cbm);
+   free(buf);
+
+   if (err) {
+      // error - wipe boot sector & exit
+      dsk_emptysector(di.Disk|QDSK_DIRECT, di.StartSector, 1);
+      return err;
+   }
+   // update partition type & mount volume back
+   return format_done(vol, di, flags&DFMT_NOPTYPE?-1:PTE_07_MSFS, volidx, badcnt);
 }

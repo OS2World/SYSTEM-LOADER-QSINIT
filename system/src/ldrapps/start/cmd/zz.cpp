@@ -10,13 +10,6 @@ extern "C" {
 
 static const char *zipviewline = "--------- --------- -------- ---------------- -------------------------------";
 
-void _std percent_prn(u32t percent,u32t size) {
-   if (percent)
-      printf("\rLoading ... %02d%% ",percent); else
-   if ((size & _1MB-1)==0)
-      printf("\rLoading ... %d Mb ",size>>20);
-}
-
 u32t _std shl_unzip(const char *cmd, str_list *args) {
    int rc=-1;
    if (args->count>0) {
@@ -79,12 +72,12 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                zdata = sto_data(zipname());
                zsize = sto_size(zipname());
             } else
-            if (frombp) zdata = hlp_freadfull(zipname(),&zsize,percent_prn);
+            if (frombp) zdata = hlp_freadfull_progress(zipname(), &zsize);
                else zdata = freadfull(zipname(),&zsize);
 
             if (!zdata && frombp) {
                zipname+=".zip";
-               zdata = hlp_freadfull(zipname(),&zsize,percent_prn);
+               zdata = hlp_freadfull_progress(zipname(), &zsize);
             }
             if (!zdata) {
                rc = frombp||fromstor?ENOENT:get_errno();

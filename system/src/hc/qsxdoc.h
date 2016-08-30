@@ -863,7 +863,7 @@ This module provide support for "graphic console" and VESA graphic modes.
 /** @page pg_deblog Log and COM port output
 
 @section sec_intlog System log
-QSINIT supply internal 64k buffer for logging. Log output is routed also
+QSINIT supply internal 256k buffer for logging. Log output is routed also
 to COM port, if address available in INI file.
 
 Every log message have time label and log level value (0..3) attached.
@@ -872,9 +872,9 @@ This log can be viewed in sysview.exe app and can be copied to OS/4 kernel
 log by adding key "LOGLEVEL" to kernel options.
 
 Some dumps are available in cmd shell or while pause message is active:
-@li Ctrl-Alt-F3 - installed shared classes list
-@li Ctrl-Alt-F4 - file table dump
-@li Ctrl-Alt-F5 - process tree dump
+@li Ctrl-Alt-F3 - installed shared class list
+@li Ctrl-Alt-F4 - file/object table dump
+@li Ctrl-Alt-F5 - process list dump (+ threads in MT mode)
 @li Ctrl-Alt-F6 - gdt dump
 @li Ctrl-Alt-F7 - idt dump
 @li Ctrl-Alt-F8 - page tables dump (very long, in paging mode only)
@@ -882,6 +882,10 @@ Some dumps are available in cmd shell or while pause message is active:
 @li Ctrl-Alt-F10 - module table dump
 @li Ctrl-Alt-F11 - system memory table dump
 @li Ctrl-Alt-F12 - pool block list (very long)
+
+These keys also available in MT mode, if system idle thread receives too
+much time to execute (possible cross-lock or something). This can be detected
+by periodical '~' symbols in log (com port output).
 
 @section sec_comport COM port output.
 COM port address and baud rate can be changed "on fly", by "mode sys"

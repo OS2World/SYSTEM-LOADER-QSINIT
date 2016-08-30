@@ -19,19 +19,20 @@ typedef struct {
    int             vol;     ///< -1 or 0..9
    qs_sysvolume   self;     ///< ptr to self instance
    int        mount_ok;     ///< FatFs mount was ok
+   int           exfat;     ///< this is ExFAT partition
 } volume_data;
 
 typedef struct {
    u32t           sign;
    DIR             dir;
    FILINFO          fi;
-   char            lfn[QS_MAXPATH+1];
    char        dirname[QS_MAXPATH+1];
 } dir_enum_data;
 
 typedef struct {
    u32t           sign;
    FIL              fh;
+   int              ro;     ///< r/o mode
    char             fp[QS_MAXPATH+1];
 } file_handle;
 
@@ -54,7 +55,7 @@ static qserr errcvt(FRESULT err) {
    return err>FR_INVALID_PARAMETER? E_SYS_INVOBJECT : codes[err];
 }
 
-static qserr _std fat_initialize(void *data, u8t vol, u32t flags, void *bootsec) {
+static qserr _exicc fat_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec) {
    FATFS  **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
@@ -85,17 +86,20 @@ static qserr _std fat_initialize(void *data, u8t vol, u32t flags, void *bootsec)
             if (br->BR_BPB.BPB_RootEntries) fsname = (u32t*)br->BR_EBPB.EBPB_FSType;
                else fsname = (u32t*)((struct Boot_RecordF32*)br)->BR_F32_EBPB.EBPB_FSType;
          // if it is not FAT really - fix error code to acceptable
-         if (mres!=FR_OK && (!fsname || (*fsname&0xFFFFFF)!=0x544146))
-            mres = FR_NO_FILESYSTEM;
+         if (mres!=FR_OK && (!fsname || (*fsname&0xFFFFFF)!=0x544146) &&
+            strnicmp(br->BR_OEM,"EXFAT",5)) mres = FR_NO_FILESYSTEM;
+         // have a FAT
          if (mres==FR_OK) vdta->flags|=VDTA_FAT;
          if (mres==FR_OK || mres==FR_NO_FILESYSTEM && (flags&SFIO_FORCE)) vd->vol = vol;
          err = errcvt(mres);
       }
       if (!err && (vdta->flags&VDTA_FAT)) {
-         strcpy(vdta->fsname, fdta->fs_type<=FS_FAT16?"FAT":"FAT32");
+         u8t vfs = fdta->fs_type;
+         strcpy(vdta->fsname, vfs<=FS_FAT16?"FAT":(vfs==FS_EXFAT?"exFAT":"FAT32"));
          vdta->clsize  = fdta->csize;
          vdta->cltotal = (vdta->length - fdta->database)/fdta->csize;
          vd->mount_ok  = 1;
+         vd->exfat     = vfs==FS_EXFAT;
       }
       return err;
    }
@@ -103,7 +107,7 @@ static qserr _std fat_initialize(void *data, u8t vol, u32t flags, void *bootsec)
 }
 
 /// unmount volume
-static qserr _std fat_finalize(void *data) {
+static qserr _exicc fat_finalize(EXI_DATA) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
    if (vd->vol<0) return E_DSK_NOTMOUNTED; else {
@@ -122,7 +126,7 @@ static qserr _std fat_finalize(void *data) {
    }
 }
 
-static int _std fat_drive(void *data) {
+static int _exicc fat_drive(EXI_DATA) {
    instance_ret(volume_data, vd, -1);
    return vd->vol;
 }
@@ -136,8 +140,8 @@ static char *fat_cvtpath(volume_data *vd, const char *fp) {
    }
 }
 
-static qserr _std fat_open(void *data, const char *name, u32t mode,
-                           io_handle_int *pfh, u32t *action)
+static qserr _exicc fat_open(EXI_DATA, const char *name, u32t mode,
+                             io_handle_int *pfh, u32t *action)
 {
    FRESULT       res;
    static u32t mf[4] = { FA_OPEN_EXISTING, FA_OPEN_ALWAYS, FA_CREATE_NEW,
@@ -155,6 +159,17 @@ static qserr _std fat_open(void *data, const char *name, u32t mode,
    *pfh  = 0;
    fh    = (file_handle*)malloc(sizeof(file_handle));
    res   = f_open(&fh->fh, cpath, FA_READ|FA_WRITE|mf[mode]);
+   if (res==FR_WRITE_PROTECTED) {
+      fh->ro = 1;
+      /* patched FatFs code returns "disk write protected" instead
+         of "no access" err in case of r/o attr on file. This cause
+         reopening in r/o mode. On success we will have this file as
+         r/o globally - until the last close */
+      res    = f_open(&fh->fh, cpath, FA_READ|mf[mode]);
+      if (res==FR_WRITE_PROTECTED) res = FR_DENIED;
+   } else
+   if (!res) fh->ro = 0;
+
    free(cpath);
    if (res) { free(fh); return errcvt(res); }
 
@@ -166,11 +181,12 @@ static qserr _std fat_open(void *data, const char *name, u32t mode,
 
    fh->sign = VFATFH_SIGN;
    *pfh     = (io_handle_int)fh;
-   return 0;
+
+   return fh->ro?E_SYS_READONLY:0;
 }
 
-static qserr _std fat_read(void *data, io_handle_int file, u64t pos,
-                           void *buffer, u32t *size)
+static qserr _exicc fat_read(EXI_DATA, io_handle_int file, u64t pos,
+                             void *buffer, u32t *size)
 {
    file_handle   *fh = (file_handle*)file;
    FRESULT       res = 0;
@@ -178,7 +194,7 @@ static qserr _std fat_read(void *data, io_handle_int file, u64t pos,
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
    if (!buffer || !size) return E_SYS_ZEROPTR;
-   if (fh->sign!=VFATFH_SIGN || pos>=fh->fh.fsize) return E_SYS_INVPARM;
+   if (fh->sign!=VFATFH_SIGN || pos>=fh->fh.obj.objsize) return E_SYS_INVPARM;
    if (!*size) return 0;
 
    if (pos!=fh->fh.fptr) res = f_lseek(&fh->fh, pos);
@@ -188,8 +204,8 @@ static qserr _std fat_read(void *data, io_handle_int file, u64t pos,
    return errcvt(res);
 }
 
-static qserr _std fat_write(void *data, io_handle_int file, u64t pos,
-                            void *buffer, u32t *size)
+static qserr _exicc fat_write(EXI_DATA, io_handle_int file, u64t pos,
+                              void *buffer, u32t *size)
 {
    file_handle   *fh = (file_handle*)file;
    FRESULT       res = 0;
@@ -198,17 +214,20 @@ static qserr _std fat_write(void *data, io_handle_int file, u64t pos,
 
    if (!buffer || !size) return E_SYS_ZEROPTR;
    if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
-   if (pos>=FFFF || pos+*size>=FFFF) return E_SYS_FSLIMIT;
+   if (!vd->exfat && (pos>=FFFF || pos+*size>=FFFF)) return E_SYS_FSLIMIT;
+   if (fh->ro) return E_SYS_ACCESS;
    if (!*size) return 0;
 
    if (pos!=fh->fh.fptr) res = f_lseek(&fh->fh, pos);
    if (!res) res = f_write(&fh->fh, buffer, *size, &bw);
+   // check after FatFs - it can leave a swine for us, reporting no error
+   if (!res && bw<*size) res = FR_NOT_READY;
    *size = bw;
 
    return errcvt(res);
 }
 
-static qserr _std fat_flush(void *data, io_handle_int file) {
+static qserr _exicc fat_flush(EXI_DATA, io_handle_int file) {
    file_handle   *fh = (file_handle*)file;
 //   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
@@ -216,7 +235,7 @@ static qserr _std fat_flush(void *data, io_handle_int file) {
    return errcvt(f_sync(&fh->fh));
 }
 
-static qserr _std fat_close(void *data, io_handle_int file) {
+static qserr _exicc fat_close(EXI_DATA, io_handle_int file) {
    FRESULT       res;
    file_handle   *fh = (file_handle*)file;
 //   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
@@ -228,30 +247,32 @@ static qserr _std fat_close(void *data, io_handle_int file) {
    return errcvt(res);
 }
 
-static qserr _std fat_size(void *data, io_handle_int file, u64t *size) {
+static qserr _exicc fat_size(EXI_DATA, io_handle_int file, u64t *size) {
    file_handle   *fh = (file_handle*)file;
 //   instance_ret(volume_data, vd, 0);
    if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
    if (!size) return E_SYS_ZEROPTR;
-   *size = fh->fh.fsize;
+   *size = fh->fh.obj.objsize;
    return 0;
 }
 
-static qserr _std fat_setsize(void *data, io_handle_int file, u64t newsize) {
+static qserr _exicc fat_setsize(EXI_DATA, io_handle_int file, u64t newsize) {
    FRESULT       res = 0;
    file_handle   *fh = (file_handle*)file;
-//   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
-   if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
+   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
-   if (newsize>=FFFF) return E_SYS_FSLIMIT;
+   if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
+   if (fh->ro) return E_SYS_ACCESS;
+   if (!vd->exfat && newsize>=FFFF) return E_SYS_FSLIMIT;
    if (newsize!=fh->fh.fptr) res = f_lseek(&fh->fh, newsize);
-   if (!res && newsize<fh->fh.fsize) res = f_truncate(&fh->fh);
+   if (!res && fh->fh.fptr!=newsize) return E_DSK_DISKFULL;
+   if (!res && newsize<fh->fh.obj.objsize) res = f_truncate(&fh->fh);
    if (!res) res = f_sync(&fh->fh);
 
    return errcvt(res);
 }
 
-static qserr _std fat_pathinfo(void *data, const char *path, io_handle_info *info) {
+static qserr _exicc fat_pathinfo(EXI_DATA, const char *path, io_handle_info *info) {
    FILINFO    *fi;
    FRESULT    res;
    time_t     tmv;
@@ -259,13 +280,9 @@ static qserr _std fat_pathinfo(void *data, const char *path, io_handle_info *inf
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (!path || !info) return E_SYS_ZEROPTR;
    // do not use stack for such large alloc
-   fi = (FILINFO*)malloc(sizeof(FILINFO)+QS_MAXPATH+1);
+   fi = (FILINFO*)malloc(sizeof(FILINFO));
    if (!fi) return E_SYS_NOMEM;
    mem_zero(fi);
-   fi->lfname = (char*)(fi+1);
-   fi->lfsize = QS_MAXPATH+1;
-   fi->lfname[0] = 0;
-
    cpath = fat_cvtpath(vd, path);
    if (!cpath) return E_SYS_INVPARM;
    res   = f_stat(cpath, fi);
@@ -285,7 +302,7 @@ static qserr _std fat_pathinfo(void *data, const char *path, io_handle_info *inf
    return res?errcvt(res):0;
 }
 
-static qserr _std fat_setinfo(void *data, const char *path, io_handle_info *info, u32t flags) {
+static qserr _exicc fat_setinfo(EXI_DATA, const char *path, io_handle_info *info, u32t flags) {
    FRESULT       res;
    char       *cpath;
    qserr         err = 0;
@@ -310,14 +327,13 @@ static qserr _std fat_setinfo(void *data, const char *path, io_handle_info *info
       pct = flags&IOSI_CTIME?&info->ctime:0;
       // read missing one
       if (!pct || !pwt) {
-         qserr rc = fat_pathinfo(data, path, &ci);
+         qserr rc = fat_pathinfo(data, 0, path, &ci);
          if (rc) return rc;
          if (!pct) pct = &ci.ctime;
          if (!pwt) pwt = &ci.atime;
       }
       // a bit of paranoya
-      fi.lfname = 0;
-      fi.lfsize = 0;
+      fi.fname[0] = 0;
 
       dt = timetodostime(io_iototime(pwt));
       fi.fdate = dt>>16;
@@ -333,7 +349,7 @@ static qserr _std fat_setinfo(void *data, const char *path, io_handle_info *info
    return err;
 }
 
-static qserr _std fat_setattr(void *data, const char *path, u32t attr) {
+static qserr _exicc fat_setattr(EXI_DATA, const char *path, u32t attr) {
    char       *cpath;
    qserr          rc;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
@@ -349,36 +365,36 @@ static qserr _std fat_setattr(void *data, const char *path, u32t attr) {
    return rc;
 }
 
-static qserr _std fat_getattr(void *data, const char *path, u32t *attr) {
+static qserr _exicc fat_getattr(EXI_DATA, const char *path, u32t *attr) {
    io_handle_info pd;
    qserr          rc;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (!path || !attr) return E_SYS_ZEROPTR;
 
    *attr = 0;
-   rc    = fat_pathinfo(data, path, &pd);
+   rc    = fat_pathinfo(data, 0, path, &pd);
    if (rc) return rc;
    *attr = pd.attrs;
    return 0;
 }
 
-static qserr _std fat_setexattr(void *data, const char *path, const char *aname, void *buffer, u32t size) {
+static qserr _exicc fat_setexattr(EXI_DATA, const char *path, const char *aname, void *buffer, u32t size) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    return E_SYS_UNSUPPORTED;
 }
 
-static qserr _std fat_getexattr(void *data, const char *path, const char *aname, void *buffer, u32t *size) {
+static qserr _exicc fat_getexattr(EXI_DATA, const char *path, const char *aname, void *buffer, u32t *size) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    return E_SYS_UNSUPPORTED;
 }
 
-static str_list* _std fat_lstexattr(void *data, const char *path) {
+static str_list* _exicc fat_lstexattr(EXI_DATA, const char *path) {
    instance_ret(volume_data, vd, 0);
    return 0;
 }
 
 // warning! it acts as rmdir too!!
-static qserr _std fat_remove(void *data, const char *path) {
+static qserr _exicc fat_remove(EXI_DATA, const char *path) {
    char       *cpath;
    qserr          rc;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
@@ -392,7 +408,7 @@ static qserr _std fat_remove(void *data, const char *path) {
    return rc;
 }
 
-static qserr _std fat_renmove(void *data, const char *oldpath, const char *newpath) {
+static qserr _exicc fat_renmove(EXI_DATA, const char *oldpath, const char *newpath) {
    char      *cpatho,
              *cpathn;
    qserr          rc;
@@ -411,7 +427,7 @@ static qserr _std fat_renmove(void *data, const char *oldpath, const char *newpa
    return rc;
 }
 
-static qserr _std fat_makepath(void *data, const char *path) {
+static qserr _exicc fat_makepath(EXI_DATA, const char *path) {
    FRESULT    res;
    char  *fp, *cp;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
@@ -433,7 +449,7 @@ static qserr _std fat_makepath(void *data, const char *path) {
    return errcvt(res);
 }
 
-static qserr _std fat_diropen(void *data, const char *path, dir_handle_int *pdh) {
+static qserr _exicc fat_diropen(EXI_DATA, const char *path, dir_handle_int *pdh) {
    dir_enum_data  *dd;
    char        *cpath = 0;
    qserr           rc;
@@ -460,23 +476,19 @@ static qserr _std fat_diropen(void *data, const char *path, dir_handle_int *pdh)
    return rc;
 }
 
-static qserr _std fat_dirnext(void *data, dir_handle_int dh, io_direntry_info *de) {
+static qserr _exicc fat_dirnext(EXI_DATA, dir_handle_int dh, io_direntry_info *de) {
    dir_enum_data *dd = (dir_enum_data*)dh;
    FRESULT       res;
    time_t        tmv;
-   char     *nameptr;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (!dd || !de) return E_SYS_ZEROPTR;
    if (dd->sign!=VFATDIR_SIGN) return E_SYS_INVPARM;
 
-   dd->fi.lfname = dd->lfn;
-   dd->fi.lfsize = sizeof(dd->lfn);
-   dd->lfn[0]    = 0;
-
-   res     = f_readdir(&dd->dir,&dd->fi);
-   nameptr = *dd->fi.lfname?dd->fi.lfname:dd->fi.fname;
+   dd->fi.fname[0]   = 0;
+   dd->fi.altname[0] = 0;
+   res        = f_readdir(&dd->dir,&dd->fi);
    // no file or error?
-   if (res!=FR_OK || !*nameptr) {
+   if (res!=FR_OK || !dd->fi.fname[0]) {
       if (res==FR_OK) res=FR_NO_FILE;
       return errcvt(res);
    }
@@ -485,13 +497,13 @@ static qserr _std fat_dirnext(void *data, dir_handle_int dh, io_direntry_info *d
    de->size   = dd->fi.fsize;
    de->dir    = dd->dirname;
 
-   if (*dd->fi.lfname) {
-      strncpy(de->name,dd->fi.lfname,QS_MAXPATH+1);
+   if (dd->fi.fname[0]) {
+      strncpy(de->name, dd->fi.fname, _MAX_LFN + 1);
    } else {
-      strncpy(de->name,dd->fi.fname,13);
+      strncpy(de->name, dd->fi.altname, 13);
       de->name[12] = 0;
    }
-   de->name[QS_MAXPATH] = 0;
+   de->name[_MAX_LFN] = 0;
 
    tmv = dostimetotime((u32t)dd->fi.fdate<<16|dd->fi.ftime);
    io_timetoio(&de->atime, tmv);
@@ -502,7 +514,7 @@ static qserr _std fat_dirnext(void *data, dir_handle_int dh, io_direntry_info *d
    return 0;
 }
 
-static qserr _std fat_dirclose(void *data, dir_handle_int dh) {
+static qserr _exicc fat_dirclose(EXI_DATA, dir_handle_int dh) {
    dir_enum_data *dd = (dir_enum_data*)dh;
    FRESULT       res;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
@@ -516,7 +528,7 @@ static qserr _std fat_dirclose(void *data, dir_handle_int dh) {
    return errcvt(res);
 }
 
-static qserr _std fat_volinfo(void *data, disk_volume_data *info) {
+static qserr _exicc fat_volinfo(EXI_DATA, disk_volume_data *info) {
    FATFS   **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
@@ -544,6 +556,7 @@ static qserr _std fat_volinfo(void *data, disk_volume_data *info) {
             info->FatCopies   = fdta->n_fats;
             info->DataSector  = fdta->database;
             info->FsVer       = fdta->fs_type;
+            info->FSizeLim    = info->FsVer==FST_EXFAT ? fdta->csize*0x7FFFFFFDLL : FFFF;
             // update info to actual one
             if (f_getfree(cp,&nclst,&pfat)==FR_OK) vdta->clfree = nclst;
             if (!vdta->serial) f_getlabel(cp, vdta->label, &vdta->serial);
@@ -555,6 +568,7 @@ static qserr _std fat_volinfo(void *data, disk_volume_data *info) {
             info->RootDirSize = 0;
             info->FatCopies   = 0;
             info->DataSector  = 0;
+            info->FSizeLim    = 0;
          }
          info->ClBad     = vdta->badclus;
          info->SerialNum = vdta->serial;
@@ -570,7 +584,7 @@ static qserr _std fat_volinfo(void *data, disk_volume_data *info) {
    return E_DSK_NOTMOUNTED;
 }
 
-static qserr _std fat_setlabel(void *data, const char *label) {
+static qserr _exicc fat_setlabel(EXI_DATA, const char *label) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
    if (vd->vol>=0) {
@@ -628,7 +642,7 @@ void register_fatio(void) {
    }
    // register private(unnamed) class
    fatio_classid = exi_register(0 /*"qs_common_fatio"*/, methods_list,
-      sizeof(methods_list)/sizeof(void*), sizeof(volume_data),
+      sizeof(methods_list)/sizeof(void*), sizeof(volume_data), 0,
          fat_init, fat_done, 0);
    if (!fatio_classid)
       log_printf("unable to register FAT i/o class!\n");

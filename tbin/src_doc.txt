@@ -34,16 +34,15 @@ Build:
 Source tree:
 
    system\src\hc                 - common include
-   system\src\init                 - QSINIT module (OS2LDR file)
-   system\src\init\hc              - QSINIT include (exports)
+   system\src\init               - QSINIT boot module (OS2LDR file)
+   system\src\ldrefi             - 32-bit part of QSINIT EFI executable
+   tbin\qsinit_efi.zip           - 64-bit part of QSINIT EFI executable
+                                   (requires EFI Toolkit)
 
-   system\src\ldrefi               - 32-bit part of QSINIT EFI executable
-   tbin\qsinit_efi.zip             - 64-bit part of QSINIT EFI executable
-                                     (requires EFI Toolkit)
-
-   system\src\ldrapps            - common QSINIT modules
-   system\src\ldrapps\hc           - headers (exports) of all common modules
-   system\src\ldrapps\runtime      - app/dll startup code and def/lib files
+   system\src\ldrapps            - QSINIT modules
+   system\src\ldrapps\hc           - QSINIT API headers
+   system\src\ldrapps\start        - START module (second part of QSINIT core)
+   system\src\ldrapps\runtime      - app/dll startup code and runtime lib files
    system\src\ldrapps\bootmenu     - boot menu
    system\src\ldrapps\bootos2      - OS/2 kernel loading
    system\src\ldrapps\cache        - disk i/o cache
@@ -53,7 +52,6 @@ Source tree:
    system\src\ldrapps\extcmd       - several large shell commands
    system\src\ldrapps\mtlib        - threads support (still in progress)
    system\src\ldrapps\partmgr      - partition management module
-   system\src\ldrapps\start        - START module (second part of QSINIT core)
    system\src\ldrapps\sysview      - UI app (req. Turbo Vision)
    system\src\ldrapps\tv           - Turbo Vision
    system\src\ldrapps\vdisk        - PAE ram disk support module
@@ -64,6 +62,7 @@ Source tree:
    system\src\usrapps            - additional apps
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
    system\src\usrapps\mptable      - mp table dump app (from bsd)
+   system\src\usrapps\mttest       - example of multithreading API usage
    system\src\usrapps\rdtest       - OS/2 application example of IOCTL
                                      access to PAE RAM disk (speed test app
                                      and read disk to file example)
@@ -85,7 +84,7 @@ Some helpful key combinations for ones, who not read Doxygen doc:
 
    Ctrl-Alt-F3 - shared classes dump
    Ctrl-Alt-F4 - file table dump
-   Ctrl-Alt-F5 - process tree dump
+   Ctrl-Alt-F5 - process tree dump (+ threads in MT mode)
    Ctrl-Alt-F6 - gdt dump
    Ctrl-Alt-F7 - idt dump
    Ctrl-Alt-F8 - page tables dump (very long, in paging mode only / it takes
@@ -94,6 +93,9 @@ Some helpful key combinations for ones, who not read Doxygen doc:
    Ctrl-Alt-F10 - module table dump
    Ctrl-Alt-F11 - system memory table dump
    Ctrl-Alt-F12 - pool block list (very long)
+
+Also, these keys are available in MT mode, when "system idle" thread gets too
+much time (it shows this by sequential ~ characters in serial log).
 
 TRACE command can help in strange situations. It supports tracing of all
 described module`s exports and shared classes. Trace info stored in TRC files

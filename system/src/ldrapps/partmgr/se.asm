@@ -29,12 +29,21 @@
 ;    * can read partition on 2Tb border ;) (i.e. only boot sector must have
 ;      32-bit number)
 ;
-; 3. boot sector: _bsectdb
+; 3. boot sector: _bsectexf
+;    * load exFAT by FAT chains, not contigous files only
+;    * load file to 2000:0, uses 1000:0 for directory and FAT cache
+;    * no fixups in code, but assume 0:7C00 as location
+;    * uses disk number from DL
+;    * able to boot from partition beyond 2Tb border
+;    * boot file size limited to 448k-1 (but no checks via int 12h!)
+;    * ignores "active FAT copy" bit, because FasFs can`t work in two-FAT mode
+;
+; 4. boot sector: _bsectdb
 ;    * print DL from BIOS, disk number and "hidden sectors" from BPB and i13x
 ;      presence flag
 ;    * sector code is short and can be used in MBR too
 ;
-; 4. partition table code for GPT disk: _gptsect
+; 5. partition table code for GPT disk: _gptsect
 ;    * move self to 0:0600
 ;    * panic if no i13x (CHS+GPT makes me ill, sorry)
 ;    * detects sector size via int 13h ah=48h call (to calc number of GPT
@@ -42,16 +51,16 @@
 ;    * assume 32bit sector number for 1st GPT copy
 ;    * get FIRST founded UEFI in MBR as GPT main header
 ;    * searching in GPT records for "BIOS Bootable" attribute bit, gets first
-;      with start sector below 2TB (32bit sector number)
 ;    * checks bytes per sector BPB field and if it 512/1024/2048/4096 - assume
 ;      BPB in boot sector and update "Hidden Sectors" value in it.
 ;    * no fixups in code
 ;
-; tools\bootset.exe compilation assumes FAT sector at 200h and FAT32 at 400h
-; when makes headers with boot sector code.
+; tools\bootset.exe compilation assumes FAT sector at 200h, FAT32 at 400h
+; and 2 exFAT sectors at 600h when makes headers with boot sector code.
 ;
                 include inc/qstypes.inc
                 include inc/parttab.inc
+                include inc/filetab.inc
 
                 NUM_RETRIES  = 4
                 LOC_7C00h    = 7C00h
@@ -734,6 +743,429 @@ endif
                 dw      0AA55h                                  ;
 
 ;================================================================
+; exFAT boot sector
+;================================================================
+
+                public  _bsectexf
+                public  _bsectexf_name
+                public  _exf_bsacount
+@@bt_e_numret   = byte ptr [bp-34]                              ; # of retries
+@@bt_e_wofat    = byte ptr [bp-33]                              ; w/o fat mode (1/0)
+@@bt_e_fatpos   =          [bp-32]                              ;
+@@bt_e_cluspos  =          [bp-28]                              ;
+@@bt_e_fileclus =          [bp-24]                              ;
+@@bt_e_filelen  = word ptr [bp-20]                              ; file len in sectors
+@@bt_e_fnlen    = byte ptr [bp-18]                              ; file name len
+@@bt_e_isfile   = byte ptr [bp-17]
+@@bt_e_heads    = word ptr [bp-16]
+@@bt_e_spt      = word ptr [bp-14]
+@@bt_e_physdisk = byte ptr [bp-12]                              ; disk number from DL
+@@bt_e_i13x     = byte ptr [bp-11]                              ; i13x present?
+@@bt_e_sectsz   = word ptr [bp-10]                              ; sector size in bytes
+@@bt_e_clussz   =          [bp- 8]                              ; cluster size in sectors
+@@bt_e_curclus  = dword ptr [bp- 4]                             ; file cluster
+
+_bsectexf:
+                jmp     @@bt_e_start                            ;
+                nop                                             ;
+                db      'EXFAT   '                              ;
+                db      53 dup (0)                              ;
+                dq      0                                       ; partition pos
+                dq      0                                       ; partition size
+                dd      0                                       ; FAT first sector
+                dd      0                                       ; # of FAT sectors
+                dd      0                                       ; first data sector
+                dd      0                                       ; # of clusters on disk
+                dd      0                                       ; root dir first cluster
+                dd      0                                       ; serial number
+                dw      100h                                    ; version
+                dw      0                                       ; volume state
+                db      9                                       ; sector size bit
+                db      0                                       ; sectors per cluster bit
+                db      1                                       ;
+                db      80h                                     ;
+                db      0                                       ; percentage of allocated space
+                db      6 dup (0)                               ; reseved? (to get EB 76 90 in _bsectexf)
+_exf_bsacount:
+                db      1                                       ; # of additional sectors to read
+@@bt_e_start:
+                mov     bp,LOC_7C00h                            ;
+                xor     eax,eax                                 ;
+                mov     ds,ax                                   ;
+                mov     ss,ax                                   ;
+                mov     sp,bp                                   ;
+                push    eax                                     ; @@bt_e_curclus
+                push    eax                                     ;
+                xor     dh,dh                                   ; @@bt_e_i13x
+                push    edx                                     ;
+                push    eax                                     ;
+                push    eax                                     ;
+                push    eax                                     ; @@bt_e_fileclus
+                push    eax                                     ; @@bt_e_cluspos
+                push    eax                                     ; @@bt_e_fatpos
+                push    ax                                      ;
+
+                mov     dl,@@bt_e_physdisk                      ;
+                mov     ah,41h                                  ;
+                mov     bx,55AAh                                ;
+                int     13h                                     ;
+                jc      @@bt_e_noi13x                           ;
+                cmp     bx,0AA55h                               ;
+                jnz     @@bt_e_noi13x                           ;
+                and     cl,1                                    ;
+                mov     @@bt_e_i13x,cl                          ;
+                jnz     @@bt_e_ldnext                           ;
+@@bt_e_noi13x:
+                mov     dl,@@bt_e_physdisk                      ;
+                mov     ah,8                                    ;
+                int     13h                                     ; no LBA & no CHS?
+                jc      @@bt_e_readerr                          ; -> read error
+                and     cx,3Fh                                  ;
+                mov     @@bt_e_spt,cx                           ;
+                movzx   cx,dh                                   ;
+                inc     cx                                      ;
+                mov     @@bt_e_heads,cx                         ;
+@@bt_e_ldnext:
+                mov     cl,[bp].BR_ExF_SecSize                  ;
+                mov     ax,1                                    ;
+                push    ax                                      ;
+                shl     ax,cl                                   ;
+                mov     @@bt_e_sectsz,ax                        ;
+                pop     ax
+                mov     cl,[bp].BR_ExF_ClusSize                 ;
+                shl     ax,cl                                   ;
+                mov     @@bt_e_clussz,ax                        ;
+
+                mov     di,LOC_7C00h SHR PARASHIFT              ;
+                xor     eax,eax                                 ;
+                inc     al                                      ;
+                movzx   si,byte ptr [bp+(_exf_bsacount - _bsectexf)] ;
+@@bt_e_loadmore:
+                add     di,512 shr PARASHIFT                    ; read sector by sector
+                mov     cx,1                                    ; with 512b offset
+                push    eax                                     ; for case of 1/2/4k
+                call    @@bt_e_read                             ; sector size
+                pop     eax                                     ;
+                inc     eax                                     ; next sector
+                dec     si                                      ;
+                jnz     @@bt_e_loadmore                         ; until end of exf_bsacount
+
+                jmp     _bsectexf_2nd_sector                    ;
+
+@@bt_e_readerr:
+                lea     si,[bp+(@@bt_e_str1 - _bsectexf)]       ;
+                jmp     @@bt_e_msg                              ;
+@@bt_e_exiterr:
+                lea     si,[bp+(@@bt_e_str2 - _bsectexf)]       ;
+@@bt_e_msg:
+                lodsb                                           ;
+                or      al,al                                   ;
+                jz      @@bt_e_err                              ;
+                mov     ah,0Eh                                  ;
+                mov     bx,7                                    ;
+                int     10h                                     ;
+                jmp     @@bt_e_msg                              ;
+@@bt_e_str1:    db      '<disk read error>',0                   ;
+@@bt_e_str2:    db      '<press any key to reboot>',0           ;
+@@bt_e_err:
+                xor     ax,ax                                   ;
+                int     16h                                     ;
+                int     19h                                     ;
+;----------------------------- -----------------------------------
+; read sectors
+; in    : eax - start, cx - count, di - seg to place data
+; save  : si, di, ds, edx
+; return: cx=0, es:bx - offset to the end of data
+@@bt_e_read:
+                mov     es,di                                   ;
+                push    edx                                     ;
+                xor     ebx,ebx                                 ;
+                mov     edx,dword ptr [bp].BR_ExF_VolStart+4    ; we can boot
+                add     eax,dword ptr [bp].BR_ExF_VolStart      ; above 2Tb border!
+                adc     edx,ebx                                 ;
+@@bt_e_sloop:
+                mov     @@bt_e_numret,NUM_RETRIES               ;
+@@bt_e_rloop:
+                pushad                                          ;
+                mov     di,sp                                   ;
+                cmp     @@bt_e_i13x,bl                          ; cmp with 0
+                jz      @@bt_e_no_ext_read                      ;
+                push    edx                                     ;
+                push    eax                                     ; pos to read
+                push    es                                      ; target addr
+                push    bx                                      ;
+                push    1                                       ; # of sectors
+                push    10h                                     ;
+                mov     ah,42h                                  ;
+                mov     si,sp                                   ;
+                jmp     @@bt_e_read_call                        ;
+@@bt_e_read_done:
+                add     bx,@@bt_e_sectsz                        ;
+                jnz     @@bt_e_read_noseg                       ; end of segment?
+                mov     bx,es                                   ;
+                add     bx,1000h                                ;
+                mov     es,bx                                   ;
+                xor     bx,bx                                   ;
+@@bt_e_read_noseg:
+                inc     eax                                     ;
+                jnz     @@bt_e_read_noovf                       ;
+                inc     edx                                     ; 2Tb border inc
+@@bt_e_read_noovf:
+                loop    @@bt_e_sloop                            ;
+                pop     edx                                     ;
+                ret                                             ;
+@@bt_e_no_ext_read:
+                movzx   ecx,@@bt_e_spt                          ;
+                div     ecx                                     ;
+                inc     dl                                      ;
+                mov     cl,dl                                   ;
+                mov     edx,eax                                 ;
+                shr     edx,10h                                 ;
+                div     @@bt_e_heads                            ;
+                xchg    dl,dh                                   ;
+                mov     ch,al                                   ;
+                shl     ah,6                                    ;
+                or      cl,ah                                   ;
+                mov     ax,201h                                 ;
+@@bt_e_read_call:
+                mov     dl,@@bt_e_physdisk                      ;
+                int     13h                                     ;
+                mov     sp,di                                   ;
+                popad                                           ; esp restored here
+                jnc     @@bt_e_read_done                        ;
+@@bt_e_read_err:
+                dec     @@bt_e_numret                           ; # retries
+                jnz     @@bt_e_rloop                            ;
+                jmp     @@bt_e_readerr                          ;
+
+@@bt_e_end:
+bt_e_reserved   equ     510 - (@@bt_e_end - _bsectexf)          ;
+if bt_e_reserved GT 0
+                db      bt_e_reserved dup (0)                   ;
+endif
+                dw      0AA55h                                  ;
+;
+; second sector of exFAT boot code
+;
+_bsectexf_2nd_sector:
+                push    ds                                      ;
+                pop     es                                      ; calc source
+                lea     di,[bp+(_bsectexf_name - _bsectexf)]    ; file name len
+                mov     cx,-1                                   ;
+                xor     al, al                                  ;
+          repne scasb                                           ;
+                not     cl                                      ;
+                dec     cl                                      ;
+                mov     @@bt_e_fnlen,cl                         ;
+
+                mov     eax,[bp].BR_ExF_RootClus                ; 1st cluster
+                mov     @@bt_e_curclus,eax                      ;
+@@bt_e_dirmain:
+                mov     di,FAT_LOAD_SEG + (4096 shr PARASHIFT)  ;
+                mov     cx,1                                    ; read next sector
+                call    @@bt_e_clread                           ; from cluser chain
+                or      cx,cx                                   ;
+                jnz     @@bt_e_exiterr                          ; cx!=0 -> end of dir, exit
+
+                mov     cx,@@bt_e_sectsz                        ;
+                shr     cx,5                                    ;
+                xor     bx,bx                                   ;
+@@bt_e_direnum:
+                push    cx                                      ;
+                mov     al,es:[bx]                              ;
+                or      al,al                                   ; end of dir?
+                jz      @@bt_e_exiterr                          ;
+                cmp     al,085h                                 ;
+                jnz     @@bt_e_direnum_2                        ;
+                test    byte ptr es:[bx+4],10h                  ; is this a dir?
+                setz    @@bt_e_isfile                           ;
+                jmp     @@bt_e_dirnext                          ;
+@@bt_e_direnum_2:
+                test    @@bt_e_isfile,1                         ; checks file only
+                jz      @@bt_e_dirnext                          ;
+                cmp     al,0C0h                                 ;
+                jnz     @@bt_e_direnum_3                        ;
+                mov     al,@@bt_e_fnlen                         ;
+                cmp     es:[bx+3],al                            ; name len match?
+@@bt_e_direnum_mis:
+                setz    @@bt_e_isfile                           ;
+                jnz     @@bt_e_dirnext                          ;
+                xor     eax,eax                                 ;
+                cmp     es:[bx+12],eax                          ;
+                jnz     @@bt_e_direnum_mis                      ;
+                mov     ax,es:[bx+10]                           ;
+                cmp     ax,6                                    ; up to 448k-1!
+                ja      @@bt_e_direnum_mis                      ;
+                mov     eax,es:[bx+8]                           ;
+                movzx   ecx,@@bt_e_sectsz                       ;
+                lea     eax,[eax+ecx-1]                         ; calc file len
+                mov     cl,[bp].BR_ExF_SecSize                  ; in sectors
+                shr     eax,cl                                  ;
+                mov     @@bt_e_filelen,ax                       ;
+                mov     eax,es:[bx+20]                          ; 1st cluster
+                mov     @@bt_e_fileclus,eax                     ;
+                mov     al,2                                    ; no FAT flag
+                and     al,es:[bx+1]                            ;
+                or      @@bt_e_isfile,al                        ;
+                jmp     @@bt_e_dirnext                          ;
+@@bt_e_direnum_3:
+                cmp     al,0C1h                                 ;
+                jnz     @@bt_e_dirnext                          ;
+                movzx   cx,@@bt_e_fnlen                         ;
+                lea     si,[bp+(_bsectexf_name - _bsectexf)]    ; file name len
+                xor     di,di                                   ;
+@@bt_e_direnum_nameloop:
+                inc     di                                      ; compare name
+                lodsb                                           ; (up to 15 chars)
+                inc     di                                      ;
+                mov     dx,es:[bx+di]                           ;
+                or      dh,dh                                   ;
+                jnz     @@bt_e_dirnext                          ;
+                cmp     dl,61h                                  ; 'A'..'Z'
+                jc      @@bt_e_direnum_up                       ;
+                cmp     dl,7Bh                                  ;
+                jnc     @@bt_e_direnum_up                       ;
+                sub     dl,20h                                  ;
+@@bt_e_direnum_up:
+                cmp     al,dl                                   ;
+                jnz     @@bt_e_dirnext                          ;
+                loop    @@bt_e_direnum_nameloop                 ;
+
+; yes! we have file, len in # of sectors & start cluster
+                test    @@bt_e_isfile,2                         ; flag for cluster
+                setnz   @@bt_e_wofat                            ; read
+                mov     eax,@@bt_e_fileclus                     ;
+                mov     @@bt_e_curclus,eax                      ;
+                xor     eax,eax                                 ;
+                mov     @@bt_e_cluspos,eax                      ;
+
+                mov     cx,@@bt_e_filelen                       ;
+                mov     di,BOOT_SEG                             ;
+                push    di                                      ;
+                call    @@bt_e_clread                           ;
+                or      cx,cx                                   ;
+                jnz     @@bt_e_readerr                          ;
+
+                mov     dl,@@bt_e_physdisk                      ;
+                mov     dh,BF_NEWBPB                            ;
+
+                push    (LOC_7E00h+512) shr PARASHIFT           ; 20 bytes behind
+                pop     es                                      ; self 2 sectors
+                lea     si,[bp].BR_ExF_VolStart                 ;
+                mov     di,2                                    ; fill Disk_NewPB
+                mov     cx,8                                    ;
+                cld                                             ;
+            rep movsw                                           ;
+                xor     si,si                                   ;
+                push    es                                      ;
+                pop     ds                                      ;
+                mov     ax,@@bt_e_sectsz                        ;
+                mov     [si],ax                                 ;
+                mov     [si+18],si                              ; NPB_Reserved = 0
+                push    si                                      ;
+                retf                                            ;
+@@bt_e_dirnext:
+                pop     cx                                      ;
+                add     bx,32                                   ;
+                dec     cx                                      ;
+                jnz     @@bt_e_direnum                          ;
+                jmp     @@bt_e_dirmain                          ;
+
+;----------------------------- -----------------------------------
+; read cluster data
+; in    : cx - sector count, di - seg to place data
+; save  : si, ds
+; out   : cx = 0 if ok, else - end of file data (only when FAT chain used)
+@@bt_e_clread:
+                mov     eax,@@bt_e_clussz                       ;
+                mov     edx,@@bt_e_cluspos                      ;
+                sub     eax,edx                                 ; remain in cluster
+                movzx   ecx,cx                                  ;
+                cmp     eax,ecx                                 ;
+                jnc     @@bt_e_clread_fit                       ;
+                sub     cx,ax                                   ;
+                push    cx                                      ;
+                mov     cx,ax                                   ;
+                jcxz    @@bt_e_clread_eoclus                    ; already the end?
+                jmp     @@bt_e_clread_loop                      ;
+@@bt_e_clread_fit:
+                push    0                                       ;
+@@bt_e_clread_loop:
+                lea     ebx,[edx+ecx]                           ;
+                mov     @@bt_e_cluspos,ebx                      ;
+                mov     bx,cx                                   ;
+                push    cx                                      ;
+                mov     cl,[bp].BR_ExF_SecSize                  ;
+                sub     cl,PARASHIFT                            ;
+                shl     bx,cl                                   ;
+                pop     cx                                      ;
+                add     bx,di                                   ;
+                push    bx                                      ; seg for next cluster
+                push    cx                                      ;
+                mov     eax,@@bt_e_curclus                      ;
+                sub     eax,2                                   ;
+                mov     cl,[bp].BR_ExF_ClusSize                 ;
+                shl     eax,cl                                  ;
+                add     eax,edx                                 ;
+                add     eax,[bp].BR_ExF_DataPos                 ;
+                pop     cx                                      ;
+                call    @@bt_e_read                             ;
+                pop     di                                      ;
+@@bt_e_clread_eoclus:
+                pop     cx                                      ;
+                jcxz    @@bt_e_clread_done                      ;
+@@bt_e_clread_nextclus:
+; seek to next cluster
+                xor     eax,eax                                 ;
+                mov     @@bt_e_cluspos,eax                      ;
+                test    @@bt_e_wofat,1                          ;
+                jz      @@bt_e_ncl_readfat                      ;
+                inc     @@bt_e_curclus                          ;
+                jmp     @@bt_e_clread                           ;
+@@bt_e_clread_done:
+                ret                                             ;
+@@bt_e_ncl_readfat:
+                push    cx                                      ;
+                mov     eax,@@bt_e_curclus                      ;
+                shl     eax,2                                   ;
+                xor     edx,edx                                 ;
+                movzx   ecx,@@bt_e_sectsz                       ;
+                div     ecx                                     ;
+
+                push    dx                                      ;
+                mov     edx,[bp].BR_ExF_FATPos                  ; add it here to prevent
+                add     eax,edx                                 ; 0 in @@bt_e_fatpos
+                push    FAT_LOAD_SEG                            ;
+                pop     es                                      ;
+                cmp     eax,@@bt_e_fatpos                       ;
+                jz      @@bt_e_ncl_fatready                     ;
+                mov     @@bt_e_fatpos,eax                       ;
+                mov     cx,1                                    ;
+                push    di                                      ;
+                mov     di,es                                   ;
+                call    @@bt_e_read                             ;
+                pop     di                                      ;
+@@bt_e_ncl_fatready:
+                pop     bx                                      ;
+                mov     edx,es:[bx]                             ;
+                mov     @@bt_e_curclus,edx                      ;
+                or      edx,edx                                 ; small check
+                jz      @@bt_e_readerr                          ;
+                add     edx,9                                   ; should be < FFFFFFF7
+                pop     cx                                      ;
+                jc      @@bt_e_clread_done                      ; cx = unreaded # of sectors
+                jmp     @@bt_e_clread                           ;
+
+_bsectexf_name:
+                db      'QSINIT',0,0,0,0,0,0,0,0,0,0            ; 15 chars + 0
+@@bt_e2_end:
+bt_e2_reserved  equ     510 - (@@bt_e2_end - _bsectexf_2nd_sector) ;
+if bt_e2_reserved GT 0
+                db      bt_e2_reserved dup (0)                  ;
+endif
+                dw      0AA55h                                  ;
+
+;================================================================
 ; debug boot sector (for printing only)
 ;================================================================
 
@@ -958,10 +1390,8 @@ _gptsect:
                 mov     cx,@@pt_g_rps                           ; recs per sector
                 mov     di,bp                                   ;
 @@pt_g_checkloop:
-                xor     ebx,ebx                                 ;
-                cmp     dword ptr [di].PTG_FirstSec + 4,ebx     ; above 2TB? skip it!
-                jnz     @@pt_g_checknext                        ;
-                or      ebx,dword ptr [di].PTG_FirstSec         ; zero? skip it too
+                mov     ebx,dword ptr [di].PTG_FirstSec + 4     ;
+                or      ebx,dword ptr [di].PTG_FirstSec         ; zero? skip it
                 jz      @@pt_g_checknext                        ;
 
                 test    byte ptr [di].PTG_Attrs, 1 shl GPTATTR_BIOSBOOT
@@ -975,11 +1405,14 @@ _gptsect:
                 jnz     @@pt_g_ptloop                           ;
                 jmp     @@pt_g_missing                          ;
 @@pt_g_goboot:
-                mov     eax,ebx                                 ; read boot sector
-                call    @@pt_g_read                             ;
-                movzx   dx,@@pt_g_disknum                       ;
+                mov     edx,dword ptr [di].PTG_FirstSec + 4     ; read boot sector
+                mov     eax,dword ptr [di].PTG_FirstSec         ;
+                call    @@pt_g_read_q                           ;
                 cmp     word ptr [bp+510],0AA55h                ;
                 jnz     @@pt_g_missing                          ;
+                or      edx,edx                                 ; start above 2Tb?
+                movzx   dx,@@pt_g_disknum                       ; then skip BPB check
+                jnz     @@pt_g_notbpb                           ;
                 bsr     ax,[bp].Boot_Record.BR_BPB.BPB_BytePerSect ; check bps
                 bsf     cx,[bp].Boot_Record.BR_BPB.BPB_BytePerSect ; is it 1 bit
                 cmp     ax,cx                                   ; in range 512..4096?
@@ -994,17 +1427,18 @@ _gptsect:
 
 ;----------------------------------------------------------------
 ; read sector
-; in    : eax - sector
+; in    : eax - sector  [edx - high dword]
 ; return: save all except cx, cx = 0
 @@pt_g_read:
+                xor     edx,edx                                 ;
+@@pt_g_read_q:
                 mov     cx,NUM_RETRIES                          ;
 @@pt_g_rloop:
                 pushad                                          ;
                 mov     di,sp                                   ;
-                xor     edx,edx                                 ;
                 push    edx                                     ;
                 push    eax                                     ; pos to read
-                push    dx                                      ; target addr
+                push    0                                       ; target addr
                 push    bp                                      ;
                 push    1                                       ; # of sectors
                 push    10h                                     ;
@@ -1055,6 +1489,7 @@ pt_g_reserved   equ     size MBR_Code - (_gptsect_end - _gptsect)
                 dw      0                                       ;
                 db      4 * size MBR_Record dup (0)             ;
                 dw      0AA55h                                  ;
+
 
 PARTMGR_CODE    ends
                 end

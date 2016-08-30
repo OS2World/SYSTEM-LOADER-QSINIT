@@ -47,6 +47,11 @@ CallF16         macro   callseg,callofs                         ;
                 dw      callseg                                 ;
                 endm                                            ;
 ;----------------------------------------------------------------
+CallF16f        macro   func                                    ; far func
+                db      9Ah                                     ;
+                dd      func                                    ;
+                endm                                            ;
+;----------------------------------------------------------------
 CallF32         macro   callseg,callofs                         ;
                 db      9Ah                                     ;
                 dd      offset callofs                          ;

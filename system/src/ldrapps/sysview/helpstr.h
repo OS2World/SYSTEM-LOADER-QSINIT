@@ -123,7 +123,10 @@ const char *Hints[131]= {
   "Select target partition",
   "",
   "Select codepage for file i/o and HPFS format",
-  "", "", "", "",
+  "Change default file name of boot loader file",
+  "Put QSINIT binaries to the root (FAT volumes only)",
+  "Update boot code on partition",
+  "Put QSINIT binaries and update partition bootstrap for it",
   ""
   };
 

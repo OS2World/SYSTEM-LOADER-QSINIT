@@ -33,6 +33,9 @@ protected:
    u32t           disks;
    u32t        cur_disk;
    int         cur_part;
+   // other types should be inserted after JFS!
+   typedef enum { FAT12, FAT16, FAT32, FAT64, HPFS, JFS, UNKFS } knowntype;
+
 #ifdef __QSINIT__
    struct diskdata {
       dsk_mapblock    *mb;
@@ -43,17 +46,20 @@ protected:
       u32t            spt;
       u32t        lvminfo;
       u32t        scan_rc;
+      knowntype   *fstype;
       char        *fsname;
       char       *lvmname;
       u8t          *in_bm;
       int          is_gpt;  // dsk_isgpt() value
       int         ramdisk;  // emulated disk
       dsk_gptpartinfo *gp;  // non-zero on GPT disk only
+      TCollection *bsdata;  // boot sectors
    };
    diskdata       *ddta;
 #endif
    virtual void FocusToDisk(u32t disk);
    virtual void FreeDiskData();
+   virtual void FreeDiskData(u32t disk);
    virtual void UpdatePartList();
    virtual void UpdateAll(Boolean rescan = False);
    // current disk changed as result of handleEvent()
@@ -86,7 +92,8 @@ class TDMgrDialog : public TWalkDiskDialog {
           actd_restvhdd, actd_updlvm, actd_savevhdd, actd_wipe, actd_writelvm,
           actp_first, actp_boot, actp_delete, actp_format, actp_active,
           actp_mount, actp_unmount, actp_letter, actp_rename, actp_clone,
-          actp_makelp, actp_makepp, actp_setgptt, actp_view
+          actp_makelp, actp_makepp, actp_setgptt, actp_view, actp_goto,
+          actp_bootcode, actp_inst, actp_dirty
         } action;
 
    virtual void FreeDiskData();
@@ -95,10 +102,11 @@ class TDMgrDialog : public TWalkDiskDialog {
    void UpdateActionList(Boolean empty);
    void AddAction(TCollection *list, u8t action);
    void RunCommand(const char *cmd, const char *args);
+   int  SectorSelGoto(void);
 protected:
    virtual void UpdateAll(Boolean rescan = False);
 public:
-   TDMgrDialog(int largeBox = 0);
+   TDMgrDialog();
    ~TDMgrDialog();
    virtual void handleEvent( TEvent& );
    virtual Boolean valid( ushort );

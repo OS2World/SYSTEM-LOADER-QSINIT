@@ -228,7 +228,7 @@ public:
   }
 #ifndef NO_LOADSAVESTRINGS
   Bool LoadFromFile(const char*, Bool is_csv=false);
-  Bool SaveToFile(const char*, Bool unixmode=false);
+  Bool SaveToFile(const char*, Bool unixmode=false) const;
 #endif
 
   Bool IsMember(const spstr str) { return Str.IndexOf(str)>=0; }
@@ -1048,7 +1048,7 @@ Bool Strings<L>::LoadFromFile(const char *FName,Bool is_csv) {
 }
 
 template <class L>
-Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) {
+Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) const {
   d rf=fOpen(FName,"wbd+s+");
   Bool res=false;
   if (rf) {
@@ -1076,7 +1076,7 @@ Bool Strings<L>::LoadFromFile(const char *FName,Bool is_csv) {
 }
 
 template <class L>
-Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) {
+Bool Strings<L>::SaveToFile(const char *FName, Bool unixmode) const {
   FILE *rf=fopen(FName,"wb");
   Bool res=false;
   if (rf) {

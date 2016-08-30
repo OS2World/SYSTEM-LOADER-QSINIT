@@ -2,14 +2,12 @@
 // QSINIT "vmtrr" module
 //
 #include "stdlib.h"
-#include "qsshell.h"
-#include "qsutil.h"
+#include "qsbase.h"
 #include "stdarg.h"
 #include "memmgr.h"
 #include "opt.h"
 #include "console.h"
 #include "pci.h"
-#include "qsstor.h"
 #include "qsint.h"
 #include "qsmodext.h"
 
@@ -234,7 +232,7 @@ int main(int argc,char *argv[]) {
    if ((state&MTRRS_MTRRON)!=0) hlp_mtrrstate(state|MTRRS_NOCALBRT);
 
    // do not print success result if called from start.cmd ("QSINIT" module parent)
-   if (mod_appname(modname,1) && stricmp(modname, MODNAME_QSINIT)!=0) {
+   if (mod_appname(modname,1) && stricmp(modname, MODNAME_QSINIT)) {
       printf("WC enabled for range %010LX..%010LX", wc_addr, wc_addr+wc_len-1);
       if (method) {
          printf(" (%04X:%04X on %d.%d.%d)\n", vcard.vendorid, vcard.deviceid,

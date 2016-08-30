@@ -23,7 +23,10 @@ extern char   bsect16[512],    ///< VBR code
               bsectdb[512];
 extern char   hpfs_bsect[],    ///< HPFS partition boot sector + micro-FSD code
            hpfs_bsname[16];
-extern u32t   hpfs_bscount;    ///< number of sectors in array above
+extern char     bsectexf[],
+         bsectexf_name[16];
+extern u32t   hpfs_bscount;    ///< # of sectors in array above
+extern u8t    exf_bsacount;    ///< # of addtional sectors in exFAT array
 
 int _std dsk_newmbr(u32t disk, u32t flags) {
    char   mbr_buffer[MAX_SECTOR_SIZE];
@@ -113,6 +116,8 @@ int dsk_wipevbs(u32t disk, u64t sector) {
       else
       if (st==DSKST_BOOTFAT || st==DSKST_BOOTBPB)
          memset(&br->BR_EBPB.EBPB_FSType, 0, 8);
+      // clear OEM (NTFS, EXFAT strings)
+      memset(&br->BR_OEM, 0, 8);
       // write it back
       rc = hlp_diskwrite(disk, sector, 1, br);
    } while (false);
@@ -172,10 +177,6 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
       int ii;
       u8t type = dsk_ptquery64(disk, index, &start, 0, 0, 0);
       if (!type || IS_EXTENDED(type)) return EINVAL;
-      /* allow boot on 2Tb border, only 1st sector must be below.
-         At least our`s FAT32 & HPFS boot code can do this */
-      if (start >= _4GBLL) return EFBIG;
-
       // query current disk access mode
       dmode = hlp_diskmode(disk,HDM_QUERY);
       if ((dmode&HDM_EMULATED)!=0) return ENOTBLK;
@@ -191,6 +192,11 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
 
       if (bstype==DSKST_ERROR) return EIO;
       if (bstype==DSKST_EMPTY) return ENODEV;
+      /* allow boot on 2Tb border, only 1st sector must be below.
+         At least our`s FAT32 & HPFS boot code can do this.
+         For exFAT - allow to boot everywhere, it has 64-bit volume
+         position field in own BPB */
+      if (start>=_4GBLL && bstype!=DSKST_BOOTEXF) return EFBIG;
       // query volume letter from DLAT data
       if (!letter) {
          lvm_partition_data info;
@@ -216,10 +222,14 @@ int _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector) {
                   else br->BR_EBPB.EBPB_Dirty = 0;
             }
          }
+      } else
+      if (bstype==DSKST_BOOTEXF) {
+         struct Boot_RecExFAT *bre = (struct Boot_RecExFAT *)&vbr_buffer;
+         bre->BR_ExF_VolStart = start;
+         bre->BR_ExF_PhysDisk = disk + 0x80;
       }
-      log_printf("VBR boot: disk %02X, sector %08LX, letter %c, %s, %02X\n", disk,
-         start, letter?letter:'-', dmode&HDM_USELBA?"lba":"chs",
-            br->BR_EBPB.EBPB_Dirty);
+      log_printf("VBR boot: disk %02X, sector %08LX, letter %c, %s\n", disk,
+         start, letter?letter:'-', dmode&HDM_USELBA?"lba":"chs");
 
       // write I13X for IBM boot sectors
       if (dmode&HDM_USELBA) {
@@ -259,14 +269,16 @@ u32t _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0) {
       do {
          if (mbr->MBR_Signature==0xAA55) {
             u16t bps  = btw->BR_BPB.BPB_BytePerSect;
-            int  boot = 0, pt = 0, fat = 0, ii, bpb = 0;
+            int  boot = 0, pt = 0, fat = 0, ii, bpb = 0, exf = 0;
             // byte per sector valid?
             if (bps == 512 || bps == 1024 || bps == 2048 || bps == 4096) { boot++; bpb++; }
             // is FAT boot record
             if (strncmp(btw->BR_BPB.BPB_RootEntries==0?btd->BR_F32_EBPB.EBPB_FSType:
                btw->BR_EBPB.EBPB_FSType,"FAT",3)==0) { boot+=2; fat++; }
-            if (strnicmp(btw->BR_OEM,"NTFS",4)==0 || strnicmp(btw->BR_OEM,"EXFAT",5)==0)
-               boot+=100;
+            // NTFS?
+            if (strnicmp(btw->BR_OEM,"NTFS",4)==0) boot+=100; else
+            // exFAT?
+            if (strnicmp(btw->BR_OEM,"EXFAT",5)==0) { boot+=100; exf = 1; }
             // HDD sector 0
             if (is0 && (disk&(QDSK_FLOPPY|QDSK_VOLUME))==0) pt++;
             // boot partition
@@ -282,6 +294,7 @@ u32t _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0) {
             }
             if (pt>boot) { rc = DSKST_PTABLE; break; }
             if (fat)     { rc = DSKST_BOOTFAT; break; }
+            if (exf)     { rc = DSKST_BOOTEXF; break; }
             rc = bpb?DSKST_BOOTBPB:DSKST_BOOT;
          } else {
             struct Disk_GPT *pt = (struct Disk_GPT *)sectordata;
@@ -319,21 +332,23 @@ u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
    char   bfname[16], fsname[10];
    u32t   current, curst;
 
-   if (type>DSKBS_DEBUG) return DFME_INTERNAL;
-   if (type==DSKBS_DEBUG) return dsk_debugvbr(disk, sector)?0:DFME_IOERR;
+   if (type>DSKBS_EXFAT) return DFME_INTERNAL;
+   if (type==DSKBS_DEBUG) return dsk_debugvbr(disk,sector)?0:DFME_IOERR;
 
    memset(sbuf, 0, sizeof(sbuf));
    curst = dsk_ptqueryfs(disk, sector, fsname, sbuf);
    // i/o error?
    if (curst==DSKST_ERROR) return DFME_IOERR;
    // check for BPB presence
-   if (curst!=DSKST_BOOTFAT && curst!=DSKST_BOOTBPB) return DFME_UNKFS;
+   if (curst!=DSKST_BOOTFAT && curst!=DSKST_BOOTEXF && curst!=DSKST_BOOTBPB)
+      return DFME_UNKFS;
    // discover current file system type
    if ((disk&QDSK_VOLUME)!=0) {
       switch (hlp_volinfo(disk&~QDSK_VOLUME,0)) {
          case FST_FAT12:
          case FST_FAT16: current = DSKBS_FAT16; break;
          case FST_FAT32: current = DSKBS_FAT32; break;
+         case FST_EXFAT: current = DSKBS_EXFAT; break;
          case FST_NOTMOUNTED:
             if (strcmp(fsname,"HPFS")) return DFME_UNKFS;
             current = DSKBS_HPFS;
@@ -344,8 +359,10 @@ u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
    } else {
       if (curst==DSKST_BOOTFAT)
          current = btw->BR_BPB.BPB_RootEntries==0?DSKBS_FAT32:DSKBS_FAT16; else
-      if (strcmp(bfname,"HPFS")==0) current = DSKBS_HPFS;
+      if (curst==DSKST_BOOTEXF) current = DSKBS_EXFAT; else
+      if (strcmp(fsname,"HPFS")==0) current = DSKBS_HPFS;
          else return DFME_UNKFS;
+      // get sector size
    }
 
    if (type==DSKBS_AUTO) type = current; else
@@ -354,12 +371,14 @@ u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
    bfname[0]=0;
    if (name&&*name) {
       int ii;
-      if (type==DSKBS_HPFS) {
+      if (type==DSKBS_HPFS || type==DSKBS_EXFAT) {
+         if (strlen(name)>15) return DFME_CNAMELEN;
          for (ii=0; name[ii]&&ii<15; ii++) bfname[ii] = toupper(name[ii]);
-         for (; ii<15; ii++) bfname[ii]=0;
+         for (; ii<16; ii++) bfname[ii]=0;
       } else {
+         if (strlen(name)>11) return DFME_CNAMELEN;
          for (ii=0; name[ii]&&ii<11; ii++) bfname[ii] = toupper(name[ii]);
-         for (; ii<11; ii++) bfname[ii]=' ';
+         for (; ii<11; ii++) bfname[ii]=' '; bfname[12]=0;
       }
    }
    log_printf("Write VBR: disk %02X, %s %s\n", disk, fsname, bfname);
@@ -392,8 +411,8 @@ u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
 
       /* Boot Manager saves or checks OEM signature and unable to find volume
          if it was changed, so leave it untouched */
-      memcpy(btw,hpfs_bsect,3);
-      memcpy(btw+1,sbth+1,512-sizeof(struct Boot_Record));
+      memcpy(btw, hpfs_bsect, 3);
+      memcpy(btw+1, sbth+1, 512-sizeof(struct Boot_Record));
       // copy custom boot name
       if (bfname[0])
          memcpy(sbuf+((u32t)&hpfs_bsname - (u32t)&hpfs_bsect), bfname, 15);
@@ -406,7 +425,34 @@ u32t _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
       if (HPFSSEC_SUPERB-hpfs_bscount>0)
          dsk_emptysector(disk, sector+hpfs_bscount, HPFSSEC_SUPERB-hpfs_bscount);
       return 0;
+   } else
+   if (type==DSKBS_EXFAT) {
+      u32t sectsize = dsk_sectorsize(disk), ii;
+      u8t   *exfbuf = (u8t*)calloc(exf_bsacount+1, sectsize);
+      struct Boot_RecExFAT *sbte = (struct Boot_RecExFAT *)&bsectexf,
+                            *bte = (struct Boot_RecExFAT *)exfbuf;
+      if (!exfbuf) return DFME_NOMEM;
+      memcpy(bte, btw, sizeof(struct Boot_RecExFAT));
+      memcpy(bte, sbte, 3);
+      memcpy(bte+1, sbte+1, 512-sizeof(struct Boot_RecExFAT));
+
+      if (exf_bsacount)
+         for (ii=1; ii<=exf_bsacount; ii++)
+            memcpy(exfbuf+sectsize*ii, (u8t*)sbte+512*ii, 512);
+      // copy custom boot name
+      if (bfname[0]) {
+         u32t nameofs = (u32t)&bsectexf_name - (u32t)&bsectexf;
+         // fix offset in target buffer
+         if (nameofs>512 && sectsize>512)
+            nameofs = (nameofs>>9)*sectsize + (nameofs&511);
+         memcpy(exfbuf+nameofs, bfname, 15);
+      }
+      // update boot record & check sums
+      ii = exf_updatevbr(disk, sector, exfbuf, 1+exf_bsacount, 1);
+      free(exfbuf);
+      return ii?0:DFME_IOERR;
    }
+
    return DFME_UNKFS;
 }
 
@@ -423,22 +469,29 @@ int _std vol_dirty(u8t vol, int on) {
    // i/o error?
    if (bs==DSKST_ERROR) return -DFME_IOERR;
    // check for BPB presence
-   if (bs!=DSKST_BOOTFAT && bs!=DSKST_BOOTBPB) return -DFME_UNKFS;
+   if (bs!=DSKST_BOOTFAT && bs!=DSKST_BOOTBPB && bs!=DSKST_BOOTEXF) return -DFME_UNKFS;
    // discover current file system type
    switch (hlp_volinfo(vol,0)) {
       case FST_FAT12:
       case FST_FAT16:
          state = btw->BR_EBPB.EBPB_Dirty & 1;
          if (on>=0)
-           if (on>0) btw->BR_EBPB.EBPB_Dirty|=1; else
-              btw->BR_EBPB.EBPB_Dirty&=~1;
+            if (on>0) btw->BR_EBPB.EBPB_Dirty|=1; else
+               btw->BR_EBPB.EBPB_Dirty&=~1;
          break;
       case FST_FAT32: {
          struct Boot_RecordF32 *btd = (struct Boot_RecordF32 *)&sbuf;
          state = btd->BR_F32_EBPB.EBPB_Dirty & 1;
          if (on>=0)
-           if (on>0) btd->BR_F32_EBPB.EBPB_Dirty|=1; else
-              btd->BR_F32_EBPB.EBPB_Dirty&=~1;
+            if (on>0) btd->BR_F32_EBPB.EBPB_Dirty|=1; else
+               btd->BR_F32_EBPB.EBPB_Dirty&=~1;
+         break;
+      }
+      case FST_EXFAT: {
+         struct Boot_RecExFAT *bre = (struct Boot_RecExFAT *)&sbuf;
+         state = bre->BR_ExF_State&2?1:0;
+         if (on>=0)
+            if (on>0) bre->BR_ExF_State|=2; else bre->BR_ExF_State&=~2;
          break;
       }
       case FST_NOTMOUNTED:
@@ -463,7 +516,7 @@ int _std vol_dirty(u8t vol, int on) {
     @param disk     disk number
     @param sector   sector number
     @return boolean (success flag) */
-int _std dsk_debugvbr(u32t disk, u32t sector) {
+int _std dsk_debugvbr(u32t disk, u64t sector) {
    u8t    sbuf[MAX_SECTOR_SIZE];
    struct Boot_Record *btw = (struct Boot_Record *)&sbuf;
    char   bfname[12];
@@ -475,11 +528,18 @@ int _std dsk_debugvbr(u32t disk, u32t sector) {
       struct Boot_RecordF32 *sbtd = (struct Boot_RecordF32 *)&bsectdb,
                              *btd = (struct Boot_RecordF32 *)&sbuf;
       struct Disk_MBR       *mbrd = (struct Disk_MBR *)&sbuf;
-
+      u32t               sectsize;
+      // get sector size
+      hlp_disksize(disk, &sectsize, 0);
+      // deny exFAT! (we will overwrite it superblock)
+      if (dsk_datatype(sbuf, sectsize, disk, sector==0)==DSKST_BOOTEXF) {
+         log_printf("exFAT can`t fit debug VBR!\n");
+         return 0;
+      }
       log_printf("Write debug VBR: disk %02X\n", disk);
 
-      memcpy(btd,bsectdb,11);
-      memcpy(btd+1,sbtd+1,sizeof(mbrd->MBR_Code)-sizeof(struct Boot_RecordF32));
+      memcpy(btd, bsectdb, 11);
+      memcpy(btd+1, sbtd+1, sizeof(mbrd->MBR_Code)-sizeof(struct Boot_RecordF32));
 
       return hlp_diskwrite(disk, sector, 1, sbuf);
    }
@@ -487,13 +547,55 @@ int _std dsk_debugvbr(u32t disk, u32t sector) {
    return 0;
 }
 
+int exf_updatevbr(u32t disk, u64t sector, void *data, u32t nsec, u32t zerorem) {
+   u32t sectsize = dsk_sectorsize(disk),
+        secshift = bsf32(sectsize), ii, sum;
+   u8t       *sb = (u8t*)calloc(12,sectsize);
+
+   if (!nsec || nsec>11) return 0;
+   /* force 55AA at the end of sectors 0..8. This required for secondary sectors,
+      but with sector > 512b can be useful for boot record too */
+   for (ii=0; ii<nsec; ii++) {
+      memcpy(sb + (ii<<secshift), (u8t*)data + (ii<<secshift), sectsize);
+      *(u16t*)(sb+(ii+1<<secshift)-2) = 0xAA55;
+   }
+   // get/create remain sectors
+   if (nsec<11) {
+      u32t fbofs = nsec<<secshift;
+      if (zerorem) {
+         // set 55AA to bootstrap sectors
+         if (nsec<9)
+            for (ii=0; ii<9-nsec; ii++)
+               *(u16t*)(sb+(ii+1<<secshift)-2+fbofs) = 0xAA55;
+      } else
+         if (hlp_diskread(disk, sector+nsec, 11-nsec, sb+fbofs) != 11-nsec)
+            { free(sb); return 0; }
+   }
+   for (ii = 0, sum = 0; ii<sectsize; ii++)
+      if (ii!=offsetof(struct Boot_RecExFAT,BR_ExF_State) &&
+         ii!=offsetof(struct Boot_RecExFAT,BR_ExF_State)+1 &&
+            ii!=offsetof(struct Boot_RecExFAT,BR_ExF_UsedSpc))
+               sum = exf_sum(sb[ii], sum);
+   for (; ii<11<<secshift; ii++) sum = exf_sum(sb[ii], sum);
+   // fill crc sector
+   memsetd((u32t*)(sb+(11<<secshift)), sum, sectsize>>2);
+
+   ii = hlp_diskwrite(disk, sector, 12, sb)==12 && 
+        hlp_diskwrite(disk, sector+12, 12, sb)==12 ? 1 : 0;
+   free(sb);
+   return ii;
+}
+
+
 int dsk_printbpb(u32t disk, u64t sector) {
    u8t    sbuf[MAX_SECTOR_SIZE];
    struct Boot_Record    *br   = (struct Boot_Record*)   &sbuf;
    struct Boot_RecordF32 *br32 = (struct Boot_RecordF32*)&sbuf;
-   int           IsFAT32 = 0, IsLong = 0;
-   u32t       SectPerFat;
+   struct Boot_RecExFAT  *bre  = (struct Boot_RecExFAT*) &sbuf;
+   int           IsFAT32 = 0, IsNTFS = 0, IsExF = 0;
+   u32t       SectPerFat, n_res = 0;
    char           fstype[9];
+   u16t            v_bps = 0, v_spc = 0, n_fat = 0;
 
    memset(sbuf, 0, sizeof(sbuf));
    if (!hlp_diskread(disk, sector, 1, sbuf)) return EIO;
@@ -506,22 +608,39 @@ int dsk_printbpb(u32t disk, u64t sector) {
       strncpy(fstype,(char*)&br->BR_EBPB.EBPB_FSType,8);
       if (!*fstype) {
          if (strncmp(br->BR_OEM,"NTFS",4)==0)
-            { strcpy(fstype,"NTFS"); IsLong = 1; } else
-         if (strnicmp(br->BR_OEM,"EXFAT",5)==0)
-            { strcpy(fstype,"exFAT"); IsLong = 1; }
+            { strcpy(fstype,"NTFS"); IsNTFS = 1; } else
+         if (strnicmp(br->BR_OEM,"EXFAT",5)==0) {
+            strcpy(fstype,"exFAT");
+            IsExF = 1;
+            v_bps = 1<<bre->BR_ExF_SecSize;
+            v_spc = 1<<bre->BR_ExF_ClusSize;
+            n_fat = bre->BR_ExF_FATCnt;
+            n_res = bre->BR_ExF_FATPos<bre->BR_ExF_DataPos?bre->BR_ExF_FATPos:bre->BR_ExF_DataPos;
+         }
       }
       SectPerFat = br->BR_BPB.BPB_SecPerFAT;
    }
+   if (!v_bps) v_bps = br->BR_BPB.BPB_BytePerSect;
+   if (!v_spc) v_spc = br->BR_BPB.BPB_SecPerClus;
+   if (!n_fat) n_fat = br->BR_BPB.BPB_FATCopies;
+   if (!n_res) n_res = br->BR_BPB.BPB_ResSectors;
    fstype[8] = 0;
    // init pager
    cmd_printseq(0,1,0);
    // print it!
    if (shellprn("Volume type: %s", fstype) || shellprt("Volume BPB:") ||
       shellprn("    Bytes Per Sector      %5d         Sect Per Cluster      %5d",
-         br->BR_BPB.BPB_BytePerSect, br->BR_BPB.BPB_SecPerClus) ||
+         v_bps, v_spc) ||
       shellprn("    Res Sectors           %5d         FAT Copies            %5d",
-         br->BR_BPB.BPB_ResSectors, br->BR_BPB.BPB_FATCopies) ||
-      shellprn("    Root Entries          %5d         Total Sectors         %5d",
+         n_res, n_fat)) return EINTR;
+   if (IsExF) {
+      if (shellprn("    Total Clusters     %08X         Sect Per FAT      %9d",
+            bre->BR_ExF_NumClus, bre->BR_ExF_FATSize) ||
+         shellprn("    First Sector   %012LX", bre->BR_ExF_VolStart) ||
+         shellprn("    Total Sectors  %012LX", bre->BR_ExF_VolSize))
+            return EINTR;
+   } else
+   if (shellprn("    Root Entries          %5d         Total Sectors         %5d",
          br->BR_BPB.BPB_RootEntries, br->BR_BPB.BPB_TotalSec) ||
       shellprn("    Media Byte               %02X         Sect Per FAT       %8d",
          br->BR_BPB.BPB_MediaByte, SectPerFat) ||
@@ -529,7 +648,7 @@ int dsk_printbpb(u32t disk, u64t sector) {
          br->BR_BPB.BPB_SecPerTrack, br->BR_BPB.BPB_Heads) ||
       shellprn("    Hidden Sectors     %08X         Total Sectors (L)  %08X",
          br->BR_BPB.BPB_HiddenSec, br->BR_BPB.BPB_TotalSecBig) ||
-      IsLong && shellprn("    Total Sectors (Q)  %012LX",
+      IsNTFS && shellprn("    Total Sectors (Q)  %012LX",
          ((struct Boot_RecordNT*)br)->BR_NT_TotalSec))
       return EINTR;
    return 0;

@@ -1,11 +1,10 @@
 #include "qstypes.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsutil.h"
 #include "qsint.h"
 #include "clib.h"
 #include "vio.h"
-#include "../ldrapps/hc/qssys.h"
+#include "qssys.h"
 
 #define TEXTMEM_SEG  0xB800
 extern u64t          countsIn55ms,
@@ -78,14 +77,18 @@ u8t _std vio_beepactive(void) {
 }
 
 void _std key_speed(u8t rate, u8t delay) {
+   mt_swlock();
    _rate  = rate  &= 0x1F;
    _delay = delay &= 3;
    rmcall(setkeymode,2,(u32t)delay<<8|rate);
+   mt_swunlock();
 }
 
 void _std key_getspeed(u8t *rate, u8t *delay) {
+   mt_swlock();
    if (delay) *delay = _delay;
    if (rate )  *rate = _rate;
+   mt_swunlock();
 }
 
 void _std vio_getmodefast(u32t *cols, u32t *lines) {

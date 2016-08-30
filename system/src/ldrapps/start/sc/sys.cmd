@@ -26,7 +26,7 @@ attrib +r +s +h %1\QSINIT.LDI
 rem delete IBM`s OS2BOOT if exist (it not required)
 if not exist %1\OS2BOOT goto ready
 attrib -r -s -h %1\OS2BOOT
-del /qn %1\OS2BOOT
+del /qn /af %1\OS2BOOT
 :ready
 echo Boot files ready!
 :fini

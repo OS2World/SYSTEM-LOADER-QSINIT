@@ -35,12 +35,13 @@ typedef struct {
 static AliasInfo h1_route = {ALIAS_SIGN, RTBUF_STDIN},
                  h2_route = {ALIAS_SIGN, RTBUF_STDOUT},
                  h3_route = {ALIAS_SIGN, RTBUF_STDERR},
-                 h4_route = {ALIAS_SIGN, RTBUF_STDAUX};
+                 h4_route = {ALIAS_SIGN, RTBUF_STDAUX},
+                 h5_route = {ALIAS_SIGN, RTBUF_STDNUL};
 
-FILE *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0;
+FILE *stdin = 0, *stdout = 0, *stderr = 0, *stdaux = 0, *stdnul = 0;
 
 static ptr_list opened_files = 0;
-static int        fileno_idx = STDAUX_FILENO+1;
+static int        fileno_idx = STDNUL_FILENO+1;
 
 static void set_errno1(qserr err, FileInfo *fs) {
    fs->lasterr = set_errno_qserr(err);
@@ -77,14 +78,14 @@ static int check_pid(FileInfo *fs) {
 static void add_new_file(FileInfo *ff) {
    // update global file list, this list will be used until reboot
    mt_swlock();
-   if (!opened_files) opened_files = NEW(ptr_list);
+   if (!opened_files) opened_files = NEW_G(ptr_list);
    if (opened_files) opened_files->add(ff);
    mt_swunlock();
 }
 
 static FILE* __stdcall fdopen_as(int handle, const char *mode, u32t pid) {
    FileInfo *fout;
-   if (handle<0 || handle>STDAUX_FILENO) { set_errno(EBADF); return 0; }
+   if (handle<0 || handle>STDNUL_FILENO) { set_errno(EBADF); return 0; }
    fout = (FileInfo*)malloc(sizeof(FileInfo));
    mem_zero(fout);
 
@@ -110,12 +111,14 @@ void init_stdio(process_context *pq) {
    pq->rtbuf[RTBUF_STDOUT] = (u32t)fdopen_as(STDOUT_FILENO, "w", pq->pid);
    pq->rtbuf[RTBUF_STDERR] = (u32t)fdopen_as(STDERR_FILENO, "w", pq->pid);
    pq->rtbuf[RTBUF_STDAUX] = (u32t)fdopen_as(STDAUX_FILENO, "w", pq->pid);
+   pq->rtbuf[RTBUF_STDNUL] = (u32t)fdopen_as(STDNUL_FILENO, "w+", pq->pid);
    /* nobody should change those values, but just overwrites it with constant
       on every module start */
    stdin  = (FILE*)&h1_route;
    stdout = (FILE*)&h2_route;
    stderr = (FILE*)&h3_route;
    stdaux = (FILE*)&h4_route;
+   stdnul = (FILE*)&h5_route;
 }
 
 void setup_fileio(void) {
@@ -191,9 +194,9 @@ int __stdcall START_EXPORT(fclose)(FILE *fp) {
    checkret_err(1);
    if (!check_pid(ff)) return 1;
    // std i/o or normal file?
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
-      static int rec_mtx[STDAUX_FILENO+1] = {RTBUF_STDIN, RTBUF_STDOUT,
-                                             RTBUF_STDERR, RTBUF_STDAUX};
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
+      static int rec_mtx[STDNUL_FILENO+1] = {RTBUF_STDIN, RTBUF_STDOUT,
+                              RTBUF_STDERR, RTBUF_STDAUX, RTBUF_STDNUL};
       process_context *pq = mod_context();
       int           index = rec_mtx[ff->fno];
       // zero ptr to std handle in process context
@@ -228,9 +231,12 @@ size_t __stdcall START_EXPORT(fread)(void *buf, size_t elsize, size_t nelem, FIL
    if (elsize==0) { set_errno(EINVAL); return 0; }
    if (elsize*nelem==0) { set_errno(EZERO); return 0; }
    readed = 0;
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       if (elsize!=1) { set_errno(EINVAL); return 0; } else
-      if (ff->fno!=STDIN_FILENO) { set_errno(EACCES); return 0; } else {
+      if (ff->fno!=STDIN_FILENO) { 
+         if (ff->fno!=STDNUL_FILENO) set_errno(EACCES); 
+         return 0;
+      } else {
          // ask console
          if (!ff->inp) ff->inp = key_getstr(0);
          // process buffered read
@@ -260,7 +266,7 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
    u32t   saved;
    int     stdh;
    checkret_err(0);
-   stdh = ff->fno>=0 && ff->fno<=STDAUX_FILENO;
+   stdh = ff->fno>=0 && ff->fno<=STDNUL_FILENO;
    // do not check pid on every printf char
    if (!stdh && !check_pid(ff)) return 0;
 
@@ -269,7 +275,8 @@ size_t __stdcall START_EXPORT(fwrite)(const void *buf, size_t elsize, size_t nel
    saved = 0;
 
    if (stdh) {
-      if (ff->fno==STDIN_FILENO) { set_errno(EACCES); return 0; } else {
+      if (ff->fno==STDIN_FILENO) { set_errno(EACCES); return 0; } else 
+      if (ff->fno==STDNUL_FILENO) { return elsize * nelem; } else {
          char *cpb = (char*)buf;
          u32t  len = elsize * nelem;
 
@@ -326,6 +333,7 @@ void __stdcall clearerr(FILE *fp) {
 int __stdcall feof(FILE *fp) {
    checkret_err(1);
    if (!check_pid(ff)) return 1;
+   if (ff->fno==STDNUL_FILENO) return 1;
    return 0;//ff->fi.fptr==ff->fi.fsize?1:0;
 }
 
@@ -333,7 +341,7 @@ void __stdcall START_EXPORT(rewind)(FILE *fp) {
    checkret_void();
    if (!check_pid(ff)) return;
    // must be a file
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=ENOTBLK);
    } else {
       // function clears error, as ANSI says
@@ -347,7 +355,7 @@ int __stdcall START_EXPORT(fseek)(FILE *fp, s32t offset, int where) {
    if (!check_pid(ff)) return 1;
 
    // must be a file
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=ENOTBLK);
       return 1;
    } else {
@@ -366,7 +374,7 @@ int  __stdcall fflush(FILE *fp) {
    if (!check_pid(ff)) return 1;
 
    // ignore console handles
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       return 0;
    } else {
       qserr res = io_flush(ff->fi);
@@ -378,7 +386,7 @@ int  __stdcall fflush(FILE *fp) {
 s32t __stdcall ftell(FILE *fp) {
    checkret_err(-1);
    if (!check_pid(ff)) return -1;
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=ENOTBLK);
       return -1; 
    } else {
@@ -391,7 +399,7 @@ s32t __stdcall ftell(FILE *fp) {
 s64t __stdcall _filelengthi64(int fp) {
    checkret_err(-1);
    if (!check_pid(ff)) return -1;
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=ENOTBLK);
       return -1;
    } else {
@@ -413,7 +421,7 @@ long __stdcall filelength(int fp) {
 
 int  __stdcall isatty(int fp) {
    checkret_err(0);
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) return 1;
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) return 1;
    return 0;
 }
 
@@ -422,7 +430,7 @@ int  __stdcall fdetach(FILE *fp) {
    if (!check_pid(ff)) return 1;
    /* do not allow to detach std i/o handles, so all of it will be catched by
       fcloseall() */
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=EBADF);
       return E_SYS_INVHTYPE;
    } else {
@@ -491,7 +499,7 @@ int __stdcall START_EXPORT(_chsize)(int fp, u32t size) {
    checkret_err(-1);
    if (!check_pid(ff)) return -1;
    // check file type
-   if (ff->fno>=0 && ff->fno<=STDAUX_FILENO) {
+   if (ff->fno>=0 && ff->fno<=STDNUL_FILENO) {
       set_errno(ff->lasterr=ENOTBLK);
       return -1;
    } else {
@@ -528,6 +536,21 @@ void* __stdcall freadfull(const char *name, unsigned long *bufsize) {
    err = io_close(fh);
    if (err) set_errno_qserr(err);
    return res;
+}
+
+int __stdcall fwritefull(const char *name, void *buf, unsigned long bufsize) {
+   qserr  err;
+   if (!name || Xor(buf,bufsize)) err = E_SYS_INVPARM; else {
+      io_handle fh;
+      err = io_open(name, IOFM_CREATE_ALWAYS|IOFM_WRITE|IOFM_SHARE_READ, &fh, 0);
+      if (!err && bufsize)
+         if (io_write(fh,buf,bufsize)!=bufsize) {
+            err = io_lasterror(fh);
+            io_close(fh);
+         }
+      if (!err) err = io_close(fh);
+   }
+   return err?set_errno_qserr(err):0;
 }
 
 typedef struct {
@@ -689,7 +712,9 @@ static int gettempname(char *prefix, char *dir, char *buffer) {
 
    do {
       char *np = name;
+      mt_swlock();    // ugly, but should work
       idx = pq->rtbuf[RTBUF_TMPNAME]++;
+      mt_swunlock();
       ii  = TMP_MAX/36;
       while (ii) {
          u32t cc = idx/ii;

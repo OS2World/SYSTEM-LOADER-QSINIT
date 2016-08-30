@@ -8,7 +8,6 @@
 //  * 64-bit mul/div (exported by direct pointer in QSINIT)
 //
 #include "mtlib.h"
-#include "qshm.h"
 
 volatile mt_thrdata *pt_current = 0;
 static   u64t     last_shed_tsc = 0;
@@ -66,6 +65,10 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          thread->tiState  = THRD_RUNNING;
          break;
       case SWITCH_PROCEXIT:
+         // callback to START in thread context & release mutexes
+         mt_pexitcb(th);
+         mutex_release_all(th);
+         // main thread exit
          w_check_conditions(th->tiPID, 0, 0);
          // no context saving
          th    = 0;
@@ -75,6 +78,9 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          th->tiState      = THRD_WAITING;
          break;
       case SWITCH_EXIT:
+         // callback to START in thread context & release mutexes
+         mt_pexitcb(th);
+         mutex_release_all(th);
          // we must call it when thread data still valid!
          w_check_conditions(th->tiPID, th->tiTID, 0);
          // free it
@@ -92,7 +98,8 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          th->tiState      = THRD_RUNNING;  // just update
          break;
    }
-   // check waiting conditions (except exit cases, was called above)
+   /* check waiting conditions (except exit cases, was called above),
+      args *must* be 0 for SWITCH_TIMER */
    if (th) w_check_conditions(0,0,0);
    // search for suitable thread
    if (!thread) {

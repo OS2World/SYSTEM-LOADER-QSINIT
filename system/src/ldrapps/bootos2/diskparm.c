@@ -2,21 +2,17 @@
 // QSINIT "bootos2" module
 // advanced disk tasks
 //
+#include "qsbase.h"
+#include "qsint.h"
+#include "qsdm.h"
 #include "stdlib.h"
-#include "qsutil.h"
 #include "doshlp.h"
 #include "qsconst.h"
 #include "dparm.h"
-#include "qsint.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
 #include "ldrparam.h"
 #include "parttab.h"
-#include "qsdm.h"
 #include "partmgr_ord.h"
-#include "qspage.h"
 #include "filetab.h"
-#include "doshlp.h"
 
 typedef struct {
    u16t    DPCylcount;
@@ -58,7 +54,7 @@ static void dmgr_free(void) {
 static int dmgr_load(void) {
    if (!partmgr) {
       partmgr = mod_query(MODNAME_DMGR,0);
-      if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0);
+      if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0, 0);
       // query functions & install unload proc
       if (partmgr) {
          plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
@@ -110,10 +106,11 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
    // read boot sector to get BPB data
    if (!hlp_diskread(vi.Disk, vi.StartSector, 1, br)) return 0;
 
-   if (vol_fs!=FST_NOTMOUNTED) { // FAT/FAT32
+   if (vol_fs!=FST_NOTMOUNTED) { // FAT/FAT32/exFAT
       *pbootflags = 0;
       *pmfsptr    = 0;
       *pmfssize   = 0;
+      if (vol_fs==FST_EXFAT) return 0;
    } else {                      // HPFS
       // check BPB too
       if (br->BR_BPB.BPB_BytePerSect!=512 ||

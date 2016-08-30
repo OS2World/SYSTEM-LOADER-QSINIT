@@ -10,7 +10,6 @@
 #include "qcl/qslist.h"
 #include "internal.h"
 #include "stdlib.h"
-#include "qsmodext.h"
 #include "qsstor.h"
 #include "qserr.h"
 #include "sysio.h"
@@ -20,18 +19,13 @@
 #define  IOFM_REN       0x80
 // alloc increment value
 #define  SFT_INC        20
-// increment for public fno (in io_handle_info/io_direntry_info structs)
-#define  SFT_PUBFNO     16
 
 static qs_sysvolume ve[DISK_COUNT];
 static u8t       fsver[DISK_COUNT];     ///< FsType cache for hlp_volinfo()
 extern u32t          fatio_classid;
 
 static volatile u32t     v_mounted = 0; ///< mounted volumes (for fast check)
-
-static
 sft_entry* volatile       *sftable = 0;
-static
 io_handle_data* volatile   *ftable = 0;
 static volatile u32t sftable_alloc = 0,
                       ftable_alloc = 0;
@@ -63,9 +57,16 @@ static void ioh_logerr(sft_entry *fe, io_handle_data *hd, u32t index) {
    log_it(0, "SFT damaged. File \"%s\", ioh %08X (%u)\n", fe->fpath, hd, index);
 }
 
+
+void sft_setblockowner(sft_entry *fe, u32t fno) {
+   __set_shared_block_info(fe, "sft data", fno-1);
+   if (fe->fpath)
+      __set_shared_block_info(fe->fpath, "sft name", fno-1);
+}
+
 /** search in SFT by full path.
     Must be called in locked state (sft access) */
-static u32t sft_find(const char *fullpath) {
+u32t sft_find(const char *fullpath, int name_space) {
    if (fullpath && *fullpath) {
       u32t ii;
       // skip entry 0
@@ -75,7 +76,7 @@ static u32t sft_find(const char *fullpath) {
                char *fp = sftable[ii]->fpath;
                /* stricmp takes in mind current codepage, so let it be in this
                   way for a while */
-               if (fp)
+               if (fp && sftable[ii]->name_space==name_space)
                   if (stricmp(fullpath,fp)==0) return ii;
             }
    }
@@ -90,6 +91,8 @@ static qserr sft_check_mode(sft_entry *fe, u32t mode, u32t *newmode) {
    if (fe->sign!=SFTe_SIGN) return E_SYS_INVOBJECT;
    if (fe->type!=IOHT_FILE) return E_SYS_INVHTYPE; else {
       u32t smask = mode<<8 & IOFM_SHARE_MASK; // op type to share mask
+      // internal handle is r/o? deny write op
+      if ((mode&IOFM_WRITE) && fe->file.ro) return E_SYS_ACCESS;
       // something disabled? then check file by file
       if ((fe->file.sbits&smask)!=smask) {
          u32t  pid = mod_getpid(),
@@ -129,13 +132,13 @@ static u32t common_alloc(void **ptr, volatile u32t *alloc, u32t recsize) {
 
 /** alloc new sft_entry entry.
     Must be called in locked state (sft access). */
-static u32t sft_alloc(void) {
+u32t sft_alloc(void) {
    return common_alloc((void**)&sftable, &sftable_alloc, sizeof(sft_entry*));
 }
 
 /** alloc new io_handle_data entry.
     Must be called in locked state (io_handle array access). */
-static u32t ioh_alloc(void) {
+u32t ioh_alloc(void) {
    return common_alloc((void**)&ftable, &ftable_alloc, sizeof(io_handle_data*));
 }
 
@@ -324,7 +327,7 @@ qserr _std io_open(const char *name, u32t mode, io_handle *pfh, u32t *action) {
    rc = vol_from_fp(fp, &vol);
    if (!rc) {
       io_handle_int   fhi = 0;
-      u32t            fno = sft_find(fp);
+      u32t            fno = sft_find(fp, NAMESPC_FILEIO);
       u32t            pid = mod_getpid();
       u32t           ifno = ioh_alloc();
 
@@ -342,9 +345,20 @@ qserr _std io_open(const char *name, u32t mode, io_handle *pfh, u32t *action) {
             if (!rc) fe->file.sbits = newmode;
          }
       } else {
+         int ro_open = 0;
          rc = vol->open(fp, openm, &fhi, action);
          // log_it(2,"vol->open(%s) == %08X\n", fp, rc);
 
+         // ugly way to inform about r/o file/disk
+         if (rc==E_SYS_READONLY) { 
+            if ((mode&IOFM_WRITE)) {
+               vol->close(fhi);
+               rc = E_SYS_ACCESS;
+            } else {
+               ro_open = 1;
+               rc = 0; 
+            }
+         }
          // new file entries in sft & ioh
          if (rc==0) {
             fno = sft_alloc();
@@ -355,19 +369,20 @@ qserr _std io_open(const char *name, u32t mode, io_handle *pfh, u32t *action) {
             fe->sign       = SFTe_SIGN;
             fe->type       = IOHT_FILE;
             fe->fpath      = fp;
+            fe->name_space = NAMESPC_FILEIO;
             fe->pub_fno    = SFT_PUBFNO+fno;
             fe->file.vol   = vol;
             fe->file.fh    = fhi;
             fe->file.sbits = mode&IOFM_SHARE_MASK;
             fe->file.del   = 0;
             fe->file.renn  = 0;
+            fe->file.ro    = ro_open;
             fe->ioh_first  = 0;
             fe->broken     = 0;
             // add new entries
             sftable[fno]   = fe;
             newfp = 1;
-            __set_shared_block_info(fe, "sft data", fno-1);
-            __set_shared_block_info(fp, "sft name", fno-1);
+            sft_setblockowner(fe, fno);
          }
       }
       if (!rc) {
@@ -410,8 +425,8 @@ qserr _std io_open(const char *name, u32t mode, io_handle *pfh, u32t *action) {
     @param [out] pfh           pointer to io_handle_data, can be 0
     @param [out] pfe           pointer to sft_entry, can be 0
     @return error code */
-static qserr io_check_handle(io_handle ifh, u32t accept_types,
-                             io_handle_data **pfh, sft_entry **pfe)
+qserr io_check_handle(io_handle ifh, u32t accept_types, io_handle_data **pfh,
+                      sft_entry **pfe)
 {
    io_handle_data *fh;
    sft_entry      *fe;
@@ -512,7 +527,7 @@ u64t _std io_seek(io_handle ifh, s64t offset, u32t origin) {
          } else {
             err = fe->file.vol->setsize(fe->file.fh, pos);
             fh->lasterr = err;
-            if (!err) fh->file.pos = pos;
+            if (!err) fh->file.pos = pos; else pos = -1;
          }
       } else {
          fh->lasterr  = 0;
@@ -521,7 +536,6 @@ u64t _std io_seek(io_handle ifh, s64t offset, u32t origin) {
    }
    mt_swunlock();
    return pos;
-
 }
 
 u64t _std io_pos(io_handle ifh) {
@@ -553,7 +567,7 @@ qserr _std io_flush(io_handle ifh) {
 }
 
 /// unlink ioh from sft and zero ftable entry
-static void ioh_unlink(sft_entry *fe, u32t ioh_index) {
+void ioh_unlink(sft_entry *fe, u32t ioh_index) {
    io_handle_data *fh = ftable[ioh_index];
    // unlink it from sft entry
    if (fe->ioh_first==ioh_index) fe->ioh_first = fh->next; else {
@@ -567,6 +581,12 @@ static void ioh_unlink(sft_entry *fe, u32t ioh_index) {
       }
    }
    ftable[ioh_index] = 0;
+}
+
+/// is sft has only one object?
+int ioh_singleobj(sft_entry *fe) {
+   io_handle_data *fh = ftable[fe->ioh_first];
+   return fh->next?0:1;
 }
 
 qserr _std io_close(io_handle ifh) {
@@ -648,7 +668,7 @@ qserr _std io_setsize(io_handle ifh, u64t newsize) {
    return err;
 }
 
-qserr _std io_setstate(io_handle ifh, u32t flags, u32t value) {
+qserr _std io_setstate(qshandle ifh, u32t flags, u32t value) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
@@ -660,7 +680,7 @@ qserr _std io_setstate(io_handle ifh, u32t flags, u32t value) {
    if ((flags&~(IOFS_DETACHED|IOFS_DELONCLOSE|IOFS_RENONCLOSE)))
       return E_SYS_INVPARM;
    // this call LOCKs us if err==0
-   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO, &fh, &fe);
+   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_MUTEX, &fh, &fe);
    if (err) return E_SYS_INVPARM;
    // some options is for file only
    if ((flags&(IOFS_DELONCLOSE|IOFS_RENONCLOSE)) && fe->type!=IOHT_FILE)
@@ -685,13 +705,13 @@ qserr _std io_setstate(io_handle ifh, u32t flags, u32t value) {
    return err;
 }
 
-qserr _std io_getstate(io_handle ifh, u32t *flags) {
+qserr _std io_getstate(qshandle ifh, u32t *flags) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
    if (!flags) return E_SYS_ZEROPTR;
    // this call LOCKs us if err==0
-   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO, &fh, &fe);
+   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_MUTEX, &fh, &fe);
    if (err) return E_SYS_INVPARM;
 
    *flags = 0;
@@ -718,13 +738,13 @@ qserr _std io_lasterror(io_handle ifh) {
    return err;
 }
 
-qserr _std io_duphandle(io_handle src, io_handle *dst, int priv) {
+qserr _std io_duphandle(qshandle src, qshandle *dst, int priv) {
    io_handle_data *fho;
    sft_entry       *fe;
    qserr           err;
    if (!dst) return E_SYS_ZEROPTR;
    // this call LOCKs us if err==0
-   err = io_check_handle(src, IOHT_FILE, &fho, &fe);
+   err = io_check_handle(src, IOHT_FILE|IOHT_MUTEX, &fho, &fe);
    if (err) return E_SYS_INVPARM;
 
    if (fe->broken) err = E_SYS_BROKENFILE; else {
@@ -733,8 +753,10 @@ qserr _std io_duphandle(io_handle src, io_handle *dst, int priv) {
       if (!ifno) err = E_SYS_NOMEM; else {
          io_handle_data *fh = (io_handle_data*)malloc(sizeof(io_handle_data));
          fh->sign       = IOHd_SIGN;
-         fh->file.pos   = fho->file.pos;
-         fh->file.omode = fho->file.omode;
+         if (fe->type==IOHT_FILE) {
+            fh->file.pos   = fho->file.pos;
+            fh->file.omode = fho->file.omode;
+         }
          fh->pid        = fho->pid;
          if (priv && !fh->pid) fh->pid = mod_getpid();
          fh->sft_no     = fho->sft_no;
@@ -781,17 +803,20 @@ qserr _std io_info(io_handle ifh, io_direntry_info *info) {
    return err;
 }
 
-u32t _std io_filetype(io_handle ifh) {
+u32t _std io_handletype(qshandle ifh) {
    sft_entry      *fe;
    qserr          err;
    u32t           res;
    // this call LOCKs us if err==0
-   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO, 0, &fe);
+   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_DIR|IOHT_MUTEX,
+                         0, &fe);
    if (err) return IOFT_BADHANDLE;
 
    switch (fe->type) {
-      case IOHT_FILE : res = IOFT_FILE; break;
-      case IOHT_STDIO: res = IOFT_CHAR; break;
+      case IOHT_FILE : res = IOFT_FILE;  break;
+      case IOHT_STDIO: res = IOFT_CHAR;  break;
+      case IOHT_DIR  : res = IOFT_DIR;   break;
+      case IOHT_MUTEX: res = IOFT_MUTEX; break;
       default:
          res = IOFT_UNKNOWN;
    }
@@ -828,7 +853,7 @@ static qserr io_check_path(const char *path, u32t typemask, qs_sysvolume *pvol,
    mt_swlock();
    res = vol_from_fp(fp, &vol);
    if (!res) {
-      u32t fno = sft_find(fp);
+      u32t fno = sft_find(fp, NAMESPC_FILEIO);
 
       if (fno && (sftable[fno]->type&typemask)==0) res = E_SYS_INVNAME; else {
          if (pvol) *pvol = vol;
@@ -985,6 +1010,7 @@ qserr _std io_diropen(const char *path, dir_handle *pdh) {
             fe->sign       = SFTe_SIGN;
             fe->type       = IOHT_DIR;
             fe->fpath      = fp;
+            fe->name_space = NAMESPC_FILEIO;
             fe->pub_fno    = SFT_PUBFNO+fno;
             fe->dir.vol    = vol;
             fe->dir.renn   = 0;
@@ -993,8 +1019,7 @@ qserr _std io_diropen(const char *path, dir_handle *pdh) {
             // add new entries
             sftable[fno]   = fe;
             newfp = 1;
-            __set_shared_block_info(fe, "sft data", fno-1);
-            __set_shared_block_info(fp, "sft name", fno-1);
+            sft_setblockowner(fe, fno);
          }
       }
       if (!res) {
@@ -1171,7 +1196,7 @@ u32t sft_volumebroke(u8t vol, int enumonly) {
 
 u32t io_close_as(u32t pid, u32t htmask) {
    u32t ccnt = 0;
-   htmask   &= IOHT_FILE|IOHT_DIR;
+   htmask   &= IOHT_FILE|IOHT_DIR|IOHT_MUTEX;
    if (htmask && pid) {
       dd_list clist = 0;
       u32t       ii,
@@ -1201,8 +1226,8 @@ u32t io_close_as(u32t pid, u32t htmask) {
 
             fhidx|=IOH_HBIT;
             if (fe->type==IOHT_DIR) io_dirclose(fhidx); else
-            if (fe->type==IOHT_FILE) io_close(fhidx);
-
+            if (fe->type==IOHT_FILE) io_close(fhidx); else
+            if (fe->type==IOHT_MUTEX) mt_closehandle_int(fhidx,1);
          }
       mt_swunlock();
 
@@ -1274,7 +1299,7 @@ qserr _std io_mount(u8t drive, u32t disk, u64t sector, u64t count) {
       br = (struct Boot_Record*)malloc(sectsz);
       // read boot sector
       if (br && hlp_diskread(disk|QDSK_DIRECT, sector, 1, br)) {
-         qs_sysvolume vol = (qs_sysvolume)exi_createid(fatio_classid);
+         qs_sysvolume vol = (qs_sysvolume)exi_createid(fatio_classid, EXIF_SHARED);
          if (vol) {
             qserr  eres;
             // disk parameters for fs i/o
@@ -1418,20 +1443,30 @@ void _std io_dumpsft(void) {
    if (sftable_alloc) {
       u32t ii = 0;
 
-      log_it(2, "     file name          |   fno   | brk | type  | ptr\n");
+      log_it(2, "     file name          |   fno   | brk | type  | ptr      |\n");
       mt_swlock();
 
       for (ii=0; ii<sftable_alloc; ii++) 
          if (sftable[ii]) {
-            static const char *tname[] = { "FILE", "DISK", "STD", "DUMMY", "DIR" };
+            static const char *tname[] = { "FILE", "DISK", "STD", "DUMMY", "DIR", "MUTEX" };
+            char          moreinfo[48];
             sft_entry *fe = sftable[ii];
             int      tpos = bsf32(fe->type);
-            if (tpos>4) tpos = -1;
+            if (tpos > sizeof(tname)/sizeof(char*)) tpos = -1;
+            moreinfo[0] = 0;
 
+            if (fe->type==IOHT_MUTEX) {
+               qs_sysmutex_state  mx;
+               int   mstate = mtmux->state(fe->mux.mh, &mx);
+               if (mstate<=0) snprintf(moreinfo, 48, mstate<0?"broken":"free"); else
+                  snprintf(moreinfo, 48, "pid %u, tid %u, cnt %i, wait %u",
+                     mx.pid, mx.tid, mx.state, mx.waitcnt);
+               if (ii!=mx.sft_no) snprintf(moreinfo, 48, "sft_no mismatch!!");
+            }
             //ioh_first
 
-            log_it(2, "%3d. %-18s |%8i |  %i  | %-5s | %08X\n", ii, fe->fpath, fe->pub_fno,
-               fe->broken, tpos<0?"??":tname[tpos], fe);
+            log_it(2, "%3d. %-18s |%8i |  %i  | %-5s | %08X | %s\n", ii, fe->fpath, fe->pub_fno,
+               fe->broken, tpos<0?"??":tname[tpos], fe, moreinfo);
          }
       mt_swunlock();
    }
@@ -1452,7 +1487,7 @@ void setup_fio() {
       vol_data *vdta = _extvol+ii;
       // for disk 0 we checks VDTA_ON too (this can be PXE or EFI host)
       if (ii==DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
-         qs_sysvolume vl = (qs_sysvolume)exi_createid(fatio_classid);
+         qs_sysvolume vl = (qs_sysvolume)exi_createid(fatio_classid, EXIF_SHARED);
 
          if (vl) {
             vl->init(ii, SFIO_APPEND|SFIO_FORCE, 0);

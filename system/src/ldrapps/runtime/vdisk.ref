@@ -3,11 +3,15 @@ name = "VDISK"
 
 exports = {
    _shl_ramdisk       = { index =  1  group="shell"  format="usp"           }
-
-
-   _sys_vdiskinit     = { index = 10  group="vdisk"  format="uuu@uucc&@*u"  }
-   _sys_vdiskfree     = { index = 11  group="vdisk"  format="uv"            }
-   _sys_vdiskinfo     = { index = 12  group="vdisk"  format="u&@*u&@*u&@*u" }
-   _sys_vdiskload     = { index = 13  group="vdisk"  format="us@u&@up"      }
 }
 
+class = {
+   name = qs_vdisk
+   entries = {
+      init    = "@uppuu@uucc&@*u"
+      load    = "@upps@u&@up"
+      free    = "upp"
+      query   = "@uppp&@*u&@*u&@*u&@*u"
+      setgeo  = "@uppp"
+   }
+}

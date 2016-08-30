@@ -6,7 +6,9 @@
 // turn LFN off, we are not QSINIT
 #include "ffconf.h"
 #undef  _USE_LFN
-#define _USE_LFN 0
+#define _USE_LFN  0
+#undef  _FS_EXFAT
+#define _FS_EXFAT 0
 #undef  _WIN32
 #include "ff.h"
 #include "diskio.h"

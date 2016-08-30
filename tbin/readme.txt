@@ -42,7 +42,7 @@ has able to load OS/2 Warp type kernels (all kernels prior to Merlin FP13).
    2.1 Single mode installation
   ------------------------------
 
-   QSINIT can be installed to FAT/FAT32 partition without OS/2 at all.
+   QSINIT can be installed to FAT/FAT32/exFAT partition without OS/2 at all.
 
    Use tool\instboot.cmd in Windows or OS/2 to install QSINIT bootsector and
 modules to the selected disk volume.
@@ -52,8 +52,8 @@ fill [config] section parameters with options, required for you.
 
    And, also, you need to add this volume into your boot manager bootables :)
 
-   Install available in QSINIT shell too, but named sys.cmd. Mount FAT/FAT32
-partition via "mount" command and then use it.
+   Install available in QSINIT shell too, but named "sys". Mount FAT, FAT32
+or exFAT partition via "mount" command and then use it.
 
    Note that QSINIT supports boot from "big floppy" flash drive.
 
@@ -128,7 +128,7 @@ and so on; just remember - this is not a BIG OS).
    * "sysview" app include file editor, log viewer, disk management, sector-
       based physical disk editor and other options.
 
-   * "mount" command allow to mount any FAT16/FAT32 partition to QSINIT
+   * "mount" command allow to mount any FAT16/FAT32/exFAT partition to QSINIT
       and read/write to it:
           dmgr list hd0     <- list partitions on hd0
           mount 2: hd0 4    <- mount 4th partition of hd0 as drive 2:/C:
@@ -179,9 +179,10 @@ and so on; just remember - this is not a BIG OS).
       "command /?" to help on single command. Commands have many features,
       which listed only in help ;)
 
-    * "format" command can be used to format partition to FAT16/32 or HPFS.
-      FAT type selected automatically (by disk size), but you can vary
-      cluster size (with including not supported by OS/2 - 64k FAT cluster).
+    * "format" command can be used to format partition to FAT16/32/exFAT or
+      HPFS. FAT16/32 type selected automatically (by disk size), but you can
+      vary cluster size (with including not supported by OS/2 - 64k FAT
+      cluster).
 
       Mount partition to QSINIT before format it.
 
@@ -233,6 +234,8 @@ and so on; just remember - this is not a BIG OS).
 
       will force chkdsk on current boot volume.
 
+      But note, it looks like Windows is ignoring dirty flag on exFAT.
+
     * "lvm" command can change OS/2 LVM drive letters, write LVM signatures
       to disk and some misc.
 
@@ -249,14 +252,13 @@ and so on; just remember - this is not a BIG OS).
 
       To manual use, type "cache /?" for help.
 
-      Suitable if you want to copy a large amount of data between FAT32
-      partitions in QSINIT.
+      Suitable if you want to copy a large amount of data in QSINIT.
 
     * to copy those "large amount of data" use xcopy.cmd in shell ;)
 
-    * "chcp" command can be used to select codepage for FAT/FAT32 (single
-      byte only, no DBCS now, sorry). Without this command any files with
-      national language letters will be unaccessible.
+    * "chcp" command can be used to select codepage for FAT/FAT32/exFAT
+      (single byte only, no DBCS now, sorry). Without this command any files
+      with national language letters will be unaccessible.
       note: this command only makes these names operable, not displayable.
 
     * "mem hide" command can be used to hide some memory ranges from
@@ -284,7 +286,7 @@ and so on; just remember - this is not a BIG OS).
 loading process is untested.
 
    And a little note about QSINIT internal disks and it`s naming. QSINIT
-use fine ChaN`s FatFs code to access FAT/FAT32 partitions and follow its
+use ChaN`s FatFs code to access FAT/FAT32/exFAT partitions and follow its
 naming convention: all internal disks has named as 0:, 1:, 2: .. 9:
 
    For compatibility A:-J: naming is supported as well.  Shell accept both
@@ -292,8 +294,8 @@ variants, apps based on Turbo Vision library - accept A:-J: letters only.
 
    Virtual disk with QSINIT apps and data is always mapped as drive 1:/B:
 
-   On FAT/FAT32 boot - boot partition is available as drive 0:/A: and you
-can modify it freely (edit config.sys, copy files in shell and so on...).
+   On FAT/FAT32/exFAT boot - boot partition is available as drive 0:/A: and
+you can modify it freely (edit text files, copy files in shell and so on...).
 
    On FSD boot drive 0:/A: is mapped to boot partition too, but only for
 per-sector  access,  because QSINIT does not support full HPFS/JFS reading.
@@ -303,7 +305,7 @@ partition BPB:
       dmgr bs 0: bpb
 
    Other 8 disk numbers/letters ( 2:/C: - 9:/J: ) are free to mount of any
-FAT/FAT32 partitions in system.
+FAT/FAT32/exFAT partition in system.
 
   =======================================================================
    4. Additional customization.
@@ -384,8 +386,8 @@ base functionality (when it must fit into diskette image for CD boot, for
 example).
    cache.dll - required only for r/w caching of FAT volumes (if cruel life
                forces you to use QSINIT shell as copy utility ;)
-   cplib.dll - CHCP command, this module provides code pages for FAT long
-               names and HPFS formatting.
+   cplib.dll - CHCP command, this module provides code pages for FAT/exFAT
+               and for HPFS formatting.
    vdisk.dll - PAE ramdisk
    vhdd.dll  - VHDD command (commonly not required at all ;)
    mtlib.dll - threads support (in development, not required too)
@@ -437,7 +439,7 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
  * using VMs to test QSINIT.
    VPC & Vbox works, in most cases, with some exceptions:
 
-    - no PAE paging mode in VPC. Hardware virtualization should be off too -
+    - no PAE paging mode in VPC. Hardware virtualization must be off too -
       it kills host OS in seconds, at least in VirtualPC 2007 on AMD.
 
     - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
@@ -446,12 +448,16 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
     - VBox is much better, except PAE paging mode - it looks unstable.
 
    EFI version works in QEMU only (with TianoCore), but even here small
-   troubles still possible.
+   troubles still possible (QEMU still have bugs in amd64 compatible mode
+   emulation).
 
  * note, that huge USB HDDs can be non-operable via BIOS, especially on
    old motherboards. Only a starting part of disk can be readed, up to 128Gb,
    with garbage returned above this border. Looks like all ASUS motherboards,
-   before EFI versions, have this bug.
+   before EFI/ have this bug.
+
+ * write access to exFAT still looks dangerous on huge files - this is own
+   FatFs lib troubles.
 
   =======================================================================
    7. QSINIT boot details.
@@ -466,8 +472,8 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
    * via OS/2 PXE boot - the same.
      Files OS2LDR and QSINIT.LDI must be accessed from TFTP.
 
-   * from FAT12/FAT16/FAT32 - by using OWN boot sector. Boot sector can be
-     installed by tool\bootset? command.
+   * from FAT12/FAT16/FAT32/exFAT - by using OWN boot sector. Boot sector can
+     be installed by tool\bootset? command.
      Boot sector assume QSINIT file name for base loader (not OS2LDR as on
      FSD mechanism).
 
@@ -484,8 +490,10 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
    In addition - it have special Boot Manager support (as OS/2 MBR).
 
    MBR code for GPT disks searches for 1st partition with "BIOS Bootable"
-   attribute ON (google UEFI Wiki about it) and start sector below 2TB
-   (32 bit sector number) - and then launch it.
+   attribute ON (google UEFI Wiki about it) and then launch it. But, if
+   partition is completely above 2Tb border - only exFAT supports booting
+   from it.
+
    You can set "BIOS Bootable" attribute via "gpt" command or "sysview" app.
 
    As example, you can create "dual boot" flash/hdd drive:
@@ -501,9 +509,10 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
      "UEFI: YOUR DRIVE", 1st will be QSINIT and 2nd - EFI boot (with EFI shell
      of EFI QSINIT).
 
-   QSINIT also provide own code for FAT/FAT32/HPFS boot sector. This code not
-   depends on Boot Manager and OS/2 MBR code. You can install it on specified
-   partition by mounting it to QSINIT and then use "dmgr bs" command in shell.
+   QSINIT also provide own code for FAT/FAT32/exFAT/HPFS boot sector. This
+   code not depends on Boot Manager and OS/2 MBR code. You can install it on
+   specified partition by mounting it to QSINIT and then use "dmgr bs" command
+   in shell.
  
    You can learn MBR/boot sector code details in 
 
@@ -528,8 +537,8 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
        This case is NOT working if RESTART option was used for kernel loading
        (i.e. another OS2LDR is running).
 
-     * mount any available FAT16/FAT32 partition to QSINIT and save log
-       directly to it. This can be done in SysView app or by using LOG
+     * mount any available FAT16/FAT32/exFAT partition to QSINIT and save
+       log directly to it. This can be done in SysView app or by using LOG
        shell command.
        
   =======================================================================
@@ -613,10 +622,10 @@ OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
                This option only changes letter, not partition. Wrong letter
                sometimes can be supplied by Boot Manager, for example.
 
- * SOURCE=X  - allow to change boot partition for OS/2 boot, where X - QSINIT
-               drive letter of mounted (to QSINIT!) FAT or HPFS partition.
-               I.e. this key can change boot partition to any available FAT or
-               HPFS with OS/2 - without reboot.
+ * SOURCE=X  - changes boot partition for OS/2 boot, where X - QSINIT drive
+               letter of mounted (to QSINIT!) FAT or HPFS partition. I.e. this
+               key can change boot partition to any available FAT or HPFS with
+               OS/2 - without reboot.
                Basically, it designed for booting from PAE RAM disk, but works
                in common case too.
 
@@ -712,7 +721,7 @@ sections, so this is not a problem.
 
    Partition index can be queried by pressing F7 in menu.
    Boot sector file can be specified by direct QSINIT path or will be searched
-in the root of this partition (FAT/FAT32).
+in the root of this partition (any FAT type).
 
    TIMEOUT and USEBEEP parameters will affect this menu too (timeout counter
 occurs on first launch only).
@@ -738,9 +747,9 @@ is supported now: CPUCLOCK and NOMTRR.
 
  * options SHAREIRQ and DBFLAGS ignored.
 
- * both IBM and OS/4 OS2LDR use PCI BIOS calls. QSINIT use PCI BIOS only for
-   basic info (version and number of buses in system), all scan, read and write
-   operations performed internally.
+ * both IBM and OS/4 OS2LDR make PCI BIOS calls. QSINIT uses PCI BIOS for
+   basic info only (version and # of buses in system), all scan, read and
+   write operations performed internally.
 
  * OEMHLP$ driver (loader IS this driver) use much less memory in 1st Mb.
 

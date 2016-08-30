@@ -11,6 +11,11 @@
 #define N_ROOTDIR	128		/* Number of root dir entries for FAT12/16 */
 #define N_FATS		1		/* Number of FAT copies (1 or 2) */
 
+#define	LD_WORD(ptr)		(WORD)(*(WORD*)(BYTE*)(ptr))
+#define	LD_DWORD(ptr)		(DWORD)(*(DWORD*)(BYTE*)(ptr))
+#define	ST_WORD(ptr,val)	*(WORD*)(BYTE*)(ptr)=(WORD)(val)
+#define	ST_DWORD(ptr,val)	*(DWORD*)(BYTE*)(ptr)=(DWORD)(val)
+
 FRESULT f_mkfs2(void) {
 	static const WORD vst[] = { 1024,   512,  256,  128,   64,    32,   16,    8,    4,    2,   0};
 	static const WORD cst[] = {32768, 16384, 8192, 4096, 2048, 16384, 8192, 4096, 2048, 1024, 512};
@@ -55,14 +60,14 @@ FRESULT f_mkfs2(void) {
 	/* Pre-compute number of clusters and FAT sub-type */
 	n_clst = n_vol / au;
 	fmt = FS_FAT12;
-	if (n_clst >= MIN_FAT16) fmt = FS_FAT16;
-	if (n_clst >= MIN_FAT32) return FR_MKFS_ABORTED;
+	if (n_clst > MAX_FAT12) fmt = FS_FAT16;
+	if (n_clst > MAX_FAT16) return FR_MKFS_ABORTED;
 
 	/* Determine offset and size of FAT structure */
 	n_fat = (fmt == FS_FAT12) ? (n_clst * 3 + 1) / 2 + 3 : (n_clst * 2) + 4;
 	n_fat = (n_fat + SS(fs) - 1) / SS(fs);
 	n_rsv = 1;
-	n_dir = (DWORD)N_ROOTDIR * SZ_DIRE / SS(fs);
+	n_dir = (DWORD)N_ROOTDIR * SZDIRE / SS(fs);
 
 	b_fat = b_vol + n_rsv;				/* FAT area start sector */
 	b_dir = b_fat + n_fat * N_FATS;		/* Directory area start sector */
@@ -71,7 +76,7 @@ FRESULT f_mkfs2(void) {
 
 	/* Determine number of clusters and final check of validity of the FAT sub-type */
 	n_clst = (n_vol - n_rsv - n_fat * N_FATS - n_dir) / au;
-	if (fmt == FS_FAT16 && n_clst < MIN_FAT16) return FR_MKFS_ABORTED;
+	if (fmt == FS_FAT16 && n_clst <= MAX_FAT12) return FR_MKFS_ABORTED;
 
 	md = 0xF8;
 

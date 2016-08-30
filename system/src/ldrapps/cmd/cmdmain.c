@@ -2,13 +2,9 @@
 // QSINIT "cmd" module
 //
 #include "stdlib.h"
-#include "qsshell.h"
-#include "qsutil.h"
+#include "qsbase.h"
 #include "vioext.h"
 #include "errno.h"
-#include "qsstor.h"
-#include "qsio.h"
-#include "qssys.h"
 #include "qcl/qslist.h"
 #include "direct.h"
 
@@ -122,8 +118,9 @@ u32t execute_command(char *cmd) {
 
 static void read_history(void) {
    history = (ptr_list)sto_data(HISTORY_KEY);
-   if (!history) { // we are the first shell instance - creating history ...
-      history = NEW(ptr_list);
+   if (!history) {
+      // we are the first shell instance - creating global history ...
+      history = NEW_G(ptr_list);
       // save pointer with 1 byte len (size ignored)
       sto_save(HISTORY_KEY,history,1,0);
    }

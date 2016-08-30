@@ -69,6 +69,7 @@ op el
 op internalrelocs
 op togglerelocs
 op nod
+op statics
 op st=32768
 op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'

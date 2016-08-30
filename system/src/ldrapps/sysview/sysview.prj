@@ -73,8 +73,7 @@ dbgkey=
 outdir=$(bld_dir)\$(config).$(build_osc)
 
 [files]
-..\..\hc\inc\ioint13.inc ..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc
-..\..\hc\inc\parttab.inc
+..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc ..\..\hc\inc\parttab.inc
 tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
 tvext\tcolortx.cpp tvext\tinplong.cpp tvext\tcombo.cpp tvext\tnocstr.cpp
 tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp

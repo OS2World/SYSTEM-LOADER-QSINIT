@@ -1547,6 +1547,101 @@ _mt_swlock      proc    near                                    ;
                 ret                                             ;
 _mt_swlock      endp                                            ;
 
+
+;----------------------------------------------------------------
+; void _std hlp_blistadd(void *src, u32t lnkoff, void **first, void **last);
+                public  _hlp_blistadd
+_hlp_blistadd   proc    near
+@@lsta_src      =  4                                            ;
+@@lsta_foffs    =  8                                            ;
+@@lsta_pfirst   = 12                                            ;
+@@lsta_plast    = 16                                            ;
+                mov     edx,[esp+@@lsta_foffs]                  ;
+                push    edi                                     ;
+                mov     edi,[esp+@@lsta_src+4]                  ; edi = src
+                push    esi                                     ;
+                mov     esi,[esp+@@lsta_plast+8]                ; esi = *last
+
+                pushfd                                          ;
+                cli                                             ;
+                xor     eax,eax                                 ;
+                or      esi,esi                                 ;
+                jz      @@lsta_nolast                           ;
+
+                mov     [edi][edx+4],eax                        ; src->next = 0;
+                mov     ecx,[esi]                               ;
+                mov     [edi][edx],ecx                          ; src->prev = last;
+                jecxz   @@lsta_lp1                              ;
+                mov     [ecx][edx+4],edi                        ; if (last) last->next = src;
+@@lsta_lp1:
+                mov     [esi],edi                               ; last = src;
+                mov     esi,[esp+@@lsta_pfirst+12]              ;
+                cmp     [esi],eax                               ;
+                jnz     @@lsta_exit                             ;
+                jmp     @@lsta_nl1                              ; if (!first) first = src;
+@@lsta_nolast:
+                mov     esi,[esp+@@lsta_pfirst+12]              ;
+                mov     [edi][edx],eax                          ; src->prev = 0;
+                mov     ecx,[esi]                               ;
+                mov     [edi][edx+4],ecx                        ; src->next = first;
+                jecxz   @@lsta_nl1                              ;
+                mov     [ecx][edx],edi                          ; if (first) first->prev = src;
+@@lsta_nl1:
+                mov     [esi],edi                               ; first = src;
+@@lsta_exit:
+                popfd                                           ;
+                pop     esi                                     ;
+                pop     edi                                     ;
+                ret     16                                      ;
+_hlp_blistadd   endp                                            ;
+
+;----------------------------------------------------------------
+; void _std hlp_blistdel(void *src, u32t lnkoff, void **first, void **last);
+                public  _hlp_blistdel
+_hlp_blistdel   proc    near
+@@lstd_src      =  4                                            ;
+@@lstd_foffs    =  8                                            ;
+@@lstd_pfirst   = 12                                            ;
+@@lstd_plast    = 16                                            ;
+                mov     edx,[esp+@@lstd_foffs]                  ;
+                push    edi                                     ;
+                mov     edi,[esp+@@lstd_src+4]                  ; 
+                push    esi                                     ;
+                add     edi,edx                                 ; edi = &src->prev;
+
+                cld                                             ;
+                pushfd                                          ;
+                cli                                             ;
+;   if (src->prev) src->prev->next = src->next; else first = src->next;
+                mov     ecx,[edi]                               ;
+                mov     esi,[edi+4]                             ;
+                jecxz   @@lstd_1                                ;
+                mov     [ecx][edx+4],esi                        ;
+                jmp     @@lstd_next                             ;
+@@lstd_1:
+                mov     eax,[esp+@@lstd_pfirst+12]              ;
+                mov     [eax],esi                               ;
+@@lstd_next:
+;   if (src->next) src->next->prev = src->prev; else last  = src->prev;
+                or      esi,esi
+                jz      @@lstd_2
+                mov     [esi][edx],ecx                          ;
+                jmp     @@lstd_exit                             ;
+@@lstd_2:
+                mov     eax,[esp+@@lstd_plast+12]               ;
+                or      eax,eax                                 ;
+                jz      @@lstd_exit                             ;
+                mov     [eax],ecx                               ;
+@@lstd_exit:
+                xor     eax,eax                                 ;
+                stosd                                           ; src->prev = 0;
+                stosd                                           ; src->next = 0;
+                popfd                                           ;
+                pop     esi                                     ;
+                pop     edi                                     ;
+                ret     16                                      ;
+_hlp_blistdel   endp                                            ;
+
 ;----------------------------------------------------------------
 ; process_context* _std mod_context(void);
                 public  _mod_context

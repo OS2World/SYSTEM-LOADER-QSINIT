@@ -8,8 +8,7 @@
 #include "clib.h"
 #include "qsutil.h"
 #include "qsint.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"      // for mod_secondary only
+#include "qsmodint.h"    // for mod_secondary only
 
 #define CALLER(x) (((u32t*)(&x))[-1])
 

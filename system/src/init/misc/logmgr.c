@@ -1,17 +1,12 @@
 #define LOG_INTERNAL
-#define MODULE_INTERNAL
 #define STORAGE_INTERNAL
 #include "clib.h"
-#include "qslog.h"
-#include "qsmod.h"
+#include "qsbase.h"
+#include "qsmodint.h"
 #include "qsint.h"
 #include "qsinit.h"
-#include "vio.h"
-#include "qsutil.h"
-#include "qsstor.h"
 #include "qsinit.h"
 #include "qspdata.h"
-#include "../ldrapps/hc/qssys.h"
 
 extern stoinit_entry    storage_w[STO_BUF_LEN];
 extern u8t*              logrmbuf;

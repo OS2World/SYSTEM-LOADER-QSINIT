@@ -33,6 +33,12 @@ void* __stdcall malloc(unsigned long size) {
       return mem_alloc(QSMEMOWNER_COPROCESS, (u32t)get_procinfo(), size);
 }
 
+#if 0 // removed to asm to be simple jmp (to save caller addr for memmgr error dump)
+void  __stdcall free(void *ptr) {
+   mem_free(ptr);
+}
+#endif
+
 void* __stdcall calloc(unsigned long n, unsigned long size) {
    size *= n;
    if (_IsDll) return mem_allocz(QSMEMOWNER_COLIB, _Module, size); else

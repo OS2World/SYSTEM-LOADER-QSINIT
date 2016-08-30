@@ -8,10 +8,6 @@
 //  * 64-bit mul/div (exported by direct pointer in QSINIT)
 //
 #include "mtlib.h"
-#include "qsxcpt.h"
-#include "qssys.h"
-#include "cpudef.h"
-#include "vio.h"                   /// for ugly idle thread check only!
 
 process_context *pq_qsinit = 0;
 mt_prcdata      *pd_qsinit = 0;
@@ -140,17 +136,12 @@ static void check_prcdata_early(process_context *pq, mt_prcdata *pd) {
    if (!pd || !td || !fd || pd->piSign!=PROCINFO_SIGN || pd->piPID!=pq->pid ||
       pd->piContext!=pq || pq->rtbuf[RTBUF_PROCDAT]!=(u32t)pd || pd->piThreads!=1 ||
          (pd->piMiscFlags&PFLM_EMBLIST)==0 || pd->piListAlloc!=PREALLOC_THLIST ||
-            pd->piTLSSize || td->tiTID!=1 || td->tiSign!=THREADINFO_SIGN ||
-               td->tiPID!=pd->piPID || td->tiFibers!=1 || td->tiTLSArray ||
-                  td->tiFiberIndex || td->tiMiscFlags!=(TFLM_MAIN|TFLM_EMBLIST) ||
+            td->tiTID!=1 || td->tiSign!=THREADINFO_SIGN || td->tiPID!=pd->piPID ||
+               td->tiFibers!=1 || td->tiFirstMutex || td->tiFiberIndex ||
+                  td->tiMiscFlags!=(TFLM_MAIN|TFLM_EMBLIST) ||
                      fd->fiSign!=FIBERSTATE_SIGN || fd->fiStack ||
                         fd->fiStackSize || fd->fiType!=FIBT_MAIN)
                            THROW_ERR_PQ(pq);
-   // tls - with zero ptrs
-   pd->piTLSSize   = tls_prealloc?Round64(tls_prealloc):64;
-   td->tiTLSArray  = (u64t**)calloc_shared(pd->piTLSSize,sizeof(u64t*));
-   for (ii=0; ii<tls_prealloc; ii++)
-      td->tiTLSArray[ii] = (u64t*)alloc_thread_memory(pq->pid, 1, TLS_VARIABLE_SIZE);
 }
 
 /** complex check of process data.
@@ -376,7 +367,7 @@ void init_process_data(void) {
       pq = ppq;
    }
    pq_qsinit = pq;
-   /// check is it really QSINIT
+   /// check - is it really QSINIT?
    if (pq->self!=(module*)mh_qsinit) THROW_ERR_PQ(pq);
    // here we have a Tree ;)
    pd_qsinit = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
@@ -393,7 +384,16 @@ void init_process_data(void) {
    // install cb for page mode switching on
    sys_notifyevent(SECB_PAE|SECB_GLOBAL, pageson);
 
-   mt_dumptree();
+   // mt_dumptree();
+}
+
+qserr _std mod_loaddetach(const char *path, u32t flags, const char *env, 
+                          const char *params)
+{
+   if (!mt_on) return E_MT_DISABLED;
+   if (!path) return E_SYS_INVNAME;
+
+   return E_SYS_UNSUPPORTED;
 }
 
 void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue) {
@@ -405,39 +405,6 @@ void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue) {
          if (tl->tiState==THRD_WAITING && tl->tiWaitReason==waitreason &&
             tl->tiWaitHandle==waitvalue) tl->tiState = THRD_RUNNING;
    }
-}
-
-u32t _std mt_setfiber(mt_tid tid, u32t fiber) {
-   mt_thrdata  *th;
-   mt_prcdata  *pd;
-   mt_thrdata *dth;
-   u32t         rc = 0;
-
-   mt_swlock();
-   th  = (mt_thrdata*)pt_current;
-   pd  = th->tiParent;
-   dth = tid ? get_by_tid(pd, tid) : th;
-   // no tid
-   if (!dth) rc = E_MT_BADTID; else
-   // thread is gone or this is main, waiting for secondaries
-   if (dth->tiState==THRD_FINISHED || dth->tiState==THRD_WAITING &&
-      dth->tiWaitReason==THWR_TIDMAIN) rc = E_MT_GONE; else
-   // waiting for anything?
-   if (dth->tiState==THRD_WAITING) rc = E_MT_BUSY; else
-   // check fiber index
-   if (dth->tiListAlloc>=fiber || dth->tiList[fiber].fiType==FIBT_AVAIL)
-      rc = E_MT_BADFIB; else
-   if (dth->tiFiberIndex==fiber) rc = E_SYS_DONE;
-
-   if (!rc)
-      if (th==dth) {
-         // switch fiber in current active thread
-         dth->tiWaitReason = fiber;
-         switch_context(0, SWITCH_FIBER);
-      } else
-         dth->tiFiberIndex = fiber;
-   mt_swunlock();
-   return rc;
 }
 
 mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata, void *arg) {
@@ -529,13 +496,15 @@ u32t _std mt_termthread(mt_tid tid, u32t result) {
       dth->tiWaitReason==THWR_TIDMAIN) rc = E_MT_GONE; else
    // main or system?
    if ((dth->tiMiscFlags&(TFLM_SYSTEM|TFLM_MAIN))) rc = E_MT_ACCESS; else
-   // waiting for something?
-   if (dth->tiState==THRD_WAITING) rc = E_MT_BUSY;
+   /* waiting for something? but still possible to stop mt_waitobject &
+      another one mt_termthread (THWR_TIDEXIT state) */
+   if (dth->tiState==THRD_WAITING && dth->tiWaitReason!=THWR_TIDEXIT &&
+      dth->tiWaitReason!=THWR_WAITOBJ) rc = E_MT_BUSY;
 
    if (rc || th->tiTID==tid) {
       mt_swunlock();
       if (rc) return rc;
-      // ah!
+      // this can`t be waiting!
       mt_exitthread(result);
    }
    // create fiber & then launch it
@@ -544,6 +513,10 @@ u32t _std mt_termthread(mt_tid tid, u32t result) {
       rc = E_MT_ACCESS;
       mt_swunlock();
    } else {
+      // cleanup mt_waitobject()
+      if (dth->tiState==THRD_WAITING && dth->tiWaitReason==THWR_WAITOBJ)
+         w_term(dth, THRD_SUSPENDED);
+
       mt_seteax(dth->tiList+fibIndex, result);
       dth->tiFiberIndex = fibIndex;
       dth->tiState      = THRD_RUNNING;
@@ -565,7 +538,7 @@ void _std mt_exitthread_int(u32t result) {
    mt_thrdata  *th;
    mt_prcdata  *pd;
 
-   // this lock will be reset in any of switch_context() below
+   // this lock will be cleared in any of switch_context() below
    mt_swlock();
    th = (mt_thrdata*)pt_current;
    pd = th->tiParent;
@@ -588,9 +561,6 @@ void _std mt_exitthread_int(u32t result) {
          switch_context(0, SWITCH_WAIT);
          // restore lock
          mt_swlock();
-         // th can be changed, actually
-         th = (mt_thrdata*)pt_current;
-         pd = th->tiParent;
       }
 #if 0
       log_it(0, "exit main p2 (%d) %X %d %d\n", pd->piThreads, th, th->tiTID,
@@ -605,7 +575,7 @@ void _std mt_exitthread_int(u32t result) {
       th->tiState  = THRD_FINISHED;
       // unlock thread in parent
       pth->tiState = THRD_RUNNING;
-      // exit process actually
+      // exit process
       switch_context(pth, SWITCH_PROCEXIT);
    } else {
       // check for possible main thread waiting for us
@@ -631,7 +601,8 @@ void _std mt_usleep(u32t usec) {
 static u32t _std sleeper(void *arg) {
    clock_t lct = sys_clock();
    u32t    cnt = 0;
-
+   // mark self (this naming occurs in first idle time slice)
+   mt_threadname("system idle");
    /* if we called too often duaring last 10 seconds - check for ctrl-alt
       pressed and then tries to get hotkey. This cause keypress loss */
    while (1) {

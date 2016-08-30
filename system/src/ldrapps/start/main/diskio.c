@@ -15,6 +15,8 @@
 #include "qcl/sys/qsedinfo.h"
 #include "dskinfo.h"
 #include "parttab.h"
+#include "qstask.h"
+#include "qssys.h"
 
 static cache_extptr *cache_eproc = 0;
 
@@ -31,13 +33,10 @@ static int _std catch_cacheptr(mod_chaininfo *info) {
    return 1;
 }
 
-static int _std catch_diskremove(mod_chaininfo *info) {
-   u32t disk = *(u32t*)(info->mc_regs->pa_esp+4);
-   log_it(2, "hlp_diskremove(%02X)\n", disk);
+static void _std notify_diskremove(sys_eventinfo *info) {
+   u32t disk = info->info;
    // is disk present and emulated? then unmount all
-   if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0)
-      hlp_unmountall(disk);
-   return 1;
+   if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0) hlp_unmountall(disk);
 }
 
 /* catch hlp_diskremove() to call hlp_unmountall() before it */
@@ -45,13 +44,12 @@ void setup_cache(void) {
    u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
    if (qsinit)
       if (mod_apichain(qsinit, ORD_QSINIT_hlp_runcache, APICN_ONENTRY, catch_cacheptr) &&
-         mod_apichain(qsinit, ORD_QSINIT_hlp_diskremove, APICN_ONENTRY, catch_diskremove))
-            return;
+         sys_notifyevent(SECB_DISKREM|SECB_GLOBAL, notify_diskremove)) return;
    log_it(2, "failed to catch!\n");
 }
 
 // cache ioctl (must be used inside MT lock only!)
-void cache_ctrl(u8t vol, u32t action) {
+void cache_ctrl(u32t action, u8t vol) {
    if (cache_eproc) (*cache_eproc->cache_ioctl)(vol,action);
 }
 
@@ -60,8 +58,11 @@ void cache_ctrl(u8t vol, u32t action) {
     @param buffer   buffer for result, can be 0 for static. At least 8 bytes.
     @return 0 on error, buffer or static buffer ptr */
 char* _std dsk_disktostr(u32t disk, char *buffer) {
-   static char buf[8];
-   if (!buffer) buffer = buf;
+   if (!buffer) {
+      u64t *rc;
+      mt_tlsaddr(QTLS_DSKSTRBUF, &rc);
+      buffer = (char*)rc;
+   }
    if (disk&QDSK_FLOPPY) snprintf(buffer, 8, "fd%d", disk&QDSK_DISKMASK); else
    if (disk&QDSK_VOLUME) snprintf(buffer, 8, "%c:", 'A'+(disk&QDSK_DISKMASK)); else
    if ((disk&QDSK_DISKMASK)==disk)
@@ -102,7 +103,6 @@ u32t _std dsk_strtodisk(const char *str) {
 }
 
 char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf) {
-   static char buffer[64];
    static char *suffix[] = { "kb", "mb", "gb", "tb", "pb", "eb", "zb" }; // ;)
    char fmt[16];
    u64t size = disksize * (sectsize?sectsize:1);
@@ -110,7 +110,11 @@ char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf) {
    size>>=10;
    while (size>=100000) { size>>=10; idx++; }
    if (width>4) sprintf(fmt, "%%%dd %%s", width-3);
-   if (!buf) buf = buffer;
+   if (!buf) {
+      u64t *rc;
+      mt_tlsaddr(QTLS_DSKSZBUF, &rc);
+      buf = (char*)rc;
+   }
    sprintf(buf, width>4?fmt:"%d %s", (u32t)size, suffix[idx]);
    return buf;
 }

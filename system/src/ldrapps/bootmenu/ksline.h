@@ -6,6 +6,7 @@
 #define QSINIT_MENUOPTS
 
 #include "qstypes.h"
+#include "qcl/qsinif.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,7 +19,12 @@ extern "C" {
     @param args           comma separated kernel config line options
     @param ininame        os2ldr.ini file name
     @return -1 if RESTART selected, 1 on success  */
-int _std cmd_mergeopts(char *line, char *args, char *ininame);
+int _std cmd_mergeopts(char *line, char *args, const char *ininame);
+
+extern qs_inifile    m_ini,    // menu ini file
+                    ld_ini;    // ldr ini file
+extern
+const char       *ld_fname;    // ldr ini file name
 
 #ifdef __cplusplus
 }

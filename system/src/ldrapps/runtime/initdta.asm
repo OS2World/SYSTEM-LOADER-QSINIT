@@ -1,6 +1,6 @@
 ;
-; QSINIT "start" module
-; init/fini segments
+; QSINIT runtime
+; init/fini segments for watcom C/C++ runtime
 ;
                 .486p
 

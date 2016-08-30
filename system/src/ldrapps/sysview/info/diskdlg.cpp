@@ -20,16 +20,23 @@
 #include "qsdm.h"
 #include "qsshell.h"
 #include "qsconst.h"
+#include "qserr.h"
+#include "qcl/qsvdimg.h"
+#include "qsio.h"
+#include "qsstor.h"
 #include "errno.h"
-#include "qcl/rwdisk.h"
 #endif
 #include "diskdlg.h"
 #include "diskact.h"
-#include "qsio.h"
 
 #define DISK_BUFFER   (32768)
 
 #define LARGEBOX_INC    7
+
+static const char *QSBIN1 = "QSINIT",
+                  *QSBIN2 = "QSINIT.LDI",
+                 *OS2BOOT = "OS2BOOT",
+                  *OS2LDR = "OS2LDR";
 
 static char *getfname(int open) {
    static char fname[MAXPATH+1];
@@ -576,7 +583,7 @@ void TSysApp::SearchBinNext(Boolean is_disk) {
 
    destroy(searchDlg);
    searchDlg = 0;
-   // show message boxes after zeroing searchDlg (else ::idle will kill as)
+   // show message boxes after zeroing searchDlg (else ::idle will kill us)
    if (lastSearchStop == TDiskSearchDialog::stopEnd) {
       infoDlg(MSGI_SRCHNOTFOUND);
    } else {
@@ -732,10 +739,14 @@ void TSysApp::CreatePartition(u32t disk, u32t fspidx, int logical) {
 
 char* TSysApp::GetPTErr(u32t rccode, int msgtype) {
 #ifdef __QSINIT__
-   char topic[16];
-   sprintf(topic, msgtype==MSGTYPE_LVM?"_LVME%02d":
-      (msgtype==MSGTYPE_FMT?"_FMT%02d":"_DPTE%02d"), rccode);
-   return cmd_shellgetmsg(topic);
+   if (msgtype==MSGTYPE_QS || msgtype==MSGTYPE_CLIB) {
+      return cmd_shellerrmsg(msgtype==MSGTYPE_QS?EMSG_QS:EMSG_CLIB, rccode);
+   } else {
+      char topic[16];
+      sprintf(topic, msgtype==MSGTYPE_LVM?"_LVME%02d":
+         (msgtype==MSGTYPE_FMT?"_FMT%02d":"_DPTE%02d"), rccode);
+      return cmd_shellgetmsg(topic);
+   }
 #else
    return 0;
 #endif
@@ -883,27 +894,23 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
 
 void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
 #ifdef __QSINIT__
-   TView *control;
-   if (!vol) {
-      u32t rc = vol_mount(&vol, disk, index);
-      if (rc && rc!=DPTE_MOUNTED) {
-         PrintPTErr(rc);
-         return;
-      }
-   }
-   disk_volume_data di;
-   hlp_volinfo(vol, &di);
+   TempVolumeMounter  vm(vol, disk, index, True);
+   disk_volume_data   di;
+   TView        *control;
    // check - was it really mounted?
+   hlp_volinfo(vol, &di);
    if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
 
    int  allow_fat = di.TotalSectors <= 32768 * 65526 / di.SectorSize,
                     // min # of sectors for FAT32 (approx, +1024 for garantee)
       allow_fat32 = di.TotalSectors >= 65536 + (65536*4*2)/di.SectorSize + 40 + 1024,
                     // check 64gb limit & sector size
-       allow_hpfs = di.SectorSize==512 && di.TotalSectors < _2GB/512*32;
+       allow_hpfs = di.SectorSize==512 && di.TotalSectors < _2GB/512*32,
+                    // limitation in format code
+      allow_exfat = di.TotalSectors>=0x1000;
 
-   int  *fs_list[] = { &allow_fat, &allow_fat32, &allow_hpfs, 0};
-   char  *fs_str[] = { "FAT", "FAT32", "HPFS", 0 };
+   int  *fs_list[] = { &allow_fat, &allow_fat32, &allow_hpfs, &allow_exfat, 0};
+   char  *fs_str[] = { "FAT", "FAT32", "HPFS", "exFAT", 0 };
 
    TDialog* dlg = new TDialog(TRect(18, 5, 62, 17), "Format partition");
    if (!dlg) return;
@@ -1008,7 +1015,7 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
          return;
       } else {
          disk_volume_data vi;
-         static const char *ftstr[4] = {"unrecognized", "FAT12", "FAT16", "FAT32"};
+         static const char *ftstr[5] = {"unrecognized", "FAT12", "FAT16", "FAT32", "exFAT"};
          char             fsname[32];
          u32t fstype = hlp_volinfo(vol, &vi);
          u32t clsize = vi.ClSize * vi.SectorSize;
@@ -1304,12 +1311,12 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
                          ed->make(imgname, rdi.SectorSize, rdi.TotalSectors);
             if (res)
                switch (res) {
-                  case EIO   : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
-                  case EBUSY :
-                  case EACCES: res = MSGE_ACCESSDENIED; break;
-                  case EEXIST: res = MSGE_FILECREATERR; break;
-                  case EBADF : res = MSGE_NOTVHDDFILE; break;
-                  default    : res = MSGE_FILEOPENERR;
+                  case E_DSK_DISKFULL:
+                  case E_DSK_IO      : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
+                  case E_SYS_ACCESS  : res = MSGE_ACCESSDENIED; break;
+                  case E_SYS_EXIST   : res = MSGE_FILECREATERR; break;
+                  case E_DSK_UNCKFS  : res = MSGE_NOTVHDDFILE; break;
+                  default            : res = MSGE_FILEOPENERR;
                }
          }
       }
@@ -1361,5 +1368,176 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
    }
 #endif // __QSINIT__
    return 0;
+}
+
+
+void TSysApp::BootCodeDlg(u8t vol, u32t disk, u32t index) {
+#ifdef __QSINIT__
+   TempVolumeMounter  vm(vol, disk, index);
+   disk_volume_data   di;
+   TView        *control;
+   // check - was it really mounted?
+   hlp_volinfo(vol, &di);
+   if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
+
+   if ((di.FsVer==FST_FAT12 || di.FsVer==FST_FAT16) &&
+      di.StartSector+di.TotalSectors>_4GBLL) { errDlg(MSGE_CROSS2TB); return; }
+
+   if ((di.FsVer==FST_FAT32 || di.FsVer==FST_NOTMOUNTED) &&
+      di.StartSector>=_4GBLL) { errDlg(MSGE_ABOVE2TB); return; }
+
+   TDialog* dlg = new TDialog(TRect(20, 5, 59, 17), "Update bootstrap code");
+   if (!dlg) { errDlg(MSGE_COMMONFAIL); return; }
+
+   dlg->options|= ofCenterX | ofCenterY;
+   dlg->helpCtx = hcBootCode;
+
+   FillDiskInfo(dlg, disk, index);
+
+   TInputLine *bootfn = new TInputLine(TRect(3, 9, 21, 10), 16);
+   bootfn->helpCtx = hcBootCodeFName;
+   dlg->insert(bootfn);
+   dlg->insert(new TLabel(TRect(3, 8, 18, 9), "Boot file name", bootfn));
+
+   setstr(bootfn, di.FsVer==FST_NOTMOUNTED ? OS2LDR : QSBIN1);
+
+   control = new TButton(TRect(26, 2, 36, 4), "~O~k", cmOK, bfDefault);
+   dlg->insert(control);
+   control = new TButton(TRect(26, 4, 36, 6), "~C~ancel", cmCancel, bfNormal);
+   dlg->insert(control);
+
+   dlg->selectNext(False);
+   int   ok = execView(dlg)==cmOK;
+   char *fn = ok?getstr(bootfn):0;
+   destroy(dlg);
+
+   if (ok) {
+      if (di.FsVer==FST_FAT12 || di.FsVer==FST_FAT16 || di.FsVer==FST_FAT32)
+         if (fn && strlen(fn)>11) { errDlg(MSGE_BOOTFN11); return; }
+      /* force special type instead of DSKBS_AUTO to guarantee additional
+         fs match check in dsk_newvbr() */
+      u32t bstype = 0;
+      switch (di.FsVer) {
+         case FST_NOTMOUNTED: bstype = DSKBS_HPFS; break;
+         case FST_FAT12:
+         case FST_FAT16: bstype = DSKBS_FAT16; break;
+         case FST_FAT32: bstype = DSKBS_FAT32; break;
+         case FST_EXFAT: bstype = DSKBS_EXFAT; break;
+         default: errDlg(MSGE_UNCKFS);
+                  return;
+      }
+      u32t err = dsk_newvbr(disk, di.StartSector, bstype, fn&&*fn?fn:0);
+
+      if (err) PrintPTErr(err, MSGTYPE_FMT); else infoDlg(MSGI_BOOTCODEOK);
+   }
+#endif // __QSINIT__
+}
+
+
+void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
+#ifdef __QSINIT__
+   TempVolumeMounter  vm(vol, disk, index);
+   disk_volume_data   di;
+   TView        *control;
+   // check - was it really mounted?
+   hlp_volinfo(vol, &di);
+   if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
+   if (di.FsVer==FST_NOTMOUNTED) { errDlg(MSGE_UNCKFS); return; }
+
+   void    *qs = 0, *ldi = 0;
+   u32t  qslen = 0, ldilen = 0, err = 0;
+   int     pxe = hlp_boottype()==QSBT_PXE, ii;
+   u32t bootfs = !pxe ? hlp_volinfo(0,0) : FST_NOTMOUNTED;
+
+   // read boot files
+   for (ii=0; ii<2; ii++)
+      if ((qs = hlp_freadfull(Xor(pxe||bootfs==FST_NOTMOUNTED,ii)?OS2LDR:QSBIN1,
+         &qslen, 0))) break;
+   if (qs) {
+      // trying to get LDI from memory, else going to boot device read
+      ldilen = sto_size(STOKEY_ZIPDATA);
+      if (ldilen)
+         if (!hlp_memcpy(ldi = hlp_memalloc(ldilen, QSMA_RETERR|QSMA_NOCLEAR),
+            sto_data(STOKEY_ZIPDATA), ldilen, 0))
+               if (ldi) { hlp_memfree(ldi); ldi = 0; }
+      if (!ldi) ldi = hlp_freadfull(QSBIN2, &ldilen, 0);
+   }
+   if (!qs || !ldi) err = MSGE_NOBOOTFILES;
+
+   while (!err) {
+      TDialog* dlg = new TDialog(TRect(20, 5, 59, 14), "Put QSINIT binaries");
+      if (!dlg) { err = MSGE_COMMONFAIL; break; }
+      dlg->options|= ofCenterX | ofCenterY;
+      dlg->helpCtx = hcQSInst;
+
+      FillDiskInfo(dlg, disk, index);
+
+      control = new TButton(TRect(26, 2, 36, 4), "~O~k", cmOK, bfDefault);
+      dlg->insert(control);
+      control = new TButton(TRect(26, 4, 36, 6), "~C~ancel", cmCancel, bfNormal);
+      dlg->insert(control);
+      dlg->selectNext(False);
+
+      if (execView(dlg)==cmOK) {
+         char vp[4] = ".:\\";
+         vp[0] = vol - 0 + 'A';
+
+         qserr rc = io_chdir(vp);
+         while (!rc) {
+            char cl[64];
+            // the easiest way to remove r/o attr ;)
+            sprintf(cl, "-r /q %s", QSBIN1);  cmd_shellcall(shl_attrib, cl, 0);
+            sprintf(cl, "-r /q %s", QSBIN2);  cmd_shellcall(shl_attrib, cl, 0);
+            sprintf(cl, "-r /q %s", OS2BOOT); cmd_shellcall(shl_attrib, cl, 0);
+
+            int cerr1 = fwritefull(QSBIN1, qs, qslen),
+                cerr2 = fwritefull(QSBIN2, ldi, ldilen);
+
+            if (cerr1 || cerr2) err = MSGE_QSWRITEERR; else {
+               u32t berr = dsk_newvbr(disk, di.StartSector, DSKBS_AUTO, QSBIN1);
+               if (berr) { PrintPTErr(berr, MSGTYPE_FMT); break; } else {
+                  io_remove(OS2BOOT);
+                  // set rhs attr on QS files
+                  sprintf(cl, "+r +h +s /q %s", QSBIN1); cmd_shellcall(shl_attrib, cl, 0);
+                  sprintf(cl, "+r +h +s /q %s", QSBIN2); cmd_shellcall(shl_attrib, cl, 0);
+               
+                  infoDlg(MSGI_BOOTQSOK);
+               }
+            }
+            break;
+         }
+         if (rc) PrintPTErr(rc, MSGTYPE_QS);
+      }
+      destroy(dlg);
+      break;
+   }
+   if (ldi) hlp_memfree(ldi);
+   if (qs) hlp_memfree(qs);
+   // show error
+   if (err) errDlg(err);
+#endif // __QSINIT__
+}
+
+void TSysApp::ChangeDirty(u8t vol, u32t disk, u32t index) {
+#ifdef __QSINIT__
+   TempVolumeMounter  vm(vol, disk, index);
+   disk_volume_data   di;
+   TView        *control;
+   // check - was it really mounted?
+   hlp_volinfo(vol, &di);
+   if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
+
+   int state = vol_dirty(vol, -1);
+   if (state>=0) {
+      char *msg = sprintf_dyn("\3""Current partition state is %s. "
+                              "Do you want to switch it?", state?"DIRTY":"CLEAN");
+      if (messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes) {
+         state = vol_dirty(vol, state?0:1);
+         if (state>=0) infoDlg(MSGI_DONE);
+      }
+      free(msg);
+   }
+   if (state<0) PrintPTErr(-state, MSGTYPE_FMT);
+#endif // __QSINIT__
 }
 

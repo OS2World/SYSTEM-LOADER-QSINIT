@@ -119,6 +119,11 @@ _BSS16          ends                                            ;
 ;    (DL)    = drive number for the boot disk
 ;    (DS:SI) = address of BOOT MEDIA'S bpb
 ;
+;  exFAT boot sector:
+;    (DH)    = 0x40
+;    (DL)    = drive number for the boot disk
+;    (DS:SI) = address of Disk_NewPB structure (see ioint13.inc)
+;
                 public  _aboutstr                               ;
 INITCODE        segment                                         ;
                 assume  cs:G16, ds:G16, es:nothing, ss:G16      ;
@@ -247,7 +252,7 @@ endif
                 mov     bx,ds                                   ; save
                 mov     dh,_dd_bootflags                        ;
                 mov     ah,dh                                   ; copy flags to ah
-                and     dh,not BF_NOPICINIT                     ;
+                and     dh,not (BF_NOPICINIT or BF_NEWBPB)      ;
 
                 movzx   cx,ah                                   ;
                 mov     es,bx                                   ;
@@ -389,6 +394,10 @@ endif
                 mov     di,offset _BootBPB                      ;
                 mov     ds,word ptr _dd_bpbseg                  ;
                 mov     cx,size Disk_BPB                        ;
+                test    ah,BF_NEWBPB                            ;
+                jz      @@init_copyBPB
+                mov     cx,size Disk_NewPB                      ;
+@@init_copyBPB:
             rep movsb                                           ;
                 mov     ds,bx                                   ; restore ds
                 jmp     @@init_funclist                         ;

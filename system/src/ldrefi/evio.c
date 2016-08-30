@@ -162,22 +162,19 @@ u8t  _std key_pressed(void) {
 static u8t _rate = 0, _delay = 0;
 
 void _std key_speed(u8t rate, u8t delay) {
+   mt_swlock();
    _rate  = rate  &= 0x1F;
    _delay = delay &= 3;
    // no way to set it in EFI :)
    //rmcall(setkeymode,2,(u32t)delay<<8|rate);
+   mt_swunlock();
 }
 
 void _std key_getspeed(u8t *rate, u8t *delay) {
+   mt_swlock();
    if (delay) *delay = _delay;
    if (rate )  *rate = _rate;
+   mt_swunlock();
 }
 
 u8t _std key_push(u16t code) { return 0; }
-
-/*
-u16t _std key_wait(u32t seconds) {
-//   cache_ctrl(CC_IDLE, DISK_LDR);
-   return call64(EFN_KEYWAIT, 0, 1, seconds);
-}
-*/

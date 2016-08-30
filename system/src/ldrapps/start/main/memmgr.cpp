@@ -3,14 +3,13 @@
 // memory manager
 // -------------------------------------
 //
-// todo! some things still not fixed after porting! ;)
-//
 // * this memmgr was written in 1997 for own unfinished pascal compiler ;)
 //   then it was ported to C and used on some real jobs (for 4 bln. users)
-// * it is simplyfied version here, with 16 bytes block header.
+// * it is simplified version here, with 16 bytes block header.
 // * alloc/free pair speed is ~ the same with ICC/GCC runtime, but this
 //   manager also provides file/line or id1/id2 pair for user needs on every
 //   block (and various debug listings too).
+//
 // * mtlock is used here because of using this manager in MTLIB itself. I.e
 //   all thread/fiber data is also stored in those heaps.
 //
@@ -20,8 +19,7 @@
 #include "qsutil.h"
 #include "memmgr.h"
 #include "qspdata.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodext.h"
 #include "vio.h"
 
 #define QSMCC_SIGN (0x484D5351) // QSMH
@@ -156,6 +154,7 @@ volatile static MemMgrError MemError=NULL;
 static CacheArray Cache[2];
 
 static void*      ExtPoolPtr[MaxPool+ExtPool];  // ext. pools pointers
+static u16t      ExtPoolSize[MaxPool+ExtPool];  // ext. pool state (for stat)
 static QSMCC*      SmallPool[MaxPool+ExtPool];  // small pools
 static QSMCC*         LargePool[MaxLargePool];  // large pools
 
@@ -216,7 +215,7 @@ typedef struct {
 
 // must be called inside SynchroL mutex
 static int NewSmallPool(u32t Size16,u32t Caller) {
-   ExtPoolInfo info[ExtPool];
+   static ExtPoolInfo info[ExtPool];  // 1k, can use static inside lock
    // reading r/o blocks
    int cnt=hlp_memqconst((u32t*)&info,ExtPool);
 
@@ -232,7 +231,8 @@ static int NewSmallPool(u32t Size16,u32t Caller) {
          log_printf("* %08X %d\n",info[cnt].memPtr,info[cnt].usedSize);
 #endif
          qsmcc Block=(QSMCC*)blockPtr;
-         ExtPoolPtr[FirstFree] = info[cnt].memPtr;
+         ExtPoolPtr [FirstFree] = info[cnt].memPtr;
+         ExtPoolSize[FirstFree] = usedSize;
          FillQSMCC(Block,usedSize-HeaderSize,FREEQSMCC,FREEQSMCC,0);
          SmallPool [FirstFree++] = Block;
          AddToCache(Block);
@@ -666,30 +666,36 @@ extern "C" unsigned long mem_freeowner(long Owner) {
 }
 
 extern "C" void mem_stat() {
-   u32t sp=0,lp=0;
-   int ii;
-   char buf[512],*ep;
-   u32t Caller=(u32t)&mem_stat;
+   u32t     sp = 0, lp = 0;
+   int      ii;
+   char    buf[512], *ep;
+   u32t Caller = (u32t)&mem_stat;
+
    mt_swlock(); // if (MultiThread) MutexGrab(SynchroG);
    for (ii=0;ii<LargeFree;ii++)
       if (LargePool[ii]) lp+=LargePool[ii]->Size<<LargeShift;
    // if (MultiThread) MutexRelease(SynchroG);
    // if (MultiThread) MutexGrab(SynchroL);
-   sp=FirstFree*PoolBlocks;
-   ep=buf+sprintf(buf,"memStat(): %ld:%ld /",sp>>10,lp>>10);
-   for (ii=0;ii<FirstFree;ii++) {
+   // calc real size in small pools
+   for (ii=0; ii<FirstFree; ii++)
+      sp += ExtPoolSize[ii]?ExtPoolSize[ii]:PoolBlocks;
+   ep = buf + sprintf(buf,"memStat(): %u:%u /", sp>>10, lp>>10);
+   for (ii=0; ii<FirstFree; ii++) {
       qsmcc PP(SmallPool[ii]);
-      u32t maxsize=0,totsize=0;
+      u32t  maxsize = 0, totsize = 0,
+           poolsize = ExtPoolSize[ii]?ExtPoolSize[ii]:PoolBlocks;
       while (true) {
          if (!PP->Size) break;
-         if (PP->Signature!=QSMCC_SIGN) TryToRefBlock((char*)PP+HeaderSize,"memStat()",Caller); // abort
+         if (PP->Signature!=QSMCC_SIGN)
+            TryToRefBlock((char*)PP+HeaderSize, "memStat()", Caller); // abort
          auto u32t size=PP->Size<<4;
          if (PP->GlobalID==FREEQSMCC) {
-            if (size>maxsize) maxsize=size;
+            if (size>maxsize) maxsize = size;
          } else totsize+=size;
          PP++;
       }
-      if ((ep+=sprintf(ep,"%ld:%ld/",totsize*100/(PoolBlocks-32),maxsize>>10))-buf>=480) break;
+      if ((ep += sprintf(ep,"%u:%u%%:%u/", poolsize>>10, totsize*100/(poolsize-32),
+         maxsize>>10))-buf>=480) break;
    }
    strcpy(ep," \n");
    mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
@@ -1067,13 +1073,15 @@ extern "C" u32t mem_getopts(void) {
 void DefMemError(u32t ErrType,const char *FromHere,u32t Caller,void *Pointer) {
    static const char *errmsg[7]={"", "Out of internal buffers", "Invalid pointer value",
       "Block header destroyd", "Out of memory", "Check error", "Double block free"};
-   char msg[256];
-   u32t object,offset;
-   int len=snprintf(msg,256,"MEMMGR FATAL: %s. Function %s.\n              Caller ",
-      errmsg[ErrType],FromHere);
-
-   module *mi = mod_by_eip(Caller,&object,&offset,0);
-   if (mi) len+=snprintf(msg+len, 256-len, "\"%s\" %d:%8.8X.",mi->name,object+1,offset);
+   char     msg[256];
+   u32t  object, offset;
+   module   *mi;
+   int      len = snprintf(msg, 256, "MEMMGR FATAL: %s. Function %s.\n              Caller ",
+                           errmsg[ErrType],FromHere);
+   // additional lock for safeness (forewer - we never return)
+   mt_swlock();
+   mi = mod_by_eip(Caller, &object, &offset, 0);
+   if (mi) len+=snprintf(msg+len, 256-len, "\"%s\" %d:%8.8X.", mi->name, object+1, offset);
       else len+=snprintf(msg+len, 256-len, "unknown.");
 
    if (ErrType==RET_INVALIDPTR||ErrType==RET_MCBDESTROYD||ErrType==RET_DOUBLEFREE)

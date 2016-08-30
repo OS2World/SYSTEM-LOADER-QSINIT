@@ -21,9 +21,13 @@ ft_resofs       dd      ?
 ft_reslen       dd      ?
 filetable_s     ends
 
-BF_NOMFSHVOLIO  equ     001h     
-BF_RIPL         equ     002h     
-BF_MINIFSD      equ     004h     
-BF_NOPICINIT    equ     008h     
-BF_MICROFSD     equ     010h     
+BF_NOMFSHVOLIO  equ     001h
+BF_RIPL         equ     002h
+BF_MINIFSD      equ     004h
+BF_NOPICINIT    equ     008h
+BF_MICROFSD     equ     010h
 BF_RESERVED     equ     0E0h
+
+; this is QSINIT addition to handle exFAT boot in some way
+; it cause using of Disk_NewPB struct instead of common BPB
+BF_NEWBPB       equ     040h

@@ -11,7 +11,7 @@ export PATH=$QS_BASE/tools/t_$BUILD_HERE:$QS_BASE/tools:$PATH:$WATCOM/binl
 
 export INCLUDE=$WATCOM/h:$QS_BASE/hc
 
-# GS used for process_info, no watcom libs, structs packed to 1 byte,
+# no watcom libs, structs packed to 1 byte,
 # inline FP code, unmangled stdcall (runtime functions), favor size
 export QS_CFLAGS="-zz -zl -zls -zq -zp1 -fp5 -fpi87 -zri -os -bt=$QS_NAME"
 

@@ -68,7 +68,7 @@ static u32t ofs2sec(u8t vol, hpfs_fnode *fn, hpfs_fnode *buf, u32t *fofs) {
 }
 
 #define next_dirent(de)  de = (hpfs_dirent*)((u8t*)de + de->recsize)
-#define first_dirent(db) (hpfs_dirent*)((u8t*)(db) + FIELDOFFSET(hpfs_dirblk,startb))
+#define first_dirent(db) (hpfs_dirent*)((u8t*)(db) + offsetof(hpfs_dirblk,startb))
 
 /// read file from the root of HPFS volume
 void* _std hpfs_freadfull(u8t vol, const char *name, u32t *bufsize) {

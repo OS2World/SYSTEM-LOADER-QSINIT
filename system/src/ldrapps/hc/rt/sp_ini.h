@@ -73,7 +73,7 @@ public:
   void  DeleteKey    (const spstr &Section,const spstr &Key);
 #ifndef NO_INIFILESRW
   Bool  SaveCopy     (const char *NewFile) { return File.SaveToFile(NewFile); }
-  void  Flush()      { File.SaveToFile(FName()); }
+  Bool  Flush()      { return File.SaveToFile(FName()); }
 #endif
   Bool  ValueExists  (const spstr &Section,const spstr &Key)
                        { return ValueIndex(Section,Key)>=0; }

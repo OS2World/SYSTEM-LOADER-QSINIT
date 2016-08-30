@@ -9,8 +9,7 @@
 char *_argv[ARGV_LIMIT];
 
 #include "clib.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsutil.h"
 
 extern char *_CmdLine;

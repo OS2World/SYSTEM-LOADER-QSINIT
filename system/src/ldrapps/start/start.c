@@ -23,7 +23,6 @@ void setup_hardware(void);
 void check_version(void);
 int  get_ini_parms(void);
 void setup_fio(void);
-void done_ini(void);
 void mem_init(void);
 
 void _std mod_main(void) {
@@ -67,16 +66,14 @@ void _std mod_main(void) {
       key_speed(0,0);
       cmd_exec("1:\\start.cmd",0);
    }
-   // clearing ini file cache
-   done_ini();
    /* WARNING! START module is never released by QSINIT, so exported code
       CAN be called after this point! */
    log_printf("exiting start\n");
 }
 
 /* empty LibMain, because it called too early to init START things.
-   _wc_static_init calling from mod_main() for us,
-   _wc_static_fini is never calling */
+   _wc_static_init called by mod_main() for us,
+   _wc_static_fini is never called */
 unsigned __stdcall LibMain(unsigned hmod, unsigned termination) {
    return 1;
 }

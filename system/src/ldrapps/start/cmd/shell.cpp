@@ -2,24 +2,16 @@
 // QSINIT "start" module
 // common shell functions
 //
-#include "qsutil.h"
+#include "qsbase.h"
 #include "classes.hpp"
 #include "stdlib.h"
-#include "qsshell.h"
-#include "vio.h"
 #include "errno.h"
-#include "qslog.h"
 #include "internal.h"
 #include "qsconst.h"
 #include "direct.h"
 #include "time.h"
-#include "qshm.h"
 #include "qsint.h"
-#include "qssys.h"
-#include "qsstor.h"
-#include "qspage.h"
 #include "qsmodext.h"
-#include "qsclass.h"
 
 #define SESS_SIGN     0x53534553
 #define MODE_ECHOOFF      0x0001
@@ -158,28 +150,35 @@ void set_errorlevel(int elvl) {
 }
 
 static void check_embedded(void) {
-   if (!embedded) {
+   if (!embedded) { // this should be called on the first line of START.CMD
       embedded = new CmdList;
       embedded->SetText(internal_commands);
    }
 }
 
 u32t shl_extcall(spstr &cmd, TStrings &plist) {
-   if (!ext_shell || !ext_shell->IsMember(cmd)) return EINVAL;
-   /* str_getlist() must be used here, because it trim spaces around =
-      in parameter list */
-   str_list* args = str_getlist(plist.Str);
-   int        idx = ext_shell->IndexOf(cmd);
-   cmd_eproc func = ext_shell->Objects(idx);
-   // ext_shell content can be changed inside call
-   u32t ii = func((char*)cmd(),args);
-   free(args);
-   return ii;
+   mt_swlock();
+   if (!ext_shell || !ext_shell->IsMember(cmd)) {
+      mt_swunlock();
+      return EINVAL;
+   } else {
+      /* str_getlist() must be used here, because it trim spaces around =
+         in parameter list */
+      str_list* args = str_getlist(plist.Str);
+      int        idx = ext_shell->IndexOf(cmd);
+      cmd_eproc func = ext_shell->Objects(idx);
+      mt_swunlock();
+      // ext_shell content can be changed inside call
+      u32t res = func((char*)cmd(),args);
+      free(args);
+      return res;
+   }
 }
 
 u32t cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb) {
    if (!func) return EINVAL;
    spstr cmdname;
+   mt_swlock();
    // query command name by function ptr
    if (ext_shell) {
       int idx = ext_shell->IndexOfObject(func);
@@ -190,6 +189,7 @@ u32t cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb) {
       int idx = ext_mode->IndexOfObject(func);
       if (idx>=0) cmdname = (*ext_mode)[idx];
    }
+   mt_swunlock();
    // and finally call it!
    if (!argsa && !argsb) {
       str_list nl;
@@ -313,11 +313,11 @@ static u32t process_for(TStrings &plist, session_info *si) {
 }
 
 static u32t cmd_process(spstr ln,session_info *si) {
-   spstr   cmd=subst_env(ln,si).word(1).trim(), parm;
-   int  noecho=cmd[0]=='@', linediff=1;
-   u32t     rc=0, ii;
-   int     ps2=ln.wordpos(2);
-   if (ps2>0) parm=ln.right(ln.length()-ps2).trim();
+   spstr   cmd = subst_env(ln,si).word(1).trim(), parm;
+   int  noecho = cmd[0]=='@', linediff=1;
+   u32t     rc = 0, ii;
+   int     ps2 = ln.wordpos(2);
+   if (ps2>0) parm = ln.right(ln.length()-ps2).trim();
 
    TStrings plist; // list of parameters
    plist.ParseCmdLine(parm);
@@ -410,10 +410,10 @@ static u32t cmd_process(spstr ln,session_info *si) {
    if (cmd=="GETKEY") {
       ii = parm.Int();
       if (ii) {
-         ii = key_wait(ii); 
+         ii = key_wait(ii);
          // get default value
          if (ii==0 && plist.Count()>1) ii = plist[1].Dword();
-      } else 
+      } else
          while (log_hotkey(ii=key_read()));
       set_errorlevel(ii);
    } else
@@ -455,12 +455,12 @@ static u32t cmd_process(spstr ln,session_info *si) {
    if (cmd=="REM"||cmd[0]==':') {
    } else
    if (cmd=="PAUSE") {
-      if (!parm) parm="Press any key when ready...";
-      printf("%s\n",parm());
+      if (!parm) parm = "Press any key when ready...";
+      printf("%s\n", parm());
       while (log_hotkey(key_read()));
    } else
    if (cmd=="EXIT") {
-      linediff=si->list.Count()-si->nextline;
+      linediff = si->list.Count()-si->nextline;
       rc = CMDR_RETEND;
    } else
    if (cmd=="CALL") {
@@ -479,41 +479,45 @@ static u32t cmd_process(spstr ln,session_info *si) {
          hlp_memfree(bfnew);
          si->nest = (session_info*)cmd_init2(btxt,plist);
       }
-   } else
-   // process installed external command
-   if (ext_shell && ext_shell->IsMember(cmd)) {
-      ii = shl_extcall(cmd,plist);
-      if (ii<CMDR_NOFILE) set_errorlevel(ii); else rc = ii;
-   } else
-   if (cmd.length()) {
-      u32t error=0;
-      if (cmd[1]==':')
-         if (cmd[0]>='0'&&cmd[0]<='9') cmd[0]+='A'-'0';
-      if (cmd[1]==':'&&cmd.length()==2) {
-         error = io_setdisk(cmd[0]-'A');
-         set_errorlevel(error?ENODEV:EZERO);
-         if (error) cmd_shellerr(EMSG_QS,error,0);
-      } else {
-         // launch or search module
-         module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
-                                (module*)mod_searchload(cmd(), &error);
-         if (md) {
-            char *env = envcopy(mod_context(), 0);
-            s32t   rc = mod_exec((u32t)md, env, parm());
-            if (rc<0) printf("Unable to launch module \"%s\"\n",cmd());
-            free(env);
-            mod_free((u32t)md);
-            // set errorlevel env. var
-            set_errorlevel(rc);
-            rc = 0;
+   } else {
+      mt_swlock();
+      int is_ext = ext_shell && ext_shell->IsMember(cmd);
+      mt_swunlock();
+      // process installed external command
+      if (is_ext) {
+         ii = shl_extcall(cmd,plist);
+         if (ii<CMDR_NOFILE) set_errorlevel(ii); else rc = ii;
+      } else
+      if (cmd.length()) {
+         u32t error=0;
+         if (cmd[1]==':')
+            if (cmd[0]>='0'&&cmd[0]<='9') cmd[0]+='A'-'0';
+         if (cmd[1]==':'&&cmd.length()==2) {
+            error = io_setdisk(cmd[0]-'A');
+            set_errorlevel(error?ENODEV:EZERO);
+            if (error) cmd_shellerr(EMSG_QS,error,0);
          } else {
-            printf("Error loading module \"%s\"\n",cmd());
-            char *msg = cmd_shellerrmsg(EMSG_QS,error);
-            if (msg) {
-               printf("(%s)\n", msg);
-               free(msg);
+            // launch or search module
+            module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
+                                   (module*)mod_searchload(cmd(),0,&error);
+            if (md) {
+               char *env = envcopy(mod_context(), 0);
+               s32t   rc = mod_exec((u32t)md, env, parm());
+               if (rc<0) printf("Unable to launch module \"%s\"\n",cmd());
+               free(env);
+               mod_free((u32t)md);
+               // set errorlevel env. var
+               set_errorlevel(rc);
+               rc = 0;
+            } else {
+               printf("Error loading module \"%s\"\n",cmd());
+               char *msg = cmd_shellerrmsg(EMSG_QS,error);
+               if (msg) {
+                  printf("(%s)\n", msg);
+                  free(msg);
+               }
+               set_errorlevel(error = ENOENT);
             }
-            set_errorlevel(error = ENOENT);
          }
       }
    }
@@ -553,6 +557,7 @@ u32t _std cmd_run(cmd_state commands, u32t flags) {
 
 u32t _std cmd_getflags(cmd_state commands) {
    session_info *si = (session_info*)commands;
+   MTLOCK_THIS_FUNC lk; // this should guarantee block presence until end of func
    if (!si||si->sign!=SESS_SIGN) return 0;
    u32t rc = 0;
    if ((si->mode&MODE_ECHOOFF)!=0) rc|=CMDR_ECHOOFF;
@@ -625,6 +630,7 @@ static cmd_eproc common_add(const char *name, cmd_eproc proc, PCmdList &lst) {
    if (!name||!proc) return proc;
    spstr nm(name);
    if (!nm.trim().upper()) return proc;
+   MTLOCK_THIS_FUNC lk;
    // we create it, but never delete ;)
    if (!lst) lst = new CmdList;
    int idx = lst->IndexOf(nm);
@@ -638,6 +644,7 @@ static cmd_eproc common_rmv(const char *name, cmd_eproc proc, PCmdList lst) {
    spstr nm(name);
    if (!nm.trim().upper()) return 0;
    int idx;
+   MTLOCK_THIS_FUNC lk;
    if (proc) {
       idx = lst->IndexOfObject(proc);
       if (idx>=0) lst->Delete(idx);
@@ -657,6 +664,7 @@ cmd_eproc _std cmd_shellrmv(const char *name, cmd_eproc proc) {
 int _std cmd_shellquery(const char *name) {
    spstr nm(name);
    nm.trim().upper();
+   MTLOCK_THIS_FUNC lk;
    if (ext_shell&&ext_shell->IndexOf(nm)>=0) return 1;
    if (!embedded) check_embedded();
    if (embedded &&embedded ->IndexOf(nm)>=0) return 1;
@@ -665,9 +673,12 @@ int _std cmd_shellquery(const char *name) {
 
 str_list* _std cmd_shellqall(int ext_only) {
    CmdList lst;
+   // fast lock of list access
+   mt_swlock();
    if (!ext_only&&!embedded) check_embedded();
    if (ext_shell) lst.AddStrings(0,*ext_shell);
    if (!ext_only&&embedded) lst.AddStrings(0,*embedded);
+   mt_swunlock();
    lst.Sort();
    // remove duplicate names
    int ii = 0;
@@ -686,6 +697,7 @@ cmd_eproc _std cmd_modermv(const char *name, cmd_eproc proc) {
 
 str_list* _std cmd_modeqall(void) {
    if (ext_mode) {
+      MTLOCK_THIS_FUNC lk;
       TStrings lst(*ext_mode);
       lst.Sort();
       return str_getlist_local(lst.Str);
@@ -703,5 +715,5 @@ module* load_module(spstr &name, u32t *error) {
       if (name[0]>='A'&&name[0]<='Z') name[0]-='A'-'0';
    // launch or search module
    return name[1]==':'?(module*)mod_load((char*)name(),0,error,0):
-                       (module*)mod_searchload(name(),error);
+                       (module*)mod_searchload(name(),0,error);
 }

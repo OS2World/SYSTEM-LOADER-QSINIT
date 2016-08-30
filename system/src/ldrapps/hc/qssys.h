@@ -122,7 +122,7 @@ void*    _std sys_getlapic(void);
 #define SFEA_AMD     0x20000000            ///< CPU is AMD
 //@}
 
-/** query some CPU features in more easy way.
+/** query some CPU features in more friendly way.
     @param  flags   SFEA_* flags combination
     @return actually supported subset of flags parameter */
 u32t     _std sys_isavail(u32t flags);
@@ -209,6 +209,7 @@ u32t     _std sys_queryinfo(u32t index, void *outptr);
 /// index values for sys_queryinfo()
 //@{
 #define QSQI_VERSTR       0x0000    ///< version string
+#define QSQI_OS2LETTER    0x0001    ///< boot drive letter from bpb or 0
 #define QSQI_TLSPREALLOC  0x0010    ///< number of constantly used TLS entries
 //@}
 
@@ -219,24 +220,31 @@ typedef struct {
 
 /** callback procedure for sys_notifyevent().
     Callback called asynchronously, in other process/thread context and
-    locked MT state! */
+    with locked MT state! */
 typedef void _std (*sys_eventcb)(sys_eventinfo *info);
 
 /** register callback procedure for selected system events.
     By default, callback function marked as "current process" owned. After
     process exit it will be removed automatically.
     To use it in global modules (DLLs) - SECB_GLOBAL bit should be added.
+ 
+    SECB_QSEXIT, SECB_PAE and SECB_MTMODE are single-shot events - all
+    such notification types will be unregistered automatically after call.
+    I.e., if mask combines SECB_PAE|SECB_MTMODE (for example), function
+    will be called for every event and only then unregistered.
 
     SECB_THREAD flag is accepted even if MT mode is off, callback just failed
     to run if MT mode will be off when event occurs. I.e. you can install
     new thread launch at the moment of MT mode activation (for example).
 
-    Also note, what SECB_QSEXIT flag cannot be combined with SECB_THREAD.
+    Also note, what SECB_QSEXIT flag cannot be combined with SECB_THREAD and
+    for SECB_DISKREM only absence of SECB_THREAD flag guarantee disk presence
+    at the time of call.
 
     @param   eventmask  Bit mask of events to call cbfunc (SECB_*).
     @param   cbfunc     Callback function, one address can be specified only
-                        once, futher calls only change the mask, use 0 to 
-                        remove callback at all.
+                        once, further calls only changes the mask, use mask 0
+                        to remove callback at all.
     @return success flag (1/0) */
 u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 
@@ -247,6 +255,8 @@ u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 #define SECB_MTMODE   0x00000004    ///< MTLIB activated (multithreading)
 #define SECB_CMCHANGE 0x00000008    ///< CPU clock modulation changed
 #define SECB_IODELAY  0x00000010    ///< IODelay value changed (value in info field)
+#define SECB_DISKADD  0x00000020    ///< new disk added (disk handle in info field)
+#define SECB_DISKREM  0x00000040    ///< disk removing (disk handle in info field)
 
 #define SECB_THREAD   0x40000000    ///< callback is new thread in process context
 #define SECB_GLOBAL   0x80000000    ///< global callback (see sys_notifyevent())

@@ -181,29 +181,32 @@ qserr    _std io_size     (io_handle fh, u64t *size);
 qserr    _std io_setsize  (io_handle fh, u64t newsize);
 
 /** setup additional file options.
-    @param fh      file handle
-    @param flag    option(s) (IOFS_*). Note, that IOFS_DETACHED can be
-                   selected by file owner only and cannot be reset back,
-                   IOFS_RENONCLOSE can only be reset to 0 (i.e. this
-                   terminates file renaming/moving action) and IOFS_BROKEN
-                   cannot be set, only return by io_getstate().
-                   Broken files deny most ops, but IOFS_DETACHED still can be
-                   set for it.
+    @param fh      file/directory/mutex handle
+    @param flag    option(s) (IOFS_*). Note, that IOFS_DETACHED can be set
+                   by owner only and cannot be reset back, IOFS_RENONCLOSE
+                   can only be reset to 0 (i.e. this terminates file
+                   renaming/moving action) and IOFS_BROKEN cannot be set,
+                   only return by io_getstate().
+                   Broken objects deny most ops, but IOFS_DETACHED still can
+                   be set for it.
     @param value   value to set for flag(s) above (1 or 0)
     @return error code */
-qserr    _std io_setstate (io_handle fh, u32t flags, u32t value);
-qserr    _std io_getstate (io_handle fh, u32t *flags);
+qserr    _std io_setstate (qshandle fh, u32t flags, u32t value);
+qserr    _std io_getstate (qshandle fh, u32t *flags);
 
 qserr    _std io_lasterror(io_handle fh);
 qserr    _std io_info     (io_handle fh, io_direntry_info *info);
 
-u32t     _std io_filetype (io_handle fh);
-/** duplicate file handle.
-    @param  [in]  src      file handle to duplicate
+/** query handle type.
+    @return IOFT_* constant or 0 on error */
+u32t     _std io_handletype(qshandle fh);
+
+/** duplicate handle.
+    @param  [in]  src      handle to duplicate (accepts file & mutex handles now).
     @param  [out] dst      ptr to new handle
     @param  [in]  priv     make private handle if source is detached (shared)
     @return error code */
-qserr    _std io_duphandle(io_handle src, io_handle *dst, int priv);
+qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
 
 /// @name io_open() action value
 //@{
@@ -216,15 +219,17 @@ qserr    _std io_duphandle(io_handle src, io_handle *dst, int priv);
 //@{
 #define IOFS_DETACHED     0x0001    ///< detached handle (shared over system)
 #define IOFS_DELONCLOSE   0x0002    ///< delete file on close
-#define IOFS_RENONCLOSE   0x0004    ///< rename/move on close was scheduled
-#define IOFS_BROKEN       0x0008    ///< file is broken (volume was unmounted and so on)
+#define IOFS_RENONCLOSE   0x0004    ///< rename/move file on close was scheduled
+#define IOFS_BROKEN       0x0008    ///< file/object is broken (volume was unmounted and so on)
 //@}
 
-/// @name io_filetype() result
+/// @name io_handletype() result
 //@{
 #define IOFT_BADHANDLE         0    ///< handle is invalid
 #define IOFT_FILE              1    ///< handle is file
 #define IOFT_CHAR              2    ///< handle is character device (con, aux)
+#define IOFT_DIR               3    ///< dir_handle object
+#define IOFT_MUTEX             4    ///< mutex object handle
 #define IOFT_UNKNOWN           7    ///< handle type is unknown
 //@}
 

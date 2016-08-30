@@ -10,8 +10,14 @@
 #include "qsshell.h"
 #include "direct.h"
 
-// query environment length
-u32t envlen2(process_context *pq, u32t *lines) {
+#define envlen(pq) envlen2(pq,0)
+
+/** query environment length.
+    In MT mode must be called inside RTBUF_ENVMUX environment mutex.
+    @param [in]  pq     Process context.
+    @param [out] lines  Number of lines, can be 0.
+    @return full length, including trailing zero */
+static u32t envlen2(process_context *pq, u32t *lines) {
    u32t len=0, lncnt=0;
    char *cc;
    if (lines) *lines=0;
@@ -29,10 +35,17 @@ u32t envlen2(process_context *pq, u32t *lines) {
 
 // make copy of process environment (in malloc buffer)
 char *envcopy(process_context *pq, u32t addspace) {
-   u32t len = envlen(pq);
-   char *rc = (char*)malloc(len+addspace);
-   if (!rc) return 0;
-   if (!pq) { rc[0]=0; rc[1]=0; } else memcpy(rc,pq->envptr,len);
+   u32t   len;
+   char   *rc;
+
+   env_lock();
+   len = envlen(pq);
+   rc  = (char*)malloc(len+addspace);
+   if (rc) {
+      if (addspace) memset(rc+len, 0, addspace);
+      memcpy(rc, pq->envptr, len);
+   }
+   env_unlock();
    return rc;
 }
 
@@ -41,8 +54,7 @@ static char *linepos(process_context *pq, const char *en) {
    u32t len;
    // trim spaces in env key name
    while (*en==' ') en++;
-   strncpy(enbuf,en,383);
-   enbuf[383]=0;
+   strncpy(enbuf,en,383); enbuf[383] = 0;
    len = strlen(enbuf);
    while (enbuf[len-1]==' ') len--;
    enbuf[len]=0;
@@ -59,67 +71,71 @@ static char *linepos(process_context *pq, const char *en) {
    return 0;
 }
 
-char*  __stdcall getenv (const char *name) {
+char*  __stdcall getenv(const char *name) {
    process_context *pq = mod_context();
-   char *rc;
-   if (!pq) return 0;
+   char            *rc;
+   env_lock();
    rc = linepos(pq, name);
-   if (!rc) return 0;
-   rc = strchr(rc, '=');
    if (rc) {
-      do { rc++; } while (*rc==' ');
+      rc = strchr(rc, '=');
+      if (rc)
+         do { rc++; } while (*rc==' ');
    }
+   env_unlock();
    return rc;
 }
 
 int __stdcall setenv(const char *name, const char *newvalue, int overwrite) {
    process_context *pq = mod_context();
-   char  *lp;
-   u32t  len, newlen;
-   if (!pq) { set_errno(ENOMEM); return 1; }
+   char            *lp;
+   u32t    len, newlen, rc = 0;
+
+   env_lock();
    lp = linepos(pq, name);
-   if (lp&&newvalue&&!overwrite) { set_errno(EACCES); return 1; }
-   if (!newvalue&&!lp) return 0;
-   len = envlen(pq);
-
-   // remove env var
-   if (lp) {
-      newlen = strlen(lp)+1;
-      len   -= lp-pq->envptr;
-      if (newlen<len-1) memmove(lp, lp+newlen, len); else { *lp++=0; *lp=0; }
+   if (lp && newvalue && !overwrite) { set_errno(EACCES); rc = 1; } else
+   if (!newvalue && !lp) { } else {
+      len = envlen(pq);
+      // remove env var
+      if (lp) {
+         newlen = strlen(lp)+1;
+         len   -= lp-pq->envptr;
+         if (newlen<len-1) memmove(lp, lp+newlen, len); else { *lp++=0; *lp=0; }
+      }
+      if (newvalue) {
+         // and add it again ;)
+         len = envlen(pq);
+         if (len==2) len--;
+         
+         newlen = len + strlen(name) + strlen(newvalue) + 2; // "=" & "\0"
+         // realloc env buffer
+         if ((pq->flags|PCTX_BIGMEM)!=0 || mem_blocksize(pq->envptr)<newlen) {
+            char *newenv = envcopy(pq, newlen - len);
+            /* drop "large block" flag or free previously self-allocated pointer.
+               we do not free original block, allocated in mod_exec */
+            if (pq->flags&PCTX_BIGMEM) pq->flags&=~PCTX_BIGMEM; else
+            if (pq->flags&PCTX_ENVCHANGED) mem_free(pq->envptr);
+         
+            pq->envptr = newenv;
+            pq->flags |= PCTX_ENVCHANGED;
+         }
+         // add string
+         lp = pq->envptr + len - 1;
+         strcpy(lp, name);
+         strcat(lp, "=");
+         strcat(lp, newvalue);
+         pq->envptr[newlen-1] = 0;
+      }
    }
-   if (!newvalue) return 0;
-   // and add it again ;)
-   len = envlen(pq);
-   if (len==2) len--;
-
-   newlen = len + strlen(name) + strlen(newvalue) + 2; // "=" & "\0"
-   // realloc env buffer
-   if ((pq->flags|PCTX_BIGMEM)!=0 || mem_blocksize(pq->envptr)<newlen) {
-      char *newenv = envcopy(pq, newlen - len);
-      /* drop "large block" flag or free previously self-allocated pointer.
-         we do not free original block, allocated in mod_exec */
-      if (pq->flags&PCTX_BIGMEM) pq->flags&=~PCTX_BIGMEM; else
-      if (pq->flags&PCTX_ENVCHANGED) mem_free(pq->envptr);
-
-      pq->envptr = newenv;
-      pq->flags |= PCTX_ENVCHANGED;
-   }
-   // add string
-   lp = pq->envptr + len - 1;
-   strcpy(lp, name);
-   strcat(lp, "=");
-   strcat(lp, newvalue);
-   pq->envptr[newlen-1] = 0;
-   return 0;
+   env_unlock();
+   return rc;
 }
 
 // clears the process environment area
 int __stdcall clearenv(void) {
    process_context *pq = mod_context();
-   if (!pq) { set_errno(ENOMEM); return 1; }
-   pq->envptr[0]=0;
-   pq->envptr[1]=0;
+   env_lock();
+   pq->envptr[0]=0; pq->envptr[1]=0;
+   env_unlock();
    return 0;
 }
 
@@ -136,12 +152,17 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
          _fullpath(pathname, name, _MAX_PATH+1);
          return;
       }
+      // lock it to be safe
+      env_lock();
       path = env_var?getenv(env_var):0;
-      if (!path) return; else
+      if (!path) { env_unlock(); return; } else
       { // searching in specifed directories
          char fpath[QS_MAXPATH+1];
          str_list *lst = str_split(path,";");
          u32t  namelen = strlen(name), ii, len;
+         // should be no use of this string after unlock
+         path = 0;
+         env_unlock();
 
          for (ii=0; ii<lst->count; ii++) {
             strncpy(fpath,lst->item[ii],QS_MAXPATH);
@@ -164,18 +185,25 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
 }
 
 str_list* _std str_getenv(void) {
-   process_context *pq = mod_context();
-   u32t lines, ii, len = envlen2(pq, &lines);
-   str_list *rc = (str_list*)malloc_local(len + sizeof(str_list) + lines*sizeof(char*));
-   char   *cpos = (char*)&rc->item[lines], *cenv = pq->envptr;
+   process_context    *pq = mod_context();
+   u32t    lines, ii, len;
+   str_list           *rc;
+   char      *cpos, *cenv;
 
-   for (ii=0;ii<lines;ii++) {
+   env_lock();
+   len  = envlen2(pq, &lines);
+   rc   = (str_list*)malloc_local(len + sizeof(str_list) + lines*sizeof(char*));
+   cpos = (char*)&rc->item[lines];
+   cenv = pq->envptr;
+
+   for (ii=0; ii<lines; ii++) {
       rc->item[ii]=cpos;
       strcpy(cpos,cenv);
       len = strlen(cenv)+1;
       cpos+=len; cenv+=len;
    }
    rc->count = lines;
+   env_unlock();
    return rc;
 }
 
@@ -184,18 +212,46 @@ str_list* _std str_getenv(void) {
     @return 1 on TRUE/ON/YES, 0 on FALSE/OFF/NO, -1 if no string,
     else integer value of env. string */
 int  __stdcall env_istrue(const char *name) {
-   char *ev = getenv(name), *chp;
-   int  len = strlen(ev);
-   if (!ev) return -1;
+   char   *ev;
+   int    res = -1;
 
-   // use , or ; as string delimeter
-   chp = strchr(ev,',');
-   if (!chp) chp = strchr(ev,';');
-   if (chp) len = chp-ev;
-   // check names
-   if (strnicmp(ev,"TRUE",len)==0||strnicmp(ev,"ON",len)==0||
-      strnicmp(ev,"YES",len)==0) return 1;
-   if (strnicmp(ev,"FALSE",len)==0||strnicmp(ev,"OFF",len)==0||
-      strnicmp(ev,"NO",len)==0) return 0;
-   return atoi(ev);
+   env_lock();
+   ev = getenv(name);
+   if (ev) {
+      int   len = strlen(ev);
+      char *chp = strchr(ev,',');
+      // use , or ; as string delimeter
+      if (!chp) chp = strchr(ev,';');
+      if (chp) len = chp-ev;
+      // check names
+      if (strnicmp(ev,"TRUE",len)==0 || strnicmp(ev,"ON",len)==0 ||
+         strnicmp(ev,"YES",len)==0) res = 1; else
+      if (strnicmp(ev,"FALSE",len)==0 || strnicmp(ev,"OFF",len)==0 ||
+         strnicmp(ev,"NO",len)==0) res = 0; 
+      else res = atoi(ev);
+   }
+   env_unlock();
+   return res;
+}
+
+/// lock environment access mutex for this process (in MT mode)
+void env_lock(void) {
+   if (!in_mtmode) return; else {
+      process_context *pq = mod_context();
+      qshandle        mux = pq->rtbuf[RTBUF_ENVMUX];
+      if (!mux) {
+         mt_muxcreate(1, 0, &mux);
+         pq->rtbuf[RTBUF_ENVMUX] = mux;
+      } else 
+         mt_muxcapture(mux);
+   }
+}
+
+/// unlock environment access mutex
+void env_unlock(void) {
+   if (!in_mtmode) return; else {
+      process_context *pq = mod_context();
+      qshandle        mux = pq->rtbuf[RTBUF_ENVMUX];
+      if (mux) mt_muxrelease(mux);
+   }
 }

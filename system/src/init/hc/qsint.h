@@ -48,14 +48,16 @@ struct _free_block {
    u32t                  size;              ///< size in 64k blocks
 };
 typedef struct _free_block free_block;
-#define FREE_SIGN  0x45455246
+#define FREE_SIGN      0x45455246
 
-#define DISK_BOOT       0  // does not work in micro-FSD boot
-#define DISK_LDR        1
-#define DISK_COUNT     10  // number of volumes in system
+#define DISK_BOOT               0           ///< boot volume
+#define DISK_LDR                1
+#define DISK_COUNT             10           ///< number of volumes in system
 
-#define LDR_SSIZE    1024  // virtual disk sector size
-#define LDR_SSHIFT     10  // virtual disk sector shift
+#define LDR_SSIZE            1024           ///< virtual disk sector size
+#define LDR_SSHIFT             10           ///< virtual disk sector shift
+
+#define UNPDELAY_SIGN  0x2169646C           ///< "ldi!" sign for delayed unpack
 
 /** boot parameters.
     diskbuf_seg - 32k buffer in 1Mb, used for disk i/o and some other funcs,
@@ -178,11 +180,12 @@ void _std hlp_setcpinfo(codepage_info *info);
 /** lock context switching over system.
     Note, what this is internal call for system api implementation, not user
     level apps.
-    Lock has counter, number of mt_swunlock() calls should be equal to number
+    Lock has counter, number of mt_swunlock() calls must be equal to number
     of mt_swlock().
     Process/thread exit resets lock to 0.
 
-    @attention mt_waitobject() function resets lock to 0 on enter. */
+    @attention mt_waitobject() and all its users like mt_muxcapture() or
+               long usleep() - will resets lock to 0! */
 void      mt_swlock  (void);
 /// unlock context switching
 void      mt_swunlock(void);
@@ -192,6 +195,18 @@ void      mt_swunlock(void);
 #pragma aux mt_swlock   "_*" modify exact [];
 #pragma aux mt_swunlock "_*" modify exact [];
 #endif
+
+/** atomic bidirectional list link.
+    Note, that logic is different if "last" arg available. Without it
+    new item becomes first, with it - last in list.
+    @param  src     item to add
+    @param  lnkoff  offset of prev & next fields in item
+    @param  first   pointer to list head variable
+    @param  last    pointer to list tail variable (can be 0) */
+void _std hlp_blistadd(void *src, u32t lnkoff, void **first, void **last);
+
+/// atomic bidirectional list unlink (pair for hlp_blistadd()).
+void _std hlp_blistdel(void *src, u32t lnkoff, void **first, void **last);
 
 #ifdef __cplusplus
 }

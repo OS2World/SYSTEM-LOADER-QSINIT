@@ -1,5 +1,4 @@
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "seldesc.h"
 #include "qschain.h"
 #include "qsmodext.h"
@@ -82,12 +81,12 @@ static void add_handler(ordinal_data *od, u32t chaintype, void *handler) {
    build_thunk(od,1);
    switch (chaintype&~APICN_FIRSTPOS) {
       case APICN_ONENTRY:
-         if (!od->od_entry) od->od_entry = NEW(ptr_list);
+         if (!od->od_entry) od->od_entry = NEW_G(ptr_list);
          if (f1stpos) od->od_entry->insert(0,handler,1); 
             else od->od_entry->add(handler);
          break;
       case APICN_ONEXIT :
-         if (!od->od_exit)  od->od_exit  = NEW(ptr_list);
+         if (!od->od_exit)  od->od_exit  = NEW_G(ptr_list);
          if (f1stpos) od->od_exit->insert(0,handler,1); 
             else od->od_exit->add(handler);
          break;
@@ -164,7 +163,7 @@ int _std mod_apichain(u32t mh, u32t ordinal, u32t chaintype, void *handler) {
       // no ordinal
       if (ii>=md->exports) return 0;
 
-      if (!chlist) chlist = NEW(ptr_list);
+      if (!chlist) chlist = NEW_G(ptr_list);
       od = (ordinal_data*)malloc(sizeof(ordinal_data));
       mem_zero(od);
       od->od_handle  = md;
@@ -230,7 +229,7 @@ void *mod_buildthunk(u32t mh, void *function) {
    if (!mh || md->sign!=MOD_SIGN || !function) return 0;
    ordinal_data *od = find_entry(md, 0, function);
    if (!od) {
-      if (!chlist) chlist = NEW(ptr_list);
+      if (!chlist) chlist = NEW_G(ptr_list);
       od = (ordinal_data*)malloc(Round16(sizeof(ordinal_data))+16);
       mem_zero(od);
       od->od_handle  = md;

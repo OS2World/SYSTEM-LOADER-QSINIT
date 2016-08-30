@@ -120,6 +120,8 @@ writer for ramdisk volume in hpfs386.ini, for ex.:
       [lazywriter]
       lazy       = *: ON
       lazy       = v: OFF
+  This will noticeably increase performance. But, still nothing better, than
+STRAT1 mode, of course.
 
   And, finally, you can BOOT from PAE RAM disk :)
 

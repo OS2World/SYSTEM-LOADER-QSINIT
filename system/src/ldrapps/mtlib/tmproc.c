@@ -5,14 +5,8 @@
 //
 // note, that any system calls in timer inturrupt handlers is prohibited!
 //
-#include "qssys.h"
-#include "cpudef.h"
-#include "seldesc.h"
-#include "efnlist.h"
 #include "mtlib.h"
-#include "qslog.h"
 #include "qshm.h"
-#include "qsxcpt.h"
 
 extern u32t   timer_cnt;
 extern u32t   yield_cnt;
@@ -94,10 +88,12 @@ void _std timer32cb(struct tss_s *user) {
       yield_cnt++;
    } else {
       timer_cnt++;
-      if (!mt_exechooks.mtcb_glock) lockcaller = 0; else check_lcaller();
+      if (mt_exechooks.mtcb_glock) check_lcaller();
       // EOI to APIC
       if (check_in_service()) apic[APIC_EOI] = 0;
    }
+   // reset owner value both in timer & yield
+   if (!mt_exechooks.mtcb_glock) lockcaller = 0;
    // is it main task?
    if (!wrongmode && main_tss) wrongmode = get_taskreg()!=main_tss;
 

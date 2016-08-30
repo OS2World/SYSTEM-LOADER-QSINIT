@@ -2,29 +2,22 @@
 // QSINIT "bootos2" module
 // loading OS/2 kernel
 //
-#include "clib.h"
-#include "vio.h"
-#include "qsutil.h"
+#include "qsbase.h"
 #include "doshlp.h"
 #include "stdlib.h"
-#include "qsshell.h"
 #include "qsconst.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "filetab.h"
 #include "qsint.h"
-#include "qssys.h"
-#include "qsstor.h"
 #include "ldrparam.h"
 #include "ioint13.h"
 #include "kload.h"
 #include "k_arena.h"
 #include "vesainfo.h"
 #include "pagedesc.h"
-#include "qspage.h"
-#include "qshm.h"
 #include "qsdm.h"
 #include "qcl/qslist.h"
+#include "qcl/qsinif.h"
 #include "serial.h"
 #include "dparm.h"
 #include "qsinit.h"
@@ -42,7 +35,7 @@
 
 #define SECTROUND(p)    (((p) + (SECTSIZE-1)) & ~(SECTSIZE-1))
 
-const char *msgini_name="1:\\os2boot\\messages.ini";
+const char *msgini_name="b:\\os2boot\\messages.ini";
 const char *os2dmp_name="OS2DUMP";
 
 struct ExportFixupData *efd = 0;    // doshlp export/import data
@@ -96,6 +89,7 @@ physmem_block         *physmem = 0;
 u32t           physmem_entries = 0;
 u32t             resblock_addr = 0, // reserved memory (log & misc)
                   resblock_len = 0;
+qs_inifile             msg_ini = 0;
 
 // exit with error
 void error_exit(int code, const char *message) {
@@ -111,11 +105,11 @@ void error_exit(int code, const char *message) {
       mfsdsize = 0;
    }
    if (config_sys) { free(config_sys); config_sys=0; }
+   if (msg_ini) { DELETE(msg_ini); msg_ini=0; }
    if (pcidata) { free(pcidata); pcidata=0; }
    if (cmdcall) { free(cmdcall); cmdcall=0; }
    if (hiptbuf) { free(hiptbuf); hiptbuf=0; }
    if (kparm)   { free(kparm); kparm=0; }
-
 
    // reinit physmem array
    hlp_setupmem(0,0,0,SETM_SPLIT16M);
@@ -716,26 +710,23 @@ void load_kernel(module  *mi) {
 // form resident/discardable message data
 /************************************************************************/
 u32t create_msg_pool(char *pool,const char *section) {
-   str_list* keys=str_keylist(msgini_name,section,0);
-   int res=MSG_POOL_LIMIT, count=0, ii;
-   char *ps=pool;
-
+   int         res = MSG_POOL_LIMIT, count=0, ii;
+   char        *ps = pool;
+   str_list  *keys = msg_ini->keylist(section, 0);
    if (keys) {
       char *lpool=0;
       count=keys->count;
       ii   =0;
       while (ii<count) {
-         char msg[384], *ch;
          u16t msg_id;
-         int  ln;
-         msg[0] = 0;
-         ini_getstr(section,keys->item[ii],"",msg,384,msgini_name);
+         int      ln;
+         char   *msg = msg_ini->getstr(section, keys->item[ii], ""), *ch;
          // count EOL substs and add one more char for every one
          ln = strccnt(msg,'^');
          // full result length
          ln+= strlen(msg);
          // buffer overflow?
-         if (res-ln-1-4<0) break;
+         if (res-ln-1-4<0) { free(msg); break; }
          msg_id = atoi(keys->item[ii]);
          if (msg_id) {
             lpool = ps;
@@ -752,6 +743,7 @@ u32t create_msg_pool(char *pool,const char *section) {
             ps+=ln+1;
             res-=ps-lpool;
          }
+         free(msg);
          ii++;
       }
       // there is no space for ending zero? remove last message.
@@ -1076,11 +1068,6 @@ void main(int argc,char *argv[]) {
    }
    if (hlp_hosttype()==QSHT_EFI)
       error_exit(13,"Boot of OS/2 is not possible on EFI now!\n");
-#if 0
-   // check module size field
-   if (_Module->own_size!=sizeof(module)+(_Module->objects-1)*sizeof(mod_object))
-      error_exit(2,"This bootos2 compiled with different version of qsinit!\n");
-#endif
    // kernel boot parameters
    if (argc<=3) kparm = str_split(argc>2?argv[2]:"",","); else {
       char *arglist = 0;
@@ -1116,6 +1103,10 @@ void main(int argc,char *argv[]) {
       }
       if (serr) error_exit(10,"Invalid volume in \"SOURCE\" parameter!\n");
    }
+   // deny exFAT regardless of BF_EXFAT (0x40) custom boot flag
+   if ((bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0)
+      if (hlp_volinfo(DISK_BOOT,0)==FST_EXFAT)
+         error_exit(15,"Boot from exFAT partition is not possible\n");
    if (hlp_hosttype()==QSHT_EFI && bootflags) {
       // just remembering about missing filetable struct!
       error_exit(13,"Fix me!\n");
@@ -1144,23 +1135,16 @@ void main(int argc,char *argv[]) {
    /* some kind of safeness ;) see comment in start\loader\lxmisc.c */
    kernel = hlp_memrealloc(kernel, kernsize+4);
 
-   doshlp = freadfull("1:\\os2boot\\doshlp",&dhfsize);
+   doshlp = freadfull("b:\\os2boot\\doshlp",&dhfsize);
    if (!doshlp || *(u16t*)doshlp!=DOSHLP_SIGN)
       error_exit(4,"Valid \"os2boot\\doshlp\" missing in loader data!\n");
    else {
-      char bslist[256];
-      int sz=ini_getstr(0,0,0,bslist,256,msgini_name), succ=0;
-      if (sz) {
-         char *cp=bslist;
-         while (*cp) {
-            if (stricmp("Resident",cp)==0) succ|=1; else
-            if (stricmp("Discardable",cp)==0) succ|=2;
-            cp+=strlen(cp)+1;
-         }
-         if (succ!=3) sz=0;  // both sections must exists
-      }
-      if (!sz)
-         error_exit(5,"Valid \"os2boot\\messages.ini\" is missing in loader data!\n");
+      msg_ini = NEW(qs_inifile);
+      msg_ini->open(msgini_name, QSINI_READONLY);
+
+      if (!msg_ini->secexist("Resident",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE) ||
+         !msg_ini->secexist("Discardable",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE))
+            error_exit(5,"Valid \"os2boot\\messages.ini\" is missing in loader data!\n");
    }
    // convert messages from ini to binary data for doshlp
    msgsize[0] = create_msg_pool(msgpool[0],"Resident");

@@ -44,7 +44,7 @@ exports = {
    _dsk_sectortype   = { index =  51  group = "dmhelp" format = "u@u@qp"  }
    _dsk_newvbr       = { index =  52  group = "dmhelp" format = "u@u@q@us" }
    _dsk_setactive    = { index =  53  group = "dmhelp" format = "u@uu"    }
-   _dsk_debugvbr     = { index =  54  group = "dmhelp" format = "i@u@u"   }
+   _dsk_debugvbr     = { index =  54  group = "dmhelp" format = "i@u@q"   }
    _dsk_setpttype    = { index =  55  group = "dmhelp" format = "u@uu@b"  }
    _vol_format       = { index =  56  group = "dmhelp" format = "u@b@uup" }
    _dsk_wipe55aa     = { index =  57  group = "dmhelp" format = "i@u@q"   }
@@ -56,6 +56,7 @@ exports = {
    _dsk_ismounted    = { index =  63  group = "dmhelp" format = "@u@ui"   }
    _dsk_copysector   = { index =  64  group = "dmhelp" format = "u@u@q@u@quppp&*u" }
    _dsk_datatype     = { index =  65  group = "dmhelp" format = "upu@ui"  }
+   _dsk_sectorsize   = { index =  66  group = "dmhelp" format = "u@u"     }
 
    _exit_bootmbr     = { index =  70  group = "exit"   format = "i@u@u"   } # boot
    _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uucp"  }

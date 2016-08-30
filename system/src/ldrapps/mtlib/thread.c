@@ -8,11 +8,9 @@
 //  * 64-bit mul/div (exported by direct pointer in QSINIT)
 //
 #include "mtlib.h"
-#include "qsxcpt.h"
 #include "qsmodext.h"
-#include "cpudef.h"
 
-#define TLS_GROW_SIZE   64    ///< TLS array one time grow size
+extern u32t   timer_cnt;
 
 mt_thrdata* mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize) {
    u32t   ii, tid = 0;
@@ -48,6 +46,7 @@ mt_thrdata* mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize) {
       this limitation used at least for heap blocks handling */
    if (tid && tid <= 1<<MAX_TID_BITS) {
       u32t          idx;
+      // this will be the constant pointer while thread exists
       mt_thrdata    *rt = (mt_thrdata*)calloc(1,sizeof(mt_thrdata));
 
       pd->piList[tid-1] = rt;
@@ -58,11 +57,8 @@ mt_thrdata* mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize) {
       rt->tiMiscFlags   = 0;
       rt->tiFiberIndex  = 0;
       rt->tiState       = THRD_SUSPENDED;
-      // allocate TLS ptr array and storage for all existing variables
-      rt->tiTLSArray   = (u64t**)calloc(pd->piTLSSize,sizeof(u64t*));
-      for (ii=0; ii<pd->piTLSSize; ii++)
-         if (pd->piList[0]->tiTLSArray[ii])
-            rt->tiTLSArray[ii] = (u64t*)alloc_thread_memory(pd->piPID, tid, TLS_VARIABLE_SIZE);
+      // TLS ptr array is uninited by default
+      rt->tiTLSArray    = 0;
 
       idx = mt_allocfiber(rt, FIBT_MAIN, stacksize, eip);
       if (idx) THROW_ERR_PD(pd);
@@ -84,7 +80,7 @@ void mt_freethread(mt_thrdata *th, int fini) {
 
    for (ii=0; ii<th->tiListAlloc; ii++)
       if (th->tiList[ii].fiType!=FIBT_AVAIL) mt_freefiber(th,ii,fini);
-   // free tls array
+   // free tls array (variables will be released by mem_freepool() below)
    if (th->tiTLSArray) free(th->tiTLSArray);
 
    if ((th->tiMiscFlags&TFLM_EMBLIST)==0) {
@@ -213,61 +209,48 @@ void mt_freefiber(mt_thrdata *th, u32t index, int fini) {
    }
 }
 
-
-/// allocate thread local storage index
-u32t _std mt_tlsalloc(void) {
+u32t _std mt_setfiber(mt_tid tid, u32t fiber) {
    mt_thrdata  *th;
    mt_prcdata  *pd;
-   u32t    ii, idx;
-   u64t      **pos;
+   mt_thrdata *dth;
+   u32t         rc = 0;
+
    mt_swlock();
    th  = (mt_thrdata*)pt_current;
    pd  = th->tiParent;
-   pos = (u64t**)memrchrd((u32t*)th->tiTLSArray, 0, pd->piTLSSize);
-   // grow array in every thread
-   if (!pos) {
-      u32t nsz = pd->piTLSSize + TLS_GROW_SIZE;
-      for (ii=0; ii<pd->piListAlloc; ii++) {
-         mt_thrdata *tl = pd->piList[ii];
-         if (tl) {
-            tl->tiTLSArray = (u64t**)realloc(tl->tiTLSArray, sizeof(u64t**)*nsz);
-            memset(tl->tiTLSArray+pd->piTLSSize, 0, TLS_GROW_SIZE*sizeof(u64t**));
-         }
-      }
-      pos = th->tiTLSArray + pd->piTLSSize;
-      pd->piTLSSize += TLS_GROW_SIZE;
-   }
-   idx = pos - th->tiTLSArray;
-   /// storage for every thread
-   for (ii=0; ii<pd->piListAlloc; ii++) {
-      mt_thrdata *tl = pd->piList[ii];
-      if (tl) tl->tiTLSArray[idx] = (u64t*)alloc_thread_memory(pd->piPID,
-         tl->tiTID, TLS_VARIABLE_SIZE);
-   }
+   dth = tid ? get_by_tid(pd, tid) : th;
+   // no tid
+   if (!dth) rc = E_MT_BADTID; else
+   // thread is gone or this is main, waiting for secondaries
+   if (dth->tiState==THRD_FINISHED || dth->tiState==THRD_WAITING &&
+      dth->tiWaitReason==THWR_TIDMAIN) rc = E_MT_GONE; else
+   // waiting for anything?
+   if (dth->tiState==THRD_WAITING) rc = E_MT_BUSY; else
+   // check fiber index
+   if (dth->tiListAlloc>=fiber || dth->tiList[fiber].fiType==FIBT_AVAIL)
+      rc = E_MT_BADFIB; else
+   if (dth->tiFiberIndex==fiber) rc = E_SYS_DONE;
+
+   if (!rc)
+      if (th==dth) {
+         // switch fiber in current active thread
+         dth->tiWaitReason = fiber;
+         switch_context(0, SWITCH_FIBER);
+         return 0;
+      } else
+         dth->tiFiberIndex = fiber;
    mt_swunlock();
-   return idx;
+   return rc;
 }
 
-/// free thread local storage index
-qserr _std mt_tlsfree(u32t index) {
-   mt_thrdata  *th;
-   mt_prcdata  *pd;
-   u32t     ii, rc = 0;
-   mt_swlock();
-   th = (mt_thrdata*)pt_current;
-   pd = th->tiParent;
-   if (index>=pd->piTLSSize) rc = E_MT_TLSINDEX; else
-   if (index<tls_prealloc) rc = E_SYS_ACCESS; else
-   if (th->tiTLSArray[index]==0) rc = E_MT_TLSINDEX; else {
-      for (ii=0; ii<pd->piListAlloc; ii++) {
-         mt_thrdata *tl = pd->piList[ii];
-         if (tl) {
-            free(tl->tiTLSArray[index]);
-            tl->tiTLSArray[index] = 0;
-         }
-      }
+qserr _std mt_threadname(const char *str) {
+   char *va;
+   qserr rc = mt_tlsaddr(QTLS_COMMENT, (u64t**)&va);
+   if (!rc) {
+      // no lock here, because partial name is safe ;)
+      memset(va, 0, TLS_VARIABLE_SIZE);
+      if (str && *str) strncpy(va, str, TLS_VARIABLE_SIZE);
    }
-   mt_swunlock();
    return rc;
 }
 
@@ -292,13 +275,21 @@ void _std mt_dumptree(void) {
          if (th) {
             static const char *thstate[THRD_STATEMAX+1] = { "RUNNING", "SUSPENDED",
                "FINISHED", "WAITING"};
-            char    modinfo[144];
+            char    modinfo[144], thname[20], *th_np;
             u32t     object, offset, ti;
             module      *mi;
+            mutex_data  *md;
             mt_fibdata *cfb = th->tiList + th->tiFiberIndex;
+            // thread comment string
+            th_np = th->tiTLSArray?(char*)th->tiTLSArray[QTLS_COMMENT]:0;
+            if (th_np && th_np!=(char*)TLS_FAKE_PTR && th_np[0]) {
+               memcpy(&thname[1], th->tiTLSArray[QTLS_COMMENT], 16); thname[17] = 0;
+               thname[0] = '\"'; strcat(thname, "\"");
+            } else
+               thname[0] = 0;
 
-            log_printf("%stid %d [%10LX]: %s\n", th==pt_current?">>":"  ", th->tiTID,
-               th->tiTime, thstate[th->tiState]);
+            log_printf("%stid %d [%10LX] [%08X]: %s   %s\n", th==pt_current?">>":"  ",
+               th->tiTID, th->tiTime, th, thstate[th->tiState], thname);
 
             if (th->tiState==THRD_WAITING) {
                switch (th->tiWaitReason) {
@@ -328,6 +319,12 @@ void _std mt_dumptree(void) {
                   }
                }
             }
+            md = (mutex_data*)th->tiFirstMutex;
+            while (md) {
+               log_printf("    owned mutex %u (%08X), cnt %u, wait %u\n", md->sft_no,
+                  md, md->lockcnt, md->waitcnt);
+               md = md->next;
+            }
             mi = mod_by_eip(cfb->fiRegisters.tss_eip, &object, &offset, cfb->fiRegisters.tss_cs);
             if (mi)
                snprintf(modinfo, 64, "(\"%s\" %d:%08X)", mi->name, object+1, offset);
@@ -343,11 +340,12 @@ void _std mt_dumptree(void) {
                   (u32t)cfb->fiStack+cfb->fiStackSize-1, cfb->fiRegisters.tss_eip, modinfo);
             // modinfo has 144 bytes, this should be enough
             sprintf(modinfo, "    lead tls: ");
+            if (!th->tiTLSArray) strcat(modinfo, "unallocated"); else
             for (ti=0; ti<6; ti++) {
                u64t *ptv = th->tiTLSArray[ti];
-               if (ptv) {
-                  sprintf(modinfo+strlen(modinfo), "%LX %LX", ptv[0], ptv[1]);
-               } else strcat(modinfo, "x");
+               if (ptv==(u64t*)TLS_FAKE_PTR) strcat(modinfo, "z"); else
+                  if (ptv) sprintf(modinfo+strlen(modinfo), "%LX %LX", ptv[0], ptv[1]);
+                     else strcat(modinfo, "x");
                if (ti<5) strcat(modinfo, ", ");
             }
             strcat(modinfo, "\n");
@@ -356,8 +354,25 @@ void _std mt_dumptree(void) {
       }
 
       pd = walk_next(pd);
-      if (pd) log_it(2,"------------------\n");
+      log_it(2,"------------------\n");
    }
+   log_it(2,"%u timer interrupts since last dump\n", timer_cnt);
+   timer_cnt = 0;
+   // use "set MTLIB = ON, DUMPLEVEL=1" to het access here
+   if (dump_lvl>0) {
+      u32t  tmrdiv;
+      log_it(3, "APIC: %X (%08X %08X %08X %08X %08X %08X)\n", apic[APIC_APICVER]&0xFF,
+         apic[APIC_LVT_TMR], apic[APIC_SPURIOUS], apic[APIC_LVT_PERF],
+            apic[APIC_LVT_LINT0], apic[APIC_LVT_LINT1], apic[APIC_LVT_ERR]);
+
+      tmrdiv = apic[APIC_TMRDIV];
+      tmrdiv = (tmrdiv&3 | tmrdiv>>1&4) + 1 & 7;
+      apic[APIC_ESR] = 0;
+      log_it(3, "APIC timer: %u %08X %08X isr0 %08X, esr %08X\n", 1<<tmrdiv,
+         apic[APIC_TMRINITCNT], apic[APIC_TMRCURRCNT], apic[APIC_ISR_TAB],
+            apic[APIC_ESR]);
+   }
+
    log_it(2,"==================\n");
    mt_swunlock();
 }

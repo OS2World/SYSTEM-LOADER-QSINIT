@@ -55,7 +55,7 @@ set ProgramFiles=
 if "%USER%".=="". set USER=%USERNAME%
 :cont
 
-rem GS used for process_info, no watcom libs, structs packed to 1 byte,
+rem no watcom libs, structs packed to 1 byte,
 rem inline FP code, unmangled stdcall (runtime functions), favor size
 set QS_CFLAGS=-zz -zl -zls -zq -zp1 -fp5 -fpi87 -zri -os -bt%QS_NAME%
 

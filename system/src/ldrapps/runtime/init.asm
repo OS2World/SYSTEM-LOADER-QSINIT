@@ -85,7 +85,6 @@ _random         label   near
                 mul     ecx                     ; Random * Range / 1 0000 0000h
                 mov     eax,edx                 ; 0 <= eax < Range
                 ret     4
-
 CODE32          ends
 
 _DATA           segment dword public USE32 'DATA'

@@ -8,8 +8,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 
 // parse kernel LX header
 module* krnl_readhdr(void *kernel, u32t size);

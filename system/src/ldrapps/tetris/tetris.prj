@@ -35,6 +35,14 @@ outname=$(name).exe
 tetris.c
 
 [make_footer]
+#
+# unlike any other apps tetris has no imports from START module, at least
+# until rev.386 when this written ;)
+#
+# this is inherited from very first revisions, when TETRIS was first and single
+# existing application (it is older, than START module itself).
+#
+
 $(outdir) : .DIRECTORY
 
 MAKEDIRS : $(outdir)
@@ -54,13 +62,15 @@ file /[[$(**c)! !,]]
 #file /[[$(**asm)! !,]]
 file %(appinit_lib)\bld\Common\init.obj 
 lib %(appinit_lib)\runtime.lib 
+#op map=$(name).map
+#op statics
 op quiet
 op el
 op internalrelocs
 op togglerelocs
 op nod
 op osname=%(QS_NAME)
-op st=32768
+op st=16384
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 
 [config.0]

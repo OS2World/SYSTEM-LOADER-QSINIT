@@ -8,6 +8,7 @@
 #include "qsutil.h"
 #include "qs_rt.h"
 #include "classes.hpp"
+#include "qcl/qsinif.h"
 
 // known options
 static const char *keys[] = { "ALTE", "ALTF1", "ALTF2", "ALTF3", "ALTF4",
@@ -25,7 +26,7 @@ static const char *emptylist[] = { "DEFAULT", "TIMEOUT", "DISKSIZE", "UNZALL",
   "HEAPFLAGS", "DEFAULT_PARTITION", "DBFLAGS", "SHAREIRQ", 0 };
 
 extern "C"
-int _stdcall cmd_mergeopts(char *line, char *args, char *ininame) {
+int _stdcall cmd_mergeopts(char *line, char *args, const char *ininame) {
    TStrings opts, comkeys, argsl;
    opts.SplitString(line,",");
    argsl.SplitString(args,",");
@@ -35,14 +36,16 @@ int _stdcall cmd_mergeopts(char *line, char *args, char *ininame) {
    argsl.Delete(0);
    argsl.TrimAllLines();
 
+   qs_inifile ini = NEW(qs_inifile);
+   ini->open(ininame, QSINI_READONLY|QSINI_EXISTING);
    // query list keys in "config" section
-   str_list* sl = str_getsec(ininame, "config", GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
+   str_list* sl = ini->getsec("config", GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE);
+   DELETE(ini);
    if (sl) {
       //log_printlist("config entries", sl);
       str_getstrs(sl, comkeys);
       free(sl);
    }
-
    int pass,kk;
 
    // merge keys

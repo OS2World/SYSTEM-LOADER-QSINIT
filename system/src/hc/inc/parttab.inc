@@ -203,4 +203,25 @@ BR_NT_Serial    dq      ?                 ;
 BR_NT_Checksum  dd      ?                 ;/< ignored
 Boot_RecordNT   ends
 
+Boot_RecExFAT   struc
+BR_Jump         db      3 dup (?)         ;/< 
+BR_OEM          db      8 dup (?)         ;
+BR_ExF_Reserved db     53 dup (?)         ;/< zeroed space
+BR_ExF_VolStart dq      ?                 ;/< first sector of partition
+BR_ExF_VolSize  dq      ?                 ;/< partition size
+BR_ExF_FATPos   dd      ?                 ;/< FAT first sector
+BR_ExF_FATSize  dd      ?                 ;/< # of FAT sectors
+BR_ExF_DataPos  dd      ?                 ;/< first data sector
+BR_ExF_NumClus  dd      ?                 ;/< # of clusters on disk
+BR_ExF_RootClus dd      ?                 ;/< root dir first cluster
+BR_ExF_Serial   dd      ?                 ;/< volume serial number
+BR_ExF_FsVer    dw      ?                 ;/< version
+BR_ExF_State    dw      ?                 ;/< volume state
+BR_ExF_SecSize  db      ?                 ;/< sector size bit (power of 2)
+BR_ExF_ClusSize db      ?                 ;/< sectors per cluster bit (power of 2)
+BR_ExF_FATCnt   db      ?                 ;/< always 1?
+BR_ExF_PhysDisk db      ?                 ;/<
+BR_ExF_UsedSpc  db      ?                 ;/< percentage of allocated space
+Boot_RecExFAT   ends
+
 ;cc #endif // QS_BASE_PARTTABLE

@@ -107,14 +107,14 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
          }
       } else
       if (list) {
-         static char *fattype[4] = { "unknown ", "  FAT12 ", "  FAT16 ", "  FAT32 " };
-
+         static char *fattype[5] = { "unknown ", "  FAT12 ", "  FAT16 ",
+                                     "  FAT32 ", "  exFAT " };
          cmd_printseq(0,1,0);
          rc = 0;
 
          for (ii=0; ii<DISK_COUNT; ii++)
             if (vi[ii].TotalSectors) {
-               char  str[128], lvmi[32];
+               char  str[128], lvmi[32], dname[12];
                u32t  dsk = FFFF;
                long  idx = vol_index(ii,&dsk);
                str [0] = 0;
@@ -129,20 +129,17 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                         if (pti.Letter) sprintf(lvmi, "(LVM:%c)", pti.Letter);
                   }
                }
-
+               dsk_disktostr(dsk, dname);
                if (verbose) {
-                  char *dn = dsk_disktostr(vi[ii].Disk,0), typestr[48];
-                  if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else {
+                  char typestr[48];
+                  if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else
                      if (idx>=0) snprintf(typestr, 48, "partition %d %s", idx, lvmi);
                         else snprintf(typestr, 48, "partition not matched (%09LX)",
                            vi[ii].StartSector);
-                  }
-                  snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dn, typestr);
+                  snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dname, typestr);
                } else {
-                  if (idx>=0) {
-                     char *dn = dsk_disktostr(dsk,0);
-                     if (dn) sprintf(str,"  %s.%d  %s",dn,idx,lvmi);
-                  }
+                  if (idx>=0) sprintf(str,"  %s.%d  %s", dname, idx, lvmi); else
+                     if (ii!=DISK_LDR && dname[0]) sprintf(str,"  %s  %s", dname, lvmi);
                }
                if (shellprn(" %c:/%c: %s %s %s",'0'+ii,'A'+ii, fattype[vt[ii]],
                   get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
@@ -183,7 +180,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
             if (idx<0) {
                u32t     st = dsk_sectortype(disk,0,0);
                int success = st==DSKST_BOOTFAT || st==DSKST_BOOTBPB || st==DSKST_BOOT
-                  || fdd && (st==DSKST_EMPTY || st==DSKST_DATA);
+                  || st==DSKST_BOOTEXF || fdd && (st==DSKST_EMPTY || st==DSKST_DATA);
 
                if (!success) {
                    if (!fdd && (st==DSKST_EMPTY || st==DSKST_DATA)) {
@@ -559,7 +556,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
             vio_setcolor(VIO_COLOR_LRED);
             printf("Do you really want to replace BOOT disk code?\n");
          } else {
-            if (sttype!=DSKST_BOOTFAT && strcmp(fsname,"HPFS")) {
+            if (sttype!=DSKST_BOOTFAT && sttype!=DSKST_BOOTEXF && strcmp(fsname,"HPFS")) {
                printf("File system type is unknown!\n");
                return EACCES;
             }
@@ -601,7 +598,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
          int nstate = -1,
                  rc = 0;
 
-         if (sttype!=DSKST_BOOTFAT && strcmp(fsname,"HPFS")) {
+         if (sttype!=DSKST_BOOTFAT && sttype!=DSKST_BOOTEXF && strcmp(fsname,"HPFS")) {
             printf("File system type is unknown!\n");
             return EACCES;
          }
@@ -912,8 +909,9 @@ u32t _std shl_format(const char *cmd, str_list *args) {
                case 'A':if (args->item[ii][2]==':') {
                            char *ep = 0;
                            asz = strtoul(args->item[ii]+3, &ep, 0);
-                           if (asz<512)
-                              if (toupper(*ep)=='K') asz*=1024; else rc=EINVAL;
+                           if (toupper(*ep)=='K') asz*=1024; else 
+                              if (toupper(*ep)=='M') asz*=1024*1024; else
+                                 if (*ep) rc=EINVAL;
                            // check for power of 2
                            if (!rc) {
                               int bit = bsf64(asz);
@@ -931,7 +929,10 @@ u32t _std shl_format(const char *cmd, str_list *args) {
                            if (stricmp(args->item[ii]+4, "FAT")==0) fstype = 0;
                               else
                            if (stricmp(args->item[ii]+4, "HPFS")==0) fstype = 1;
-                              else rc=EINVAL;
+                              else
+                           if (stricmp(args->item[ii]+4, "EXFAT")==0) {
+                              fstype = 2; fatcpn = 1;
+                           } else rc=EINVAL;
                         } else 
                         if (stricmp(args->item[ii]+1,"FORCE")==0) force = 1;
                           else rc=EINVAL;
@@ -962,6 +963,10 @@ u32t _std shl_format(const char *cmd, str_list *args) {
       }
       if ((disk&QDSK_VOLUME)==0) {
          printf("Invalid volume name specified!\n");
+         return EINVAL;
+      }
+      if (fstype==2 && fatcpn>1) {
+         printf("Only single FAT copy is supported on EXFAT now!\n");
          return EINVAL;
       }
       disk &= QDSK_DISKMASK;
@@ -995,6 +1000,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          switch (fstype) {
             case 0: rc = vol_format (disk, flags, asz, quiet?0:fmt_callback); break;
             case 1: rc = hpfs_format(disk, flags, quiet?0:fmt_callback); break;
+            case 2: rc = exf_format(disk, flags, asz, quiet?0:fmt_callback); break;
             default: rc = EINVAL;
          }
 
@@ -1003,7 +1009,7 @@ u32t _std shl_format(const char *cmd, str_list *args) {
             rc = ENOMNT;
          } else
          if (!quiet) {
-            static const char *ftstr[4] = {"unrecognized", "FAT12", "FAT16", "FAT32"};
+            static const char *ftstr[5] = {"unrecognized", "FAT12", "FAT16", "FAT32", "exFAT"};
             u32t  fstype = hlp_volinfo(disk, &vi),
                   clsize = vi.ClSize * vi.SectorSize;
 

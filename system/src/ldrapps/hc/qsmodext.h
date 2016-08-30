@@ -10,11 +10,7 @@
 extern "C" {
 #endif
 #include "qstypes.h"
-
-#ifndef QSINIT_MODULE
-#define MODULE_INTERNAL
-#include "qsmod.h"
-#endif // QSINIT_MODULE
+#include "qsmodint.h"
 
 #ifndef QSINIT_CHAININC
 typedef struct mod_chaininfo_s {
@@ -198,6 +194,14 @@ u32t  _std mod_appname(char *name, u32t parent);
             to module name in system module info data (do not modify this 
             string!) */
 char *_std mod_getname(u32t module, char *buffer);
+
+/** query module by eip.
+    @param [in]  eip     EIP value
+    @param [out] object  Module`s object number (zero-based)
+    @param [out] offset  Offset in object
+    @param [in]  cs      Selector (optional, use 0 for FLAT space)
+    @result Module handle or 0 */
+module* _std mod_by_eip(u32t eip, u32t *object, u32t *offset, u16t cs);
 
 /// dump process tree to log
 void  _std mod_dumptree(void);

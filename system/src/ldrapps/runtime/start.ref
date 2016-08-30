@@ -162,6 +162,7 @@ exports = {
                          index = 74  group = "string"  format = "ss."
                          expname = "__sprintf_dyn"
                        }
+   _strclast         = { index = 75  group = "string"  format = "cs"    }
 
    _fopen            = {
                          index = 80  group = "stdio"   format = "pss"
@@ -260,7 +261,9 @@ exports = {
                          index =442  group = "string"  format = "ssp"
                          expname = "__vsprintf_dyn"
                        }
-
+   _stdnul           = { index =443  offset = yes  }
+   _qserr2errno      = { index =444  group = "clib"    format = "i@u"   }
+   _fwritefull       = { index =445  group = "stdio"   format = "ispu"  }
 
    # memory manager
 
@@ -287,25 +290,18 @@ exports = {
    _mem_setobjinfo   = { index =121  group = "memmgr"  format = "up@u@u" }
 
    # string lists and ini
-
-   _ini_getstr       = { index =130  group = "strlist" format = "usss&sus"   }
-   _ini_getint       = { index =131  group = "strlist" format = "issis" }
-   _ini_setstr       = { index =132  group = "strlist" format = "ussss" }
-   _ini_setint       = { index =133  group = "strlist" format = "ussis" }
-   _ini_readstr      = { index =134  group = "strlist" format = "ssss"  }
-
+   # ordinals 130-134 removed (ini functions)
    _str_split        = { index =140  group = "strlist" format = "pss"   }
-   _str_keylist      = { index =141  group = "strlist" format = "pssp"  }
+   # ordinal 141 removed (ini functions)
    _str_splitargs    = { index =142  group = "strlist" format = "ps"    }
    _str_getenv       = { index =143  group = "strlist" format = "pv"    }
-   _str_seclist      = { index =144  group = "strlist" format = "ps"    }
-   _str_getsec       = { index =145  group = "strlist" format = "pss@u" }
+   # ordinals 144-145 removed (ini functions)
    _log_printlist    = { index =146  group = "strlist" format = "vsp"   }
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
    _str_fromptr      = { index =149  group = "strlist" format = "ppi"   }
    _str_parseargs    = { index =450  group = "strlist" format = "ppuisp." }
-   _str_secexist     = { index =451  group = "strlist" format = "uss@u" }
+   # ordinal 451 removed (ini functions)
    _str_length       = { index =452  group = "vio"     format = "us"    }
    _str_findkey      = { index =453  group = "strlist" format = "sps!*u" }
    _str_settext      = { index =454  group = "strlist" format = "psu"   }
@@ -342,7 +338,7 @@ exports = {
    _mod_apiunchain   = { index =174  }
    _mod_appname      = { index =175  group = "module"  format = "u&si"  }
    _mod_getname      = { index =176  group = "module"  format = "s@up"  }
-   _mod_searchload   = { index =177  group = "module"  format = "us&*u" }
+   _mod_searchload   = { index =177  group = "module"  format = "@us@u&*u" }
    _mod_dumptree     = { index =179  
                          expname = "__mod_dumptree" 
                        }
@@ -355,7 +351,8 @@ exports = {
    _mod_getmodpid    = { index =185  group = "module"  format = "@up"   }
    _log_dumppctx     = { index =186  }
 
-   _mt_startcb       = { index =188  noimplib = yes }  # do not call this!
+   _mt_pexitcb       = { index =187  noimplib = yes }  # do not call this!
+   _mt_startcb       = { index =188  noimplib = yes }  # and this
    _mod_main         = { index =189  noimplib = yes }  # and especially THIS! ;)
 
    # exception handling
@@ -370,11 +367,11 @@ exports = {
 
    # "classes" support
 
-   _exi_create       = { index =200  group = "exi"     format = "ps"    }
-   _exi_createid     = { index =201  group = "exi"     format = "p@u"   }
+   _exi_create       = { index =200  group = "exi"     format = "ps@u"  }
+   _exi_createid     = { index =201  group = "exi"     format = "p@u@u" }
    _exi_classname    = { index =202  group = "exi"     format = "sp"    }
    _exi_classid      = { index =203  group = "exi"     format = "@up"   }
-   _exi_register     = { index =204  group = "exi"     format = "@uspuupp@u" }
+   _exi_register     = { index =204  group = "exi"     format = "@uspuu@upp@u" }
    _exi_unregister   = { index =205  group = "exi"     format = "i@u"   }
    _exi_free         = { index =206  group = "exi"     format = "vp"    }
    _exi_printclass   = { index =207  group = "exi"     format = "i@u"   }
@@ -387,6 +384,9 @@ exports = {
    _exi_instdata     = { index =214  group = "exi"     format = "pp"    }
    _exi_chainset     = { index =215  group = "exi"     format = "ipi"   }
    _exi_query        = { index =216  group = "exi"     format = "us"    }
+   _exi_share        = { index =217  group = "exi"     format = "ipi"   }
+   _exi_instenum     = { index =218  group = "exi"     format = "i@up@u" }
+   _exi_mtsafe       = { index =219  group = "exi"     format = "ipi"   }
 
    # shell commands
 
@@ -551,12 +551,25 @@ exports = {
                          index =502  group = "mt"      format = "uv"    
                          expname = "__mt_getthread"
                        }
+   _mt_muxcreate     = { index =503  group = "mt"      format = "@uis&*@u" }
+   _mt_muxopen       = { index =504  group = "mt"      format = "@us&*@u" }
+   _mt_muxrelease    = { index =505  group = "mt"      format = "@u@u"  }
+   _mt_closehandle   = { index =506  group = "mt"      format = "@u@u"  }
+   _mt_muxcapture    = { index =507  group = "mt"      format = "@u@u"  }
+   _mt_muxwait       = { index =508  group = "mt"      format = "@u@uu" }
+   _mt_muxstate      = { index =509  group = "mt"      format = "@u@u&*u" }
 
    _mt_safeqadd      = { index =510  }
    _mt_safeqand      = { index =511  }
    _mt_safeqor       = { index =512  }
    _mt_safeqxor      = { index =513  }
    _mt_cmpxchgq      = { index =514  }
+
+   _mt_tlsalloc      = { index =515  group = "tls"     format="uv"      }
+   _mt_tlsfree       = { index =516  group = "tls"     format="@uu"     }
+   _mt_tlsget        = { index =517  group = "tls"     format="@qu"     }
+   _mt_tlsset        = { index =518  group = "tls"     format="@uu@q"   }
+   _mt_tlsaddr       = { index =519  group = "tls"     format="@uu@&*p" }
 
    # new i/o functions
 
@@ -581,7 +594,7 @@ exports = {
    _io_getstate      = { index =618  group = "io"      format = "@u@u&*@u" }
    _io_lasterror     = { index =619  group = "io"      format = "@u@u"  }
    _io_info          = { index =620  group = "io"      format = "@u@up" }
-   _io_filetype      = { index =621  group = "io"      format = "u@u"   }
+   _io_handletype    = { index =621  group = "io"      format = "u@u"   }
    _io_setexattr     = { index =622  group = "io"      format = "@usspu" }
    _io_getexattr     = { index =623  group = "io"      format = "@ussp&u" }
    _io_lstexattr     = { index =624  group = "io"      format = "ps"    }
@@ -607,18 +620,50 @@ exports = {
 
 class = {
    name = "bit_map"
-   entires = {
-      init    = "uppu"
-      alloc   = "upu"
-      resize  = "upui"
-      size    = "up"
-      mem     = "pp"
-      setall  = "vpi"
-      set     = "upiuu"
-      check   = "upiuu"
-      find    = "@upiuu"
-      findset = "@upiuu"
-      longest = "upi&*@u"
-      total   = "upi"
+   entries = {
+      init     = "upppu"
+      alloc    = "uppu"
+      resize   = "uppui"
+      size     = "upp"
+      mem      = "ppp"
+      setall   = "vppi"
+      set      = "uppiuu"
+      check    = "uppiuu"
+      find     = "@uppiuu"
+      findset  = "@uppiuu"
+      longest  = "uppi&*@u"
+      total    = "uppi"
+      state    = "@upp"
+   }
+}
+
+class = {
+   name = "qs_inifile"
+   entries = {
+      open     = "@upps@u"
+      create   = "vppp"
+      close    = "@upp"
+      fstat    = "@uppp"
+      savecopy = "@upps"
+      flush    = "@uppi"
+      setstr   = "vppsss"
+      setint   = "vppssi"
+      setuint  = "vppssu"
+      seti64   = "vppssI"
+      setui64  = "vppssq"
+      getstr   = "sppsss"
+      getint   = "ippssi"
+      getuint  = "uppssu"
+      geti64   = "IppssI"
+      getui64  = "qppssq"
+      sections = "pppi"
+      secexist = "ipps@u"
+      exist    = "ippss"
+      getsec   = "ppps@u"
+      keylist  = "ppps&*p"
+      text     = "ppp"
+      secadd   = "vppsp"
+      secerase = "vpps"
+      erase    = "vppss"
    }
 }

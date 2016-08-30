@@ -217,24 +217,29 @@ _hlp_pciread    proc    near
                 or      ah,dl                                   ;
                 mov     al,[esp+@@pcir_ofs]                     ;
                 mov     dx,PCI_ADDR_PORT                        ;
+                pushfd                                          ; to make safe out/in pair
+                cli                                             ;
                 out     dx,eax                                  ;
                 add     dl,4                                    ; 0xCFC
-                mov     ah,[esp+@@pcir_size]                    ;
+                mov     ah,[esp+@@pcir_size+4]                  ;
                 shr     ah,1                                    ;
                 jc      @@pcir_rdb                              ;
                 shr     ah,1                                    ;
                 jc      @@pcir_rdw                              ;
                 in      eax,dx                                  ;
+                popfd                                           ;
                 ret     20                                      ;
 @@pcir_rdw:
                 and     eax,2                                   ;
                 add     dl,al                                   ;
                 in      ax,dx                                   ;
+                popfd                                           ;
                 ret     20                                      ;
 @@pcir_rdb:
                 and     eax,3                                   ;
                 add     dl,al                                   ;
                 in      al,dx                                   ;
+                popfd                                           ;
                 ret     20                                      ;
 _hlp_pciread    endp
 
@@ -259,26 +264,31 @@ _hlp_pciwrite   proc    near
                 or      ah,dl                                   ;
                 mov     al,[esp+@@pcir_ofs]                     ;
                 mov     dx,PCI_ADDR_PORT                        ;
+                pushfd                                          ; to make safe out/in pair
+                cli                                             ;
                 out     dx,eax                                  ;
                 add     dl,4                                    ; 0xCFC
                 mov     cl,al                                   ;
-                mov     ch,[esp+@@pcir_size]                    ;
-                mov     eax,[esp+@@pcir_value]                  ;
+                mov     ch,[esp+@@pcir_size+4]                  ;
+                mov     eax,[esp+@@pcir_value+4]                ;
                 shr     ch,1                                    ;
                 jc      @@pciw_wdb                              ;
                 shr     ch,1                                    ;
                 jc      @@pciw_wdw                              ;
                 out     dx,eax                                  ;
+                popfd                                           ;
                 ret     24                                      ;
 @@pciw_wdw:
                 and     cl,2                                    ;
                 add     dl,cl                                   ;
                 out     dx,ax                                   ;
+                popfd                                           ;
                 ret     24                                      ;
 @@pciw_wdb:
                 and     cl,3                                    ;
                 add     dl,cl                                   ;
                 out     dx,al                                   ;
+                popfd                                           ;
                 ret     24                                      ;
 _hlp_pciwrite   endp
 

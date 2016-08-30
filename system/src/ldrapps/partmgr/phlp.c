@@ -24,9 +24,7 @@ u32t _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf) {
    if ((st==DSKST_BOOTBPB||st==DSKST_BOOT) && strnicmp(br->BR_OEM,"NTFS",4)==0) {
       strcpy(filesys,"NTFS");
    } else
-   if ((st==DSKST_BOOTBPB||st==DSKST_BOOT) && strnicmp(br->BR_OEM,"EXFAT",5)==0) {
-      strcpy(filesys,"exFAT");
-   } else
+   if (st==DSKST_BOOTEXF) strcpy(filesys,"exFAT"); else
    if (st==DSKST_BOOTBPB) {
       strncpy(filesys, br->BR_EBPB.EBPB_FSType, 8);
       filesys[8]=0;
@@ -286,6 +284,13 @@ static u32t getinfo(u32t disk, u64t *pdisklen, u32t *psectsz) {
       *psectsz  = di.SectorSize;
    }
    return 0;
+}
+
+u32t _std dsk_sectorsize(u32t disk) {
+   u64t dlen;
+   u32t   rc = 0,
+         err = getinfo(disk, &dlen, &rc);
+   return err?0:rc;
 }
 
 u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
@@ -828,7 +833,7 @@ static qs_cachectrl qcl = 0;
 
 // create cache instance (this actually, loads CACHE module)
 int cache_load(void) {
-   if (!qcl) qcl = NEW(qs_cachectrl);
+   if (!qcl) qcl = NEW_G(qs_cachectrl);
    return qcl?1:0;
 }
 

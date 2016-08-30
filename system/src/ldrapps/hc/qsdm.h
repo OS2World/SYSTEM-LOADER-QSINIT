@@ -40,6 +40,7 @@ int   _std dsk_newmbr(u32t disk, u32t flags);
 #define DSKST_BOOT      0x0005    ///< boot sector without BPB
 #define DSKST_DATA      0x0006    ///< sector not recognized (regular data)
 #define DSKST_GPTHEAD   0x0007    ///< GPT header
+#define DSKST_BOOTEXF   0x0008    ///< sector is exFAT boot sector
 //@}
 
 /** query sector type.
@@ -48,6 +49,12 @@ int   _std dsk_newmbr(u32t disk, u32t flags);
     @param [out] optbuf   buffer for sector, 4kb size (can be 0)
     @return DSKST_* value and readed data in optbuf if specified */
 u32t  _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf);
+
+/** query sector size on disk.
+    Function accepts volumes too (i.e. vol|QDSK_VOLUME disk value).
+    @param disk     disk number
+    @return 0 or sector size */
+u32t  _std dsk_sectorsize(u32t disk);
 
 /** query sector type in memory buffer.
     @param sectordata     sector binary data
@@ -73,6 +80,7 @@ u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
 #define DSKBS_FAT32     0x0002    ///< FAT32 boot sector
 #define DSKBS_HPFS      0x0003    ///< HPFS boot record (without OS2BOOT!)
 #define DSKBS_DEBUG     0x0004    ///< debug sector (same as dsk_debugvbr())
+#define DSKBS_EXFAT     0x0005    ///< exFAT boot record
 //@}
 
 /** replace boot sector code by QSINIT`s one.
@@ -83,7 +91,7 @@ u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
     @param disk     disk number
     @param sector   sector number
     @param type     sector type (DSKBS_* value).
-    @param name     custom boot file name (11 chars on FAT, 15 on HPFS), can be 0.
+    @param name     custom boot file name (11 chars on FAT, 15 on HPFS/exFAT), can be 0.
     @return 0 if success, else DFME_* error code */
 u32t  _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
 
@@ -92,10 +100,13 @@ u32t  _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
     presence. Code can be written to any type of FAT boot sector and to
     MBR (function preserve partition table space in sector).
 
+    Function fails if it discover exFAT boot record in this sector (it is
+    incompatible with current debug code).
+
     @param disk     disk number
     @param sector   sector number
     @return boolean (success flag) */
-int   _std dsk_debugvbr(u32t disk, u32t sector);
+int   _std dsk_debugvbr(u32t disk, u64t sector);
 
 /** delete 55AA signature from two last bytes of sector.
     Any other data remain unchanged.
@@ -199,10 +210,11 @@ long  _std dsk_partcnt(u32t disk);
 //@}
 
 /** query MBR partition.
-    This function do not scan disk, so call to dsk_ptrescan(disk,0) first,
+    This function does not scan disk, so call to dsk_ptrescan(disk,0) first,
     to make sure, what disk info is actual.
 
-    @attention function returns only MBR and hybrid partitions, but fails on GPT!
+    @attention function returns only MBR and hybrid partitions, but fails on
+               GPT, use dsk_ptquery64() instead.
 
     @param [in]  disk     disk number
     @param [in]  index    partition index
@@ -299,6 +311,9 @@ u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
 #define DFME_LARGE    0x000E     ///< volume too large for selected filesystem
 #define DFME_UNKFS    0x000F     ///< unknown file system type
 #define DFME_FSMATCH  0x0010     ///< file system type mismatch (dsk_newvbr())
+#define DFME_CSIZE    0x0011     ///< wrong cluster size parameter
+#define DFME_CPLIB    0x0012     ///< missing codepage support
+#define DFME_CNAMELEN 0x0013     ///< custom boot file name length too long
 //@}
 
 /// @name vol_format() flags
@@ -323,9 +338,9 @@ u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
 
 /** format file system.
     @param vol       volume (0..9)
-    @param fsname    fs name (FAT or HPFS now)
+    @param fsname    fs name (FAT, HPFS or EXFAT now)
     @param flags     format flags (DFMT_*)
-    @param unitsize  cluster size for FAT, use 0 for auto selection
+    @param unitsize  cluster size for FAT/exFAT, use 0 for auto selection
     @param cbprint   process indication callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
     @return 0 if success, else DFME_* error code */
@@ -341,7 +356,8 @@ int   _std vol_dirty(u8t vol, int on);
 
 /** query disk text name.
     @param disk     disk number
-    @param buffer   buffer for result, can be 0 for static. At least 8 bytes.
+    @param buffer   buffer for result, can be 0 for static (unique per
+                    thread). At least 8 bytes.
     @return 0 on error, buffer or static buffer ptr */
 char* _std dsk_disktostr(u32t disk, char *buffer);
 
@@ -357,7 +373,7 @@ u32t  _std dsk_strtodisk(const char *str);
     @param sectsize   disk sector size
     @param disksize   number of sectors
     @param width      min width of output string (left-padded with spaces), use 0 to ignore.
-    @param buf        buffer for result, can be 0 for static. At least 9 bytes.
+    @param buf        buffer for result, can be 0 for static (unique per thread). At least 9 bytes.
     @return buf or static buffer pointer with result string */
 char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf);
 
@@ -577,7 +593,7 @@ u32t  _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags);
     @param flags     Flags (DCLD_).
     @return 0 on success or DPTE_* error code */
 u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex,
-                         u32t srcdisk, u32t srcindex, 
+                         u32t srcdisk, u32t srcindex,
                          read_callback cbprint, u32t flags);
 
 //===================================================================
@@ -632,7 +648,7 @@ int   _std lvm_partinfo(u32t disk, u32t index, lvm_partition_data *info);
 int   _std lvm_querybm(u32t *active);
 
 /** query LVM presence.
-    Function is not gurantee LVM info quality, it checks only for it presence.
+    Function is not gurantee LVM info quality, it checks only for presence.
     @param physonly       flag to 1 to not count virtual HDDs (PAE ram disk and so on).
     @return bit mask for first 31 HDDs (1 for presented LVM info, 0 for not)
        and 0x80000000 bit if next HDDs (32...x) have LVM info. I.e. function

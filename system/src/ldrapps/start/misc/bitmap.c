@@ -77,14 +77,14 @@ static u8t clbits_cont[] = {
 static u8t setmask[] = { 0x00,0x01,0x03,0x07,0x0F,0x1F,0x3F,0x7F,0xFF };
 static u8t clbits4[] = { 4,3,3,2,3,2,2,1,3,2,2,1,2,1,1,0 };
 
-static u32t _std bm_set(void *data, int on, u32t pos, u32t length);
+static u32t _exicc bm_set(EXI_DATA, int on, u32t pos, u32t length);
 
 /** init bitmap with external pointer.
     Init data is unchanged unlike alloc() call.
     @param  bmp      pointer to bitmap data, will be used by class code!
     @param  size     size of bitmap
     @return zero on error (invalid parameter) */
-static u32t _std bm_init(void *data, void *bmp, u32t size) {
+static u32t _exicc bm_init(EXI_DATA, void *bmp, u32t size) {
    instance_ret(bm,0);
    // both args must be zero or non-zero
    if (Xor(bmp,size)) return 0;
@@ -100,7 +100,7 @@ static u32t _std bm_init(void *data, void *bmp, u32t size) {
     Bitmap will be zeroed after allocation.
     @param  size     size of bitmap
     @return zero on error (no memory) */
-static u32t _std bm_alloc(void *data, u32t size) {
+static u32t _exicc bm_alloc(EXI_DATA, u32t size) {
    instance_ret(bm,0);
    if (!size) {
       if (!bm->extmem && bm->bm) free(bm->bm);
@@ -123,7 +123,7 @@ static u32t _std bm_alloc(void *data, u32t size) {
     @param  size     new size of bitmap
     @param  on       state of expanded space (1/0)
     @return zero on error (no memory or external buffer expansion). */
-static u32t _std bm_resize(void *data, u32t size, int on) {
+static u32t _exicc bm_resize(EXI_DATA, u32t size, int on) {
    instance_ret(bm,0);
    if (size==bm->size) return 1;
 
@@ -146,24 +146,24 @@ static u32t _std bm_resize(void *data, u32t size, int on) {
          }
          bm->size = size;
          // clear new bits
-         if (oldsize<size) bm_set(data, on?1:0, oldsize, size - oldsize);
+         if (oldsize<size) bm_set(data, 0, on?1:0, oldsize, size - oldsize);
       }
    }
    return 1;
 }
 
 /// return bitmap size
-static u32t _std bm_size(void *data) {
+static u32t _exicc bm_size(EXI_DATA) {
    instance_ret(bm,0);
    return bm->size;
 }
 
-static u8t* _std bm_mem(void *data) {
+static u8t* _exicc bm_mem(EXI_DATA) {
    instance_ret(bm,0);
    return bm->bm;
 }
 
-static void _std bm_setall(void *data, int on) {
+static void _exicc bm_setall(EXI_DATA, int on) {
    instance_void(bm);
    if (bm->size && bm->bm)
       memsetd((u32t*)bm->bm, on?FFFF:0, Round32(bm->size)>>5);
@@ -174,7 +174,7 @@ static void _std bm_setall(void *data, int on) {
     @param  pos      start position
     @param  length   number of bits to set
     @return number of actually changed bits */
-static u32t _std bm_set(void *data, int on, u32t pos, u32t length) {
+static u32t _exicc bm_set(EXI_DATA, int on, u32t pos, u32t length) {
    instance_ret(bm,0);
    if (!length || pos>=bm->size) return 0;
    if (pos+length >= bm->size) length = bm->size-pos;
@@ -189,7 +189,7 @@ static u32t _std bm_set(void *data, int on, u32t pos, u32t length) {
     @param  start    start position
     @param  length   number of bits to check
     @return 1 on full match, 0 if any difference is present */
-static u32t _std bm_check(void *data, int on, u32t start, u32t length) {
+static u32t _exicc bm_check(EXI_DATA, int on, u32t start, u32t length) {
    u32t endidx, st_byte, e_byte, st_bit, e_bit;
    u8t  *pos, bb;
    instance_ret(bm,0);
@@ -225,7 +225,7 @@ static u32t _std bm_check(void *data, int on, u32t start, u32t length) {
     @param  length   number of bits to search
     @param  hint     position where to start
     @return position of founded area or 0xFFFFFFFF if no one */
-static u32t _std bm_find(void *data, int on, u32t length, u32t hint) {
+static u32t _exicc bm_find(EXI_DATA, int on, u32t length, u32t hint) {
    u32t  bidx, size, sbyte, step;
    u8t  *pos;
    instance_ret(bm,FFFF);
@@ -318,12 +318,12 @@ static u32t _std bm_find(void *data, int on, u32t length, u32t hint) {
     @param  length   number of bits to search
     @param  hint     position where to start
     @return position of founded area or 0xFFFFFFFF if no one */
-static u32t _std bm_findset(void *data, int on, u32t length, u32t hint) {
+static u32t _exicc bm_findset(EXI_DATA, int on, u32t length, u32t hint) {
    u32t  pos;
    instance_ret(bm,FFFF);
 
-   pos = bm_find(data, on, length, hint);
-   if (pos!=FFFF) bm_set(data, !on, pos, length);
+   pos = bm_find(data, 0, on, length, hint);
+   if (pos!=FFFF) bm_set(data, 0, !on, pos, length);
    return pos;
 }
 
@@ -331,7 +331,7 @@ static u32t _std bm_findset(void *data, int on, u32t length, u32t hint) {
     @param  [in]  on      search value (1/0)
     @param  [out] start   pointer to founded position
     @return length of area or zero if no one */
-static u32t _std bm_longest(void *data, int on, u32t *start) {
+static u32t _exicc bm_longest(EXI_DATA, int on, u32t *start) {
    u32t  size, sbyte, idx, lsize, lindex, csize, cindex;
    u8t  *pos;
    instance_ret(bm,0);
@@ -376,7 +376,7 @@ static u32t _std bm_longest(void *data, int on, u32t *start) {
 /** return total number of set or cleared bits.
     @param  on       search value (1/0)
     @return calculated value */
-static u32t _std bm_total(void *data, int on) {
+static u32t _exicc bm_total(EXI_DATA, int on) {
    u32t  size, sbyte, ii, rc;
    u8t  *pos;
    instance_ret(bm,0);
@@ -398,8 +398,20 @@ static u32t _std bm_total(void *data, int on) {
    return rc;
 }
 
+/// return current instance state (BMS_* flags set).
+static u32t _exicc bm_state(EXI_DATA) {
+   bitmap_data *bm = (bitmap_data*)data;
+   u32t        res = 0;
+   if (bm->sign!=BMPF_SIGN) res = res; else {
+      if (!bm->bm) res|=BMS_EMPTY;
+      if (bm->extmem) res|=BMS_EXTMEM;
+   }
+   return res;
+}
+
 static void *methods_list[] = { bm_init, bm_alloc, bm_resize, bm_size, bm_mem,
-   bm_setall, bm_set, bm_check, bm_find, bm_findset, bm_longest, bm_total };
+   bm_setall, bm_set, bm_check, bm_find, bm_findset, bm_longest, bm_total,
+   bm_state };
 
 static void _std bm_initialize(void *instance, void *data) {
    bitmap_data *bm = (bitmap_data*)data;
@@ -410,12 +422,12 @@ static void _std bm_initialize(void *instance, void *data) {
 static void _std bm_finalize(void *instance, void *data) {
    instance_void(bm);
    if (!bm->extmem && bm->bm) free(bm->bm);
-   bm->bm   = 0;
-   bm->sign = 0;
-   bm->size = 0;
+   bm->bm     = 0;
+   bm->sign   = 0;
+   bm->size   = 0;
 }
 
 void register_bitmaps(void) {
    exi_register("bit_map", methods_list, sizeof(methods_list)/sizeof(void*),
-      sizeof(bitmap_data), bm_initialize, bm_finalize, 0);
+      sizeof(bitmap_data), 0, bm_initialize, bm_finalize, 0);
 }

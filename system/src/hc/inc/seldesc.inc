@@ -220,4 +220,13 @@ pa_ecx          dd      ?
 pa_eax          dd      ?
 pushad_s        ends
 
+; --------------------------------------------------------------
+; load flat addr from selector data to eax
+seladdr         macro   source
+                mov     al,[source].d_extaddr                   ;
+                mov     ah,[source].d_hiaddr                    ;
+                bswap   eax                                     ;
+                mov     ax,[source].d_loaddr                    ;
+                endm
+
 ;cc #endif // QS_BASE_SELDESC

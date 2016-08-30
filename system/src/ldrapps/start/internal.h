@@ -6,8 +6,7 @@
 #define QSINIT_STINTERNAL
 
 #include "stdlib.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodext.h"
 #include "qsint.h"
 #include "qs_rt.h"
 #include "direct.h"
@@ -29,20 +28,18 @@ typedef int __cdecl (*printf_function)(const char *fmt, ...);
         _rmdir of this module and can be catched by trace */
 #define START_EXPORT(x) _ ## x
 
-/** query environment length.
-    @param [in]  pq     Process context.
-    @param [out] lines  Number of lines, can be 0.
-    @return full length, including trailing zero */
-u32t  envlen2(process_context *pq, u32t *lines);
-
-#define envlen(pq) envlen2(pq,0)
-
 /** make copy of process environment.
     Heap context is default (START.DLL)
     @param pq        Process context.
     @param addspace  Additional space to allocate in result memory block.
     @return environment in malloc(envlen()+addspace) buffer */
 char *envcopy(process_context *pq, u32t addspace);
+
+/// lock environment access mutex for this process (in MT mode)
+void env_lock(void);
+
+/// unlock environment access mutex
+void env_unlock(void);
 
 /// malloc in process context
 void* malloc_local(u32t size);
@@ -59,6 +56,10 @@ FILE* get_stdout(void);
 FILE* get_stdin(void);
 
 int   fcloseall_as(u32t pid);
+void  exi_free_as(u32t pid);
+
+/// hlp_freadfull() with progress printing in form "caching name    x mb|x %"
+void* hlp_freadfull_progress(const char *name, u32t *bufsize);
 
 /// free notification callbacks for specified pid
 void  sys_notifyfree(u32t pid);
@@ -66,6 +67,11 @@ void  sys_notifyfree(u32t pid);
 void _std sys_notifyexec(u32t eventtype, u32t infovalue);
 /// set thread owner
 int  _std mem_threadblockex(void *block, u32t pid, u32t tid);
+/** get thread comment.
+    note, what result is up to 16 chars & NOT terminated by zero if
+    length is full 16 bytes.
+    @return actually direct pointer to TLS variable with thread comment */
+char *mt_getthreadname(void);
 
 /** global printed lines counter.
     Used for pause message calculation, updated by common vio functions and
@@ -135,11 +141,23 @@ u32t  getcr4(void);
     @return class instance or 0 if no MTLIB module */
 qs_mtlib get_mtlib(void);
 
+/** common TLS handling.
+    Function simulates TLS in non-MT mode by subst pvar addr. After MT mode
+    activation it start to return real TLS variable address.
+
+    @param tlsindex   index of variable to get address
+    @param pvar       address of variable to use in non-MT mode.
+    @return variable address */
+int* tlscommon(u32t tlsindex, int *pvar);
+
 /// custom dump mdt
 void log_mdtdump_int(printf_function pfn);
 
 /// internal i/o fullpath for clib implementation
 char* _std io_fullpath_int(char *dst, const char *path, u32t size, qserr *err);
+
+/// internal mt_closehandle() with ability to force closing of busy mutex
+qserr _std mt_closehandle_int(qshandle handle, int force);
 
 /** get current directory to malloc-ed buffer.
     see also getcurdir() below */

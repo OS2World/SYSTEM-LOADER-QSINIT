@@ -8,31 +8,24 @@ exports = {
    _mt_getfiber         = { index = 14  group="mt"     format="uv"      }
    _mt_setfiber         = { index = 15  group="mt"     format="uuu"     }
    _mt_resumethread     = { index = 16  group="mt"     format="@uuu"    }
-
-   _mt_tlsalloc         = { index = 25  group="tls"    format="uv"      }
-   _mt_tlsfree          = { index = 26  group="tls"    format="@uu"     }
-   _mt_tlsget           = { index = 27  group="tls"    format="@qu"     }
-   _mt_tlsset           = { index = 28  group="tls"    format="@uu@q"   }
-   _mt_tlsaddr          = { index = 29  group="tls"    format="@uu@&*p" }
+   _mt_threadname       = { index = 17  group="mt"     format="@us"     }
 
    _mt_dumptree         = { index = 30  group="misc"   format="vv"      }
 
    _mt_waitobject       = { index = 40  group="sync"   format="@upu@u&*u" }
+
+   _mod_loaddetach      = { index = 50  group="exec"   format="@us@uss" }
 }
 
 class = {
    name = "qs_mtlib"
-   entires = {
-      initialize   = "up"
-      state        = "up"
-      getmodpid    = "upp"
-      tlsalloc     = "upv"
-      tlsfree      = "@upu"
-      tlsget       = "@qpu"
-      tlsset       = "@upu@q"
-      tlsaddr      = "@upu@&*p"
-      waitobject   = "@uppu@u&*u"
-      createthread = "upp@upp"
-      resumethread = "@upuu"
+   entries = {
+      initialize   = "upp"
+      state        = "upp"
+      getmodpid    = "uppp"
+      waitobject   = "@upppu@u&*u"
+      createthread = "uppp@upp"
+      resumethread = "@uppuu"
+      threadname   = "@upps"
    }
 }

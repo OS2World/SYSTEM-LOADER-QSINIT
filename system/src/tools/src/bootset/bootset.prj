@@ -26,8 +26,8 @@ ld=@wlink
 
 *sec=$(outdir)\$(*cur_fp).h|$(secsrc)| @echo $(*cur_fp).h | \
      bin2h $(secsrc) $@ -an=bsdata -cn=bsdata_size -lxo=3 -ofs=0x200 \
-       -size=0x400 -check=510,0x55 -check=511,0xAA -check=1022,0x55 \
-       -check=1023,0xAA
+       -size=0x800 -check=510,0x55 -check=511,0xAA -check=1022,0x55 \
+       -check=1023,0xAA -check=1534,0x55 -check=1535,0xAA
 
 aflags=-mf -4p -zq -fo=
 

@@ -33,25 +33,25 @@ extern "C" {
 
 /// note! sort & delvalue functions are not present in classes.hpp
 
-#define LIST_IMPL(struct_name,type_name)                                \
-   type_name  _std (*value   )(u32t index);                             \
-   long       _std (*max     )(void);                                   \
-   u32t       _std (*count   )(void);                                   \
-   void       _std (*assign  )(struct struct_name *src);                \
-   type_name* _std (*array   )(void);                                   \
-   void       _std (*compact )(void);                                   \
-   void       _std (*clear   )(void);                                   \
-   void       _std (*exchange)(u32t idx1, u32t idx2);                   \
-   void       _std (*insert  )(u32t pos, type_name value, u32t repeat); \
-   void       _std (*insert_l)(u32t pos, struct struct_name *src);      \
-   void       _std (*del     )(u32t pos, u32t count);                   \
-   int        _std (*equal   )(struct struct_name *lst2);               \
-   u32t       _std (*add     )(type_name value);                        \
-   void       _std (*inccount)(u32t incvalue);                          \
-   void       _std (*setcount)(u32t count);                             \
-   long       _std (*indexof )(type_name value, u32t startpos);         \
-   void       _std (*sort    )(int is_signed, int forward);             \
-   u32t       _std (*delvalue)(type_name value);
+#define LIST_IMPL(struct_name,type_name)                                  \
+   type_name  _exicc (*value   )(u32t index);                             \
+   long       _exicc (*max     )(void);                                   \
+   u32t       _exicc (*count   )(void);                                   \
+   void       _exicc (*assign  )(struct struct_name *src);                \
+   type_name* _exicc (*array   )(void);                                   \
+   void       _exicc (*compact )(void);                                   \
+   void       _exicc (*clear   )(void);                                   \
+   void       _exicc (*exchange)(u32t idx1, u32t idx2);                   \
+   void       _exicc (*insert  )(u32t pos, type_name value, u32t repeat); \
+   void       _exicc (*insert_l)(u32t pos, struct struct_name *src);      \
+   void       _exicc (*del     )(u32t pos, u32t count);                   \
+   int        _exicc (*equal   )(struct struct_name *lst2);               \
+   u32t       _exicc (*add     )(type_name value);                        \
+   void       _exicc (*inccount)(u32t incvalue);                          \
+   void       _exicc (*setcount)(u32t count);                             \
+   long       _exicc (*indexof )(type_name value, u32t startpos);         \
+   void       _exicc (*sort    )(int is_signed, int forward);             \
+   u32t       _exicc (*delvalue)(type_name value);
 
 /// list of ulongs
 typedef struct dd_list_s {
@@ -67,7 +67,7 @@ typedef struct dds_list_s {
 typedef struct ptr_list_s {
    LIST_IMPL(ptr_list_s,pvoid)
    // call free for first..last items in list
-   void _std (*freeitems)(u32t first, u32t last);
+   void _exicc (*freeitems)(u32t first, u32t last);
 } _ptr_list, *ptr_list;
 
 /// list of unsigned __int64

@@ -2,16 +2,10 @@
 // QSINIT
 // multi-tasking implementation module
 //
-#include "qssys.h"
-//#include "qsint.h"
-#include "qshm.h"
-#include "cpudef.h"
 #include "qecall.h"
 #include "qsmodext.h"
-#include "qsclass.h"
 #include "qsinit_ord.h"
 #include "start_ord.h"
-#include "qsshell.h"
 #include "mtlib.h"
 
 #define INT_TIMER       206
@@ -23,6 +17,7 @@ int                sys64 = 0;
 u32t             classid = 0; // class id
 u32t               *apic = 0; // pointer to LAPIC
 u32t             cmstate = 0; // current intel's clock modulation state
+u32t            dump_lvl = 0;
 u8t       apic_timer_int = 0;
 u8t           *tmstack32 = 0;
 u64t             rdtsc55 = 0;
@@ -38,6 +33,7 @@ pf_memset        _memset = 0;
 pf_memcpy        _memcpy = 0;
 pf_usleep        _usleep = 0;
 pf_mtstartcb  mt_startcb = 0;
+pf_mtpexitcb  mt_pexitcb = 0;
 u32t           mh_qsinit = 0,
                 mh_start = 0;
 u32t          *pxcpt_top = 0; // ptr to xcpt_top in START module (xcption stack)
@@ -58,7 +54,8 @@ void update_clocks(void) {
    tick_rdtsc = rdtsc55 * tick_ms * 1000 / 54932;
    tsc_shift  = bsr64(tsc_100mks*10);
 
-   log_it(2, "new clocks: %u timer=%08X rdtsc=%LX shift=%u\n", tick_ms, tick_timer, tick_rdtsc, tsc_shift);
+   log_it(2, "new clocks: %u timer=%08X rdtsc=%LX shift=%u tsc100=%LX\n",
+      tick_ms, tick_timer, tick_rdtsc, tsc_shift, tsc_100mks);
 
    apic[APIC_TMRDIV]     = 3;
    apic[APIC_TMRINITCNT] = tick_timer;
@@ -98,14 +95,16 @@ static u32t mt_start(void) {
    int   env_on = 1;
 
    /* parse env key:
-      "MTLIB = ON [, TIMERES = 4]" */
+      "MTLIB = ON [, TIMERES = 4][, DUMPLEVEL = 1]" */
    if (mtkey) {
       str_list *lst = str_split(mtkey, ",");
       env_on = env_istrue("MTLIB");
       ii     = 1;
       while (ii<lst->count) {
          char *lp = lst->item[ii];
-         if (strnicmp(lp,"TIMERES=",8)==0) tick_ms = strtoul(lp+8, 0, 0);
+         // str_split() gracefully trims spaces around "=" for us
+         if (strnicmp(lp,"TIMERES=",8)==0) tick_ms = strtoul(lp+8, 0, 0); else
+         if (strnicmp(lp,"DUMPLEVEL=",10)==0) dump_lvl = strtoul(lp+10, 0, 0);
          ii++;
       }
       free(lst);
@@ -141,7 +140,7 @@ static u32t mt_start(void) {
 
    tmv    = tscv/100000;
    tmv    = tmv/10 + (tmv%10>=5?1:0);
-   log_it(2, "approx bus freq %u MHz (%u)\n", tmv, tics55);
+   log_it(2, "approx bus freq %u MHz (%u, %X)\n", tmv, tics55, rdtsc55);
    // catch some functions, critical for timer calculation
    rc = catch_functions();
    if (rc) return rc;
@@ -193,48 +192,51 @@ static u32t mt_start(void) {
    // !!!
    mt_on = 1;
    // start timer, at last!
-   apic[APIC_LVT_TMR]  = 0x20000|apic_timer_int;
+   apic[APIC_TMRDIV]     = 3;
+   apic[APIC_LVT_TMR]    = 0x20000|apic_timer_int;
+   // reload it with enabled periodic interrupt!
+   apic[APIC_TMRINITCNT] = tick_timer;
    // launch "system idle" thread
    start_idle_thread();
-   // inform START about MT is happen ;)
-   if (mt_startcb) mt_startcb();
+   /* inform START about MT is happen ;)
+      this call is very important, it creates mutexes for some API parts and
+      calls registered notifications about MT ready (this, also, mean possible
+      mt_createthread() calls from it) */
+   if (mt_startcb) mt_startcb(mux_hlpinst);
    // we are done
    return 0;
 }
 
-u32t _std cmt_initialize(void *data) {
+u32t _exicc cmt_initialize(void *data) {
    if (mt_on) return E_SYS_DONE;
    return mt_start();
 }
 
-u32t  _std cmt_state(void *data) { return mt_on?1:0; }
+u32t  _exicc cmt_state(EXI_DATA) { return mt_on?1:0; }
 
-u32t  _std cmt_tlsalloc(void *data) { return mt_tlsalloc(); }
+qserr _exicc cmt_waitobject(EXI_DATA, mt_waitentry *list, u32t count, u32t glogic, 
+                          u32t *signaled)
+{
+   return mt_waitobject(list, count, glogic, signaled);
+}
 
-qserr _std cmt_tlsfree(void *data, u32t idx) { return mt_tlsfree(idx); }
-
-u64t  _std cmt_tlsget(void *data, u32t idx) { return mt_tlsget(idx); }
-
-qserr _std cmt_tlsset(void *data, u32t idx, u64t value) { return mt_tlsset(idx, value); }
-
-qserr _std cmt_tlsaddr(void *data, u32t idx, u64t **pa) { return mt_tlsaddr(idx, pa); }
-
-mt_tid _std cmt_createthread(void *data, mt_threadfunc thread, u32t flags,
+mt_tid _exicc cmt_createthread(EXI_DATA, mt_threadfunc thread, u32t flags,
                           mt_ctdata *optdata, void *arg)
 {
    return mt_createthread(thread, flags, optdata, arg);
 }
 
-qserr _std cmt_resumethread(void *data, u32t pid, u32t tid) { return mt_resumethread(pid, tid); }
+qserr _exicc cmt_resumethread(EXI_DATA, u32t pid, u32t tid) { return mt_resumethread(pid, tid); }
 
-u32t _std cmt_getmodpid(void *data, u32t mh) {
+qserr _exicc cmt_threadname(const char *str) { return mt_threadname(str); }
+
+u32t  _exicc cmt_getmodpid(EXI_DATA, u32t mh) {
    if (!mh) return 0;
    return pid_by_module((module*)mh);
 }
 
 static void *methods_list[] = { cmt_initialize, cmt_state, cmt_getmodpid,
-   cmt_tlsalloc, cmt_tlsfree, cmt_tlsget, cmt_tlsset, cmt_tlsaddr,
-   cmt_createthread, cmt_resumethread };
+   cmt_waitobject, cmt_createthread, cmt_resumethread, cmt_threadname };
 
 // data is not used and no any signature checks in this class
 typedef struct {
@@ -268,16 +270,14 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       _memset    = (pf_memset)mod_apidirect(mh_qsinit, ORD_QSINIT_memset);
       _memcpy    = (pf_memcpy)mod_apidirect(mh_qsinit, ORD_QSINIT_memcpy);
       _usleep    = (pf_usleep)mod_apidirect(mh_qsinit, ORD_QSINIT_usleep);
-      /* callback in START, importing it in common way, i.e. chaining is
-         possible on it! ;)
-         Any way, it must be catched by exit chain, not entry and never
-         replace. The reason is possible START module internal adjustments */
-      mt_startcb = (pf_mtstartcb)mod_getfuncptr(mh_start, ORD_START_mt_startcb);
+      // by direct pointer too - this is critical START module adjustments,
+      mt_startcb = (pf_mtstartcb)mod_apidirect(mh_start, ORD_START_mt_startcb);
+      mt_pexitcb = (pf_mtpexitcb)mod_apidirect(mh_start, ORD_START_mt_pexitcb);
 
       pxcpt_top  = mt_exechooks.mtcb_pxcpttop;
 
       classid = exi_register("qs_mtlib", methods_list,
-         sizeof(methods_list)/sizeof(void*), sizeof(mt_data),
+         sizeof(methods_list)/sizeof(void*), sizeof(mt_data), 0,
             mt_init, mt_done, 0);
       if (!classid) {
          log_printf("unable to register class!\n");

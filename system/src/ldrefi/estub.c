@@ -3,18 +3,15 @@
 // EFI loader - some stubs for missing code
 //
 
+#define STORAGE_INTERNAL
 #include "clib.h"
 #include "dpmi.h"
-#include "qslog.h"
-#include "qsutil.h"
+#include "qsbase.h"
 #include "qsint.h"
 #include "qsinit.h"
-#define STORAGE_INTERNAL
-#include "qsstor.h"
 #include "ioint13.h"
 #include "qecall.h"
 #include "seldesc.h"
-#include "../ldrapps/hc/qssys.h"
 
 /* this variables located in 16-bit portion of QSINIT for some reasons,
    so need to duplicate it here */

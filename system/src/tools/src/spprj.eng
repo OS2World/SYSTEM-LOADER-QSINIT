@@ -116,6 +116,11 @@ defs.h defs.cpp
 ##tool\sprtlsm.lst 
 #@section
 
+; additional deps for source files can be added in deps section
+; in form source_name_from_files_section = name1 name2 name3 ...
+[deps]
+cmd\extcmd.cpp = cmd\zz.cpp cmd\shpci.cpp
+
 [config.0] ; compilation parameters for every file in form:
            ; target | dependencies | command1 [| command2 ...
            ; *out - single "main" file, last in order

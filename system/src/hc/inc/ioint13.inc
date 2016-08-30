@@ -25,6 +25,14 @@ BPB_BootLetter  db      ?                 ; boot drive letter ( 80h+(x-'C') or 0
                 db      4 dup(?)          ;
 Disk_BPB        ends
 
+; this is BPB replacement, provided by exFAT boot sector
+;
+Disk_NewPB      struc
+NPB_BytesPerSec dw      ?                 ;/< bytes per sector
+NPB_VolStart    dq      ?                 ;/< first sector of partition
+NPB_VolSize     dq      ?                 ;/< partition size
+NPB_Reserved    dw      ?                 ;/< 0
+Disk_NewPB      ends
 
 FDParmTable     struc
 FDMaxCyl        dw      ?                       ; Maximum number of cylinders

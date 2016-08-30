@@ -160,7 +160,7 @@ static int prepare_dirblk(fmt_info *fd) {
    // fill only non-zero FNODE fields
    fd->rootfn.header     = HPFS_FNODE_SIG;
    fd->rootfn.flag       = HPFS_FNF_DIR;
-   fd->rootfn.aclofs     = FIELDOFFSET(hpfs_fnode,rspace[0]);
+   fd->rootfn.aclofs     = offsetof(hpfs_fnode,rspace[0]);
    fd->sup.rootfn        = allocate_sectors(fd->bmp, 1, 1, fd->rootdir.self);
    fd->rootfn.pdir       = fd->sup.rootfn;
    fd->rootfn.fst.alb.free     = HPFS_LEAFPERFNODE - 1;

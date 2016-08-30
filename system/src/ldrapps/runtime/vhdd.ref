@@ -7,27 +7,28 @@ exports = {
 
 class = {
    name = qs_emudisk
-   entires = {
-      make    = "ipsu@q"
-      open    = "ips"
-      query   = "ipp&s&*u&*u"
-      read    = "up@qup"
-      write   = "up@qup"
-      compact = "upi"
-      mount   = "@up"
-      disk    = "@up"
-      umount  = "ip"
-      close   = "ip"
-      trace   = "vpii"
+   entries = {
+      make    = "@uppsu@q"
+      open    = "@upps"
+      query   = "@uppp&s&*u&*u"
+      read    = "upp@qup"
+      write   = "upp@qup"
+      compact = "uppi"
+      mount   = "@upp"
+      disk    = "@upp"
+      umount  = "@upp"
+      close   = "@upp"
+      trace   = "vppii"
+      setgeo  = "@uppp"
    }
 }
 
 class = {
    name = qs_emudisk_ext
-   entires = {
-      getgeo  = "upp"
-      setgeo  = "upp"
-      getname = "sp"
-      setro   = "ipi"
+   entries = {
+      getgeo  = "uppp"
+      setgeo  = "uppp"
+      getname = "spp"
+      setro   = "ippi"
    }
 }

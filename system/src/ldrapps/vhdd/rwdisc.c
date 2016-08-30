@@ -3,13 +3,14 @@
 // dinamycally expanded virtual HDD for partition management testing
 // ------------------------------------------------------------------
 // code is not optimized at all, but it was written only for PARTMGR
-// testing, which requires a small number of sectors.
+// testing, which require a small number of sectors.
 //
 #include "stdlib.h"
 #include "qslog.h"
-#include "errno.h"
+#include "qsio.h"
+#include "qserr.h"
 #include "dskinfo.h"
-#include "qcl/rwdisk.h"
+#include "qcl/qsvdimg.h"
 #include "qcl/bitmaps.h"
 #include "qcl/sys/qsedinfo.h"
 
@@ -29,13 +30,13 @@ typedef struct {
    u32t           sign;
    qs_emudisk  selfptr;    // pointer to own instance
    s32t         qsdisk;
-   FILE            *df;    // disk file
+   io_handle        df;    // disk file
    char        *dfname;    // disk file name
    void         *index;
    u32t         slices;
    u32t         lshift;    // sector size shift value
    u32t       idxshift;
-   u32t       freehint;    // firts index to start free search
+   u32t       freehint;    // first index to start free search
    int         tracebm;
    disk_geo_data  info;
    u32t        bmshift;
@@ -48,7 +49,7 @@ typedef struct {
 /// "qs_emudisk_ext" class data
 typedef struct {
    u32t           sign;
-   diskdata      *self;
+   qs_emudisk     self;
 } doptdata;
 
 typedef struct {
@@ -83,8 +84,8 @@ u32t _std diskio_write(u32t disk, u64t sector, u32t count, void *data) {
 }
 
 /// 32-bit offset in file
-static inline u32t index_to_offset(diskdata *di, u32t idxpos) {
-   return HEADER_SPACE + ((SLICE_SECTORS<<di->lshift) +
+static inline u64t index_to_offset(diskdata *di, u32t idxpos) {
+   return HEADER_SPACE + (u64t)((SLICE_SECTORS<<di->lshift) +
       (SLICE_SECTORS<<di->idxshift)) * (idxpos/SLICE_SECTORS) +
          (idxpos%SLICE_SECTORS<<di->lshift);
 }
@@ -128,28 +129,29 @@ static int flush_slices(diskdata *di) {
       (and no reason to use it here) */
    if (!di->df) return 0; else {
       // step size
-      u32t rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift), ii;
+      u64t rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
+      u32t    ii;
       // expand/shrink file
-      if (chsize(fileno(di->df), HEADER_SPACE + rsize*di->slices)) return 0;
+      if (io_setsize(di->df, HEADER_SPACE + rsize*di->slices)) return 0;
       // commit disk size/allocation
-      fflush(di->df);
+      io_flush(di->df);
       // commit changed indexes
       ii = 0;
       while (1) {
          ii = di->cbm->findset(1, 1, ii);
          if (ii==FFFF) break;
-         if (fseek(di->df, HEADER_SPACE + (ii+1)*rsize-(SLICE_SECTORS<<di->idxshift),
-            SEEK_SET)) return 0;
-         if (fwrite((u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift), 1,
-            SLICE_SECTORS<<di->idxshift, di->df) != SLICE_SECTORS<<di->idxshift)
-               return 0;
+         if (io_seek(di->df, HEADER_SPACE + (ii+1)*rsize-(SLICE_SECTORS<<di->idxshift),
+            IO_SEEK_SET)==FFFF64) return 0;
+         if (io_write(di->df, (u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift),
+            SLICE_SECTORS<<di->idxshift) != SLICE_SECTORS<<di->idxshift) return 0;
       }
       return 1;
    }
 }
 
-// build hint bitmaps
-static void build_hints(diskdata *di) {
+/** build hint bitmaps.
+    @return 0 if no memory available. */
+static int build_hints(diskdata *di) {
    u32t ii, total = di->slices*SLICE_SECTORS, maxsize, alloc;
    union {
       u64t *p64;
@@ -168,12 +170,12 @@ static void build_hints(diskdata *di) {
    while (di->info.TotalSectors>>ii > (u64t)alloc) ii++;
    di->bmshift = ii;
    alloc       = di->info.TotalSectors>>ii;
-   di->bmused->alloc(alloc+1);
+   if (!di->bmused->alloc(alloc+1)) return 0;
 #if 0
    log_printf("hints for %LX sectors: %u bytes, shift %u\n",
       di->info.TotalSectors, alloc+1>>3, di->bmshift);
 #endif
-   di->bmfree->alloc(di->slices*SLICE_SECTORS);
+   if (!di->bmfree->alloc(di->slices*SLICE_SECTORS)) return 0;
    for (ii=0; ii<total; ii++)
       if (di->idxshift==3) {
          u64t sector = *fptr.p64++;
@@ -184,31 +186,34 @@ static void build_hints(diskdata *di) {
          if (sector==FFFF) di->bmfree->set(1, ii, 1); else
             di->bmused->set(1, sector>>di->bmshift, 1);
       }
+   return 1;
 }
 
 /// create new image file
-static int _std dsk_make(void *data, const char *fname, u32t sectorsize, u64t sectors) {
-   u32t  shift;
-   instance_ret(diskdata,di,EINVAL);
+static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t sectors) {
+   u32t  shift, action;
+   qserr    rc;
+   instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
-   if (di->df) return EINVOP;
+   if (di->df) return E_SYS_INITED;
    // 1 pb is enough for everything! (c) ;)
-   if (sectors>0x1FFFFFFFFFFLL) return EFBIG;
+   if (sectors>0x1FFFFFFFFFFLL) return E_SYS_TOOLARGE;
    // check sectorsize for onebit-ness & range 512..4096
-   shift = bsf64(sectorsize);
-   if (bsr64(sectorsize)!=shift) return EINVAL;
-   if (shift<9 || shift>12) return EINVAL;
+   shift = bsf32(sectorsize);
+   if (bsr32(sectorsize)!=shift) return E_SYS_INVPARM;
+   if (shift<9 || shift>12) return E_SYS_INVPARM;
    // file exists? return err!
-   if (!access(fname,F_OK)) return EEXIST;
+   if (!access(fname,F_OK)) return E_SYS_EXIST;
    // create it
-   di->df = fopen(fname, "w+b");
-   if (!di->df) return errno?errno:ENOENT; else {
+   rc = io_open(fname, IOFM_CREATE_NEW|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN|IOFM_CLOSE_DEL, 
+                &di->df, &action);
+   if (rc) return rc; else {
       // preallocate initial file space
-      if (chsize(fileno(di->df), HEADER_SPACE+(SLICE_SECTORS<<shift)+(SLICE_SECTORS<<di->idxshift))) {
-         fclose(di->df);
+      rc = io_setsize(di->df, HEADER_SPACE+(SLICE_SECTORS<<shift)+(SLICE_SECTORS<<di->idxshift));
+      if (rc) {
+         io_close(di->df);
          di->df = 0;
-         unlink(fname);
-         return EIO;
+         return rc;
       } else {
          file_header  mhdr;
 
@@ -243,51 +248,59 @@ static int _std dsk_make(void *data, const char *fname, u32t sectorsize, u64t se
          di->cbm->set(1, 0, 1);
 
          // detach file to make it process-independent
-         fdetach(di->df);
+         io_setstate (di->df, IOFS_DETACHED, 1);
          // write header
-         fseek(di->df, 0, SEEK_SET);
-         fwrite(&mhdr, 1, 8, di->df);
-         fwrite(&di->info, 1, sizeof(disk_geo_data), di->df);
+         io_seek(di->df, 0, IO_SEEK_SET);
+         io_write(di->df, &mhdr, 8);
+         io_write(di->df, &di->info, sizeof(disk_geo_data));
          // save full file name
          di->dfname = _fullpath(0, fname, 0);
          mem_modblock(di->dfname);
          di->freehint = 0;
          // build hints for feature use
-         build_hints(di);
+         if (!build_hints(di)) {
+            io_close(di->df);
+            di->df = 0;
+            return E_SYS_NOMEM;
+         }
+         io_setstate(di->df, IOFS_DELONCLOSE, 0);
          // commit 1st slice index
-         return flush_slices(di)?0:EIO;
+         return flush_slices(di)?0:E_DSK_IO;
       }
    }
 }
 
-static int _std dsk_close(void *data);
+static qserr _exicc dsk_close(EXI_DATA);
 
 /// open existing image file
-static int _std dsk_open(void *data, const char *fname) {
-   instance_ret(diskdata,di,EINVAL);
+static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
+   qserr  rc, action;
+   instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
-   if (di->df) return EINVOP;
-
-   di->df = fopen(fname, "r+b");
-   if (!di->df) return errno?errno:ENOENT; else {
+   if (di->df) return E_SYS_INITED;
+   // open file
+   rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN, &di->df, &action);
+   if (!rc) {
       file_header  mhdr;
-      u32t   ii, rc = 0, rsize,
-                 sz = filelength(fileno(di->df));
+      u32t    ii, rsize;
+      u64t           sz;
 
-      fread(&mhdr, 1, 8, di->df);
-      if (fread(&di->info, 1, sizeof(disk_geo_data), di->df)!=sizeof(disk_geo_data))
-         rc = EIO;
-
-      if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = EBADF;
+      rc = io_size(di->df, &sz);
+      if (!rc) {
+         io_read(di->df, &mhdr, 8);
+         if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = E_DSK_UNCKFS; else
+            if (io_read(di->df, &di->info, sizeof(disk_geo_data))!=sizeof(disk_geo_data))
+               rc = E_DSK_IO;
+      }
       if (!rc) {
          di->freehint = 0;
          di->lshift   = bsf64(di->info.SectorSize);
          di->idxshift = mhdr.flags&VHDD_OFSDD ? 2 : 3;
          rsize        = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
-         if (sz<HEADER_SPACE+rsize) rc = EIO;
+         if (sz<HEADER_SPACE+rsize) rc = E_DSK_IO;
       }
       if (!rc) {
-         u32t  slices = sz - HEADER_SPACE;
+         u64t  slices = sz - HEADER_SPACE;
          void *idxmem;
 
          if (slices % rsize)
@@ -299,31 +312,30 @@ static int _std dsk_open(void *data, const char *fname) {
 
          di->index = malloc(di->slices*SLICE_SECTORS<<di->idxshift);
          for (ii=0; ii<di->slices; ii++) {
-            if (fseek(di->df, HEADER_SPACE + rsize*(ii+1) - (SLICE_SECTORS<<di->idxshift),
-               SEEK_SET)) { rc = EIO; break; }
-            if (fread((u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift), 1,
-               SLICE_SECTORS<<di->idxshift, di->df) != SLICE_SECTORS<<di->idxshift)
-                  { rc = EIO; break; }
+            if (io_seek(di->df, HEADER_SPACE + (u64t)rsize*(ii+1) -
+               (SLICE_SECTORS<<di->idxshift), IO_SEEK_SET)==FFFF64)
+                  { rc = E_DSK_IO; break; }
+            if (io_read(di->df, (u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift),
+               SLICE_SECTORS<<di->idxshift) != SLICE_SECTORS<<di->idxshift)
+                  { rc = E_DSK_IO; break; }
          }
       }
       // detach it to make process-independent
-      if (rc) dsk_close(data); else {
-         fdetach(di->df);
+      if (rc) dsk_close(data, 0); else {
+         io_setstate (di->df, IOFS_DETACHED, 1);
          // save full file name
          di->dfname = _fullpath(0, fname, 0);
          mem_modblock(di->dfname);
          // build hints for feature use
-         build_hints(di);
+         if (!build_hints(di)) { dsk_close(data, 0); rc = E_SYS_NOMEM; }
       }
-      return rc;
    }
+   return rc;
 }
 
 /// query "disk" info
-static int _std dsk_query(void *data, disk_geo_data *info, char *fname, u32t *sectors, u32t *used) {
-   instance_ret(diskdata,di,EINVAL);
-   if (!info) return EINVAL;
-
+static qserr _exicc dsk_query(EXI_DATA, disk_geo_data *info, char *fname, u32t *sectors, u32t *used) {
+   instance_ret(diskdata,di,E_SYS_INVOBJECT);
    if (info)
       if (di->df) memcpy(info, &di->info, sizeof(disk_geo_data));
          else memset(info, 0, sizeof(disk_geo_data));
@@ -335,7 +347,7 @@ static int _std dsk_query(void *data, disk_geo_data *info, char *fname, u32t *se
 }
 
 /// read "sectors"
-static u32t _std dsk_read(void *data, u64t sector, u32t count, void *usrdata) {
+static u32t _exicc dsk_read(EXI_DATA, u64t sector, u32t count, void *usrdata) {
    instance_ret(diskdata,di,0);
    // no file?
    if (!di->df) return 0;
@@ -355,10 +367,10 @@ static u32t _std dsk_read(void *data, u64t sector, u32t count, void *usrdata) {
                (di->idxshift==3 && ((u64t*)di->index)[idx+rdc]==sector+ii+rdc ||
                 di->idxshift==2 && ((u32t*)di->index)[idx+rdc]==sector+ii+rdc)) rdc++;
 
-            if (fseek(di->df, index_to_offset(di,idx), SEEK_SET)) return ii;
-            if (fread((char*)usrdata + (ii<<di->lshift), 1, rdc<<di->lshift,
-               di->df) != rdc<<di->lshift)
-                  return ii;
+            if (io_seek(di->df, index_to_offset(di,idx), IO_SEEK_SET)==FFFF64)
+               return ii;
+            if (io_read(di->df, (char*)usrdata + (ii<<di->lshift), rdc<<di->lshift) !=
+               rdc<<di->lshift) return ii;
          }
          ii+=rdc;
       }
@@ -464,8 +476,8 @@ static u32t write_chain(diskdata *di, u64t sector, u32t count, char *data) {
             if (scnt>total) scnt = total;
             wrsize = scnt<<di->lshift;
 
-            if (fseek(di->df, index_to_offset(di,hint), SEEK_SET)) break;
-            if (fwrite(data, 1, wrsize, di->df) != wrsize) break;
+            if (io_seek(di->df, index_to_offset(di,hint), IO_SEEK_SET)==FFFF64) break;
+            if (io_write(di->df, data, wrsize) != wrsize) break;
 
             hint+=scnt; data+=wrsize; total-=scnt;
          }
@@ -495,7 +507,7 @@ static u32t write_chain(diskdata *di, u64t sector, u32t count, char *data) {
     Function optimized to be usable on cloning 2-3Gb partition to VHDD file.
     However, dsk_read() is not optimized at all, because we have physicial disk
     read cache :) */
-static u32t _std dsk_write(void *data, u64t sector, u32t count, void *usrdata) {
+static u32t _exicc dsk_write(EXI_DATA, u64t sector, u32t count, void *usrdata) {
    u32t   ii, rc, ecount = 0, necount = 0;
    u64t   start  = sector;
    char  *ep, *sp;
@@ -555,7 +567,7 @@ static u32t _std dsk_write(void *data, u64t sector, u32t count, void *usrdata) {
 
 /** mount as QSINIT disk.
     @return disk number or negative value on error */
-static s32t _std dsk_mount(void *data) {
+static s32t _exicc dsk_mount(EXI_DATA) {
    struct qs_diskinfo dp;
    instance_ret(diskdata,di,-1);
 
@@ -570,10 +582,10 @@ static s32t _std dsk_mount(void *data) {
    dp.qd_sectorshift = di->lshift;
 
    if (classid_ext) {
-      qs_extdisk  eptr = (qs_extdisk)exi_createid(classid_ext);
+      qs_extdisk  eptr = (qs_extdisk)exi_createid(classid_ext, EXIF_SHARED);
       if (eptr) {
          doptdata *dod = (doptdata*)exi_instdata(eptr);
-         dod->self     = di;
+         dod->self     = di->selfptr;
          dp.qd_extptr  = eptr;
          di->einfo     = eptr;
       }
@@ -588,22 +600,23 @@ static s32t _std dsk_mount(void *data) {
 
 /** query QSINIT disk number.
     @return disk number or negative value if not mounted */
-static s32t _std dsk_disk(void *data) {
+static s32t _exicc dsk_disk(EXI_DATA) {
    instance_ret(diskdata,di,-1);
    return di->qsdisk;
 }
 
 /// unmount "disk" from QSINIT
-static int _std dsk_umount(void *data) {
-   instance_ret(diskdata,di,EINVAL);
+static qserr _exicc dsk_umount(EXI_DATA) {
+   instance_ret(diskdata,di,E_SYS_INVOBJECT);
 
    if (di->qsdisk>=0) {
       if (di->qsdisk<=QDSK_DISKMASK) mounted[di->qsdisk] = 0;
       hlp_diskremove(di->qsdisk);
       di->qsdisk = -1;
+      if (di->einfo) { DELETE(di->einfo); di->einfo = 0; }
       return 0;
    }
-   return ENOMNT;
+   return E_DSK_NOTMOUNTED;
 }
 
 static u32t _std dsk_compact_int(void *data, int freeF6, int refresh) {
@@ -616,8 +629,8 @@ static u32t _std dsk_compact_int(void *data, int freeF6, int refresh) {
    sptr = hlp_memalloc(SLICE_SECTORS<<di->lshift, QSMA_RETERR|QSMA_NOCLEAR);
 
    if (!sptr) return 0; else {
-      u32t   ii, fcount = 0, idx,
-          rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
+      u32t   ii, fcount = 0, idx;
+      u64t        rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
       union {
          u64t *p8;
          u32t *p4;
@@ -629,8 +642,8 @@ static u32t _std dsk_compact_int(void *data, int freeF6, int refresh) {
          // slice pos in index
          sidx.p1 = (u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift);
 
-         if (fseek(di->df, HEADER_SPACE + ii*rsize, SEEK_SET)) break;
-         if (fread(sptr, 1, SLICE_SECTORS<<di->lshift, di->df) != SLICE_SECTORS<<di->lshift)
+         if (io_seek(di->df, HEADER_SPACE + ii*rsize, IO_SEEK_SET)==FFFF64) break;
+         if (io_read(di->df, sptr, SLICE_SECTORS<<di->lshift) != SLICE_SECTORS<<di->lshift)
             break;
          // check for empty data in used sectors
          for (idx=0; idx<SLICE_SECTORS; idx++)
@@ -658,27 +671,29 @@ static u32t _std dsk_compact_int(void *data, int freeF6, int refresh) {
       flush_slices(di);
       // update hints
       di->freehint = 0;
+      // it should be always success, because we can only cut bitmaps here
       if (refresh) build_hints(di);
 
       return fcount;
    }
 }
 
-static u32t _std dsk_compact(void *data, int freeF6) {
+static u32t _exicc dsk_compact(EXI_DATA, int freeF6) {
    return dsk_compact_int(data, freeF6, 1);
 }
 
 /// close image file
-static int _std dsk_close(void *data) {
-   instance_ret(diskdata,di,EINVAL);
-
-   if (!di->df) return ENODEV;
+static qserr _exicc dsk_close(EXI_DATA) {
+   instance_ret(diskdata,di,E_SYS_INVOBJECT);
+   if (!di->df) return E_SYS_NONINITOBJ;
+   // unmount it first
+   if (di->qsdisk>=0) dsk_umount(data, 0);
    // flush something forgotten
    flush_slices(di);
    // free bitmap memory
    di->cbm->alloc(0); di->bmused->alloc(0); di->bmfree->alloc(0);
    // and close file
-   fclose(di->df);
+   io_close(di->df);
    if (di->index) free(di->index);
    if (di->dfname) free(di->dfname);
    di->df     = 0;
@@ -691,7 +706,7 @@ static int _std dsk_close(void *data) {
 /** enable/disable tracing of this disk instance calls.
     By default tracing of qs_emudisk (self) is enabled, but tracing of
     internal bitmaps is disabled */
-static void _std dsk_trace(void *data, int self, int bitmaps) {
+static void _exicc dsk_trace(EXI_DATA, int self, int bitmaps) {
    instance_void(diskdata,di);
    // self - query it, because user able to change it by exi_chainset() too ;)
    if (self>=0) {
@@ -709,37 +724,27 @@ static void _std dsk_trace(void *data, int self, int bitmaps) {
       }
 }
 
-static u32t _std dopt_getgeo(void *data, disk_geo_data *geo) {
-   instance_ret(doptdata,dod,EDERR_INVARG);
-   if (!geo) return EDERR_INVARG;
-   if (!dod->self->df) return EDERR_INVDISK;
-   memcpy(geo, &dod->self->info, sizeof(disk_geo_data));
-   return 0;
-}
-
-static u32t _std dopt_setgeo(void *data, disk_geo_data *geo) {
-   diskdata  *di;
-   instance_ret(doptdata,dod,EDERR_INVARG);
-   if (!geo) return EDERR_INVARG;
-   di = dod->self;
-   if (!di->df) return EDERR_INVDISK;
-   if (di->info.TotalSectors != geo->TotalSectors) return EDERR_INVARG;
-   if (di->info.SectorSize != geo->SectorSize) return EDERR_INVARG;
+static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
+   instance_ret(diskdata, di, E_SYS_INVOBJECT);
+   if (!geo) return E_SYS_ZEROPTR;
+   if (!di->df) return E_DSK_NOTMOUNTED;
+   if (di->info.TotalSectors != geo->TotalSectors) return E_SYS_INVPARM;
+   if (di->info.SectorSize != geo->SectorSize) return E_SYS_INVPARM;
 
    // check CHS (at least minimal)
    if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
       geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
-         geo->Heads * geo->SectOnTrack > geo->TotalSectors) return EDERR_INVARG;
+         geo->Heads * geo->SectOnTrack > geo->TotalSectors) return E_SYS_INVPARM;
 
-   if (fseek(di->df, 8, SEEK_SET)) return EDERR_IOERR;
+   if (io_seek(di->df, 8, IO_SEEK_SET)==FFFF64) return E_DSK_IO;
    // write it first, then replace currently used
-   if (fwrite(geo, 1, sizeof(disk_geo_data), di->df) != sizeof(disk_geo_data))
-       return EDERR_IOERR;
+   if (io_write(di->df, geo, sizeof(disk_geo_data)) != sizeof(disk_geo_data))
+       return E_DSK_IO;
    memcpy(&di->info, geo, sizeof(disk_geo_data));
    // if disk is mounted - update CHS value in system info
    if (di->qsdisk>=0) {
       struct qs_diskinfo *qdi = hlp_diskstruct(di->qsdisk, 0);
-      // this is WRONG! we patching it in system struct directly
+      // this is WRONG! patching it in system struct directly!
       if (qdi) {
          qdi->qd_cyls  = geo->Cylinders;
          qdi->qd_heads = geo->Heads;
@@ -749,25 +754,37 @@ static u32t _std dopt_setgeo(void *data, disk_geo_data *geo) {
    return 0;
 }
 
-static char* _std dopt_getname(void *data) {
-   char *rc;
-   instance_ret(doptdata,dod,0);
-   if (!dod->self->df) return 0;
+static qserr _exicc dopt_getgeo(EXI_DATA, disk_geo_data *geo) {
+   instance_ret(doptdata, dod, E_SYS_INVOBJECT);
+   if (!geo) return E_SYS_ZEROPTR;
+   if (!dod->self) return E_SYS_NONINITOBJ;
+   // call parent, it shoud be safe in its mutex
+   return dod->self->query(geo, 0, 0, 0);
+}
 
+static u32t _exicc dopt_setgeo(EXI_DATA, disk_geo_data *geo) {
+   instance_ret(doptdata, dod, E_SYS_INVOBJECT);
+   if (!geo) return E_SYS_ZEROPTR;
+   if (!dod->self) return E_SYS_NONINITOBJ;
+   // call parent, it shoud be safe in its mutex
+   return dod->self->setgeo(geo);
+}
+
+static char* _exicc dopt_getname(EXI_DATA) {
+   char *rc, fname[QS_MAXPATH+1];
+   instance_ret(doptdata, dod, 0);
+   if (!dod->self) return 0;
+   if (dod->self->query(0, fname, 0, 0)) return 0;
    rc = strdup("VHDD disk. File ");
-   rc = strcat_dyn(rc, dod->self->dfname);
+   rc = strcat_dyn(rc, fname);
    return rc;
 }
 
-static u32t _std dopt_state(void *data, u32t state) {
-   instance_ret(doptdata,dod,EDERR_INVARG);
-   // set r/o is not supported, cache denied for this disk
-   return EDSTATE_NOCACHE;
-}
+static u32t _exicc dopt_state(EXI_DATA, u32t state) { return EDSTATE_NOCACHE; }
 
 static void *qs_emudisk_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
    dsk_write, dsk_compact, dsk_mount, dsk_disk, dsk_umount, dsk_close,
-   dsk_trace };
+   dsk_trace, dsk_setgeo };
 
 static void *qs_extdisk_list[] = { dopt_getgeo, dopt_setgeo, dopt_getname,
    dopt_state };
@@ -782,18 +799,20 @@ static void _std dsk_init(void *instance, void *data) {
    di->slices    = 0;
    di->tracebm   = 0;
    di->selfptr   = instance;
-   di->cbm       = NEW(bit_map); exi_chainset(di->cbm, 0);
-   di->bmused    = NEW(bit_map); exi_chainset(di->bmused, 0);
-   di->bmfree    = NEW(bit_map); exi_chainset(di->bmfree, 0);
+   di->cbm       = NEW_G(bit_map); exi_chainset(di->cbm, 0);
+   di->bmused    = NEW_G(bit_map); exi_chainset(di->bmused, 0);
+   di->bmfree    = NEW_G(bit_map); exi_chainset(di->bmfree, 0);
    di->einfo     = 0;
+   /// force mutex for every instance!
+   exi_mtsafe(instance, 1);
 }
 
 static void _std dsk_done(void *instance, void *data) {
    instance_void(diskdata,di);
 
-   if (di->qsdisk>=0) dsk_umount(data);
+   if (di->qsdisk>=0) dsk_umount(data, 0);
    if (di->einfo) DELETE(di->einfo);
-   if (di->df) dsk_close(data);
+   if (di->df) dsk_close(data, 0);
    if (di->cbm) DELETE(di->cbm);
    if (di->bmused) DELETE(di->bmused);
    if (di->bmfree) DELETE(di->bmfree);
@@ -814,13 +833,13 @@ static void _std dopt_done(void *instance, void *data) {
 int init_rwdisk(void) {
    if (!classid_emu) {
       classid_emu = exi_register("qs_emudisk", qs_emudisk_list,
-         sizeof(qs_emudisk_list)/sizeof(void*), sizeof(diskdata),
+         sizeof(qs_emudisk_list)/sizeof(void*), sizeof(diskdata), 0,
             dsk_init, dsk_done, 0);
       memset(mounted, 0, sizeof(mounted));
    }
    if (!classid_ext)
       classid_ext = exi_register("qs_emudisk_ext", qs_extdisk_list,
-         sizeof(qs_extdisk_list)/sizeof(void*), sizeof(doptdata),
+         sizeof(qs_extdisk_list)/sizeof(void*), sizeof(doptdata), 0,
             dopt_init, dopt_done, 0);
 
    return classid_emu && classid_ext?1:0;
@@ -842,4 +861,3 @@ int done_rwdisk(void) {
    }
    return 1;
 }
-

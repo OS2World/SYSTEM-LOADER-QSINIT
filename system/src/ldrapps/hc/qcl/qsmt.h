@@ -16,6 +16,8 @@ extern "C" {
 /** mtlib information shared class.
     This is interface for checking of MTLIB presence/state.
     It used by START module, at least, to prevent static linking of MTLIB.DLL.
+    Most of functions here have mt_* pair with the same arguments.
+
     Usage:
     @code
        qs_mtlib mt = NEW(qs_mtlib);
@@ -36,29 +38,22 @@ typedef struct qs_mtlib_s {
        @retval E_MT_OLDCPU     no local APIC on CPU (P5 and below)
        @retval E_SYS_NOMEM     memory allocation error
        @retval E_SYS_DONE      mode already on */
-   u32t   _std (*initialize)  (void);
+   u32t   _exicc (*initialize)  (void);
    /// return current mtlib state (on/off).
-   u32t   _std (*active)      (void);
+   u32t   _exicc (*active)      (void);
    /** get pid of EXEcuting module.
        mod_getmodpid() calls this internally, if MTLIB is active */
-   u32t   _std (*getmodpid)   (u32t module);
-   /// allocate thread local storage index
-   u32t   _std (*tlsalloc)    (void);
-   /// free thread local storage index
-   qserr  _std (*tlsfree)     (u32t index);
-   /// get thread local storage slot value
-   u64t   _std (*tlsget)      (u32t index);
-   /// set thread local storage slot value
-   qserr  _std (*tlsset)      (u32t index, u64t value);
-   /// query slot address
-   qserr  _std (*tlsaddr)     (u32t index, u64t **slotaddr);
+   u32t   _exicc (*getmodpid)   (u32t module);
    /// wait objects
-   u32t   _std (*waitobject)  (mt_waitentry *list, u32t count, u32t glogic);
+   qserr  _exicc (*waitobject)  (mt_waitentry *list, u32t count, u32t glogic,
+                                 u32t *signaled);
    /// create thread
-   mt_tid _std (*createthread)(mt_threadfunc thread, u32t flags,
-                               mt_ctdata *optdata, void *arg);
+   mt_tid _exicc (*createthread)(mt_threadfunc thread, u32t flags,
+                                 mt_ctdata *optdata, void *arg);
    /// resume suspended thread
-   qserr  _std (*resumethread)(u32t pid, u32t tid);
+   qserr  _exicc (*resumethread)(u32t pid, u32t tid);
+   /// set thread comment
+   qserr  _exicc (*threadname)  (const char *str);
 } _qs_mtlib, *qs_mtlib;
 
 #ifdef __cplusplus

@@ -55,13 +55,14 @@ revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 ..\..\hc\inc\pci.inc     ..\..\hc\inc\pagedesc.inc
 ..\..\ldrefi\inc\efnlist.inc  ..\hc\inc\qschain.inc
 ..\..\init\inc\dskinfo.inc ..\..\init\inc\qspdata.inc
-..\..\hc\inc\parttab.inc
+..\..\hc\inc\parttab.inc ..\..\hc\inc\ioint13.inc
+..\..\hc\inc\filetab.inc
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
 loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
 main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
 misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c
 cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
-misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c
+misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c main\sysmt.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
 main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp main\notify.c
 pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiofat.c
@@ -79,7 +80,9 @@ nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c) $(**cpp) $(**asm)
 clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo Cleaning $(name)...
 
-cmd\extcmd.cpp : cmd\zz.cpp cmd\shpci.cpp
+[deps]
+cmd\extcmd.cpp = cmd\zz.cpp cmd\shpci.cpp
+cmd\ldrini.cpp = cmd\pubini.cpp
 
 [&bldlevel]
 @#QS:$(vershort).$(revnum)#@  QSinit loader

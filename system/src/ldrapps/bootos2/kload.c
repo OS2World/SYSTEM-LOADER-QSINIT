@@ -2,7 +2,6 @@
 // QSINIT "bootos2" module
 // kernel module handling
 //
-#include "clib.h"
 #include "stdlib.h"
 #include "kload.h"
 #include "doshlp.h"

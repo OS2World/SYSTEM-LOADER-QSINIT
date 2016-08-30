@@ -54,17 +54,21 @@
          format = "s*@up" --> string (out hex ulong, pointer)
 
   "Class" sections (one per shared class, optional) - contain trace info
-  for shared classes. Because trace info is module-based, all infos placed
-  here, in companion to common exports.
+for shared classes. Because trace info is module-based, all infos placed
+here, in companion to common exports.
 
   Class name and method list must be defined (in the order of declaration!).
-  One note - "shared class" methods have hidden first parameter - "instance"
-  or "this". Trace string must include it, i.e.
+  One note - "shared class" methods have two hidden parameters - "instance"
+or "this" and "caller". Trace string must include it, i.e.
 
          u32t _std (*init)(void *bmp, u32t size);
 
   must be added as
-         init = "uppu"
+         init = "upppu"
   not "upu" - like it looks in declaration.
 
   Maximum number of exports or methods per class - 32767.
+
+  The reason to store trace info in DEF file is lazyness of any programmer,
+which I know (including myself). Exporting new function is a mandatory point,
+where we can catch any one and force him to fill trace info.

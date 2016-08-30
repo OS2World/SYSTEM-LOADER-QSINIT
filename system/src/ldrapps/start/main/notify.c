@@ -22,6 +22,9 @@ static notify_entry *cblist = 0;
 static u32t         cballoc = 0;
 
 #define ALLOC_STEP  20
+#define VALID_MASK  (SECB_QSEXIT|SECB_PAE|SECB_MTMODE|SECB_CMCHANGE|SECB_IODELAY|\
+                     SECB_DISKADD|SECB_DISKREM)
+#define ONCE_MASK   (SECB_QSEXIT|SECB_PAE|SECB_MTMODE)
 
 u32t _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc) {
    u32t rc = 0;
@@ -80,15 +83,15 @@ void sys_notifyfree(u32t pid) {
 }
 
 void _std sys_notifyexec(u32t evtype, u32t infovalue) {
-   evtype &= SECB_QSEXIT|SECB_PAE|SECB_MTMODE|SECB_CMCHANGE|SECB_IODELAY;
+   evtype &= VALID_MASK;
    if (!evtype) return;
 
    log_it(2, "sys_notifyexec(%08X, %X) start\n", evtype, infovalue);
    mt_swlock();
    if (cblist) {
-      u32t ii;
+      u32t ii, once = evtype&ONCE_MASK;
       for (ii=0; ii<cballoc; ii++)
-         if (cblist[ii].cb && (cblist[ii].evmask&evtype))
+         if (cblist[ii].cb && (cblist[ii].evmask&evtype)) {
             if (cblist[ii].evmask&SECB_THREAD) {
                int err = 0;
                if (!in_mtmode) err = 1; else {
@@ -128,6 +131,11 @@ void _std sys_notifyexec(u32t evtype, u32t infovalue) {
                   can cause cm reset and its notification) */
                cblist[ii].cb(&ei);
             }
+             // wipe signaled "once" bits and check for empty
+            if (once)
+               if (((cblist[ii].evmask&=~once)&VALID_MASK)==0)
+                  { cblist[ii].cb=0; cblist[ii].evmask=0; }
+         }
    }
    mt_swunlock();
    log_it(2, "sys_notifyexec(%08X, %X) done\n", evtype, infovalue);

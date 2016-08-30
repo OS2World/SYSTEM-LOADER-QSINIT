@@ -1,15 +1,11 @@
-#include "qssys.h"
-#include "qspage.h"
+#include "qsbase.h"
 #include "doshlp.h"
 #include "stdlib.h"
-#include "errno.h"
-#include "qsvdisk.h"
 #include "qcl/qslist.h"
+#include "vdproc.h"
 #include "qcl/sys/qsedinfo.h"
-#include "qsstor.h"
 #include "qsint.h"
 #include "dskinfo.h"
-#include "qsdm.h"
 
 #define MAP_SIZE                  (_8MB)
 #define PAGE_SIZE                 (_2MB)
@@ -28,6 +24,7 @@ static u64t     mapstart = 0;
 static u32t     endofram = 0;
 static u32t  classid_ext = 0;   ///< external info "qs_extdisk" compatible class
 static qs_extdisk  eiptr = 0;
+u32t          classid_vd = 0;   ///< qs_vdisk class id
 
 static u32t io(u32t disk, u64t sector, u32t count, void *data, int write) {
    u32t ii, svcount;
@@ -173,18 +170,17 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
    return rc;
 }
 
-
-u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
-                        u32t divpos, char letter1, char letter2,
-                        u32t *disk)
+qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
+                       u32t divpos, char letter1, char letter2, u32t *disk)
 {
-   u32t rc, ii;
+   qserr        rc;
+   u32t         ii;
    pcmem_entry *me, *pe;
    dq_list     mem;
    u32t    lopages = 0,
            hipages = 0;
    // disk was created?
-   if (cdh) return EEXIST;
+   if (cdh) return E_SYS_INITED;
    // invalid flags
    if ((flags&(VFDF_NOHIGH|VFDF_NOLOW))==(VFDF_NOHIGH|VFDF_NOLOW) ||
        (flags&(VFDF_EMPTY|VFDF_SPLIT))==(VFDF_EMPTY|VFDF_SPLIT) ||
@@ -193,12 +189,12 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
        (flags&VFDF_SPLIT)!=0 && !divpos ||
        (flags&VFDF_EMPTY)!=0 && divpos ||
        (flags&VFDF_PERCENT)!=0 && divpos>=100 ||
-          maxsize && minsize>maxsize) return EINVAL;
+          maxsize && minsize>maxsize) return E_SYS_INVPARM;
    // allow NOFAT32 with HPFS but clears it to not confuse later code
    if (flags&VFDF_HPFS) flags&=~VFDF_NOFAT32;
 
    me = sys_getpcmem(0);
-   if (!me) return ENOMEM;
+   if (!me) return E_SYS_NOMEM;
 
    mem = NEW(dq_list);
    pe  = me;
@@ -240,7 +236,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
             if (hipages+lopages<minsize) {
                log_printf("min %d pages, but avail: lo %d, high %d\n",
                   minsize, lopages, hipages);
-               rc = ENOMEM;
+               rc = E_SYS_NOMEM;
                break;
             }
             lopages = minsize - hipages;
@@ -249,7 +245,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
 
       if (hipages+lopages==0) {
          log_printf("no high memory?\n");
-         rc = ENOMEM;
+         rc = E_SYS_NOMEM;
          break;
       }
       // check split border
@@ -266,7 +262,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
             log_printf("set PAE (%d)\n", rc);
             if (rc) break;
          }
-         if (!sys_pagemode()) { rc=ENODEV; break; }
+         if (!sys_pagemode()) { rc=E_SYS_UNSUPPORTED; break; }
 
          // walk over high memory
          for (ii=0; ii<mem->count(); ii++) {
@@ -290,7 +286,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                   cdhphys = addr;
                   if (!cdh) {
                      log_printf("Header map err (hi) - %LX\n", addr);
-                     rc = EFAULT;
+                     rc = E_SYS_SOFTFAULT;
                      break;
                   }
                   fill_header(--hipages + lopages);
@@ -309,7 +305,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          // some high pages still unprocessed? strange...
          if (hipages) {
             log_printf("hipages rem: %d\n", hipages);
-            rc = ENOMEM;
+            rc = E_SYS_NOMEM;
             break;
          }
       }
@@ -356,7 +352,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
                   cdhphys = addr;
                   if (!cdh) {
                      log_printf("Header map err (lo) - %08X\n", (u32t)addr);
-                     rc = EFAULT;
+                     rc = E_SYS_SOFTFAULT;
                      break;
                   }
                   fill_header(--lopages);
@@ -376,7 +372,7 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          // some low pages still unprocessed? strange...
          if (lopages) {
             log_printf("lopages rem: %d\n", lopages);
-            rc = ENOMEM;
+            rc = E_SYS_NOMEM;
             break;
          }
       }
@@ -398,14 +394,14 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
       dp.qd_sectorshift = 9;
       // if class is ok - create instance for our`s disk
       if (classid_ext) {
-         eiptr = (qs_extdisk)exi_createid(classid_ext);
+         eiptr = (qs_extdisk)exi_createid(classid_ext, EXIF_SHARED);
          dp.qd_extptr = eiptr;
       }
       // install new "hdd"
       drvnum = hlp_diskadd(&dp);
       if (drvnum<0) {
          log_printf("hlp_diskadd err!\n");
-         rc = ENOMNT;
+         rc = E_DSK_MOUNTERR;
       } else {
          u32t d_rc=0, l_rc=0;
          chdd = drvnum;
@@ -463,11 +459,11 @@ u32t _std sys_vdiskinit(u32t minsize, u32t maxsize, u32t flags,
          }
       }
    }
-   if (rc) sys_vdiskfree();
+   if (rc) vdisk_free(0,0);
    return rc;
 }
 
-u32t _std sys_vdiskfree(void) {
+u32t _exicc vdisk_free(EXI_DATA) {
    u32t     rc = 1;
    u32t     ii = 0;
    pcmem_entry *me;
@@ -518,12 +514,60 @@ u32t _std sys_vdiskfree(void) {
    return rc;
 }
 
-u32t _std sys_vdiskinfo(u32t *disk, u32t *sectors, u32t *physpage) {
-   if (!cdh) return 0;
-   if (disk)     *disk     = chdd;
-   if (sectors)  *sectors  = cdhsize;
-   if (physpage) *physpage = cdhphys>>PAGESHIFT;
-   return 1;
+qserr _exicc vdisk_query(EXI_DATA, disk_geo_data *geo, u32t *disk,
+                         u32t *sectors, u32t *seclo, u32t *physpage)
+{
+   qserr rc = cdh?0:E_SYS_NONINITOBJ;
+   if (!rc) {
+      if (disk)     *disk     = chdd;
+      if (sectors)  *sectors  = cdhsize;
+      if (physpage) *physpage = cdhphys>>PAGESHIFT;
+      if (geo) {
+         geo->Cylinders    = cdh->h4_cyls;
+         geo->Heads        = cdh->h4_heads;
+         geo->SectOnTrack  = cdh->h4_spt;
+         geo->SectorSize   = 512;
+         geo->TotalSectors = cdhsize;
+      }
+      if (seclo) {
+         u32t ii;
+         for (ii=0, *seclo=0; ii<cdecount; ii++)
+            if (cde[ii].hde_1stpage < _4GBLL>>PAGESHIFT) *seclo+=cde[ii].hde_sectors;
+      }
+   } else {
+      if (geo) memset(geo, 0, sizeof(disk_geo_data));
+      if (sectors) *sectors  = 0;
+      if (seclo) *seclo = 0;
+   }
+   return rc;
+}
+
+static qserr _exicc vdisk_setgeo(EXI_DATA, disk_geo_data *geo) {
+   qserr rc = 0;
+   if (!geo) rc = E_SYS_ZEROPTR; else
+   if (!cdh) rc = E_SYS_NONINITOBJ; else
+   if (geo->TotalSectors!=cdhsize || geo->SectorSize!=512) rc = E_SYS_INVPARM; else
+   // check CHS (at least minimal)
+   if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
+      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
+         geo->Heads * geo->SectOnTrack > geo->TotalSectors) rc = E_SYS_INVPARM;
+   else {
+      // copy CHS
+      cdh->h4_cyls  = geo->Cylinders;
+      cdh->h4_heads = geo->Heads;
+      cdh->h4_spt   = geo->SectOnTrack;
+      // if disk is mounted - update CHS value in system info
+      if (chdd) {
+         struct qs_diskinfo *qdi = hlp_diskstruct(chdd, 0);
+         // this WRONG! we patching it in system struct directly
+         if (qdi) {
+            qdi->qd_cyls  = geo->Cylinders;
+            qdi->qd_heads = geo->Heads;
+            qdi->qd_spt   = geo->SectOnTrack;
+         }
+      }
+   }
+   return rc;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -531,86 +575,68 @@ u32t _std sys_vdiskinfo(u32t *disk, u32t *sectors, u32t *physpage) {
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 typedef struct {
-   u32t          dummy;
+   qs_vdisk       inst;
 } doptdata;
 
 static void _std dopt_init(void *instance, void *data) {
    doptdata *dp = (doptdata*)data;
-   dp->dummy = 1;
+   // use global class mutex as an easieast way of sync
+   dp->inst = exi_createid(classid_vd, 0);
 }
 
 static void _std dopt_done(void *instance, void *data) {
    doptdata *dp = (doptdata*)data;
+   exi_free(dp->inst);
    memset(dp, 0, sizeof(doptdata));
 }
 
-static u32t _std dopt_getgeo(void *data, disk_geo_data *geo) {
-   if (!geo) return EDERR_INVARG;
-   if (!cdh) return EDERR_INVDISK;
-
-   geo->Cylinders    = cdh->h4_cyls;
-   geo->Heads        = cdh->h4_heads;
-   geo->SectOnTrack  = cdh->h4_spt;
-   geo->SectorSize   = 512;
-   geo->TotalSectors = cdhsize;
-
-   return 0;
-}
-
-static u32t _std dopt_setgeo(void *data, disk_geo_data *geo) {
-   if (!geo) return EDERR_INVARG;
-   if (!cdh) return EDERR_INVDISK;
-   if (geo->TotalSectors!=cdhsize || geo->SectorSize!=512) return EDERR_INVARG;
-
-   // check CHS (at least minimal)
-   if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
-      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
-         geo->Heads * geo->SectOnTrack > geo->TotalSectors) return EDERR_INVARG;
-   // copy CHS
-   cdh->h4_cyls  = geo->Cylinders;
-   cdh->h4_heads = geo->Heads;
-   cdh->h4_spt   = geo->SectOnTrack;
-   // if disk is mounted - update CHS value in system info
-   if (chdd) {
-      struct qs_diskinfo *qdi = hlp_diskstruct(chdd, 0);
-      // this WRONG! we patching it in system struct directly
-      if (qdi) {
-         qdi->qd_cyls  = geo->Cylinders;
-         qdi->qd_heads = geo->Heads;
-         qdi->qd_spt   = geo->SectOnTrack;
-      }
-   }
-   return 0;
-}
-
-static char* _std dopt_getname(void *data) {
+static qserr _exicc dopt_getgeo(EXI_DATA, disk_geo_data *geo) {
    doptdata *dp = (doptdata*)data;
-   u32t   seclo, sechi, ii;
-   if (!cdh) return 0;
-   for (ii=0, seclo=0, sechi=0; ii<cdecount; ii++)
-      if (cde[ii].hde_1stpage >= _4GBLL>>PAGESHIFT) sechi+=cde[ii].hde_sectors;
-         else seclo+=cde[ii].hde_sectors;
-   return sprintf_dyn("PAE ram disk. %u low, %u high pages", seclo>>3, sechi>>3);
+   qserr rc = 0;
+   if (!geo) rc = E_SYS_ZEROPTR; else
+      if (!cdh) rc = E_SYS_NONINITOBJ; else
+         rc = dp->inst->query(geo, 0, 0, 0, 0);
+   return rc;
 }
 
-static u32t _std dopt_state(void *data, u32t state) {
+static qserr _exicc dopt_setgeo(EXI_DATA, disk_geo_data *geo) {
+   doptdata *dp = (doptdata*)data;
+   return dp->inst->setgeo(geo);
+}
+
+static char* _exicc dopt_getname(EXI_DATA) {
+   u32t sectors, seclo;
+   doptdata *dp = (doptdata*)data;
+   qserr     rc = dp->inst->query(0, 0, &sectors, &seclo, 0);
+   return rc?0:sprintf_dyn("PAE ram disk. %u low, %u high pages", seclo>>3, sectors-seclo>>3);
+}
+
+static u32t _exicc dopt_state(EXI_DATA, u32t state) {
    doptdata *dp = (doptdata*)data;
    // set r/o is not supported, cache denied for this disk
    return EDSTATE_NOCACHE;
 }
 
-static void *qs_ramdisk_list[] = { dopt_getgeo, dopt_setgeo, dopt_getname,
-   dopt_state };
+static void *qs_vdisk_fn[] = { vdisk_init, vdisk_load, vdisk_free, vdisk_query, vdisk_setgeo };
 
-void register_class(void) {
-   if (!classid_ext)
-      classid_ext = exi_register("qs_ramdisk_ext", qs_ramdisk_list,
-         sizeof(qs_ramdisk_list)/sizeof(void*), sizeof(doptdata),
-            dopt_init, dopt_done, 0);
-}
+static void *qs_extdisk_fn[] = { dopt_getgeo, dopt_setgeo, dopt_getname, dopt_state };
 
 int unregister_class(void) {
+   int err = 0;
    if (classid_ext)
-      if (exi_unregister(classid_ext)) classid_ext = 0; else return 0;
+      if (exi_unregister(classid_ext)) classid_ext = 0; else err++;
+   if (classid_vd)
+      if (exi_unregister(classid_vd)) classid_vd = 0; else err++;
+   return err?0:1;
+}
+
+int register_class(void) {
+   if (!classid_ext) classid_ext = exi_register("qs_ramdisk_ext", qs_extdisk_fn,
+      sizeof(qs_extdisk_fn)/sizeof(void*), sizeof(doptdata), 0, dopt_init, dopt_done, 0);
+
+   if (!classid_vd) classid_vd = exi_register("qs_ramdisk", qs_vdisk_fn,
+      sizeof(qs_vdisk_fn)/sizeof(void*), 0, EXIC_GMUTEX, 0, 0, 0);
+
+   if (!classid_ext || !classid_vd) { unregister_class(); return 0; }
    return 1;
 }

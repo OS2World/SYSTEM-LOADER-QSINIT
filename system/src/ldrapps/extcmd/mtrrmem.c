@@ -1,11 +1,7 @@
 #include "stdlib.h"
-#include "qshm.h"
-#include "qsshell.h"
-#include "qsstor.h"
-#include "qssys.h"
+#include "qsbase.h"
 #include "qsint.h"
 #include "errno.h"
-#include "vio.h"
 
 void shl_printmtrr(int nopause) {
    u32t flags, state, addrbits, idx,

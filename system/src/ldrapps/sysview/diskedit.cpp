@@ -272,7 +272,10 @@ void TSysApp::infoDlg(int MsgType) {
                                 "\3""Length truncated to disk size!",
                                 "\3""Length truncated to target disk size!",
                                 "\3""Source and destination is the same!",
-                                "\3""LVM information is valid and not outdated!"};
+                                "\3""LVM information is valid and not outdated!",
+                                "\3""Bootstrap code updated.",
+                                "\3""QSINIT files transfered."
+                               };
    messageBox(infoMsgArray[MsgType], mfInformation+mfOKButton);
 }
 
@@ -291,7 +294,7 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Unable to open help file!",
                                "\3""This is not a file!",
                                "\3""Insufficient disk space to write a file!",
-                               "\3""File size too large for FAT!",
+                               "\3""File size too large for target filesystem!",
                                "\3""Source and destination interference each other!",
                                "\3""Disk read error!",
                                "\3""Disk write error!",
@@ -313,7 +316,13 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Number of sectors is not matched!",
                                "\3""Unable to mount disk image temporary!",
                                "\3""Selected disk is invalid!",
-                               "\3""Unable to create file!"
+                               "\3""Unable to create file!",
+                               "\3""Unable to locate QSINIT boot files!",
+                               "\3""QSINIT unable to write to this filesystem type",
+                               "\3""Boot code for this filesystem unable to handle partition above 2Tb border",
+                               "\3""Boot code for this filesystem unable to handle partition which crosses 2Tb border",
+                               "\3""Boot file name on FAT is limited to 11 characters",
+                               "\3""Unable to write QSINIT binaries!"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
 }
@@ -458,7 +467,7 @@ void TSysApp::handleEvent(TEvent& event) {
          break;
       }
       case cmDmgr: {
-         TDMgrDialog *dmgr=new TDMgrDialog(TScreen::screenHeight>=32);
+         TDMgrDialog *dmgr=new TDMgrDialog();
          execView(dmgr);
 
          if (dmgr->goToDisk!=FFFF && SysApp.bootcmd!=cmDmgr)

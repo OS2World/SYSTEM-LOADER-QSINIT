@@ -2,11 +2,9 @@
 // QSINIT "boot menu" module
 //
 #include "stdlib.h"
-#include "qsshell.h"
-#include "qsint.h"
-#include "qsutil.h"
-#include "vio.h"
+#include "qsbase.h"
 #include "qcl/qslist.h"
+#include "ksline.h"
 
 int  MenuKernel(char *rcline, int errors);
 int  MenuCommon(char *menu, char *rcline, u32t pos);
@@ -15,7 +13,10 @@ void InitParameters(void);
 void DoneParameters(void);
 int  IsMenuPresent(const char *section);
 
-char *menu_ini = 0;
+char       *menu_fname = 0;
+const char   *ld_fname = "b:\\qsinit.ini";
+qs_inifile       m_ini = 0,    // menu ini file
+                ld_ini = 0;    // ldr ini file
 
 void main(int argc,char *argv[]) {
    char cmdline[1024], cmenu[128], *eptr, *defmenu = 0;
@@ -30,21 +31,26 @@ void main(int argc,char *argv[]) {
    }
 
    history = NEW(ptr_list);
+   m_ini   = NEW(qs_inifile);
+   ld_ini  = NEW(qs_inifile);
 
    if (argc>1) strcpy(cmenu,argv[1]); else {
       eptr = getenv("start_menu");
       if (eptr) { strncpy(cmenu,eptr,128); cmenu[127] = 0; } else 
          { cmenu[0] = 0; noextmenu = 1; }
    }
-   eptr = getenv("menu_source");
-   menu_ini = strdup(eptr?eptr:"1:\\menu.ini");
+   eptr       = getenv("menu_source");
+   menu_fname = strdup(eptr?eptr:"b:\\menu.ini");
+   // open files (actually, ignore its presence)
+   m_ini->open(menu_fname, QSINI_READONLY);
+   ld_ini->open(ld_fname, QSINI_READONLY);
    // reading color & help strings from menu.ini
    InitParameters();
    // read it here to optimize ugly INI caching in START
    if (hlp_hosttype()==QSHT_EFI)
-      defmenu = ini_readstr(menu_ini, "common", "def_efi"); else
+      defmenu = m_ini->getstr("common", "def_efi", 0); else
    if (hlp_boottype()==QSBT_SINGLE)
-      defmenu = ini_readstr(menu_ini, "common", "def_single"); 
+      defmenu = m_ini->getstr("common", "def_single", 0); 
    /* we have no altered menu name - checking for existence of [kernel] and
       [partition] sections and switching to partition menu when suitable */
    if (noextmenu)
@@ -104,6 +110,6 @@ void main(int argc,char *argv[]) {
    }
    DoneParameters();
    history->freeitems(0,FFFF);
-   DELETE(history);
-   free(menu_ini);
+   DELETE(history); DELETE(ld_ini); DELETE(m_ini);
+   free(menu_fname);
 }

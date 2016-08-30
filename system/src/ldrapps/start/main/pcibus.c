@@ -5,6 +5,7 @@
 #include "internal.h"
 #include "qsstor.h"
 #include "qsint.h"
+#include "qssys.h"
 #include "qsutil.h"
 
 static u32t num_buses = 0;
@@ -38,30 +39,41 @@ void _std log_pcidump(void) {
 }
 
 static void init_enum(void) {
-   u32t bus, slot, func;
-   u32t scan_all = sto_dword(STOKEY_PCISCAN),
-         max_bus = 256;
-   // init counters
-   if (!funcmask) funcmask = (u8t*)malloc(256*32);
-   mem_zero(funcmask);
-   num_buses = 0;
-   // ask PCI BIOS
-   if (!scan_all) max_bus = (hlp_querybios(QBIO_PCI)>>8&0xFF) + 1;
-
-   for (bus=0; bus<max_bus; bus++)
-      for (slot=0; slot<32; slot++)
-         for (func=0; func<8; func++) {
-            if (hlp_pciread(bus,slot,func,PCI_CLASS_REV,4) == 0xFFFFFFFF)
-               continue;
-            // update max values
-            funcmask[bus<<5|slot]|=1<<func;
-            if (num_buses<=bus) num_buses = bus+1;
-
-            if (func == 0)
-               if ((hlp_pciread(bus,slot,func,PCI_HEADER_TYPE,1)&0x80) == 0)
-                  break;
-         }
-   log_it(2, "number of buses: %d\n", num_buses);
+   static int processing = 0;
+   mt_swlock();
+   // simultaneous init call from different threads?
+   if (processing) { 
+      mt_swunlock();
+      while (processing) usleep(32000);
+      return; 
+   } else {
+      u32t bus, slot, func;
+      u32t scan_all = sto_dword(STOKEY_PCISCAN),
+            max_bus = 256, rc = 0;
+      processing = 1;
+      mt_swunlock();
+      // init counters
+      if (!funcmask) funcmask = (u8t*)malloc(256*32);
+      mem_zero(funcmask);
+      // ask PCI BIOS
+      if (!scan_all) max_bus = (hlp_querybios(QBIO_PCI)>>8&0xFF) + 1;
+      
+      for (bus=0; bus<max_bus; bus++)
+         for (slot=0; slot<32; slot++)
+            for (func=0; func<8; func++) {
+               if (hlp_pciread(bus,slot,func,PCI_CLASS_REV,4) == 0xFFFFFFFF)
+                  continue;
+               // update max values
+               funcmask[bus<<5|slot]|=1<<func;
+               if (rc<=bus) rc = bus+1;
+      
+               if (func == 0)
+                  if ((hlp_pciread(bus,slot,func,PCI_HEADER_TYPE,1)&0x80) == 0)
+                     break;
+            }
+      log_it(2, "number of buses: %d\n", rc);
+      num_buses = rc;
+   }
 }
 
 /** enum PCI devices.
@@ -189,6 +201,7 @@ u32t _std hlp_pcigetbase(pci_location *dev, u64t *bases, u64t *sizes) {
             clrev = hlp_pciread(dev->bus,dev->slot,dev->func,PCI_CLASS_REV,4),
            maxcnt = 0,
           rccount = 0;
+      int   svint;
       u8t     pos;
 
       if (clrev == 0xFFFFFFFF) return 0;
@@ -205,6 +218,10 @@ u32t _std hlp_pcigetbase(pci_location *dev, u64t *bases, u64t *sizes) {
          case PCI_HEADER_CARDBUS: maxcnt = 1; break;
          default: return 0;
       }
+      /* address read is not an atomic op, but just disable ints here, instead
+         of MT lock */
+      svint = sys_intstate(0);
+
       for (pos=PCI_BASE_ADDR0; maxcnt>0; maxcnt--,pos+=4) {
          u32t addr = hlp_pciread(dev->bus, dev->slot, dev->func, pos, 4),
               size = 0;
@@ -238,6 +255,8 @@ u32t _std hlp_pcigetbase(pci_location *dev, u64t *bases, u64t *sizes) {
          }
          sizes[rccount++]++;
       }
+      sys_intstate(svint);
+
       return rccount;
    }
 }

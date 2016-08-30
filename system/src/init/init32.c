@@ -6,8 +6,7 @@
 #include "qsutil.h"
 #include "qsint.h"
 #include "qsinit.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsstor.h"
 #include "qsconst.h"
 #include "qsbinfmt.h"
@@ -43,7 +42,6 @@ u8t               bootio_avail; // boot partition disk i/o is available
 extern
 MKBIN_HEADER      *pbin_header;  // use pointer to be compat. with EFI build
 extern u8t           *memtable;
-extern u8t           *page_buf; // 4k buffer for various needs
 extern u8t           pminitres, // result of PM init
                       safeMode; // safe mode flag
 extern u16t       puff_bufsize; // memory size need by puff.c
@@ -74,10 +72,9 @@ void _std init_common(void) {
    // init common memory manager
    memmgr_init();
    // memmgr is ready, allocating memory for unzip tables and other misc stuff
-   crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + PAGESIZE + puff_bufsize +
-                 OEMTAB_SIZE, "serv", QSMA_READONLY);
-   page_buf    = (void*)(crc_table + CRC32_SIZE);
-   puff_buf    = page_buf + PAGESIZE;
+   crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + puff_bufsize + OEMTAB_SIZE,
+                                       "serv", QSMA_READONLY);
+   puff_buf    = crc_table + CRC32_SIZE;
    ExCvt       = (u8t*)puff_buf + puff_bufsize;
    make_crc_table(crc_table);
    memset(ExCvt, '.', OEMTAB_SIZE);
@@ -181,8 +178,8 @@ void exit_restart(char *loader) {
    }
    // copy BPB back to initial location (if available)
    if (rc && (dd_bootflags&BF_NOMFSHVOLIO)==0)
-      rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs,
-         &BootBPB, sizeof (BootBPB), 1);
+      rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs, &BootBPB,
+         dd_bootflags&BF_NEWBPB?sizeof(struct Disk_NewPB):sizeof(BootBPB), 1);
    // copy new loader to the right place
    if (rc) memcpy((void*)hlp_segtoflat(LdrRstCS),ldrdata,ldrsize);
    hlp_memfree(ldrdata);

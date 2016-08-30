@@ -4,10 +4,8 @@
 // -------------------------------------------------------
 //
 #include "qstypes.h"
-#include "qslog.h"
-#include "vio.h"
-#include "qsint.h"
 
+typedef void _std (*print_outf)(int ch, void *stream);
 u32t  _std strlen(const char *str);
 u32t  _std wcslen(const u16t *str);
 u16t ff_convert(u16t chr, unsigned int dir);

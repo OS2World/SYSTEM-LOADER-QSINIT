@@ -14,6 +14,8 @@ _DATA           ends
 CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
+                extrn   _exi_muxunlock:near                     ;
+
 ;----------------------------------------------------------------
 ;int  __stdcall memcmp(const void *s1, const void *s2, u32t length);
                 public  _memcmp
@@ -288,7 +290,7 @@ _hlp_copytoflat proc    near                                    ;
                 push    edi                                     ;
                 push    ebp                                     ;
                 mov     ebp,esp                                 ;
-                mov     esi,@@Offset                            ; 
+                mov     esi,@@Offset                            ;
                 mov     ax,ds                                   ; is it FLAT?
                 cmp     ax,word ptr @@Sel                       ; skip all checks
                 mov     eax,@@Length                            ; (lsl will lie because
@@ -351,7 +353,7 @@ _memrchr        endp                                            ;
 
 ;----------------------------------------------------------------
 ;u8t* __stdcall memrchrnb(u8t*mem, u8t chr, u32t buflen);
-                public  _memrchrnb     
+                public  _memrchrnb
 _memrchrnb      proc    near
 @@mem           =  4                                            ;
 @@chr           =  8                                            ;
@@ -795,7 +797,23 @@ _memcpy0        proc    near                                    ;
                 ret     12                                      ;
 _memcpy0        endp
 
+;----------------------------------------------------------------
+; void exi_muxunlocka();
+                public  exi_muxunlocka                          ;
+exi_muxunlocka  proc    near                                    ; save edx:eax
+                mov     [esp+4],eax                             ; & flags, then
+                mov     eax,edx                                 ; unlock mutex
+                xchg    [esp],eax                               ;
+                pushfd                                          ;
+                push    eax                                     ;
+                call    _exi_muxunlock                          ;
+                popfd                                           ;
+                pop     edx                                     ;
+                pop     eax                                     ;
+                ret                                             ;
+exi_muxunlocka  endp                                            ;
 
 CODE32          ends
 
                 end
+

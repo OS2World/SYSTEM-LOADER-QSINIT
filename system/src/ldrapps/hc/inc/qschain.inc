@@ -5,6 +5,7 @@
 ;cc #define QSINIT_CHAININC
 ;cc #include "qcl/qslist.h"
 ;cc #include "seldesc.h"
+;cc #include "qsmodint.h"
 
 EXIT_STACK_SIZE = 128
 

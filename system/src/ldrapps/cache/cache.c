@@ -3,16 +3,12 @@
 // sector-oriented i/o cache module
 //
 #include "stdlib.h"
-#include "qsutil.h"
-#include "qslog.h"
-#include "qssys.h"
-#include "qsshell.h"
+#include "qsbase.h"
 #include "errno.h"
 #include "qsmod.h"
 #include "qsint.h"
 #include "qsdm.h"
-#include "vio.h"
-#include "qcl/qscache.h"
+//#include "qcl/qscache.h"
 #include "cache.h"
 
 const char *selfname = MODNAME_CACHE;
@@ -64,10 +60,10 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
          hdds = hlp_diskcount(&fdds);
          for (ii=0; ii<fdds+hdds; ii++) {
             u32t disk = ii<fdds ? ii|QDSK_FLOPPY : ii-fdds;
-            int    on = cc_enable(0, disk, -1);
+            int    on = cc_enable(0, 0, disk, -1);
             char pbuf[80];
             if (on>0) {
-               u32t  bcntp, bcnt = cc_stat(0, disk, &bcntp);
+               u32t  bcntp, bcnt = cc_stat(0, 0, disk, &bcntp);
 
                sprintf(pbuf, "(used/with priority: %u/%u)", bcnt, bcntp);
             } else pbuf[0] = 0;
@@ -84,14 +80,14 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
             if (*fp=='-' || *fp=='+') {
                u32t dsk = dsk_strtodisk(fp+1);
                if (dsk==FFFF) break;
-               cc_enable(0, dsk, *fp=='+');
+               cc_enable(0, 0, dsk, *fp=='+');
                continue;
             }
             fp=0; break;
          }
          if (fp) return 0;
       } else
-      if (cc_setsize_str(0,fp)) return 0;
+      if (cc_setsize_str(0, 0, fp)) return 0;
    }
    cmd_shellerr(EMSG_CLIB,EINVAL,0);
    return EINVAL;
@@ -100,8 +96,8 @@ u32t _std shl_cache(const char *cmd, str_list *args) {
 static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio,
    cc_enable, cc_invalidate, cc_invalidate_vol, cc_stat};
 
-u32t _std cc_setsize_str(void *data, const char *size) {
-   if (stricmp(size,"OFF")==0) { cc_setsize(0, 0); return 1; }
+u32t _exicc cc_setsize_str(EXI_DATA, const char *size) {
+   if (stricmp(size,"OFF")==0) { cc_setsize(0, 0, 0); return 1; }
       else
    if (isdigit(size[0])) {
       char *errptr = 0;
@@ -110,9 +106,9 @@ u32t _std cc_setsize_str(void *data, const char *size) {
          u32t availmax;
          if (value>50) value = 50;
          hlp_memavail(&availmax,0);
-         cc_setsize(0, (availmax>>20) * value /100);
+         cc_setsize(0, 0, (availmax>>20) * value /100);
       } else
-         cc_setsize(0, value);
+         cc_setsize(0, 0, value);
       // do not make noise to screen, because can be called from partmgr init
       return 1;
    }
@@ -135,7 +131,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          return 0;
       }
       classid = exi_register("qs_cachectrl", methods_list,
-         sizeof(methods_list)/sizeof(void*), 0, 0, 0, 0);
+         sizeof(methods_list)/sizeof(void*), 0, 0, 0, 0, 0);
       if (!classid) {
          log_printf("unable to register class!\n");
          return 0;

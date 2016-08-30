@@ -27,8 +27,8 @@ ld=wlink
 aflags=-mf -4p -zq -fo=
 
 cflags=-4s -zri -zq -fp5 -fpi87 -s -mf -ox $(oskey) -i=..\..\..\ldrapps\hc\rt \
-       -DSRT -DNO_HUGELIST -DNO_RANDOM -DSORT_BY_OBJECTS_ON \
-       -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_SP_POINTRECT \
+       -DSRT -DNO_HUGELIST -DNO_RANDOM -DSORT_BY_OBJECTS_ON -i=..\..\..\init\hc \
+       -i=..\..\..\hc -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_SP_POINTRECT \
        -i=$(outdir) -fo=
 
 cppflags=$(dbtype) $(cflags)

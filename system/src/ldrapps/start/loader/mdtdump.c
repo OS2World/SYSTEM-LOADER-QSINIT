@@ -4,8 +4,7 @@
 //
 #include "stdlib.h"
 #include "qsutil.h"
-#define MODULE_INTERNAL
-#include "qsmod.h"
+#include "qsmodint.h"
 #include "qsint.h"
 #include "qsinit.h"
 #include "qslog.h"
@@ -14,11 +13,15 @@
 #include "qspdata.h"
 
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
+extern mod_addfunc* _std          mod_secondary;
 
 void log_mdtdump_int(printf_function pfn) {
-   int ii=2,obj;
+   int ii=2, obj;
    pfn("== MDT contents ==\n");
    pfn("* Loaded list:\n");
+   // use QSINIT binary internal mutex to serialize access to module lists
+   if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
+
    while (ii--) {
       module *md=ii?mod_list:mod_ilist, *impm;
       if (!md) pfn("   empty!\n");
@@ -75,11 +78,13 @@ void log_mdtdump_int(printf_function pfn) {
          }
 
          pfn("\n");
-         md=md->next;
+         md = md->next;
       }
 
       if (ii) pfn("* Loading list:\n");
    }
+   if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
+
    pfn("==================\n");
 }
 
@@ -150,13 +155,13 @@ void _std log_dumppctx(process_context* pq) {
    log_it(2,"  env.ptr : %08X\n", pq->envptr);
 
    // buffers can grow in next revisions - so print it in this way
-   ii = sizeof(pq->rtbuf)/4;
+   ii = sizeof(pq->rtbuf)/4/2;
    snprintf(fmtstr, 24, "    rtbuf : %%%dlb\n", ii/2);
    log_it(2, fmtstr, pq->rtbuf);
    memcpy(fmtstr, "          ", 10);
    log_it(2, fmtstr, pq->rtbuf+ii);
 
-   ii = sizeof(pq->userbuf)/4;
+   ii = sizeof(pq->userbuf)/4/2;
    snprintf(fmtstr, 24, "  userbuf : %%%dlb\n", ii/2);
    log_it(2, fmtstr, pq->userbuf);
    memcpy(fmtstr, "          ", 10);

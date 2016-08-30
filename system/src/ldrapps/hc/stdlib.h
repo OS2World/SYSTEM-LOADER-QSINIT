@@ -1,6 +1,6 @@
 //
 // QSINIT API
-// 32bit stdlib emu
+// stdlib header
 //
 #ifndef QSINIT_STDLIB
 #define QSINIT_STDLIB
@@ -11,6 +11,7 @@ extern "C" {
 
 #include "clib.h"
 #include "malloc.h"
+#include "stddef.h"
 
 #define SEEK_SET   (0)
 #define SEEK_CUR   (1)
@@ -23,10 +24,6 @@ extern "C" {
 #define _MAX_EXT    256   ///< maximum length of extension component
 #define _MAX_NAME   256   ///< maximum length of file name (with extension)
 #define _MAX_PATH   QS_MAXPATH
-
-typedef unsigned  size_t;
-typedef signed   ssize_t;
-typedef long       off_t;
 
 typedef unsigned   FILE;
 
@@ -173,11 +170,12 @@ int    __stdcall fdetach(FILE *fp);
     @return number of closed files or EOF on error */
 int    __stdcall fcloseall(void);
 
-extern FILE  *stdin, *stdout, *stderr, *stdaux;
+extern FILE  *stdin, *stdout, *stderr, *stdaux, *stdnul;
 #pragma aux stdin  "_*";
 #pragma aux stdout "_*";
 #pragma aux stderr "_*";
 #pragma aux stdaux "_*";
+#pragma aux stdnul "_*";
 
 int    __cdecl   fprintf(FILE *fp, const char *format, ...);
 
@@ -195,10 +193,11 @@ FILE*  __stdcall freopen(const char *filename, const char *mode, FILE *fp);
 #define STDOUT_FILENO   1   ///< stdout device (console)
 #define STDERR_FILENO   2   ///< stderr device (console)
 #define STDAUX_FILENO   3   ///< stdaux device (system log and debug com port)
+#define STDNUL_FILENO   4   ///< nul device
 
 /** fdopen - limited edition (tm).
     Function simulate to standard fdopen(), but return valid FILE* for
-    STDIN_FILENO..STDAUX_FILENO only (i.e. implemented for opening of standard
+    STDIN_FILENO..STDNUL_FILENO only (i.e. implemented for opening of standard
     i/o handles only).
     Function returns NEW handle on every call! */
 FILE*  __stdcall fdopen(int handle, const char *mode);
@@ -248,7 +247,8 @@ char*  __stdcall getenv (const char *name);
 
 /** change environment variable.
     function simulate to watcom setenv.
-    @attention this call may invalidate all pointers, returned by getenv
+    @attention this call invalidates all pointers, returned by getenv(), for
+               all threads of current process.
     @param name            variable name
     @param newvalue        variable new value
     @param overwrite       allow overwrite previous value
@@ -290,6 +290,14 @@ void   __stdcall qsort  (void *base, size_t num, size_t width,
     @param [out] bufsize  File size.
     @return buffer with file or 0 if no file/no memory */
 void*  __stdcall freadfull(const char *name, unsigned long *bufsize);
+
+/** open, write & close file.
+    Function change errno value as any other fxxxx func.
+    @param [in]  name     File name.
+    @param [in]  buf      File data.
+    @param [in]  bufsize  File size.
+    @return errno value or 0 on success */
+int    __stdcall fwritefull(const char *name, void *buf, unsigned long bufsize);
 
 /** change file ext.
     @param [in]  name     File name.
@@ -347,6 +355,9 @@ void   __stdcall srand(u32t seed);
     @param ch    Character to count
     @return number of "ch" characters in string */
 u32t   __stdcall strccnt(const char *str, char ch);
+
+/// return last character of string
+char   __stdcall strclast(const char *str);
 
 // bit scan functions, returns -1 if value us 0
 #ifdef __WATCOMC__
@@ -418,6 +429,9 @@ u64t  __stdcall str2uint64(const char *str);
                   destination)
     @return 1 on success, 0 if exception occur */
 u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
+
+/// conver QSINIT error to nearest errno value
+int   __stdcall qserr2errno(qserr errv);
 
 #ifdef __cplusplus
 }

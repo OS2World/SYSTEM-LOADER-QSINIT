@@ -14,6 +14,7 @@
 #include "qssys.h"
 #include "qshm.h"
 #include "qsdm.h"
+#include "qsio.h"
 #include "qsshell.h"
 #include "qspage.h"
 #include "qsint.h"
@@ -120,7 +121,7 @@ int main(int argc,char *argv[]) {
          sys_markmem(addr, len>>PAGESHIFT, PCMEM_HIDE|PCMEM_USERAPP);
       } else
       if (stricmp(argv[1],"c")==0 && (argc==2 || argc==3)) {
-         // mem hide test
+         // clock modulation setup
          u32t  cmv = argc==3 ? atoi(argv[2]) : CPUCLK_MAXFREQ, ii, cs;
 
          if (cmv<1 || cmv>CPUCLK_MAXFREQ) printf("value 1..16 required!\n"); else 
@@ -143,6 +144,41 @@ int main(int argc,char *argv[]) {
       if (stricmp(argv[1],"u")==0 && argc==2) {
          // trap screen
          __asm { int 1 }
+      } else
+      // test exFAT i/o on 4Gb border
+      if (stricmp(argv[1],"e")==0 && argc==2) {
+        io_handle fh;
+        u32t   stage = 0;
+        u8t      buf[512];
+        u64t    size;
+        qserr     rc = io_open("test.bin", IOFM_CREATE_ALWAYS|IOFM_WRITE|IOFM_READ, &fh, 0);
+
+        do {
+           if (rc) break; else stage++;
+           rc = io_setsize(fh, _4GBLL - 1024);
+           if (rc) break; else stage++;
+           if (io_write(fh,buf,512)!=512) rc = io_lasterror(fh);
+           if (rc) break; else stage++;
+           rc = io_setsize(fh, _4GBLL + 1024);
+           if (rc) break; else stage++;
+           if (io_seek(fh, _4GBLL + 1024, IO_SEEK_SET)==FFFF64) rc = io_lasterror(fh);
+           if (rc) break; else stage++;
+           if (io_write(fh,buf,512)!=512) rc = io_lasterror(fh);
+           if (rc) break; else stage++;
+           if (io_seek(fh, _4GBLL + 0x42000, IO_SEEK_SET)==FFFF64) rc = io_lasterror(fh);
+           if (rc) break; else stage++;
+           if (io_write(fh,buf,512)!=512) rc = io_lasterror(fh);
+           rc = io_size(fh, &size);
+           if (rc) break; else stage++;
+           printf("Size: %LX\n", size);
+           rc = io_close(fh);
+        } while (0);
+        if (rc) {
+           char msg[32];
+           snprintf(msg, 32, "Stage %u, error: ", stage);
+           cmd_shellerr(EMSG_QS, rc, msg);
+        }
+        return 0;
       } else
       if (stricmp(argv[1],"ct")==0 && argc==2) {
          u64t cv;
@@ -192,9 +228,7 @@ int main(int argc,char *argv[]) {
       if (stricmp(argv[1],"d")==0 && argc==3) {
          // delay x ms
          u32t delay = atoi(argv[2]);
-         mt_swlock();
          usleep(delay*1000);
-         mt_swunlock();
       } else {
          u64t addr = strtoull(argv[1],0,16);
          u8t*  mem = pag_physmap(addr, 4096, 0);

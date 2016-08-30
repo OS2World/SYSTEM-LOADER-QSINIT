@@ -187,8 +187,8 @@ static u32t scan_disk(hdd_info *drec) {
       u32t stype = dsk_sectortype(drec->disk, chsread?chssec:sector, pt_buffer);
 
       if (stype==DSKST_ERROR) rc = DPTE_ERRREAD; else
-      if (stype==DSKST_BOOTFAT || stype==DSKST_BOOTBPB || stype==DSKST_BOOT)
-         rc = DPTE_FLOPPY; else
+      if (stype==DSKST_BOOTFAT || stype==DSKST_BOOTBPB || stype==DSKST_BOOTEXF ||
+         stype==DSKST_BOOT) rc = DPTE_FLOPPY; else
       if (stype==DSKST_EMPTY || stype==DSKST_DATA) rc = DPTE_EMPTY;
 
       if (sector==0 && rc) return rc;

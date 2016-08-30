@@ -58,7 +58,7 @@ chgn=chgnam
 aflags=-d1 -mt -zq -6p -i=%(QS_BASE)\hc -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -zld -s -mf -os -Ihc -i=hc -i=fat -i=zip \
-       -i=$(outdir) -fo=
+       -i=$(outdir) -i=%(QS_APPINC) -fo=
 
 ccflags=-ecd -fp3 -fpi87 -q -zl -5 -zp1 -i=hc -i=$(outdir) -s -os \
         -nc=LCODE -nt=TEXT16 -bt%(QS_NAME) -fo=
@@ -101,6 +101,9 @@ fat\diskio.c fat\ff.c misc\mdt.c misc\prn16.asm misc\log.asm
 misc\print.c misc\timer32.asm misc\process.c misc\task.asm
 zip\puff.c zip\crc32.c zip\unzip.c
 
+[deps]
+start.asm = inc\version.inc
+
 [make_footer]
 $(outdir) : .DIRECTORY
 
@@ -108,8 +111,6 @@ MAKEDIRS : $(outdir)
 
 hello : .SYMBOLIC
     @echo $(config) build ...
-
-start.asm : inc\version.inc
 
 nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**asm) $(**c) $(**cc)
 

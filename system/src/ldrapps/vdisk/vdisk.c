@@ -1,18 +1,11 @@
+#include "vdproc.h"
 #include "errno.h"
-#include "stdlib.h"
-#include "qsshell.h"
 #include "stdarg.h"
-#include "qsvdisk.h"
-#include "qsutil.h"
-#include "qsdm.h"
 #include "vioext.h"
 #include "qsmodext.h"
 
-const char   *CMDNAME = "RAMDISK";
-static int lopt_quiet = 0;  ///< last RAMDISK command has /q option on
-
-void register_class(void);
-int  unregister_class(void);
+const char     *CMDNAME = "RAMDISK";
+static int   lopt_quiet = 0;  ///< last RAMDISK command has /q option on
 
 static void errmsg(const char *msg,...) {
    va_list al;
@@ -77,10 +70,11 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
    if (args->count==1 && (stricmp(args->item[0],"DELETE")==0 ||
       stricmp(args->item[0],"INFO")==0)) 
    {
-      int   info = toupper(args->item[0][0])=='I';
-      u32t    dh, sectors = 0;
+      u32t      dh, sectors = 0;
+      int     info = toupper(args->item[0][0])=='I';
+      qs_vdisk vdi = exi_createid(classid_vd, 0);
 
-      if (!sys_vdiskinfo(&dh,&sectors,0)) {
+      if (vdi->query(0,&dh,&sectors,0,0)) {
          printf("There is no RAM Disk available\n");
       } else {
          vio_setcolor(VIO_COLOR_LWHITE);
@@ -89,8 +83,9 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
          // delete action
          if (!info)
             if (ask_yes())
-               if (!sys_vdiskfree()) printf("Unspecified error occured!\n");
+               if (!vdi->free()) printf("Unspecified error occured!\n");
       }
+      DELETE(vdi);
       return 0;
    } else {
       u32t  minsize=0, maxsize=0, nolow=0, nohigh=0, nofmt=0, nopt=0, nofat32=0,
@@ -168,55 +163,64 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
          // error was shown
          if (rc) return rc;
       }
-      ii = 0;
-      if (divpos) { 
-         ii|=VFDF_SPLIT;
-         if (divpcnt) ii|=VFDF_PERCENT;
-      }
-      if (nolow) ii|=VFDF_NOLOW; else
-         if (nohigh) ii|=VFDF_NOHIGH;
-
-      if (load)    {
-         rc = sys_vdiskload(vhdname, ii, &dh, lopt_quiet?0:percent_prn);
-         // empty line
-         if (!lopt_quiet) printf("\r                     \r");
-      } else {
-         if (nopt )   ii|=VFDF_EMPTY; else
-         if (nofmt)   ii|=VFDF_NOFMT; else
-         if (hpfs)    ii|=VFDF_HPFS; else
-         if (nofat32) ii|=VFDF_NOFAT32; else
-         if (fat32)   ii|=VFDF_FAT32;
-         // create disk
-         rc = sys_vdiskinit(minsize, maxsize, ii, divpos, ltr1, ltr2, &dh);
-      }
-
-      if (rc==0) {
-         if (!lopt_quiet) {
-            u32t sectors = 0;
-            sys_vdiskinfo(0,&sectors,0);
+      if (1) {
+         qs_vdisk  vdi = 0;
+         qserr     res = 0;
       
-            printf("Disk %s created - %s\n", dsk_disktostr(dh,0),
-               getsizestr(512,sectors,1));
+         ii = 0;
+         if (divpos) { 
+            ii|=VFDF_SPLIT;
+            if (divpcnt) ii|=VFDF_PERCENT;
          }
-      } else
-      if (!lopt_quiet) {
-         switch (rc) {
-            case ENODEV : printf("No PAE on this CPU!\n"); break;
-            case EEXIST : printf("Disk already exist!\n"); break;
-            case ENOMEM :
-               printf("There is no memory for disk with specified parameters!\n");
-               break;
-            case ENOENT : printf("LOAD image file is not exist!\n"); break;
-            case ENOTBLK: printf("Disk image is not suitable!\n"); break;
-            case EFBIG  : printf("Disk image too small or too big!\n"); break;
-            case EIO    : printf("I/O error while reading disk image!\n"); break;
-            default     :
-               cmd_shellerr(EMSG_CLIB, rc, 0);
+         if (nolow) ii|=VFDF_NOLOW; else
+            if (nohigh) ii|=VFDF_NOHIGH;
+         
+         vdi = exi_createid(classid_vd, 0);
+         
+         if (load)    {
+            res = vdi->load(vhdname, ii, &dh, lopt_quiet?0:percent_prn);
+            // empty line
+            if (!lopt_quiet) printf("\r                     \r");
+         } else {
+            if (nopt )   ii|=VFDF_EMPTY; else
+            if (nofmt)   ii|=VFDF_NOFMT; else
+            if (hpfs)    ii|=VFDF_HPFS; else
+            if (nofat32) ii|=VFDF_NOFAT32; else
+            if (fat32)   ii|=VFDF_FAT32;
+            // create disk
+            res = vdi->init(minsize, maxsize, ii, divpos, ltr1, ltr2, &dh);
          }
+         
+         if (res==0) {
+            if (!lopt_quiet) {
+               u32t sectors = 0;
+               vdi->query(0,0,&sectors,0,0);
+         
+               printf("Disk %s created - %s\n", dsk_disktostr(dh,0),
+                  getsizestr(512,sectors,1));
+            }
+         } else
+         if (!lopt_quiet) {
+            switch (res) {
+               case E_SYS_UNSUPPORTED : printf("No PAE on this CPU!\n"); break;
+               case E_SYS_INITED      : printf("Disk already exist!\n"); break;
+               case E_SYS_NOMEM       :
+                  printf("There is no memory for disk with specified parameters!\n");
+                  break;
+               case E_SYS_NOFILE      : printf("LOAD image file is not exist!\n"); break;
+               case E_SYS_BADFMT      : printf("Disk image is not suitable!\n"); break;
+               case E_SYS_TOOSMALL    : printf("Disk image too small!\n"); break;
+               case E_DSK_IO          : printf("I/O error while reading disk image!\n"); break;
+               default:
+                  cmd_shellerr(EMSG_QS, res, 0);
+            }
+         }
+         DELETE(vdi);
+         rc = qserr2errno(res);
       }
       return rc;
    }
-   cmd_shellerr(EMSG_CLIB,EINVAL,0);
+   cmd_shellerr(EMSG_CLIB, EINVAL, 0);
    return EINVAL;
 }
 
@@ -234,18 +238,21 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          vio_setcolor(VIO_COLOR_RESET);
          return 0;
       }
+      // register classes
+      if (!register_class()) {
+         log_printf("unable to register class!\n");
+         return 0;
+      }
       // install shell command
       cmd_shelladd(CMDNAME, shl_ramdisk);
-      // register external info class (optional, result can be ignored)
-      register_class();
    } else {
-      // unregister external info class, cancel unload it unsuccess
+      // unregister class(es), cancel unload it unsuccess
       if (!unregister_class()) return 0;
       // remove shell command
       cmd_shellrmv(CMDNAME, shl_ramdisk);
       /* remove disk and clean memory, but only on module unloading,
          QSINIT shutdown will leave disk memory as it is */
-      sys_vdiskfree();
+      vdisk_free(0,0);
    }
    return 1;
 }

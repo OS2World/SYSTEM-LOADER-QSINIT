@@ -6,7 +6,6 @@
 #include "time.h"
 #include "qstime.h"
 #include "qslog.h"
-#define MODULE_INTERNAL
 #include "qsmod.h"
 #include "internal.h"
 
@@ -125,10 +124,10 @@ static const char *dtitle[7]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 static char* _asctime_buffer(void) {
    if (!in_mtmode) return &timestr; else {
       qs_mtlib  mt = get_mtlib();
-      char    *res = (char*)(u32t)mt->tlsget(QTLS_ASCTMBUF);
+      char    *res = (char*)(u32t)mt_tlsget(QTLS_ASCTMBUF);
       if (!res) {
          res = (char*)malloc_thread(48);
-         mt->tlsset(QTLS_ASCTMBUF, (u32t)res);
+         mt_tlsset(QTLS_ASCTMBUF, (u32t)res);
       }
       return res;
    }

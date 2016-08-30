@@ -79,7 +79,7 @@ CODE32          segment dword public USE32 'CODE'
 
                 public  _except_init
 ;----------------------------------------------------------------
-; install PM exception handlers for entire code
+; install PM exception handlers for entire code (BIOS host only)
 _except_init    proc    near                                    ;
                 push    ebx                                     ;
                 push    edi                                     ; setup exception

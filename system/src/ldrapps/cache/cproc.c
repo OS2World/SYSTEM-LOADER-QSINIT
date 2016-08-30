@@ -142,7 +142,7 @@ static u32t alloc_disk(u32t disk, diskinfo *di) {
 /// unload disk info structs on DLL exit
 void unload_all(void) {
    mt_swlock();
-   if (cache) cc_setsize(0,0);
+   if (cache) cc_setsize(0,0,0);
    if (cdi) {
       int ii;
       for (ii=0; ii<cdi_hdds+cdi_fdds; ii++) {
@@ -219,7 +219,7 @@ static diskinfo *get_di(u32t disk) {
    }
 }
 
-void _std cc_setprio(void *data, u32t disk, u64t start, u32t size, int on) {
+void _exicc cc_setprio(EXI_DATA, u32t disk, u64t start, u32t size, int on) {
    diskinfo   *di;
 
    mt_swlock();
@@ -246,7 +246,7 @@ void _std cc_setprio(void *data, u32t disk, u64t start, u32t size, int on) {
 }
 
 /// enable/disable cache for specified disk
-int _std cc_enable(void *data, u32t disk, int enable) {
+int _exicc cc_enable(EXI_DATA, u32t disk, int enable) {
    diskinfo *di;
    int   result = -1;
 
@@ -261,7 +261,7 @@ int _std cc_enable(void *data, u32t disk, int enable) {
       if (enable>=0) {
          di->enabled = enable?1:0;
          // if cache is active - drop all cached data for this disk
-         if (cache && !enable) cc_invalidate(data, disk, 0, FFFF64);
+         if (cache && !enable) cc_invalidate(data, 0, disk, 0, FFFF64);
       }
    }
    mt_swunlock();
@@ -269,7 +269,7 @@ int _std cc_enable(void *data, u32t disk, int enable) {
 }
 
 /// set cache size in mbs
-void _std cc_setsize(void *data, u32t size_mb) {
+void _exicc cc_setsize(EXI_DATA, u32t size_mb) {
    mt_swlock();
    if (!size_mb) {
       hlp_runcache(0);
@@ -285,7 +285,7 @@ void _std cc_setsize(void *data, u32t size_mb) {
    } else {
       u32t availmax;
       // turn off old cache
-      if (blocks_total || cache) cc_setsize(data, 0);
+      if (blocks_total || cache) cc_setsize(data, 0, 0);
       // check define and calc array`s shift
       a_shift = bsf64(PRIO_ARRAY_STEP);
       if (a_shift<15 || 1<<a_shift!=PRIO_ARRAY_STEP) {
@@ -588,7 +588,7 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
       pos+ssize>di->sectors) return 0;
    // too long op for our`s cache (use more than half of size)
    if (ssize>>di->s32shift > blocks_total>>1) {
-      cc_invalidate(0, disk, pos, ssize);
+      cc_invalidate(0, 0, disk, pos, ssize);
       return 0; 
    } else {
       // write first
@@ -610,9 +610,9 @@ void cache_ioctl(u8t vol, u32t action) {
          u64t start;
          u32t  disk, length;
          if (get_sys_area(vol, &disk, &start, &length))
-            cc_setprio(0,disk,start,length,action==CC_MOUNT);
+            cc_setprio(0, 0, disk, start, length, action==CC_MOUNT);
 
-         if (action==CC_UMOUNT) cc_invalidate_vol(0,vol);
+         if (action==CC_UMOUNT) cc_invalidate_vol(0, 0, vol);
          return;
       }
       case CC_SHUTDOWN : // Disk i/o shutdown
@@ -625,20 +625,20 @@ void cache_ioctl(u8t vol, u32t action) {
       case CC_FLUSH    : // Flush all
          return;
       default:
-         log_it(2,"invalid cache_ioctl(%d,%d)\n",vol,action);
+         log_it(2,"invalid cache_ioctl(%d,%d)\n", vol, action);
          return;
    }
 }
 
-void _std cc_invalidate_vol(void *data, u8t drive) {
+void _exicc cc_invalidate_vol(EXI_DATA, u8t drive) {
    disk_volume_data info;
    hlp_volinfo(drive,&info);
    if (info.TotalSectors)
-      cc_invalidate(0, info.Disk, info.StartSector, info.TotalSectors);
+      cc_invalidate(0, 0, info.Disk, info.StartSector, info.TotalSectors);
 }
 
 // warning! it called with data=0 from cache_write() above
-void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
+void _exicc cc_invalidate(EXI_DATA, u32t disk, u64t start, u64t size) {
    diskinfo  *di;
 
    mt_swlock();
@@ -675,7 +675,7 @@ void _std cc_invalidate(void *data, u32t disk, u64t start, u64t size) {
    mt_swunlock();
 }
 
-u32t _std cc_stat(void *data, u32t disk, u32t *pblocks) {
+u32t _exicc cc_stat(EXI_DATA, u32t disk, u32t *pblocks) {
    diskinfo   *di;
    u32t     count = 0;
 

@@ -8,6 +8,7 @@
 #include "errno.h"
 #include "lvm.h"
 #include "qcl/sys/qsedinfo.h"
+#include "qcl/qsinif.h"
 
 // try to change CHS geo of "virtual disk"
 int dsk_clonechs(u32t dstdisk, disk_geo_data *srcgeo) {
@@ -276,7 +277,7 @@ u32t _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags) {
                       de->Partition_Serial = se->Partition_Serial;
                    }
                    memcpy(&de->On_Boot_Manager_Menu, &se->On_Boot_Manager_Menu,
-                      sizeof(DLA_Entry) - FIELDOFFSET(DLA_Entry,On_Boot_Manager_Menu));
+                      sizeof(DLA_Entry) - offsetof(DLA_Entry,On_Boot_Manager_Menu));
                }
             }
             lvmrc = lvm_flushall(dstdisk, 1);
@@ -413,6 +414,15 @@ u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
          // update BPB
          if (wrt)
             if (!hlp_diskwrite(dstdisk, dpos, 1, br)) rc = DPTE_ERRWRITE;
+      } else
+      if (bstype==DSKST_BOOTEXF) {
+         struct Boot_RecExFAT *bre = (struct Boot_RecExFAT*)br;
+
+         if (bre->BR_ExF_VolStart!=dpos) {
+            bre->BR_ExF_VolStart = dpos;
+            // update exFAT boot record & check sums
+            if (!exf_updatevbr(dstdisk, dpos, bre, 1, 0)) rc = DPTE_ERRWRITE;
+         }
       }
    }
    // change partition type on MBR disks (and ignore result of this action)
@@ -427,46 +437,50 @@ u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
          u32t vt = hlp_volinfo(vol, 0);
          if (vt==FST_FAT12 || vt==FST_FAT16 || vt==FST_FAT32) {
             char    path[12];
-            str_list  *oslst;
+            qs_inifile  bini = NEW(qs_inifile);
             sprintf(path, "%c:\\BOOT.INI", vol+'A');
 
-            oslst = str_keylist(path, "operating systems", 0);
-            if (oslst) {
-               u32t ii;
-               for (ii=0; ii<oslst->count; ii++) {
-                  if (strnicmp(oslst->item[ii], "C:\\", 3)==0) {
-                     char *bsp = sprintf_dyn("%c:\\%s", vol+'A', oslst->item[ii][3]
-                                             ? oslst->item[ii]+3 : "BOOTSECT.DOS");
-                     dir_t  fi;
-                     u16t  err = _dos_stat(bsp, &fi);
-                     if (!err) {
-                        if (fi.d_size == hD->info.SectorSize) {
-                           FILE *fb;
-                           // drop read-only for a while
-                           if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,_A_ARCH);
-                           // update sector
-                           fb = fopen(bsp, "r+b");
-                           if (!fb) err = errno; else {
-                              if (fread(br,1,fi.d_size,fb)==fi.d_size) {
-                                 br->BR_BPB.BPB_HiddenSec = hidden_upd;
-                                 rewind(fb);
-                                 if (fwrite(br,1,fi.d_size,fb)!=fi.d_size) err = errno;
-                              } else err = errno;
-                              fclose(fb);
-                              if (!err) log_printf("\"%s\" updated\n", bsp);
-                           }
-                           // restore attributes
-                           if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,fi.d_attr);
-                        } else
-                           log_printf("\"%s\" size mismatch (%u bytes)\n", bsp,
-                              hD->info.SectorSize);
+            if (bini->open(path, QSINI_READONLY|QSINI_EXISTING)==0) {
+               u32t         ii;
+               str_list *oslst = bini->keylist("operating systems", 0);
+
+               if (oslst) {
+                  for (ii=0; ii<oslst->count; ii++) {
+                     if (strnicmp(oslst->item[ii], "C:\\", 3)==0) {
+                        char *bsp = sprintf_dyn("%c:\\%s", vol+'A', oslst->item[ii][3]
+                                                ? oslst->item[ii]+3 : "BOOTSECT.DOS");
+                        dir_t  fi;
+                        u16t  err = _dos_stat(bsp, &fi);
+                        if (!err) {
+                           if (fi.d_size == hD->info.SectorSize) {
+                              FILE *fb;
+                              // drop read-only for a while
+                              if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,_A_ARCH);
+                              // update sector
+                              fb = fopen(bsp, "r+b");
+                              if (!fb) err = errno; else {
+                                 if (fread(br,1,fi.d_size,fb)==fi.d_size) {
+                                    br->BR_BPB.BPB_HiddenSec = hidden_upd;
+                                    rewind(fb);
+                                    if (fwrite(br,1,fi.d_size,fb)!=fi.d_size) err = errno;
+                                 } else err = errno;
+                                 fclose(fb);
+                                 if (!err) log_printf("\"%s\" updated\n", bsp);
+                              }
+                              // restore attributes
+                              if (fi.d_attr&_A_RDONLY) _dos_setfileattr(bsp,fi.d_attr);
+                           } else
+                              log_printf("\"%s\" size mismatch (%u bytes)\n", bsp,
+                                 hD->info.SectorSize);
+                        }
+                        if (err) log_printf("error %h on updating \"%s\"\n", err, bsp);
+                        free(bsp);
                      }
-                     if (err) log_printf("error %h on updating \"%s\"\n", err, bsp);
-                     free(bsp);
                   }
+                  free(oslst);
                }
-               free(oslst);
             }
+            DELETE(bini);
          }
          hlp_unmountvol(vol);
       }
