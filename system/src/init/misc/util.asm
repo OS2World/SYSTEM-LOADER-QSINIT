@@ -31,7 +31,8 @@ else
                 extrn   getseldesc    :near                     ;
                 extrn   selfree       :near                     ;
 endif
-                extrn   _vio_bufcommon:near                     ;
+                extrn   _cvio_bufcommon:near                    ;
+                extrn   vh_common     :near                     ;
 
 _DATA           segment                                         ;
                 public  _cp_num                                 ;
@@ -49,7 +50,7 @@ _pbin_header    dd      0                                       ;
 endif
                 align   4                                       ;
                 public  _mt_exechooks                           ;
-_mt_exechooks   mt_proc_cb_s <offset _mt_new, 0, offset _mt_exit, 0, 0, 0, 0, 0>
+_mt_exechooks   mt_proc_cb_s <offset _mt_new,0,offset _mt_exit,0,0,0,0,0,0,0,offset vh_common,1,0,0>
 
 _DATA           ends                                            ;
 
@@ -247,6 +248,29 @@ _memmove        proc    near                                    ;
                 mov     eax, [esp+@@dst]                        ;
                 ret     12                                      ;
 _memmove        endp                                            ;
+
+;----------------------------------------------------------------
+;int  __stdcall memcmp(const void *s1, const void *s2, u32t length);
+                public  _memcmp
+_memcmp         proc    near
+@@s1            =  4                                            ;
+@@s2            =  8                                            ;
+@@length        = 12                                            ;
+                push    edi                                     ;
+                mov     edi,[esp+4+@@s1]                        ;
+                push    esi                                     ;
+                mov     esi,[esp+8+@@s2]                        ;
+                mov     ecx,[esp+8+@@length]                    ;
+                xor     eax,eax                                 ;
+           repe cmpsb                                           ;
+                jz      @@memcmp_ok                             ;
+                sbb     eax, eax                                ;
+                sbb     eax, 0FFFFFFFFh                         ;
+@@memcmp_ok:
+                pop     esi                                     ;
+                pop     edi                                     ;
+                ret     12                                      ;
+_memcmp         endp                                            ;
 
 ;----------------------------------------------------------------
 ;int strncmp(char *s1, char *s2, unsigned long n);
@@ -642,6 +666,30 @@ _wcslen         proc near
                 pop     edi                                     ;
                 ret     4                                       ;
 _wcslen         endp                                            ;
+
+;----------------------------------------------------------------
+;int  __stdcall bsr32(u32t value);
+                public  _bsr32
+_bsr32          proc    near
+@@bsrd_value    =  4                                            ;
+                bsr     eax,dword ptr [esp+@@bsrd_value]        ;
+                jnz     @@bsrd_done                             ;
+                or      eax,-1                                  ;
+@@bsrd_done:
+                ret     4                                       ;
+_bsr32          endp                                            ;
+
+;----------------------------------------------------------------
+;int  __stdcall bsf32(u32t value);
+                public  _bsf32
+_bsf32          proc    near
+@@bsfd_value    =  4                                            ;
+                bsf     eax,dword ptr [esp+@@bsfd_value]        ;
+                jnz     @@bsfd_done                             ;
+                or      eax,-1                                  ;
+@@bsfd_done:
+                ret     4                                       ;
+_bsf32          endp                                            ;
 
 ;----------------------------------------------------------------
 ;u32t  __stdcall mt_safedadd(u32t *src, u32t value);
@@ -1051,7 +1099,7 @@ _sys_intgate    endp
 ;----------------------------------------------------------------
 ; warning! any pushes here after pushfd are assumed by MTLIB code!
 ; this stack structure used to catch/replace existing modules exiting
-; duaring MTLIB activation.
+; during MTLIB activation.
 ;
                 public  _launch32
 _launch32       proc    near
@@ -1467,13 +1515,17 @@ _cpuhlt         endp
 
 ;----------------------------------------------------------------
 ; void _std sys_setcr3(u32t syscr3, u32t syscr4);
-                public  _sys_setcr3
+                public  _sys_setcr3                             ;
 _sys_setcr3     proc    near                                    ;
                 pushfd                                          ;
                 cli                                             ;
                 mov     eax,[esp+8]                             ;
+                inc     eax                                     ;
+                jz      @@spgr_nocr3                            ;
+                dec     eax                                     ;
                 mov     _syscr3,eax                             ;
                 mov     cr3,eax                                 ;
+@@spgr_nocr3:
                 mov     eax,[esp+12]                            ;
                 inc     eax                                     ;
                 jz      @@spgr_nocr4                            ;
@@ -1605,7 +1657,7 @@ _hlp_blistdel   proc    near
 @@lstd_plast    = 16                                            ;
                 mov     edx,[esp+@@lstd_foffs]                  ;
                 push    edi                                     ;
-                mov     edi,[esp+@@lstd_src+4]                  ; 
+                mov     edi,[esp+@@lstd_src+4]                  ;
                 push    esi                                     ;
                 add     edi,edx                                 ; edi = &src->prev;
 
@@ -1654,6 +1706,17 @@ _mod_context    proc    near                                    ;
 _mod_context    endp                                            ;
 
 ;----------------------------------------------------------------
+; u32t _std se_sesno(void);
+                public  _se_sesno                               ;
+_se_sesno       proc    near                                    ;
+                pushfd                                          ;
+                cli                                             ;
+                mov     eax,_mt_exechooks.mtcb_sesno            ;
+                popfd                                           ;
+                ret                                             ;
+_se_sesno       endp                                            ;
+
+;----------------------------------------------------------------
 ; u32t _std hlp_hosttype(void);
                 public  _hlp_hosttype
 _hlp_hosttype   proc    near                                    ;
@@ -1686,23 +1749,23 @@ endif
 
 ;----------------------------------------------------------------
 ; void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
-                public  _vio_writebuf
-_vio_writebuf   proc    near                                    ;
+                public  _cvio_writebuf
+_cvio_writebuf  proc    near                                    ;
                 pop     eax                                     ;
                 push    1                                       ;
                 push    eax                                     ;
-                jmp     _vio_bufcommon                          ;
-_vio_writebuf   endp                                            ;
+                jmp     _cvio_bufcommon                         ;
+_cvio_writebuf  endp                                            ;
 
 ;----------------------------------------------------------------
 ; void _std vio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)
-                public  _vio_readbuf
-_vio_readbuf    proc    near                                    ;
+                public  _cvio_readbuf
+_cvio_readbuf   proc    near                                    ;
                 pop     eax                                     ;
                 push    0                                       ;
                 push    eax                                     ;
-                jmp     _vio_bufcommon                          ;
-_vio_readbuf    endp                                            ;
+                jmp     _cvio_bufcommon                         ;
+_cvio_readbuf   endp                                            ;
 
 
 ;----------------------------------------------------------------
@@ -1758,7 +1821,20 @@ _make_reboot    proc    near                                    ;
                 hlt                                             ; hlt and try again ;)
                 jmp     @@reboot_start                          ;
 _make_reboot    endp
+
+;----------------------------------------------------------------
+                public  fp_rmcallcbf                            ;
+fp_rmcallcbf    proc    far                                     ;
+                mov     ecx,_mt_exechooks.mtcb_rmcall           ;
+                jecxz   @@fp_rmc_exit                           ;
+           lock inc     _mt_exechooks.mtcb_glock                ;
+                call    ecx                                     ;
+           lock dec     _mt_exechooks.mtcb_glock                ;
+@@fp_rmc_exit:
+                ret                                             ;
+fp_rmcallcbf    endp                                            ;
 endif
+;----------------------------------------------------------------
 
 _TEXT           ends
                 end

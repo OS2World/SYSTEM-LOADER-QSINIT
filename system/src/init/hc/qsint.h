@@ -103,9 +103,7 @@ typedef struct {
 //@}
 
 #define STOKEY_ZIPDATA  "zip"                ///< key with .ldi file
-#define STOKEY_DELAYCNT "mod_delay"          ///< key with delayed module count
 #define STOKEY_INIDATA  "ini"                ///< key with .ini file (init time only)
-#define STOKEY_FATDATA  "fdta"               ///< FATFS* data for start module
 #define STOKEY_VOLDATA  "vdta"               ///< volume data for start module
 #define STOKEY_PCISCAN  "pciscan"            ///< full PCI bus scan (start module only)
 #define STOKEY_MEMLIM   "mttrlim"            ///< memlimit assigned by VMTRR setup
@@ -115,6 +113,7 @@ typedef struct {
 #define STOKEY_VDPAGE   "vdisk"              ///< pae disk header page number
 #define STOKEY_VDNAME   "vdhdd"              ///< pae disk readable name
 #define STOKEY_CMMODE   "cm_noreset"         ///< leave cpu modulation as it is on exit
+#define STOKEY_MFSDCRC  "mfsdcrc"            ///< mini-FSD crc32
 
 /// cache i/o ioctl
 //@{
@@ -122,7 +121,6 @@ typedef struct {
 #define CC_MOUNT         0x0002              /// Mount volume
 #define CC_UMOUNT        0x0003              /// Unmount volume
 #define CC_SHUTDOWN      0x0004              /// Disk i/o shutdown
-#define CC_IDLE          0x0005              /// Idle action (keyboard read)
 #define CC_FLUSH         0x0006              /// Flush all
 #define CC_RESET         0x0007              /// FatFs disk_initialize()
 //@}
@@ -138,9 +136,9 @@ typedef struct {
    u32t    entries;
    /// ioctl function
    cache_ioctl_func     cache_ioctl;
-   /// sector read function (MT locked state guaranteed duaring call)
+   /// sector read function (MT locked state guaranteed during call)
    cache_read_func       cache_read;
-   /// sector write function (MT locked state guaranteed duaring call)
+   /// sector write function (MT locked state guaranteed during call)
    cache_write_func     cache_write;
 } cache_extptr;
 
@@ -150,6 +148,12 @@ typedef struct {
     @param  fptr  Function, use NULL to remove handler.
     @return success flag (1/0) */
 u32t _std hlp_runcache(cache_extptr *fptr);
+
+/// internal disk i/o bits
+//@{
+#define QDSK_IAMCACHE   0x40000              /// special flag for cache nested call
+#define QDSK_IGNACCESS  0x80000              /// skip access call
+//@}
 
 /// printf char output function type
 typedef void _std (*print_outf)(int ch, void *stream);
@@ -162,20 +166,18 @@ typedef void _std (*print_outf)(int ch, void *stream);
     @return number of printed characters */
 int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc);
 
-typedef struct {
-   /// code page number
-   u16t    cpnum;
-   /// OEM-Unicode bidirectional conversion
-   u16t _std (*convert)(u16t src, int to_unicode);
-   /// unicode upper-case conversion
-   u16t _std (*wtoupper)(u16t src);
-   /** uppercase table for high 128 OEM chars.
-       Table can be released after hlp_setcpinfo() call. */
-   u8t   *oemupr;
-} codepage_info;
+typedef int _std (*scanf_getch)(void *stream);
+typedef int _std (*scanf_ungetch)(int ch, void *stream);
 
-/// setup FatFs i/o to specified codepage
-void _std hlp_setcpinfo(codepage_info *info);
+/** common internal scanf, used by all scanf functions.
+    @param  fp     user data, "stream" parameter for gc/ugc
+    @param  fmt    format string
+    @param  arg    pointer to variable arguments
+    @param  gc     get char callback, can be 0 (fp will be used as string)
+    @param  ugc    unget char callback, can be 0
+    @return common scanf return value */
+int _std _scanf_common(void *fp, const char *fmt, char **args, scanf_getch gc,
+                       scanf_ungetch ugc);
 
 /** lock context switching over system.
     Note, what this is internal call for system api implementation, not user
@@ -185,7 +187,7 @@ void _std hlp_setcpinfo(codepage_info *info);
     Process/thread exit resets lock to 0.
 
     @attention mt_waitobject() and all its users like mt_muxcapture() or
-               long usleep() - will resets lock to 0! */
+               long usleep() - will reset lock to 0! */
 void      mt_swlock  (void);
 /// unlock context switching
 void      mt_swunlock(void);
@@ -207,6 +209,11 @@ void _std hlp_blistadd(void *src, u32t lnkoff, void **first, void **last);
 
 /// atomic bidirectional list unlink (pair for hlp_blistadd()).
 void _std hlp_blistdel(void *src, u32t lnkoff, void **first, void **last);
+
+/// OEM-Unicode bidirectional conversion
+u16t _std ff_convert  (u16t src, unsigned int to_unicode);
+/// Unicode upper-case conversion
+u16t _std ff_wtoupper (u16t src);
 
 #ifdef __cplusplus
 }

@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TDirCollection member functions           */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TDirCollection
 #define Uses_TDirEntry
@@ -32,8 +29,8 @@
 #endif
 #include <string.h>
 #include <ctype.h>
-#include <sys/stat.h>
 #endif
+#include <sys/stat.h>
 
 Boolean driveValid(char drive) {
    drive = toupper(drive);
@@ -54,13 +51,8 @@ Boolean driveValid(char drive) {
 }
 
 Boolean isDir(const char *str) {
-#ifdef __QSINIT__
-   dir_t st;
-   return Boolean(_dos_stat(str, &st) == 0 && (st.d_attr & _A_SUBDIR));
-#else
    struct stat st;
    return Boolean(stat(str, &st) == 0 && (st.st_mode & S_IFDIR));
-#endif
 }
 
 Boolean pathValid(const char *path) {
@@ -106,8 +98,8 @@ void getCurDir(char *dir) {
    getcwd(dir,MAXPATH);
    int len = strlen(dir);
    if (len > 3 && len < MAXPATH - 1) {
-      dir[len] = '\\',
-                 dir[len + 1] = '\0';
+      dir[len] = '\\';
+      dir[len + 1] = '\0';
    }
 }
 
@@ -127,8 +119,11 @@ void TDirCollection::writeItem(void *obj, opstream &os) {
 }
 
 void *TDirCollection::readItem(ipstream &is) {
-   const char *txt = is.readString();
-   const char *dir = is.readString();
-   return new TDirEntry(txt, dir);
+   char *txt = is.readString();
+   char *dir = is.readString();
+   TDirEntry *entry = new TDirEntry(txt, dir);
+   delete txt;
+   delete dir;
+   return entry;
 }
 #endif  // ifndef NO_TV_STREAMS

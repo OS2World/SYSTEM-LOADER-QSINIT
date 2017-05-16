@@ -38,7 +38,7 @@ outname=$(name).exe
 
 [files]
 ..\runtime\partmgr.ord
-bootos2.c kload.c diskparm.c
+bootos2.c kload.c diskparm.c loadmsg.c
 $(hd4disk)\pdmake.asm
 $(hd4disk)\switch.asm
 ..\doshlp\inc\doshlp.inc ..\..\hc\inc\filetab.inc

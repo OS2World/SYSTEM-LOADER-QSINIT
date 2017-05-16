@@ -19,8 +19,8 @@
                        private module entry, function name is used only for
                        building module itself and not published)
 
-    * group    = ... - trace group (use "trace on ..." to trace this group
-                       calls)
+    * group    = ... - trace group (use "trace on module group" to trace this
+                       group calls)
 
     * trace format string:
 
@@ -47,6 +47,8 @@
                V - disable exit hook (no result/exit printing, for result only)
                S - wchar_t*
                C - wchar_t
+               F - float (4-byte FP type)
+               D - double (8-byte FP type)
 
       Example:
          char*  ctime_r(const time_t *timer, char* buffer);
@@ -59,16 +61,16 @@ here, in companion to common exports.
 
   Class name and method list must be defined (in the order of declaration!).
   One note - "shared class" methods have two hidden parameters - "instance"
-or "this" and "caller". Trace string must include it, i.e.
+or "this" and "caller". Trace string must include both, i.e.
 
          u32t _std (*init)(void *bmp, u32t size);
 
-  must be added as
+  will be
          init = "upppu"
   not "upu" - like it looks in declaration.
 
   Maximum number of exports or methods per class - 32767.
 
-  The reason to store trace info in DEF file is lazyness of any programmer,
-which I know (including myself). Exporting new function is a mandatory point,
-where we can catch any one and force him to fill trace info.
+  The reason to store trace info into DEF file is lazyness of any programmer,
+which I know (including myself). Exporting of a new function is mandatory
+point, where we can catch one and force him to fill trace info.

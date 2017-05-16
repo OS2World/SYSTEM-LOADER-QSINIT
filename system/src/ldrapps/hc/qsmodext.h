@@ -35,11 +35,11 @@ typedef struct mod_chaininfo_s {
 /** api chain(hook) proc.
     There are two variants of chaining: on module exports and on common
     functions. Module exports supports chaining without any additional steps.
-    For common function chaining you must create calling thunk (by 
+    For common function chaining you must create calling thunk (by
     mod_buildthunk() call) and use it as function address in any calls.
 
     Chaining allow interseption on entry and exit of call and replacement of
-    calling function to compatible one. I.e. you can receive stack and
+    calling function to the compatible one. I.e. you can receive stack and
     registers before/after call and type/modify it transparently or, just,
     put your own function instead of original.
 
@@ -65,7 +65,7 @@ typedef struct mod_chaininfo_s {
     Stack exhaustion will cause stop exit chain calling for this ordinal and
     produce warning message to log on every call.
     Altering ebp will cause immediate panic (critical data saved in it
-    duaring function call).
+    during function call).
 
     By default entry/exit hook appends to the end of chain list for this
     function. APICN_FIRSTPOS can be added to mod_apichain() "chaintype" arg
@@ -97,6 +97,9 @@ typedef int _std (*mod_chainfunc)(mod_chaininfo *info);
     * call replacement function (if specified) or original function
     * call all exit functions (if exists) until end of list or 0 returned by
       one of them
+
+    Note, what if multiple replacement handlers was installed for function, the
+    last installed will be in use.
 
     @param  module      Module handle
     @param  ordinal     Function ordinal
@@ -130,7 +133,7 @@ void *_std mod_buildthunk(u32t module, void *function);
     Call is optional, all thunks for this module will be released automatically
     while module unloading.
     @param  module      Module handle
-    @param  thunk       Thunk addr from mod_buildthunk(), can be 0 for all 
+    @param  thunk       Thunk addr from mod_buildthunk(), can be 0 for all
                         thunks in this module (this will force unchaining too).
     @return number of released thunks */
 u32t  _std mod_freethunk (u32t module, void *thunk);
@@ -159,9 +162,9 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
 /** get direct pointer to module function (by index).
     Function return direct pointer to original function (without thunk, used
     to intercept calls).
-    Do not query it without CRITICAL needs, because API chaining is used 
-    widely (in cache, trace, graphic console and so on...). I.e., in many
-    cases direct call will cause system malfunction.
+    Do not query it without CRITICAL needs, because API chaining is used
+    widely (in cache, trace, console and so on...). I.e., in many cases direct
+    call will cause system malfunction.
 
     And there is no way to query active APICN_REPLACE replacement for this
     ordinal because it can be unchained at any time and became invalid (for
@@ -190,9 +193,8 @@ u32t  _std mod_appname(char *name, u32t parent);
     @param        module  Module handle.
     @param  [out] buffer  Buffer for name (128 bytes), returned in upper case,
                           can be 0.
-    @return 0 if no module, "buffer" parameter with name if it !=0 or pointer
-            to module name in system module info data (do not modify this 
-            string!) */
+    @return 0 if no module, "buffer" parameter or ptr to string with name
+            (not for modification & valid only while module is loaded!) */
 char *_std mod_getname(u32t module, char *buffer);
 
 /** query module by eip.
@@ -202,6 +204,26 @@ char *_std mod_getname(u32t module, char *buffer);
     @param [in]  cs      Selector (optional, use 0 for FLAT space)
     @result Module handle or 0 */
 module* _std mod_by_eip(u32t eip, u32t *object, u32t *offset, u16t cs);
+
+typedef struct _mod_info {
+   u32t               handle;    ///< module handle
+   u32t                flags;    ///< module flags
+   u32t            start_ptr;    ///< module start pointer
+   u32t            stack_ptr;    ///< module stack pointer
+   u32t                usage;    ///< usage counter
+   u32t              objects;    ///< number of objects
+   u32t             baseaddr;    ///< base address
+   char            *mod_path;    ///< module full path
+   char                *name;    ///< module name
+   /** zero-term list of used modules. Pointers cross-linked in the same memory
+       block, returned by mod_enum() */
+   struct _mod_info *imports[MAX_IMPMOD+1];
+} module_information;
+
+/** enum all modules in system.
+    @param [out] pmodl   List of modules, must be released via free().
+    @return number of modules in returning list */
+u32t  _std mod_enum(module_information **pmodl);
 
 /// dump process tree to log
 void  _std mod_dumptree(void);

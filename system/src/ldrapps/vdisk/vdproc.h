@@ -21,6 +21,8 @@ u32t  _exicc vdisk_load(EXI_DATA, const char *path, u32t flags, u32t *disk,
 qserr _exicc vdisk_query(EXI_DATA, disk_geo_data *geo, u32t *disk,
                          u32t *sectors, u32t *seclo, u32t *physpage);
 
+qserr _exicc vdisk_clean(EXI_DATA);
+
 u32t  _exicc vdisk_free(EXI_DATA);
 
 int  register_class(void);

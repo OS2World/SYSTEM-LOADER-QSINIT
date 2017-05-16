@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                      TLabel member functions               */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TLabel
 #define Uses_TEvent
@@ -30,7 +27,8 @@
 TLabel::TLabel(const TRect &bounds, const char *aText, TView *aLink) :
    TStaticText(bounds, aText),
    link(aLink),
-   light(False) {
+   light(False) 
+{
    options |= ofPreProcess | ofPostProcess;
    eventMask |= evBroadcast;
 }
@@ -66,26 +64,27 @@ TPalette &TLabel::getPalette() const {
    return palette;
 }
 
+void TLabel::focusLink(TEvent& event) {
+   if (link && (link->options & ofSelectable))
+      link->focus();
+   clearEvent(event);
+}
+
 void TLabel::handleEvent(TEvent &event) {
    TStaticText::handleEvent(event);
-   if (event.what == evMouseDown) {
-      if (link && (link->options & ofSelectable) && !(link->state & sfDisabled))
-         link->select();
-      clearEvent(event);
-   } else if (event.what == evKeyDown) {
+   if (event.what == evMouseDown) focusLink(event);
+      else
+   if (event.what == evKeyDown) {
       char c = hotKey(text);
       if (getAltCode(c) == event.keyDown.keyCode ||
-          (c != 0 && owner->phase == TGroup::phPostProcess &&
-           toupper(event.keyDown.charScan.charCode) ==  c)
-         ) {
-         if (link && (link->options & ofSelectable) && !(link->state & sfDisabled))
-            link->select();
-         clearEvent(event);
-      }
-   } else if (event.what == evBroadcast &&
-              (event.message.command == cmReceivedFocus ||
-               event.message.command == cmReleasedFocus)
-             ) {
+         (c!=0 && owner->phase == TGroup::phPostProcess &&
+            toupper(event.keyDown.charScan.charCode) == c))
+               focusLink(event);
+   } else
+   if (event.what == evBroadcast && link &&
+      (event.message.command == cmReceivedFocus ||
+         event.message.command == cmReleasedFocus))
+   {
       light = Boolean((link->state & sfFocused) != 0);
       drawView();
    }
@@ -111,5 +110,3 @@ TStreamable *TLabel::build() {
 TLabel::TLabel(StreamableInit) : TStaticText(streamableInit) {
 }
 #endif  // ifndef NO_TV_STREAMS
-
-

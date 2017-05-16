@@ -2,13 +2,20 @@
 /*                                                                         */
 /*   HELPBASE.H                                                            */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TParagraph, TCrossRef, THelpTopic, THelpIndex,    */
 /*      THelpFile                                                          */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ * ------------------------------------------------------------------------*
+ * the more advanced version of help is used here, so many possible 2.0
+ * changes just ignored
+ */
 
 #ifdef NO_TV_STREAMS
 #include <stdio.h>              // we use FILE * instead of fpstream.
@@ -16,11 +23,8 @@
 
 const long magicHeader = 0x46484246L; //"FBHF"
 
-#define cHelpColor      "\x37\x3F\x3A\x13\x13\x30\x3E\x1E"
-#define cHelpBlackWhite "\x07\x0F\x07\x70\x70\x07\x0F\x70"
-#define cHelpMonochrome "\x07\x0F\x07\x70\x70\x07\x0F\x70"
 #define cHelpViewer     "\x06\x07\x08"
-#define cHelpWindow     "\x40\x41\x42\x43\x44\x45\x46\x47"
+#define cHelpWindow     "\x80\x81\x82\x83\x84\x85\x86\x87"
 
 // TParagraph
 
@@ -172,13 +176,10 @@ public:
    static TStreamable *build();
 #else
 public:
-
-
    void read(FILE *fp);
    void write(FILE *fp);
 
 #endif  // ifndef NO_TV_STREAMS
-
 };
 
 #ifndef NO_TV_STREAMS
@@ -197,6 +198,8 @@ inline opstream &operator << (opstream &os, THelpIndex *cl)
 // THelpFile
 
 class THelpFile : public TObject {
+
+    static const char * invalidContext;
 
 public:
 
@@ -221,4 +224,3 @@ public:
 };
 
 extern TCrossRefHandler crossRefHandler;
-

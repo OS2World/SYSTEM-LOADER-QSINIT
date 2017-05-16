@@ -25,7 +25,7 @@ _TEXT           segment                                         ;
                 extrn   _init32:near                            ;
                 extrn   _exit_prepare:near                      ;
                 extrn   _mt_swlock:near                         ;
-                extrn   vio_charout:near                        ;
+                extrn   _vio_charout:near                       ;
                 extrn   vio_init:near                           ; text mode prn init/done
                 extrn   vio_done:near                           ;
                 extrn   rmstop:near                             ;
@@ -44,10 +44,10 @@ _exit_pm32:
                 pop     eax                                     ; drop return addr
 _exit_pm32s:
                 call    _exit_prepare                           ; call exitlist
-                mov     al,13                                   ;
-                call    vio_charout                             ; print eol
-                mov     al,10                                   ;
-                call    vio_charout                             ;
+                push    13                                      ;
+                call    _vio_charout                            ; print eol
+                push    10                                      ;
+                call    _vio_charout                            ;
 ; lock it finally! _exit_prepare makes this, but here we duplicate for safeness
                 call    _mt_swlock                              ;
                 call    vio_done                                ;
@@ -75,6 +75,8 @@ pm16set:
 ifdef INITDEBUG
                 dbg16print <"hi!",10>                           ;
 endif
+                clts                                            ;
+                fninit                                          ;
                 xor     eax,eax                                 ;
                 mov     ax,offset _prepare32                    ; jump to 32-bit code
                 movzx   ecx,_rm16code                           ; with flat DS/ES, but

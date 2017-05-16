@@ -9,7 +9,9 @@
                 extrn   _timer32cb:near
                 extrn   _tmstack32:dword
                 extrn   _sys_errbrk:near
+                extrn   _timer_reenable:near
                 extrn   _next_rdtsc:qword
+                extrn   _apic:dword
 
 _DATA           segment dword public USE32 'CODE'
                 ; string to find it in memory, actually ;)
@@ -116,9 +118,16 @@ _spurious32     label   near                                    ;
 _yield          label   near                                    ;
                 pushfd                                          ;
                 push    eax                                     ;
-                push    edx                                     ;
-                cli                                             ; cli also is a flag
-                rdtsc                                           ; for timer32cb()
+                push    edx                                     ; cli also is a flag
+                cli                                             ; for timer32cb()
+
+                mov     eax,_apic                               ;
+                mov     edx,[eax+APIC_LVT_TMR*4]                ;
+                cmp     edx,APIC_DISABLE                        ;
+                jnz     @@yie_tmrok                             ;
+                call    _timer_reenable                         ;
+@@yie_tmrok:
+                rdtsc                                           ;
                 cmp     edx,dword ptr cs:_next_rdtsc+4          ;
                 jc      @@yie_exit                              ; check for ">" ,not
                 ja      @@yie_cb32                              ; for ">=", this 

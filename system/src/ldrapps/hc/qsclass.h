@@ -45,7 +45,7 @@ extern "C" {
 
 /** Create "class" instance with specified name.
     Note, what if EXIC_GMUTEX was selected in class registration, EXIF_MTSAFE
-    flag is ignored and every call in all instances will wait for global class
+    flag is void and every call in all instances will wait for global class
     mutex.
     @param  classname  Class(interface) name.
     @param  flags      Creation flags (EXIF_*)
@@ -97,7 +97,7 @@ int     _std exi_share(void *instance, int global);
     Function returns error (-1) if mutex is busy at the time of disable call.
 
     Class registration can also ask for global single mutex for all class
-    instances and such mode is not controlled by class user. In this case
+    instances and such mode does not controlled by class user. In this case
     function will always return value of 2.
 
     @param  instance   Pointer to instance.
@@ -194,7 +194,7 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
                         unloading (this will, also, cause panic screen on any
                         existing lost instances ;)).
                         Parameter can be 0 if all functions placed in the same
-                        module (module can be determined by function addresses).
+                        module.
     @return instance ID or 0 (no duplicate names allowed, unregister it first). */
 u32t    _std exi_register(const char *classname, void **funcs, u32t funccount,
                           u32t datasize, u32t flags, exi_pinitdone constructor,
@@ -202,7 +202,7 @@ u32t    _std exi_register(const char *classname, void **funcs, u32t funccount,
 
 /// @name exi_register() flags
 //@{
-#define EXIC_GMUTEX     0x0001    ///< create global mutex, single for all instances
+#define EXIC_GMUTEX     0x0001    ///< create global mutex, one for all instances
 //@}
 
 /** Deregister "class" by ID.

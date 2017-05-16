@@ -79,12 +79,16 @@ kbNoKey     = 0x0000,   kbF11       = 0x8500,   kbF12       = 0x8600,
 
 kbRightShift  = 0x0001,
 kbLeftShift   = 0x0002,
-kbCtrlShift   = 0x0004,
-kbAltShift    = 0x0008,
+kbShift       = kbLeftShift | kbRightShift,
+kbLeftCtrl    = 0x0004,
+kbRightCtrl   = 0x0004,
+kbCtrlShift   = kbLeftCtrl | kbRightCtrl,
+kbLeftAlt     = 0x0008,
+kbRightAlt    = 0x0008,
+kbAltShift    = kbLeftAlt | kbRightAlt,
 kbScrollState = 0x0010,
 kbNumState    = 0x0020,
 kbCapsState   = 0x0040,
 kbInsState    = 0x0080;     // not used!
-
 
 #endif  // __TKEYS_H

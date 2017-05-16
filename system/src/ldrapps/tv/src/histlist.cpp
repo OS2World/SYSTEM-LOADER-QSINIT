@@ -10,6 +10,13 @@
 /*          initHistory                                       */
 /*          doneHistory                                       */
 /*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 /*------------------------------------------------------------*/
 /*  insertString ( => historyAdd ) behavior changed:          */
@@ -18,16 +25,6 @@
 /*  end for some reason, then #define TV_HIST_ADD_AT_END.     */
 /*------------------------------------------------------------*/
 //#define TV_HIST_ADD_AT_END
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
 
 #include <tv.h>
 

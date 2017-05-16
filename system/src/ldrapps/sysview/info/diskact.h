@@ -33,8 +33,10 @@ protected:
    u32t           disks;
    u32t        cur_disk;
    int         cur_part;
-   // other types should be inserted after JFS!
-   typedef enum { FAT12, FAT16, FAT32, FAT64, HPFS, JFS, UNKFS } knowntype;
+   // other types should be inserted after CDFS!
+   typedef enum { FAT12, FAT16, FAT32, FAT64, HPFS, JFS, CDFS, UNKFS } knowntype;
+
+   void getfs(u32t disk, u64t sector, char *fsname, u8t *buf, knowntype &fst);
 
 #ifdef __QSINIT__
    struct diskdata {
@@ -52,6 +54,9 @@ protected:
       u8t          *in_bm;
       int          is_gpt;  // dsk_isgpt() value
       int         ramdisk;  // emulated disk
+      int          letter;  // >=0 for mounted big floppy (drive letter)
+      char      bf_fs[10];  // big floppy file system name
+      knowntype bf_fstype;
       dsk_gptpartinfo *gp;  // non-zero on GPT disk only
       TCollection *bsdata;  // boot sectors
    };
@@ -88,12 +93,15 @@ class TDMgrDialog : public TWalkDiskDialog {
            act_part_cnt;
    int          no_vhdd;
 
-   enum { actd_mbrboot, actd_clone, actd_init, actd_initgpt, actd_mbrcode,
-          actd_restvhdd, actd_updlvm, actd_savevhdd, actd_wipe, actd_writelvm,
+   enum { actd_mbrboot, actd_clone, actd_init, actd_initgpt, actd_bf_format,
+          actd_bf_mount, actd_mbrcode, actd_restvhdd, actd_bf_unmount,
+          actd_bf_code, actd_updlvm, actd_savevhdd, actd_wipe, actd_writelvm,
+          actd_bf_inst, actd_bf_dirty, actd_detect,
+
           actp_first, actp_boot, actp_delete, actp_format, actp_active,
           actp_mount, actp_unmount, actp_letter, actp_rename, actp_clone,
-          actp_makelp, actp_makepp, actp_setgptt, actp_view, actp_goto,
-          actp_bootcode, actp_inst, actp_dirty
+          actp_makelp, actp_makepp, actp_setgptt, actp_view, actp_bootcode,
+          actp_inst, actp_dirty, actp_bootos2
         } action;
 
    virtual void FreeDiskData();
@@ -103,6 +111,7 @@ class TDMgrDialog : public TWalkDiskDialog {
    void AddAction(TCollection *list, u8t action);
    void RunCommand(const char *cmd, const char *args);
    int  SectorSelGoto(void);
+   Boolean ActionCall(u8t action, u32t disk, long index);
 protected:
    virtual void UpdateAll(Boolean rescan = False);
 public:

@@ -2,6 +2,11 @@
 // QSINIT
 // wait objects
 // ------------------------------------------------------------
+// most of code here should not use any API.
+// exceptions are:
+//  * memcpy/memset (imported by direct pointer)
+//  * 64-bit mul/div (exported by direct pointer in QSINIT)
+//  * bsf32/bsr32 :)
 //
 #include "mtlib.h"
 #include "time.h"
@@ -9,6 +14,7 @@
 
 #define WOBJ_OK             (1)              ///< entry signaled
 #define WOBJ_MUXFREE        (2)              ///< entry is/was a free mutex at check time
+#define WOBJ_SAVERES        (4)              ///< entry requires result saving
 
 /** Objects added to the bottom of list (we_last) and processed from the top
     (we_first). This is the only help for long waiting threads - they are
@@ -29,11 +35,14 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
 
    mt_swlock();
    ct = (mt_thrdata*)pt_current;
+
+   // log_it(0, "mt_waitobject (%u:%u) [%u %LX] %u\n", ct->tiPID, ct->tiTID, list->htype, list->tme, count);
+
    // check parameters
    for (ii=0, err=0, groups=0, zero=0; ii<count && !err; ii++) {
       mt_waitentry *we = list+ii;
 
-      if (we->htype>QWHT_MUTEX) err = E_SYS_INVPARM; else {
+      if (we->htype>QWHT_QUEUE) err = E_SYS_INVPARM; else {
          if (!we->group) zero++; else groups|=we->group;
          switch (we->htype) {
             case QWHT_TID:
@@ -46,6 +55,10 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
             case QWHT_MUTEX:
                if (!hlp_cvtmux) err = E_SYS_UNSUPPORTED; else
                   err = hlp_cvtmux(we->mux, (mux_handle_int*)&we->reserved);
+               break;
+            case QWHT_QUEUE:
+               // check both for handle and access
+               if (qe_available(we->que)<0) err = E_SYS_INVPARM;
                break;
          }
       }
@@ -63,27 +76,35 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
    memcpy(&nwe->we, list, count*sizeof(mt_waitentry));
    memset(nwe->sigf, 0, count);
 
-   // convert clock_t to rdtsc ticks
    for (ii=0; ii<count; ii++) {
       mt_waitentry *we = nwe->we + ii;
-      if (we->htype==QWHT_CLOCK) {
-         // can be slowed by calibrate, so call only on first real request
-         if (!now_t) { now_t = sys_clock(); now_c = hlp_tscread(); }
-         // start tsc value
-         we->reserved = now_c;
 
-         if (we->tme<now_t) we->tme = 0; else {
-            we->tme = (we->tme - now_t + 50) / 100;
-            // if timeout > 80 days - set it to "forewer", else calc real value
-            if (we->tme > _4GBLL*16) we->tme = FFFF64; else
-               we->tme *= tsc_100mks;
+      switch (we->htype) {
+         // convert clock_t to rdtsc ticks
+         case QWHT_CLOCK: {
+            // can be slowed by calibrate, so call only on first real request
+            if (!now_t) { now_t = sys_clock(); now_c = hlp_tscread(); }
+            // start tsc value
+            we->reserved = now_c;
+         
+            if (we->tme<now_t) we->tme = 0; else {
+               we->tme = (we->tme - now_t + 50) / 100;
+               // if timeout > 80 days - set it to "forewer", else calc real value
+               if (we->tme > _4GBLL*16) we->tme = FFFF64; else
+                  we->tme *= tsc_100mks;
+            }
+            break;
          }
-      } else
-      if (we->htype==QWHT_MUTEX)
-         mutex_wcounter(we->reserved, 1);
+         case QWHT_MUTEX:
+            mutex_wcounter(we->reserved, 1);
+            break;
+         case QWHT_PID  :
+            // release we->pid process if it waits for us (QEXS_WAITFOR flag)
+            update_lwait(ct->tiPID, we->pid);
+            break;
+      }
    }
    w_add(nwe);
-
    /* if condition is ready just now - then no additional context switching,
       else switch main thread to waiting state (this reset MT lock to 0!) */
    if (!w_check_conditions(0,0,nwe)) {
@@ -134,7 +155,8 @@ void w_term(mt_thrdata *wth, u32t newstate) {
    }
 }
 
-/* warning! called from timer interrupt! */
+/* warning! called from timer interrupt!
+   Any call, catched by TRACE in code below can trap us! */
 int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
    we_list_entry *we = we_first;
    u64t          now = hlp_tscread();
@@ -143,8 +165,7 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
    while (we) {
       u32t ii, upcnt = 0;
       /* check - is it subject to remove?
-         occurs while process/thread exit only, so can use free() here
-         (free() from interrupt will ruined us) */
+         occurs while process/thread exit only */
       if (pid && we->caller->tiPID==pid)
          if (!tid || we->caller->tiTID==tid) {
             we_list_entry *rwe = we;
@@ -161,12 +182,21 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                switch (cwe->htype) {
                   case QWHT_TID  :
                      if (pid && tid)
-                        if (we->caller->tiPID==pid && cwe->tid==tid)
-                           we->sigf[ii] = WOBJ_OK;
+                        if (we->caller->tiPID==pid && cwe->tid==tid) {
+                           we->sigf[ii]  = WOBJ_OK|(cwe->resaddr?WOBJ_SAVERES:0);
+                           // use high part to save result
+                           cwe->reserved = cwe->reserved&FFFF|(u64t)(we->caller->
+                              tiParent->piList[tid-1]->tiExitCode)<<32;
+                        }
                      break;
                   case QWHT_PID  :
                      if (pid && !tid)
-                        if (cwe->pid==pid) we->sigf[ii] = WOBJ_OK;
+                        if (cwe->pid==pid) {
+                           we->sigf[ii]  = WOBJ_OK|(cwe->resaddr?WOBJ_SAVERES:0);
+                           // let it hangs on zero - because this shouldn`t be
+                           cwe->reserved = (u64t)(get_by_pid(pid)->piExitCode)<<32|
+                              cwe->reserved&FFFF;
+                        }
                      break;
                   case QWHT_CLOCK:
                      if (cwe->tme!=FFFF64)
@@ -183,6 +213,16 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                         we->caller->tiTID==ms.tid) we->sigf[ii] = WOBJ_MUXFREE;
                      else
                         we->sigf[ii] = 0;
+                     break;
+                  }
+                  case QWHT_KEY  :
+                     if (key_available(we->caller->tiSession))
+                        we->sigf[ii] = WOBJ_OK;
+                     break;
+                  case QWHT_QUEUE: {
+                     int evnum = hlp_qavail(cwe->que, 0, 0);
+                     if (evnum<0) we->reterr = E_SYS_INVOBJECT; else
+                        we->sigf[ii] = evnum>0?WOBJ_OK:0;
                      break;
                   }
                }
@@ -213,19 +253,25 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
             if (gs) we->signaled = bsf32(gs)+1;
 
             if (we->signaled>=0) {
-               // mutex bit is on - walk over winner and grab mutexes
-               if ((onf&WOBJ_MUXFREE)) {
+               /* we have a free mutex here or at least one tid/pid with resaddr,
+                  so walk over winner and apply requirements */
+               if ((onf&(WOBJ_MUXFREE|WOBJ_SAVERES))) {
                   u32t cv = we->signaled ? 1<<we->signaled-1 : 0;
                
                   for (ii=0; ii<we->ecnt; ii++) {
                      mt_waitentry *cwe = we->we+ii;
-                     // grab mutex finaly
                      if (cwe->group==cv || (cwe->group&cv))
                         if (cwe->htype==QWHT_MUTEX && (we->sigf[ii]&WOBJ_MUXFREE)) {
-                           we->sigf[ii] = WOBJ_OK;
-                           we->reterr   = mutex_capture(cwe->reserved, we->caller);
-                           /// we have a error!
+                           // grab mutex finally
+                           we->sigf[ii]  = WOBJ_OK;
+                           we->reterr    = mutex_capture(cwe->reserved, we->caller);
+                           /// we have an error!
                            if (we->reterr) break;
+                        } else
+                        if ((we->sigf[ii]&WOBJ_SAVERES)) {
+                           we->sigf[ii]  = WOBJ_OK;
+                           // is must be non-zero, else data was damaged
+                           *cwe->resaddr = cwe->reserved>>32;
                         }
                   }
                }

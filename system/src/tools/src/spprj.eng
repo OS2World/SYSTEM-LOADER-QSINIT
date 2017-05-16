@@ -133,7 +133,7 @@ defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 
 ; string @@wait can be used in the list of dependencies.
 ; with -b key (self-made build) it acts like "barrier" (waiting for all
-; compilation threads until continue).
+; compilation threads before continue).
 
 ; some special dependencies:
 ;  .SYMBOLIC           - empty list (like in wmake)
@@ -145,8 +145,8 @@ defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 ; everywhere (or nearly):
 ; * '\'  at the end of line means concatenation with next line (as in 
 ;        makefiles)
-; * "\\" changing to '\' (on any platform)
-; * '\'  (single char only!) changing to '/' (on linux)
+; * "\\" translated to '\' (on any platform)
+; * '\'  (single char only!) translated to '/' (on linux)
 
 ;Usage : spprj <prj> <config> <output makefile> [<var=value>...]
 ;           produce single makefile for the current platform    
@@ -166,16 +166,15 @@ defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 ; Q: what the ... is it? :)
 ; It was made for own big project, which used IBM VAC for OS/2 & Windows.
 ; 8 build configurations for 2 platforms finally made me ill and this primitive
-; converter was written. From simple .prj file to different makefiles for
-; every configuration.
+; converter was written. A simple .prj file as source for different makefiles.
 ;
-; Since ages, make files processing became internal, with SMP support.
+; Since ages, makefile processing became internal, with SMP support.
 ; The same thing can be done by GNU "make -j", but makefiles for 8 build
 ; configurations still makes me ill :)
 ;
 ; Env. var SPPRJ_CPUS can limit number of build threads on SMP
 ; (by default it equal to # of CPUs in system, actualy even Hyper Threading
-;  speed up build in comparition with single CPU).
+;  speed up build in comparition with single CPU, by ~30-40% nearly).
 ;
 ; Options:
 ;  -w  - b/w output ;) (in colored output every thread use own color)

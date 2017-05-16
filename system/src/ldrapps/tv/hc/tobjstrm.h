@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   TOBJSTRM.H                                                            */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TStreamable, TStreamableClass, pstream,           */
 /*   ipstream, opstream, iopstream, ifpstream, ofpstream, and fpstream.    */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #ifndef NO_TV_STREAMS
 

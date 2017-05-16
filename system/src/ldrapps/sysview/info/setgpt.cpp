@@ -139,7 +139,7 @@ void TSysApp::SetGPTType(u32t disk, u32t index) {
             memcpy(pi.TypeGUID, dlg->rcguid, 16);
             err = dsk_gptpset(disk, index, &pi);
          }
-         if (err) PrintPTErr(err, MSGTYPE_PT);
+         if (err) PrintPTErr(err);
 #endif
       }
       destroy(dlg);

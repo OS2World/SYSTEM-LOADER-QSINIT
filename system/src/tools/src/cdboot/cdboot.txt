@@ -1,0 +1,22 @@
+
+   This is boot sector for CD-ROM boot in "no emulation" mode.
+   I.e., you can create bootable QSINIT CD-ROM without making "image diskettes".
+
+   Just put CDBOOT.BIN, OS2LDR & QSINIT.LDI into the root of CD disk and type
+something like this:
+
+     mkisofs -l -V "QSBOOT" -no-emul-boot -b CDBOOT.BIN -o BOOT.ISO cdfiles
+
+   Both OS2LDR.INI and QSSETUP.CMD are also welcomed.
+
+   In fact, CDBOOT.BIN is a micro-FSD for CDFS file system. But direct OS/2
+boot is not possible due to lack of mini-FSD & its support in CDFS.IFS.
+
+   However, this mode still usable for boot from PAE RAM disk.
+   Or, this just can be a "recovery tool".
+
+   p.s. "micro-FSD mode" mean, that you can load any file from the root of
+CD-ROM disk in QSINIT, as it possible during boot from HPFS & JFS partitions.
+
+   p.p.s. to change loading file name to something other than OS2LDR - just
+type it over OS2LDR string in CDBOOT.BIN in any hex editor.

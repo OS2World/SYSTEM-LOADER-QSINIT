@@ -10,10 +10,10 @@ extern "C" {
 #endif
 #include "qsmodint.h"
 
-// parse kernel LX header
+/// parse kernel LX header
 module* krnl_readhdr(void *kernel, u32t size);
 
-// setup fixup table address
+/// setup fixup table address
 void    krnl_fixuptable(u32t *fixtab, u16t *fixcnt);
 
 /** load & fix one kernel object
@@ -21,8 +21,11 @@ void    krnl_fixuptable(u32t *fixtab, u16t *fixcnt);
     mod_object.fixaddr - addr to fix it */
 void    krnl_loadobj(u32t obj);
 
-// done loading, return start address
+/// done loading, return start address
 u32t    krnl_done(void);
+
+/// read file from boot volume or specified path.
+void*   read_file(const char *path, u32t *size, int kernel);
 
 #ifdef __cplusplus
 }

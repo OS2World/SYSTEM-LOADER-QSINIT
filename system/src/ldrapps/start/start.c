@@ -2,10 +2,9 @@
 // QSINIT "start" module
 // "main" function
 //
-#include "stdlib.h"
 #include "qsutil.h"
 #include "memmgr.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qsshell.h"
 #include "qsxcpt.h"
 #include "vio.h"
@@ -22,6 +21,7 @@ void setup_storage(void);
 void setup_hardware(void);
 void check_version(void);
 int  get_ini_parms(void);
+int  unpack_ldi(void);
 void setup_fio(void);
 void mem_init(void);
 
@@ -38,6 +38,7 @@ void _std mod_main(void) {
    setup_storage();
    // file i/o, uses storage at least, and provides system file i/o for everybody
    setup_fio();
+   if (!unpack_ldi()) exit_pm32(QERR_NOEXTDATA);
    // export minor LE/LX loader code, missing in QSINIT
    setup_loader();
    // setup std file i/o

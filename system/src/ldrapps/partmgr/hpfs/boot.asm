@@ -12,15 +12,17 @@
 ;    only 10 - 2kb for self, 4kb - i/o buffer & 4kb - stack space)
 ;  * not depends on I13X string in memory (boot manager/vpart/airboot presence)
 ;  * NTLDR assumes IBM original code and calls second part of it directly
-;    So you can`t put NT 3.51 and OS/2 on the same HPFS volume :)
+;    So you can`t place NT 3.51 and OS/2 on the same HPFS volume :)
 ;
                 include inc/qstypes.inc
                 include inc/parttab.inc
                 include inc/filetab.inc
                 include inc/seldesc.inc
 
-                NUM_RETRIES  = 4
-                LOC_7C00h    = 7C00h
+                PRINT_FNAME  = 0                                ; print file name
+
+                NUM_RETRIES  = 4                                ;
+                LOC_7C00h    = 7C00h                            ;
                 BOOT_OEM_LEN = 11                               ; jmp + label
                 BOOT_SEG     = 1000h                            ; OS2LDR location
                 SELF_SEG_LEN = 12                               ; len of micro-FSD in kb
@@ -29,8 +31,8 @@
                 CODE_SECTORS = (hpfs_boot_total-main_code)/512  ; len of micro-FSD
 
 _DATA           segment byte public USE32 'DATA'
-                public  _hpfs_bscount
-_hpfs_bscount   dd      CODE_SECTORS + 1
+                public  hpfs_bscount
+hpfs_bscount    dd      CODE_SECTORS + 1
 _DATA           ends
 
 ; force this segment to separate object (to make offsets zero-based and use it
@@ -40,9 +42,9 @@ HPFSBOOT_CODE   segment byte public USE16 'HPFS'
 
                 org     0h
 
-                public  _hpfs_bsect
-                public  _hpfs_bsname
-_hpfs_bsect:
+                public  hpfs_bsect
+                public  hpfs_bsname
+hpfs_bsect:
                 jmp     @@bt_h_start                            ;
                 nop                                             ; os2dasd get DOS version
                 db      'QSBT 5.0'                              ; from OEM field and fail
@@ -286,11 +288,11 @@ miniFSD_name    db      'OS2BOOT'                               ;
 miniFSD_nzero   db      0                                       ;
 errmsg_nomini   db      'is missing.',0                         ;
 errmsg_nofile   db      'Unable to find '                       ;
-_hpfs_bsname:
+hpfs_bsname:
                 db      'OS2LDR',0,0,0,0,0,0,0,0,0,0            ; 15 chars + 0
 
 @@bt_h_end:
-bt_h_reserved   equ     510 - (@@bt_h_end - _hpfs_bsect)        ;
+bt_h_reserved   equ     510 - (@@bt_h_end - hpfs_bsect)         ;
 if bt_h_reserved GT 0
                 db      bt_h_reserved dup (0)                   ;
 endif
@@ -316,7 +318,7 @@ main_code       label   near
                 mov     eax,cf_size                             ; and save size to
                 mov     et_mfsdlen,eax                          ; filetable
 
-                mov     di,offset _hpfs_bsname                  ;
+                mov     di,offset hpfs_bsname                   ;
                 mov     si,BOOT_SEG                             ; loads it
                 call    load_file                               ;
                 jc      panic_nofile                            ;
@@ -678,6 +680,9 @@ load_file       label   near                                    ;
 ; saves : none
 ;
 open_file       label   near
+if PRINT_FNAME gt 0
+                call    name_print                              ;
+endif
                 call    file_find                               ;
                 jc      @@opnf_err                              ;
                 mov     eax,[bx+12]                             ; hpfs_dirent.fsize
@@ -793,6 +798,27 @@ micro_exit:
 @@entry_no_stack_rest:
                 mov     ds,user_ds                              ;
                 retf                                            ;
+
+if PRINT_FNAME gt 0
+name_print      label   near
+                mov     ah,2                                    ;
+                mov     bh,0                                    ;
+                mov     dh,24                                   ;
+                mov     dl,4                                    ;
+                int     10h                                     ;
+                push    di                                      ;
+                pop     si                                      ;
+@@npr_loop:
+                lodsb                                           ;
+                or      al,al                                   ;
+                jz      @@npr_ret                               ;
+                mov     ah,14                                   ;
+                mov     bx,7                                    ;
+                int     10h                                     ;
+                jmp     @@npr_loop                              ;
+@@npr_ret:
+                ret                                             ;
+endif ; PRINT_FNAME
 
 ; ---------------------------------------------------------------
 ; micro-fsd export table

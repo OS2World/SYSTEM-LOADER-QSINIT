@@ -17,12 +17,13 @@ $(tvloc)tgroup.cpp    $(tvloc)thistory.cpp  $(tvloc)thistwin.cpp
 $(tvloc)thstview.cpp  $(tvloc)tindictr.cpp  $(tvloc)tinputli.cpp
 $(tvloc)tlabel.cpp    $(tvloc)tlistbox.cpp  $(tvloc)tlstview.cpp
 $(tvloc)tmemo.cpp     $(tvloc)tmenubar.cpp  $(tvloc)tmenubox.cpp
-$(tvloc)tmnuview.cpp  $(tvloc)tmouse.cpp    $(tvloc)tobject.cpp
-$(tvloc)tobjstrm.cpp  $(tvloc)tparamte.cpp  $(tvloc)tpoint.cpp
+$(tvloc)tmenupop.cpp  $(tvloc)tmnuview.cpp  $(tvloc)tmouse.cpp
+$(tvloc)tmulchkb.cpp  $(tvloc)tobject.cpp   $(tvloc)tobjstrm.cpp
+$(tvloc)toutline.cpp  $(tvloc)tparamte.cpp  $(tvloc)tpoint.cpp
 $(tvloc)tprogram.cpp  $(tvloc)tradiobu.cpp  $(tvloc)trescoll.cpp
 $(tvloc)tresfile.cpp  $(tvloc)tscreen.cpp   $(tvloc)tscrlbar.cpp
 $(tvloc)tscrolle.cpp  $(tvloc)tsortcol.cpp  $(tvloc)tstatict.cpp
 $(tvloc)tstatusl.cpp  $(tvloc)tstrcoll.cpp  $(tvloc)tstrlist.cpp
-$(tvloc)ttprvln2.cpp  $(tvloc)tvcursr2.cpp  $(tvloc)tvexpsd2.cpp
-$(tvloc)tview.cpp     $(tvloc)tvtext1.cpp   $(tvloc)tvtext2.cpp
-$(tvloc)tvwrite2.cpp  $(tvloc)twindow.cpp
+$(tvloc)ttprvln2.cpp  $(tvloc)tvalidat.cpp  $(tvloc)tvcursr2.cpp
+$(tvloc)tvexpsd2.cpp  $(tvloc)tview.cpp     $(tvloc)tvtext1.cpp
+$(tvloc)tvtext2.cpp   $(tvloc)tvwrite2.cpp  $(tvloc)twindow.cpp

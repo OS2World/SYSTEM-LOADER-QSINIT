@@ -18,15 +18,16 @@
 #include "qsdm.h"
 #include "qcl/qslist.h"
 #include "qcl/qsinif.h"
+#include "qcl/qsvdmem.h"
 #include "serial.h"
 #include "dparm.h"
 #include "qsinit.h"
+#include "loadmsg.h"
 
 #undef  MAP_A0000                  // make linear address of A0000
 #undef  MAP_LOGADDR                // make linear address of log
 #define MAP_REMOVEHOLES            // mark memory holes as used blocks
 
-#define MSG_POOL_LIMIT     4096    // limit every type of messages to 4k
 #define VESAFONTBUFSIZE    2048    // font buffer, required to avoid intel adapters bios
 #define STACK_SIZE         2048    // stack, actually it will be larger - rounded to page boundary
 #define SELINCR               8    // some constants
@@ -35,8 +36,10 @@
 
 #define SECTROUND(p)    (((p) + (SECTSIZE-1)) & ~(SECTSIZE-1))
 
-const char *msgini_name="b:\\os2boot\\messages.ini";
-const char *os2dmp_name="OS2DUMP";
+const char *msgini_name  = "b:\\os2boot\\messages.ini";
+const char *os2dmp_name  = "OS2DUMP";
+const char *os2dbsc_name = "OS2DBCS";
+const char *dbscfnt_name = "OS2DBCS.FNT";
 
 struct ExportFixupData *efd = 0;    // doshlp export/import data
 struct LoaderInfoData  *lid = 0;    // os4ldr info header
@@ -46,11 +49,15 @@ void     *kernel = 0,               // kernel image
          *doshlp = 0,               // doshlp binary file
          *os2dmp = 0,               // os2dump binary file
          *os2sym = 0,               // os2krnl.sym binary file (OS/4)
-        *mfsdsym = 0;               // micro-fsd sym binary file (OS/4)
+        *mfsdsym = 0,               // micro-fsd sym binary file (OS/4)
+        *os2dbcs = 0,               // os2dbcs binary file
+        *dbcsfnt = 0;               // os2dbcs.fnt binary file
 u32t     dhfsize = 0,               // doshlp file size
          dmpsize = 0,               // os2dump file size
          symsize = 0,               // os2krnl.sym file size
         msymsize = 0,               // micro-fsd sym sym file size
+        dbcssize = 0,               // os2dbcs file size
+      dbcsfnsize = 0,               // os2dbcs.fnt file size
         mfsdsize = 0,               // mini-fsd file file
         arenacnt = 0,               // number of filled arenas
        respart4k = 0,               // doshlp size, rounded to page
@@ -68,8 +75,8 @@ char   *vfonttgt = 0;               // place to copy vesa font (in doshlp)
 char    *pcidata = 0;               // prepared array with pci info
 void    *logresv = 0;               // reserved address space for log buffer
 u8t      bootsrc = 0;               // alternative mounted boot partition
-u8t     bootdisk = 0;               // actual used boot disk
-u8t    bootflags = 0;               // actual used boot flags
+u8t     bootdisk = 0;               // boot disk (BIOS number!)
+u8t    bootflags = 0;               // boot flags
 char    *cmdcall = 0;               // call external batch on finish
 char    *hiptbuf = 0;               // temp buffer for second part of DOSHLP
 
@@ -88,7 +95,8 @@ str_list           *config_sys = 0;
 physmem_block         *physmem = 0;
 u32t           physmem_entries = 0;
 u32t             resblock_addr = 0, // reserved memory (log & misc)
-                  resblock_len = 0;
+                  resblock_len = 0,
+                  resblock_err = QSMR_SUCCESS;
 qs_inifile             msg_ini = 0;
 
 // exit with error
@@ -99,6 +107,8 @@ void error_exit(int code, const char *message) {
    if (os2sym)  { hlp_memfree(os2sym); os2sym=0; }
    if (mfsdsym) { hlp_memfree(mfsdsym); mfsdsym=0; }
    if (logresv) { hlp_memfree(logresv); logresv=0; }
+   if (os2dbcs) { hlp_memfree(os2dbcs); os2dbcs=0; }
+   if (dbcsfnt) { hlp_memfree(dbcsfnt); dbcsfnt=0; }
    // only allocated by SOURCE option loading code
    if (mfsdptr && mfsdptr!=boot_info.minifsd_ptr) { 
       hlp_memfree(mfsdptr); mfsdptr=0; 
@@ -300,10 +310,37 @@ void load_kernel(module  *mi) {
          pa++;
       }
    }
-   /* we do not load OS2DBCS (sorry :)) and do not backup BIOS data, so
-      those arenas are missing in our`s list.
-      Beacase no BIOS data backup - no DOS<->OS/2 hot swap support on FAT in
-      our loader, DOSHLP will panic on DHSetDosEnv call */
+   // arena for OS2DBCS (init in init2)
+   if (os2dbcs && dbcsfnt) {
+       pa->a_paddr  = PAGEROUND(pa[-1].a_paddr+pa[-1].a_size);
+       pa->a_sel    = pa->a_paddr>>PARASHIFT;
+       pa->a_size   = dbcssize;
+       pa->a_aflags = AF_INVALID;
+       efd->DBCSSeg = pa->a_sel;
+       log_printf("DBCS seg: %x\n", pa->a_sel);
+       pa++;
+
+       pa->a_paddr  = PAGEROUND(pa[-1].a_paddr+pa[-1].a_size);
+       pa->a_sel    = pa->a_paddr>>PARASHIFT;
+       pa->a_size   = dbcsfnsize;
+       pa->a_aflags = AF_DOSHLP | AF_LADDR;
+       pa->a_laddr  = laddrnext -= PAGEROUND(dbcsfnsize);
+       pa->a_owner  = DBCSDATAOWNER;
+       efd->DBCSFontSeg  = pa->a_sel;
+       efd->DBCSFontSize = dbcsfnsize;
+       log_printf("FNT seg: %x\n", pa->a_sel);
+       pa++;
+       lid->BootFlags |= BOOTFLAG_DBCS_ON;
+
+       memcpy((void*)hlp_segtoflat(efd->DBCSSeg), os2dbcs, dbcssize);
+       memcpy((void*)hlp_segtoflat(efd->DBCSFontSeg), dbcsfnt, dbcsfnsize);
+       hlp_memfree(os2dbcs); os2dbcs = 0;
+       hlp_memfree(dbcsfnt); dbcsfnt = 0;
+   }
+   /* BIOS data arena is missing.
+      Because no BIOS data backup - also no DOS<->OS/2 hot swap support
+      on FAT volume, DOSHLP will panic on DHSetDosEnv call (still possible
+      on W4 and warp style kernels) */
 
    /* adding arena for OS2DUMP (init located in init2)
       Create it in any way, because pginit code assumes at least one
@@ -481,8 +518,19 @@ void load_kernel(module  *mi) {
 
       // copying mini-FSD to final location
       if (mfsdptr) {
-         log_printf("mFSD: %08X\n", b16frame);
+         u32t crc = sto_dword(STOKEY_MFSDCRC);
+         /* always print CRC value (this allows to check file version also:
+            just compare crc with pkzip /view OS2BOOT.ZIP) */
+         log_printf("mFSD: %08X, crc: %08X\n", b16frame, crc);
          memcpy((void*)(b16frame+pdiff), mfsdptr, mfsdsize);
+
+         if (crc) {
+            u32t ncrc = crc32(0, (u8t*)(b16frame+pdiff), mfsdsize);
+            if (ncrc!=crc) {
+               log_printf("mFSD crc mismatch! (%08X)\n", ncrc);
+               error_exit(17, "mini-FSD is damaged!\n");
+            }
+         }
          // setup mini-FSD arena
          pa->a_paddr  = b16frame;
          pa->a_size   = PAGEROUND(mfsdsize);
@@ -860,6 +908,8 @@ void memparm_init(void) {
 
    while (ii<physmem_entries) efd->ExtendMem+=physmem[ii++].blocklen;
    efd->ExtendMem>>=10;
+   // OEMHLP Fn 0x11h memory report
+   efd->MemPagesLo = sys_ramtotal(&efd->MemPagesHi);
 
    if (efd->LogBufPAddr) {
       lid->BootFlags|=BOOTFLAG_LOG;
@@ -867,7 +917,7 @@ void memparm_init(void) {
    }
    // try to reserve allocated log address in memory manager
    if (resblock_addr)
-      logresv = hlp_memreserve(resblock_addr, resblock_len<<16);
+      logresv = hlp_memreserve(resblock_addr, resblock_len<<16, &resblock_err);
 }
 
 /************************************************************************/
@@ -1018,7 +1068,7 @@ str_list *get_config_sys(void) {
    return config_sys;
 }
 
-void load_miscfiles(const char *kernel) {
+void load_miscfiles(const char *kernel, int dbcs) {
    char *parmptr;
    // load os2dump
    os2dmp = read_file(os2dmp_name, &dmpsize, 0);
@@ -1048,6 +1098,20 @@ void load_miscfiles(const char *kernel) {
          check_size(&mfsdsym, &msymsize, _256KB, "Mfsd sym");
       }
    }
+   // load os2dbcs is asked one
+   if (dbcs) {
+      os2dbcs = read_file(os2dbsc_name, &dbcssize, 0);
+      check_size(&os2dbcs, &dbcssize, _64KB, "Dbcs");
+      // load os2dbcs.fnt
+      dbcsfnt = read_file(dbscfnt_name, &dbcsfnsize, 0);
+      check_size(&dbcsfnt, &dbcsfnsize, _256KB-_16KB, "Dbcs font");
+      
+      if (dbcsfnt)
+         if (dbcsfnsize<16 || memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)) {
+            log_printf("Warning! Wrong DBCS font file!\n");
+            hlp_memfree(dbcsfnt); dbcsfnt=0;
+         }
+   }
 }
 
 /************************************************************************/
@@ -1056,7 +1120,8 @@ void load_miscfiles(const char *kernel) {
 void main(int argc,char *argv[]) {
    char    *parmptr;
    int     testmode = 0,
-            memview = 0;
+            memview = 0,
+             defmsg = 0;        // use os2ldr.msg
    u32t    kernsize = 0,        // kernel image size
          pcidatalen = 0;
    module       *mi = 0;        // this block will lost on failure exit.
@@ -1068,20 +1133,27 @@ void main(int argc,char *argv[]) {
    }
    if (hlp_hosttype()==QSHT_EFI)
       error_exit(13,"Boot of OS/2 is not possible on EFI now!\n");
+
+   if (mod_query("BOOTOS2", 1<<MODQ_POSSHIFT|MODQ_NOINCR))
+      error_exit(16,"The second copy of BootOS2.exe is active!\n");
+
    // kernel boot parameters
-   if (argc<=3) kparm = str_split(argc>2?argv[2]:"",","); else {
+   if (argc<=3) {
+      kparm = str_split(argc>2?argv[2]:"",","); 
+      log_printf("loading %s,\"%s\"\n", argv[1], argv[2]);
+   } else {
       char *arglist = 0;
       u32t ii;
-      /* parameters line can be splitted to multiple args by spaces present in it.
-         merge it back to one line and split by commas */
+      /* parameter line can be splitted to multiple args by spaces in it.
+         merge it back into the single line and then split by commas */
       for (ii=2; ii<argc; ii++) {
          arglist = strcat_dyn(arglist, argv[ii]);
          arglist = strcat_dyn(arglist, " ");
       }
       kparm = str_split(arglist,",");
+      log_printf("loading %s,\"%s\"\n", argv[1], arglist);
       free(arglist);
    }
-   log_printf("loading %s,\"%s\"\n",argv[1],argv[2]);
    // default boot disk/flags values
    bootdisk  = boot_info.boot_disk;
    bootflags = boot_info.boot_flags;
@@ -1091,6 +1163,27 @@ void main(int argc,char *argv[]) {
       int serr = 1;
       if (!parmptr[1] || parmptr[1]==':' && !parmptr[2]) {
          char dsk = toupper(parmptr[0]);
+
+         /* trying to detect PAE RAMDISK first partition`s drive letter */
+         if (dsk=='@') {
+            u32t   vdisk, ii;
+            qs_vdisk  rd = NEW(qs_vdisk);
+
+            if (rd) {
+               if (rd->query(0,&vdisk,0,0,0)==0)
+                  for (ii = DISK_LDR+1; ii<DISK_COUNT; ii++) {
+                     disk_volume_data vi;
+                     hlp_volinfo(ii,&vi);
+                     if (vi.TotalSectors && vi.Disk==vdisk) {
+                        dsk = 'A'+ii;
+                        log_printf("source volume is %c:\n", dsk);
+                        break;
+                     }
+                  }
+               DELETE(rd);
+            }
+            if (dsk=='@') error_exit(18,"Unable to detect drive letter for SOURCE\n");
+         }
          if (dsk>='C' && dsk<='A'+9) dsk = '0'+ (dsk-'A');
          /* check volume is mounted FAT partition, make fake BPB for it
             and switch flags to FAT boot type */
@@ -1104,7 +1197,7 @@ void main(int argc,char *argv[]) {
       if (serr) error_exit(10,"Invalid volume in \"SOURCE\" parameter!\n");
    }
    // deny exFAT regardless of BF_EXFAT (0x40) custom boot flag
-   if ((bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0)
+   if (!bootsrc && (bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0)
       if (hlp_volinfo(DISK_BOOT,0)==FST_EXFAT)
          error_exit(15,"Boot from exFAT partition is not possible\n");
    if (hlp_hosttype()==QSHT_EFI && bootflags) {
@@ -1133,22 +1226,32 @@ void main(int argc,char *argv[]) {
       error_exit(3,mbuf);
    }
    /* some kind of safeness ;) see comment in start\loader\lxmisc.c */
-   kernel = hlp_memrealloc(kernel, kernsize+4);
+   kernel  = hlp_memrealloc(kernel, kernsize+4);
+   // use OS2LDR.MSG. Default is inverted (on) in compare with QSINIT.
+   parmptr = key_present("DEFMSG");
+   if (parmptr) defmsg = isdigit(*parmptr) ? strtoul(parmptr,0,0) : 1;
 
    doshlp = freadfull("b:\\os2boot\\doshlp",&dhfsize);
    if (!doshlp || *(u16t*)doshlp!=DOSHLP_SIGN)
       error_exit(4,"Valid \"os2boot\\doshlp\" missing in loader data!\n");
-   else {
+   // reading messages. Absence of OS2LDR.MSG will switch us to internal list.
+   if (defmsg) {
+      if (!create_msg_pools(msgpool[0], msgsize+0, msgpool[1], msgsize+1))
+         defmsg = 0;
+      else
+         log_printf("messages: %i res, %i dis\n", msgsize[0], msgsize[1]);
+   }
+   if (!defmsg) {
       msg_ini = NEW(qs_inifile);
       msg_ini->open(msgini_name, QSINI_READONLY);
 
       if (!msg_ini->secexist("Resident",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE) ||
          !msg_ini->secexist("Discardable",GETSEC_NOEMPTY|GETSEC_NOEKEY|GETSEC_NOEVALUE))
             error_exit(5,"Valid \"os2boot\\messages.ini\" is missing in loader data!\n");
+      // convert messages from ini to binary data for doshlp
+      msgsize[0] = create_msg_pool(msgpool[0],"Resident");
+      msgsize[1] = create_msg_pool(msgpool[1],"Discardable");
    }
-   // convert messages from ini to binary data for doshlp
-   msgsize[0] = create_msg_pool(msgpool[0],"Resident");
-   msgsize[1] = create_msg_pool(msgpool[1],"Discardable");
    // reading physmem data
    //upd_physmem();
    // copying binary doshlp to 100:0
@@ -1157,7 +1260,7 @@ void main(int argc,char *argv[]) {
    hlp_memfree(doshlp); doshlp=0;
    /* read os2dump, and sym files here because i/o can be closed before
       arenas fill on PXE boot */
-   load_miscfiles(argv[1]);
+   load_miscfiles(argv[1], key_present("NODBCS")?0:1);
    // doshlp interfaces
    lid = (struct LoaderInfoData*) (flat1000 + LDRINFO_OFS);
    efd = (struct ExportFixupData*)(flat1000 + ((u16t*)flat1000)[1]);
@@ -1178,6 +1281,10 @@ void main(int argc,char *argv[]) {
    efd->HD4Page  = sto_dword(STOKEY_VDPAGE);
    // save AMD cpu flag
    if (sys_isavail(SFEA_AMD)) efd->Flags|=EXPF_AMDCPU;
+   /* save int 10h vector because OS2DBCS can be missed or NODBCS option
+      forced - both cases cause DBCS system malfunction on boot if we does
+      not provide valid vector */
+   hlp_memcpy(&efd->SavedInt10h, (u32t*)hlp_segtoflat(0) + 0x10, 4, MEMCPY_PG0);
 
    /* rise up cpu freq to 100% - and leave it in this mode, but only if was
       no NORESET in "mode sys" command, else - save current clock modulation
@@ -1198,7 +1305,15 @@ void main(int argc,char *argv[]) {
    }
    // check keys
    cfgext  = key_present("CFGEXT");
-   if (cfgext) strncpy((char*)&lid->ConfigExt,cfgext,3);
+   if (cfgext) {
+      char epstr[4];
+      strncpy((char*)&lid->ConfigExt, cfgext, 3);
+      // print it to be sure!
+      strncpy(epstr, cfgext, 3);
+      epstr[3] = 0;
+      strupr(epstr);
+      log_printf("using \"CONFIG.%s\"\n", epstr);
+   }
    parmptr = key_present("DBPORT");
    if (parmptr) {
       u32t baud = 0;
@@ -1216,7 +1331,7 @@ void main(int argc,char *argv[]) {
          if (parmptr) efd->BaudRate = strtoul(parmptr,0,0); else
             efd->BaudRate = baud?baud:BD_115200;
          /* set another baud rate for the same port - change it for QSINIT too
-            (doshlp binary use own COM port code, so rate must be equal) */
+            (doshlp binary uses own COM port code, so rate must be equal) */
          if (port==lid->DebugPort && efd->BaudRate!=baud)
             if (hlp_seroutset(port,efd->BaudRate))
                log_printf("baud rate changed to %d\n",efd->BaudRate);
@@ -1273,11 +1388,14 @@ void main(int argc,char *argv[]) {
          strcat(cmdcall, parmptr);
       }
    }
+/* &^$%&^ off this code, never saw the PXE BIOS, who able to do this, this
+   just closes any boot i/o after error exit and nothing else */
+#if 0
    /* PXEOS4 boot? direct call to mfs_term, but only in real run!
-      Moveton says - it may release some of low memory for us, but I never
-      saw such firmware ;) */
+      Moveton says - it may release some of low memory for us */
    if (boot_info.filetab.ft_cfiles==6 && !testmode)
       hlp_rmcall(boot_info.filetab.ft_muTerminate, 0);
+#endif
    // read 1Mb memory size
    efd->LowMem = int12mem();
    // setup flags
@@ -1307,7 +1425,7 @@ void main(int argc,char *argv[]) {
    }
    // disk access mode / type
    if ((bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0) {
-      u32t btdsk = bootdisk^QDSK_FLOPPY,
+      u32t btdsk = hlp_diskbios(bootdisk,0),
             mode = hlp_diskmode(btdsk,HDM_QUERY);
       // mode is valid?
       if ((mode&HDM_QUERY)!=0) {
@@ -1371,7 +1489,10 @@ void main(int argc,char *argv[]) {
    // -------------------------------------------------------------
    // doshlp size
    respart4k = efd->DisPartOfs + msgsize[0];
-   // build PCI arrays
+   /* build PCI arrays.
+      Starting from rev.409 this code is void, but still here, because
+      using of this list can be switched on by single define in DOSHLP
+      binary`s code. */
    if (efd->Flags&EXPF_PCI) {
       pci_location dev;
       dd_list a_bus=NEW(dd_list), a_vid=NEW(dd_list), a_cls=NEW(dd_list);
@@ -1434,7 +1555,7 @@ void main(int argc,char *argv[]) {
    /* we need to split doshlp data processing here, because load_kernel()
       can setup resident arena size smaller, than DosHlpSize, and some
       of flat1000 data will be destroyd */
-   doshlp = hlp_memalloc(efd->DosHlpSize, 0);
+   doshlp = hlp_memalloc(efd->DosHlpSize, QSMA_LOCAL);
    memcpy(doshlp, flat1000, efd->DosHlpSize);
    // fixup table to fill in
    parmptr = efd->Io32FixupOfs<efd->DisPartOfs?flat1000:(char*)doshlp;
@@ -1449,10 +1570,10 @@ void main(int argc,char *argv[]) {
    if (lid->BootFlags&BOOTFLAG_EDISK)
       if (!setup_ramdisk(bootdisk^QDSK_FLOPPY, efd, (char*)doshlp))
          error_exit(12,"Internal error in RAM disk setup!\n");
-   /* turn on COM2 port for IBM debug kernel without OS2LDR.INI 
+   /* turn on COM1 port for IBM debug kernel without OS2LDR.INI 
       (actually, without parameters) */
    if (isdbgkrnl && !isos4krnl && kparm->count==0 && (lid->DebugTarget&DEBUG_TARGET_MASK)==0) {
-      lid->DebugPort   = COM2_PORT;
+      lid->DebugPort   = COM1_PORT;
       efd->BaudRate    = BD_19200;
       lid->DebugTarget = DEBUG_TARGET_COM;
    }
@@ -1483,26 +1604,32 @@ void main(int argc,char *argv[]) {
       if (parmptr) {
          u32t  level = strtoul(parmptr,0,0);
          char *qslog;
-         if (level>LOG_GARBAGE) level=LOG_GARBAGE;
-         qslog = log_gettext(level|LOGTF_LEVEL|LOGTF_TIME);
-         if (qslog) {
-            u32t  len = strlen(qslog);
-            char *log = pag_physmap(efd->LogBufPAddr, efd->LogBufSize<<16, 0);
 
-            if (log) {
-               log_printf("flushing QS log to kernel, max level %d, size %d\n",level,len);
-               // log is too large?
-               if (len>=(efd->LogBufSize<<16)-efd->LogBufWrite) {
-                  u32t diff = len - (efd->LogBufSize<<16) + 1;
-                  len-=diff; qslog+=diff;
+         if (resblock_err==QSMR_USED) {
+            log_printf("unable to flushing QS log, log memory in use\n");
+         } else {
+            if (level>LOG_GARBAGE) level=LOG_GARBAGE;
+            qslog = log_gettext(level|LOGTF_LEVEL|LOGTF_TIME);
+            if (qslog) {
+               u32t  len = strlen(qslog);
+               char *log = pag_physmap(efd->LogBufPAddr, efd->LogBufSize<<16, 0);
+            
+               if (log) {
+                  log_printf("flushing QS log to kernel, max level %d, size %d\n",
+                             level, len);
+                  // log is too large?
+                  if (len>=(efd->LogBufSize<<16)-efd->LogBufWrite) {
+                     u32t diff = len - (efd->LogBufSize<<16) + 1;
+                     len-=diff; qslog+=diff;
+                  }
+                  // copying data
+                  memcpy(log+efd->LogBufWrite, qslog, len);
+                  pag_physunmap(log);
+            
+                  efd->LogBufWrite+=len;
                }
-               // copying data
-               memcpy(log+efd->LogBufWrite, qslog, len);
-               pag_physunmap(log);
-
-               efd->LogBufWrite+=len;
+               free(qslog);
             }
-            free(qslog);
          }
       }
    }
@@ -1513,7 +1640,7 @@ void main(int argc,char *argv[]) {
    if (parmptr || key_present("ALTE")) {
       u16t key = parmptr?strtoul(parmptr,0,0):0x1200;
       log_printf("pkey = %s %04X\n", parmptr?parmptr:"ALTE", key);
-      if (key) key_push(key);
+      if (key) efd->PushKey = key;
    }
    // call external batch file
    if (cmdcall) {

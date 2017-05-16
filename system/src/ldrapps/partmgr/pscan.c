@@ -3,7 +3,6 @@
 // partition scan
 //
 #include "stdlib.h"
-#include "qslog.h"
 #include "qsdm.h"
 #include "memmgr.h"
 #include "pscan.h"
@@ -21,8 +20,6 @@
 
 long memOwner=-1,
       memPool=-1;
-
-void lvm_buildcrc(void);
 
 typedef struct {
    u64t      start;
@@ -76,10 +73,10 @@ static u32t scan_gpt(hdd_info *drec) {
    // read header #1
    pt    = drec->ghead;
    stype = dsk_sectortype(drec->disk, drec->gpthead, (u8t*)drec->ghead);
-   if (stype != DSKST_GPTHEAD) return DPTE_GPTHDR;
-   if (pt->GPT_Hdr1Pos != drec->gpthead) return DPTE_GPTHDR;
+   if (stype != DSKST_GPTHEAD) return E_PTE_GPTHDR;
+   if (pt->GPT_Hdr1Pos != drec->gpthead) return E_PTE_GPTHDR;
    // too large partition table size (who can made it?)
-   if (pt->GPT_PtCout > _1MB) return DPTE_GPTLARGE;
+   if (pt->GPT_PtCout > _1MB) return E_PTE_GPTLARGE;
 
    dsk_guidtostr(pt->GPT_GUID, guidstr);
 
@@ -98,27 +95,27 @@ static u32t scan_gpt(hdd_info *drec) {
 
    // read header #2
    if (pt->GPT_Hdr2Pos && pt->GPT_Hdr2Pos!=FFFF64) {
-      if (pt->GPT_Hdr2Pos >= drec->info.TotalSectors) return DPTE_GPTHDR;
+      if (pt->GPT_Hdr2Pos >= drec->info.TotalSectors) return E_PTE_GPTHDR;
 
       stype = dsk_sectortype(drec->disk, pt->GPT_Hdr2Pos, (u8t*)drec->ghead2);
       if (stype != DSKST_GPTHEAD) {
          log_it(0, "GPT header #2 error (%u)!\n", stype);
          // error on access above 2TB?
-         if (pt->GPT_Hdr2Pos >= _4GBLL) return DPTE_2TBERR;
+         if (pt->GPT_Hdr2Pos >= _4GBLL) return E_DSK_2TBERR;
          /* no header #2 and no free space to write it with partition table
             data - so no GPT updates possible - exit */
          if (pt->GPT_Hdr2Pos - drec->gpt_sectors <= pt->GPT_UserLast)
-             return DPTE_GPTHDR;
+             return E_PTE_GPTHDR;
          // flag error in header #2
          free(drec->ghead2); drec->ghead2 = 0;
       } else
-         if (drec->ghead2->GPT_PtInfo <= pt->GPT_UserLast) return DPTE_GPTHDR2;
+         if (drec->ghead2->GPT_PtInfo <= pt->GPT_UserLast) return E_PTE_GPTHDR2;
    }
    // allocate and read partition data
    drec->ptg = (struct GPT_Record*)mem_alloc(memOwner, memPool,
       sizeof(struct GPT_Record) * pt->GPT_PtCout);
    
-   if (!drec->ptg) return DPTE_GPTLARGE; else {
+   if (!drec->ptg) return E_PTE_GPTLARGE; else {
       u32t   crc;
       // unable to read first header, use second
       if (hlp_diskread(drec->disk, pt->GPT_PtInfo, drec->gpt_sectors,
@@ -127,10 +124,10 @@ static u32t scan_gpt(hdd_info *drec) {
          log_it(0, "GPT records read error!\n");
          mem_zero(drec->ptg);
          // header #2 available?
-         if (!drec->ghead2) return DPTE_ERRREAD;
+         if (!drec->ghead2) return E_DSK_ERRREAD;
          // unable to read partition records?
          if (hlp_diskread(drec->disk, drec->ghead2->GPT_PtInfo, drec->gpt_sectors,
-            drec->ptg) != drec->gpt_sectors) return DPTE_ERRREAD;
+            drec->ptg) != drec->gpt_sectors) return E_DSK_ERRREAD;
       }
       // check crc32, but ignore it
       crc = crc32(0,0,0); 
@@ -180,16 +177,17 @@ static u32t scan_disk(hdd_info *drec) {
 
    // assume <=63 sectors, but LVM can grow it to 255 and write bad CHSs in PT
    drec->lvm_spt   = drec->info.SectOnTrack;
+   //log_it(3, "lvm_spt = %u\n", drec->lvm_spt);
 
    do {
       u8t pt_buffer[MAX_SECTOR_SIZE];
       struct Disk_MBR *pt = (struct Disk_MBR *)&pt_buffer;
       u32t stype = dsk_sectortype(drec->disk, chsread?chssec:sector, pt_buffer);
 
-      if (stype==DSKST_ERROR) rc = DPTE_ERRREAD; else
+      if (stype==DSKST_ERROR) rc = E_DSK_ERRREAD; else
       if (stype==DSKST_BOOTFAT || stype==DSKST_BOOTBPB || stype==DSKST_BOOTEXF ||
-         stype==DSKST_BOOT) rc = DPTE_FLOPPY; else
-      if (stype==DSKST_EMPTY || stype==DSKST_DATA) rc = DPTE_EMPTY;
+         stype==DSKST_BOOT) rc = E_PTE_FLOPPY; else
+      if (stype==DSKST_EMPTY || stype==DSKST_DATA) rc = E_PTE_EMPTY;
 
       if (sector==0 && rc) return rc;
       errcnt = 0;
@@ -242,28 +240,39 @@ static u32t scan_disk(hdd_info *drec) {
                   }
                   // too low partition?
                   if (rec->PTE_LBAStart<drec->lvm_spt) drec->non_lvm = 1;
-                  // remember lowest LBA value for FLAT searching
+                  // remember lowest LBA value for DLAT searching
                   if (lowestLBA && rec->PTE_LBAStart<lowestLBA || !lowestLBA)
                      lowestLBA = rec->PTE_LBAStart;
                }
             }
          }
-         /* searching for DLAT in "Sectors_Per_Track - 1" and in sector 126/254
+         // too low partition - this should be GPT
+         if (lowestLBA && lowestLBA<16) drec->non_lvm = 1;
+            else
+         /* Searching for DLAT in "Sectors_Per_Track - 1" and in sector 126/254
             (for 127/255 sector disks, made by danis + LVM combination).
             In last case ALL CHS values in partition table is broken and
-            most of boot managers go crazy on boot */
-         for (ii=0; ii<(offset?1:2); ii++) {
-            u32t ofs, crcorg, crc;
+            most of boot managers go crazy on boot.
 
-            // normal geometry on first pass and ugly on second
-            if (!ii) ofs = drec->lvm_spt; else
-               ofs = disksize < 127*255*65535?127:255;
-            // too low partition
-            if (lowestLBA && ofs>lowestLBA) {
-               // disk is unsuitable for LVM only if partition`s LBA < 63.
-               if (!ii) drec->non_lvm = 1;
-               break;
+            Also, including case when Sectors_Per_Track is wrong and take lowest
+            availabe LBA value instead or just search for DLAT as a last chance. */
+         for (ii=0; ii<(offset?1:3); ii++) {
+            u32t ofs, crcorg, crc;
+            // normal geometry on first pass, 127/255 on second and search on third
+            switch (ii) {
+               case 0:
+                  if (!offset && lowestLBA && lowestLBA<drec->lvm_spt) ofs = lowestLBA;
+                     else ofs = drec->lvm_spt;
+                  break;
+               case 1:
+                  ofs = disksize < 127*255*65535?127:255;
+                  break;
+               case 2:
+                  ofs = lvm_finddlat(drec->disk, 1, lowestLBA ? lowestLBA : 254);
+                  if (ofs) ofs++;
+                  break;
             }
+            if (!ofs || ii && lowestLBA && lowestLBA<ofs) break;
 
             if (hlp_diskread(drec->disk, offset + ofs - 1, 1, pt_buffer)) {
                DLA_Table_Sector *dlat = (DLA_Table_Sector *)&pt_buffer;
@@ -279,12 +288,11 @@ static u32t scan_disk(hdd_info *drec) {
                         drec->lvm_snum, dlat->Disk_Serial, offset + ofs - 1);
                      break;
                   }
-                  if (ii)
-                     if (ofs!=dlat->Sectors_Per_Track) {
-                        log_it(2, "1st DLAT in %d, but report %d spt\n", ofs-1,
-                           dlat->Sectors_Per_Track);
-                        break;
-                     }
+                  if (ofs!=dlat->Sectors_Per_Track) {
+                     log_it(2, "1st DLAT in %d, but report %d spt\n", ofs-1,
+                        dlat->Sectors_Per_Track);
+                     break;
+                  }
                   // copy LVM info
                   memcpy(drec->dlat + (drec->pt_size>>2), dlat, sizeof(DLA_Table_Sector));
 
@@ -294,7 +302,7 @@ static u32t scan_disk(hdd_info *drec) {
                   if (crc != crcorg)
                      log_it(3, "DLAT CRC mismatch: %08X instead of %08X\n", crc, crcorg);
 
-                  if (ii) {
+                  if (drec->lvm_spt!=ofs) {
                      drec->lvm_spt = ofs;
                      log_it(3, "%d sectors geometry detected\n", ofs);
                   }
@@ -327,7 +335,7 @@ static u32t scan_disk(hdd_info *drec) {
             rc = 0;
             continue;
          } else {
-            if (!rc) rc = DPTE_INVALID;
+            if (!rc) rc = E_PTE_INVALID;
          }
       } else {
          u32t ext1 = 0;
@@ -493,7 +501,8 @@ static u32t scan_disk(hdd_info *drec) {
             lpnext   = drec->ghead->GPT_UserFirst;
             userlast = drec->ghead->GPT_UserLast;
          } else { 
-            log_it(3, "ext start %08X end %08LX\n", drec->extstart, drec->extend);
+            if (drec->extstart || drec->extend)
+               log_it(3, "ext start %08X end %08LX\n", drec->extstart, drec->extend);
 
             lpnext   = drec->non_lvm ? 1 : drec->lvm_spt;
             userlast = drec->info.TotalSectors > _4GBLL ? FFFF : drec->info.TotalSectors-1;
@@ -606,6 +615,8 @@ static int    hook_on = 0;    ///< hlp_diskremove hook installed?
 void scan_init(void) {
    u32t ii;
 
+   scan_lock();
+
    if (memOwner==-1) {
       mem_uniqueid(&memOwner,&memPool);
       hddc = hlp_diskcount(&hddf);
@@ -626,7 +637,7 @@ void scan_init(void) {
       // change number of hard disks (to support ram disk hot plug)
       u32t nhdd = hlp_diskcount(0);
 
-      if (nhdd==hddc) return;
+      if (nhdd==hddc) { scan_unlock(); return; }
       hddc = nhdd;
    }
    if (hddc)
@@ -634,13 +645,16 @@ void scan_init(void) {
          hdd_info *iptr = get_by_disk(ii);
          if (iptr) iptr->disk = ii;
       }
+   scan_unlock();
 }
 
 void scan_free(void) {
+   scan_lock();
    if (memOwner!=-1) {
       mem_freepool(memOwner, memPool);
       hddi = 0; hddc = 0; hddf = 0;
    }
+   scan_unlock();
 }
 
 hdd_info *get_by_disk(u32t disk) {
@@ -659,22 +673,32 @@ hdd_info *get_by_disk(u32t disk) {
    return 0;
 }
 
-u32t _std dsk_ptrescan(u32t disk, int force) {
+qserr _std dsk_ptrescan(u32t disk, int force) {
    hdd_info *hi;
-   scan_init();
-   hi = get_by_disk(disk);
-   if (!hi) return DPTE_INVDISK;
-   if (!hlp_disksize(disk,0,&hi->info)) return DPTE_ERRREAD;
-#if 0
-   log_it(3, "disk %X %d %LX %d x %d x %d\n", disk, hi->info.SectorSize,
-      hi->info.TotalSectors, hi->info.Cylinders, hi->info.Heads,
-         hi->info.SectOnTrack);
-#endif
-   // rescan on force, first time or floppy disk
-   if (!hi->inited) hi->inited = 1; else
-   if (!force && (disk&QDSK_FLOPPY)==0) return hi->scan_rc;
+   u32t     res;
 
-   return hi->scan_rc = scan_disk(hi);
+   scan_lock();
+   scan_init();
+
+   hi = get_by_disk(disk);
+   if (!hi) res = E_DSK_DISKNUM; else {
+      hlp_disksize(disk, 0, &hi->info);
+      if (!hi->info.TotalSectors) res = E_DSK_ERRREAD; else {
+#if 0
+         log_it(3, "disk %X %d %LX %d x %d x %d\n", disk, hi->info.SectorSize,
+            hi->info.TotalSectors, hi->info.Cylinders, hi->info.Heads,
+               hi->info.SectOnTrack);
+#endif
+         // rescan on force, first time or floppy disk
+         if (hi->inited && !force && (disk&QDSK_FLOPPY)==0) res = hi->scan_rc; else {
+            res = scan_disk(hi);
+            hi->scan_rc = res;
+            hi->inited  = 1;
+         }
+      }
+   }
+   scan_unlock();
+   return res;
 }
 
 /// entry hook for hlp_diskremove()
@@ -729,12 +753,18 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
 
    if (disk==FFFF || disk==x7FFF) {
       int  pstate = vio_setansi(1);
+      u32t  n_hdd, n_fdd;
+      scan_lock();
       scan_init();
-      if (!hddf) shellprn(" %d HDD%s in system\n",hddc,hddc<2?"":"s"); else
-         shellprn(" %d HDD and %d floppy drives in system\n",hddc,hddf);
+      if (!hddf) shellprn(" %d HDD%s in system\n", hddc, hddc<2?"":"s"); else
+         shellprn(" %d HDD and %d floppy drives in system\n", hddc, hddf);
+      // save # of disks while we`re in lock
+      n_hdd = hddc;
+      n_fdd = hddf;
+      scan_unlock();
 
-      for (ii=0; ii<hddf+hddc; ii++) {
-         u32t dsk = ii<hddf?QDSK_FLOPPY|ii:ii-hddf;
+      for (ii=0; ii<n_hdd+n_fdd; ii++) {
+         u32t dsk = ii<n_fdd ? QDSK_FLOPPY|ii : ii-n_fdd;
          // hard disk if OFF, skip it
          if ((dsk&QDSK_FLOPPY)==0 && (hlp_diskmode(dsk,HDM_QUERY)&HDM_QUERY)==0)
             continue;
@@ -744,8 +774,11 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
             char    *stext, namebuf, sizebuf[32],
                   *dskname = dsk_disktostr(dsk,0);
             sizebuf[0] = 0;
+            // at least LVM info should be updated
+            if (force) dsk_ptrescan(dsk,1);
 
-            if (hlp_disksize(dsk,0,&gdata)) {
+            hlp_disksize(dsk, 0, &gdata);
+            if (gdata.TotalSectors) {
                stext = get_sizestr(gdata.SectorSize, gdata.TotalSectors);
                if (verbose) sprintf(sizebuf, "(%Lu sectors)", gdata.TotalSectors);
             } else {
@@ -785,146 +818,169 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
       }
       vio_setansi(pstate);
    } else {
-      char dname[10], lvmname[32];
-      hdd_info *hi = get_by_disk(disk);
-      disk_volume_data   vi[DISK_COUNT];
-      lvm_disk_data    lvmi;
-      char           *stext;
-
-      if (!hi) { printf("There is no disk %X!\n", disk); return ENOMNT; }
-      // rescan disk (forced or not)
-      dsk_ptrescan(disk,force);
-      // disk size string
-      stext = dsk_formatsize(hi->info.SectorSize, hi->info.TotalSectors, 0, 0);
-      // query lvm disk name
-      lvmname[0]=0;
-      if (lvm_diskinfo(disk,&lvmi)) {
-         strcpy(lvmname,", LVM:<");
-         strcat(lvmname,lvmi.Name);
-         strcat(lvmname,">");
-      }
-      shellprc(VIO_COLOR_LWHITE, " %s %i: %s (%LX sectors), %d partition%s%s",
-         disk&QDSK_FLOPPY?"Floppy disk":"HDD", disk&QDSK_DISKMASK, stext,
-            hi->info.TotalSectors, hi->gpt_view, hi->gpt_view==1?"":"s",lvmname);
-
-      dsk_disktostr(disk,dname);
-
-      switch (hi->scan_rc) {
-         case DPTE_ERRREAD:
-         case DPTE_INVALID:
-            shellprc(VIO_COLOR_LRED, hi->scan_rc==DPTE_ERRREAD?
-               " Disk %s read error!":" Partition table on disk %s is invalid!",
-                  dname);
-            break;
-         case DPTE_FLOPPY :
-            shellprn(" Disk %s is floppy formatted!", dname);
-            break;
-         case DPTE_EMPTY  :
-            shellprn(" Disk %s is empty!", dname);
-            break;
-         default :
-            if (hi->scan_rc) common_errmsg("_DPTE%02d", "Scan error", hi->scan_rc);
-            break;
-      }
-      if (hi->pt_view) {
-         // query mounted volumes
-         for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
-         // inform about hybrid
-         if (hi->gpt_present)
-            if (cmd_printseq(" Hybrid partiton table (MBR + GPT)!", 0, VIO_COLOR_YELLOW))
-               return EINTR;
-         // print table
-         if (shellprt(
-            " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
-            "  ## ³     type     ³ fs info ³   size   ³ mount ³   LBA    ³  LVM info       \n"
-            " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÂÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ "))
-               return EINTR;
-         for (ii = 0; ii<hi->pt_view; ii++) {
-            char          pdesc[16], mounted[64], lvmpt[20];
-            lvm_partition_data lvmd;
-            u64t      psize, pstart;
-            u32t          kk, flags;
-            u8t               ptype = dsk_ptquery64(disk, ii, &pstart, &psize, pdesc, &flags);
-            int               islvm = lvm_partinfo(disk, ii, &lvmd);
-         
-            mounted[0] = 0;
-            for (kk = 0; kk<DISK_COUNT; kk++)
-               if (vi[kk].StartSector && vi[kk].Disk==disk)
-                  if (vi[kk].StartSector==pstart)
-                     snprintf(mounted, 64, "%c:/%c:",'0'+kk,'A'+kk);
-            if (islvm) {
-               if (lvmd.Letter) snprintf(lvmpt,17,"%c: ³ %s", lvmd.Letter, lvmd.VolName);
-                  else snprintf(lvmpt,17,"no ³ %s", lvmd.VolName);
-            } else
-               strcpy(lvmpt, "-- ³");
-         
-            if (shellprn("  %2d ³ %s ³ %02X ³ %-8s³%s ³ %s ³ %08LX ³ %s", ii,
-               (flags&(DPTF_ACTIVE|DPTF_PRIMARY))==(DPTF_ACTIVE|DPTF_PRIMARY)?
-                  "active ":(flags&DPTF_PRIMARY?"primary":"logical"), ptype,
-                     pdesc, get_sizestr(hi->info.SectorSize, psize)+2,
-                        *mounted?mounted:"     ", pstart, lvmpt)) return EINTR;
+      char      *out = 0;
+      u32t        rc = 0;
+      hdd_info   *hi;
+      // Make all printing inside mutex, then flush it to console.
+      scan_lock();
+      hi = get_by_disk(disk);
+      if (!hi) { 
+         printf("There is no disk %X!\n", disk); 
+         rc = ENOMNT; 
+      } else {
+         disk_volume_data  vi[DISK_COUNT];
+         lvm_disk_data   lvmi;
+         char         lvmname[32], *stext;
+         // rescan disk (forced or not)
+         dsk_ptrescan(disk,force);
+         // disk size string
+         stext = dsk_formatsize(hi->info.SectorSize, hi->info.TotalSectors, 0, 0);
+         // query lvm disk name
+         lvmname[0]=0;
+         if (lvm_diskinfo(disk,&lvmi)) {
+            strcpy(lvmname,", LVM:<");
+            strcat(lvmname,lvmi.Name);
+            strcat(lvmname,">");
          }
-      }
-      if (hi->gpt_present) {
-         // query mounted volumes if it was not done in 
-         if (!hi->pt_view)
+         out = sprintf_dyn(ANSI_WHITE " %s %i: %s (%LX sectors), %d partition%s%s"
+            ANSI_RESET "\n", disk&QDSK_FLOPPY?"Floppy disk":"HDD", disk&QDSK_DISKMASK,
+               stext, hi->info.TotalSectors, hi->gpt_view, hi->gpt_view==1?"":"s",
+                  lvmname);
+
+         switch (hi->scan_rc) {
+            case E_DSK_ERRREAD:
+               out = strcat_dyn(out, ANSI_LRED " Disk read error!" ANSI_RESET "\n");
+               break;
+            case E_PTE_INVALID:
+               out = strcat_dyn(out, ANSI_LRED " Partition table is invalid!" ANSI_RESET "\n");
+               break;
+            case E_PTE_FLOPPY :
+               out = strcat_dyn(out, " Disk is floppy formatted!\n");
+               break;
+            case E_PTE_EMPTY  :
+               out = strcat_dyn(out, " Disk is empty!\n");
+               break;
+            default :
+               if (hi->scan_rc) {
+                  char *err = make_errmsg(hi->scan_rc, "Scan error");
+                  out = strcat_dyn(out, err);
+                  free(err);
+               }
+               break;
+         }
+         if (hi->pt_view) {
+            // query mounted volumes
             for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
-         else
-            if (shellprt("")) return EINTR;
-
-         if (shellprt(
-            " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
-            "  ## ³ fs info ³   size   ³ mount ³    LBA    ³ attr ³        type            \n"
-            " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ "))
-               return EINTR;
-
-         for (ii = 0; ii<hi->gpt_view; ii++)
-            // print both GPT and hybrid partitions here
-            if (dsk_isgpt(disk, ii) > 0) {
-               dsk_gptpartinfo  gpi;
-               char       pdesc[16], mounted[64], guidstr[40], *ptstr,
-                          eflags[8];
-               u64t   psize, pstart;
-               u32t              kk;
-
-               static const s8t part_flags[] = { GPTATTR_SYSTEM, GPTATTR_IGNORE,
-                  GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN, 
-                     GPTATTR_MS_NOMNT, -1};
-               static const char  *part_char = "SIBRHN";
-               
-               dsk_ptquery64(disk, ii, &pstart, &psize, pdesc, 0);
-               // query printable partition type
-               dsk_gptpinfo(disk, ii, &gpi);
-               dsk_guidtostr(gpi.TypeGUID, guidstr);
-               ptstr = guidstr[0] ? cmd_shellgetmsg(guidstr) : 0;
-
+            // inform about hybrid
+            if (hi->gpt_present)
+               out = strcat_dyn(out, ANSI_YELLOW " Hybrid partition table (MBR + GPT)!"
+                  ANSI_RESET "\n");
+            // print table
+            out = strcat_dyn(out,
+               " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
+               "  ## ³     type     ³ fs info ³   size   ³ mount ³   LBA    ³  LVM info       \n"
+               " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÂÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ \n");
+            for (ii = 0; ii<hi->pt_view; ii++) {
+               char          pdesc[16], mounted[64], lvmpt[20], *pline;
+               lvm_partition_data lvmd;
+               u64t      psize, pstart;
+               u32t          kk, flags;
+               u8t               ptype = dsk_ptquery64(disk, ii, &pstart, &psize, pdesc, &flags);
+               int               islvm = lvm_partinfo(disk, ii, &lvmd);
+            
                mounted[0] = 0;
                for (kk = 0; kk<DISK_COUNT; kk++)
                   if (vi[kk].StartSector && vi[kk].Disk==disk)
                      if (vi[kk].StartSector==pstart)
                         snprintf(mounted, 64, "%c:/%c:",'0'+kk,'A'+kk);
+               if (islvm) {
+                  if (lvmd.Letter) snprintf(lvmpt,17,"%c: ³ %s", lvmd.Letter, lvmd.VolName);
+                     else snprintf(lvmpt,17,"no ³ %s", lvmd.VolName);
+               } else
+                  strcpy(lvmpt, "-- ³");
 
-               eflags[0] = 0;
-               if (gpi.Attr) {
-                  char *epf = eflags;
-                  for (kk = 0; part_flags[kk]>=0; kk++)
-                     if ((u64t)1<<part_flags[kk] & gpi.Attr) *epf++ = part_char[kk];
-                  *epf = 0;
-                  // align Attr string to center
-                  kk = strlen(eflags);
-                  if (kk) {
-                     kk = 3 - (Round2(kk)>>1);
-                     while (kk--) *epf++=' ';
-                     *epf = 0;
-                  }
-               }
-               if (shellprn("  %2d ³ %-8s³%s ³ %s ³%10.9LX ³%6s³ %s", ii, pdesc, 
-                  get_sizestr(hi->info.SectorSize, psize)+2, 
-                     *mounted?mounted:"     ", pstart, eflags, ptstr?ptstr:""))
-                        return EINTR;
-               if (ptstr) free(ptstr);
+               pline = sprintf_dyn("  %2d ³ %s ³ %02X ³ %-8s³%s ³ %s ³ %08LX ³ %s\n",
+                  ii, (flags&(DPTF_ACTIVE|DPTF_PRIMARY))==(DPTF_ACTIVE|DPTF_PRIMARY)
+                     ?"active ":(flags&DPTF_PRIMARY?"primary":"logical"), ptype,
+                        pdesc, get_sizestr(hi->info.SectorSize, psize)+2,
+                           *mounted?mounted:"     ", pstart, lvmpt);
+               out = strcat_dyn(out, pline);
+               free(pline);
             }
+         }
+         if (hi->gpt_present) {
+            // query mounted volumes if it was not done in 
+            if (!hi->pt_view)
+               for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
+            else
+               out = strcat_dyn(out, "\n");
+         
+            out = strcat_dyn(out,
+               " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
+               "  ## ³ fs info ³   size   ³ mount ³    LBA    ³ attr ³        type            \n"
+               " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n");
+         
+            for (ii = 0; ii<hi->gpt_view; ii++)
+               // print both GPT and hybrid partitions here
+               if (dsk_isgpt(disk, ii) > 0) {
+                  dsk_gptpartinfo  gpi;
+                  char       pdesc[16], mounted[64], guidstr[40], *ptstr, *pline,
+                             eflags[8];
+                  u64t   psize, pstart;
+                  u32t              kk;
+         
+                  static const s8t part_flags[] = { GPTATTR_SYSTEM, GPTATTR_IGNORE,
+                     GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN, 
+                        GPTATTR_MS_NOMNT, -1};
+                  static const char  *part_char = "SIBRHN";
+                  
+                  dsk_ptquery64(disk, ii, &pstart, &psize, pdesc, 0);
+                  // query printable partition type
+                  dsk_gptpinfo(disk, ii, &gpi);
+                  dsk_guidtostr(gpi.TypeGUID, guidstr);
+                  ptstr = guidstr[0] ? cmd_shellgetmsg(guidstr) : 0;
+         
+                  mounted[0] = 0;
+                  for (kk = 0; kk<DISK_COUNT; kk++)
+                     if (vi[kk].StartSector && vi[kk].Disk==disk)
+                        if (vi[kk].StartSector==pstart)
+                           snprintf(mounted, 64, "%c:/%c:",'0'+kk,'A'+kk);
+         
+                  eflags[0] = 0;
+                  if (gpi.Attr) {
+                     char *epf = eflags;
+                     for (kk = 0; part_flags[kk]>=0; kk++)
+                        if ((u64t)1<<part_flags[kk] & gpi.Attr) *epf++ = part_char[kk];
+                     *epf = 0;
+                     // align Attr string to center
+                     kk = strlen(eflags);
+                     if (kk) {
+                        kk = 3 - (Round2(kk)>>1);
+                        while (kk--) *epf++=' ';
+                        *epf = 0;
+                     }
+                  }
+                  pline = sprintf_dyn("  %2d ³ %-8s³%s ³ %s ³%10.9LX ³%6s³ %s\n",
+                     ii, pdesc, get_sizestr(hi->info.SectorSize, psize)+2,
+                        *mounted?mounted:"     ", pstart, eflags, ptstr?ptstr:"");
+                  out = strcat_dyn(out, pline);
+                  if (ptstr) free(ptstr);
+                  free(pline);
+               }
+         }
+
       }
+      scan_unlock();
+
+      if (!rc) {
+         u32t svstate = vio_setansi(1);
+         // del trailing \n
+         if (strclast(out)=='\n') out[strlen(out)-1] = 0;
+         if (shellprt(out)) rc = EINTR;
+
+         vio_setansi(svstate);
+      }
+      if (out) free(out);
    }
    return 0;
 }

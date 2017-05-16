@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   RESOURCE.H                                                            */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TStringCollection, TResourceCollection,           */
 /*   TResourceFile, TStrListMaker, and TStringList                         */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 

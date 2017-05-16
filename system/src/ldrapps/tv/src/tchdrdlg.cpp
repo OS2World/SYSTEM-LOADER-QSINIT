@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*          TChDirDialog member functions                     */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_MsgBox
 #define Uses_TChDirDialog
@@ -43,7 +40,8 @@
 
 TChDirDialog::TChDirDialog(ushort opts, ushort histId) :
    TDialog(TRect(16, 2, 64, 20), changeDirTitle),
-   TWindowInit(TChDirDialog::initFrame) {
+   TWindowInit(TChDirDialog::initFrame)
+{
    options |= ofCentered;
 
    dirInput = new TInputLine(TRect(3, 3, 30, 4), MAXDIR);
@@ -105,6 +103,12 @@ void TChDirDialog::handleEvent(TEvent &event) {
                   return;
                break;
             }
+            //!! Handle directory selection.
+            case cmDirSelection:
+               chDirButton->makeDefault((Boolean) event.message.infoPtr);
+            
+               return;     // NOTE: THIS IS RETURN NOT BREAK!!
+            
             default:
                return;
          }
@@ -171,6 +175,23 @@ Boolean TChDirDialog::valid(ushort command) {
 
    char path[MAXPATH];
    strcpy(path, dirInput->data);
+
+   // BUG FIX - EFW - Tue 05/16/95
+   // Ignore "Drives" line if switching drives.
+   if (!strcmp(path, drivesText))
+      path[0] = EOS;
+
+   // If it was "Drives" or the input line was blank, issue a
+   // cmChangeDir event to select the current drive/directory.
+   if (!path[0]) {
+      TEvent event;
+      event.what = evCommand;
+      event.message.command = cmChangeDir;
+      putEvent(event);
+      return False;
+   }
+
+   // Otherwise, expand and check the path.
    fexpand(path);
 
    int len = strlen(path);

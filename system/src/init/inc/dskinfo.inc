@@ -6,6 +6,9 @@
 ;cc #ifndef QSINIT_DISKINFO
 ;cc #define QSINIT_DISKINFO
 
+;cc #ifdef __cplusplus
+;cc extern "C" {
+;cc #endif
 ;cc #ifdef EFIX64
 ;cc typedef u32t diskio_func;
 ;cc typedef u32t extptr_type;
@@ -35,11 +38,14 @@ qd_flags        db      ?         ; HDDF_*
 qs_diskinfo     ends
 
 ;cc #ifndef EFIX64
+;cc
+;cc #define HDDA_BIOSNUM   0x0001     ///< allocate fake BIOS disk number
+;cc
 ;cc /** add disk to system HDD list.
 ;cc     @param  qdi        Disk information struct. All parameters up to
 ;cc                        qd_biosdisk must be filled.
 ;cc     @return disk number or -1 on error. */
-;cc s32t _std hlp_diskadd(struct qs_diskinfo *qdi);
+;cc s32t _std hlp_diskadd(struct qs_diskinfo *qdi, u32t flags);
 
 ;cc /** query/update internal disk info.
 ;cc     Function is for internal use only!
@@ -61,4 +67,7 @@ HDDF_PRESENT    equ     2                    ;//< Device present
 HDDF_LBAPRESENT equ     4                    ;//< LBA possible on device
 HDDF_HOTSWAP    equ     8                    ;//< emulated device
 
+;cc #ifdef __cplusplus
+;cc }
+;cc #endif
 ;cc #endif // QSINIT_DISKINFO

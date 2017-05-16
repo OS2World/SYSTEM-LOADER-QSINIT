@@ -53,7 +53,7 @@ static int check_esc(u32t disk, u64t sector) {
    if (kbask)                                     \
       if (check_esc(di.Disk, di.StartSector)) {   \
          if (pf) hlp_memfree(pf);                 \
-         return DFME_UBREAK;                      \
+         return E_SYS_UBREAK;                     \
       }
 
 static u32t _std vol_scansurface(u32t disk, int checkonly, u64t startsector,
@@ -114,13 +114,13 @@ static u32t _std vol_scansurface(u32t disk, int checkonly, u64t startsector,
       }
       // check for esc
       if (kbask)
-         if (check_esc(disk, startsector)) return DFME_UBREAK;
+         if (check_esc(disk, startsector)) return E_SYS_UBREAK;
    }
    if (bclist->count()) log_it(2, "%d bad clusters found\n", bclist->count());
    return 0;
 }
 
-u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
+qserr _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
    static u16t vst[] = { 1024,  512, 256, 128,  64,   32,  16,   8,   4,   2,  0};
    static u16t cst[] = {32768,16384,8192,4096,2048,16384,8192,4096,2048,1024,512};
    u32t ii, clusters, fatsize, reserved, dirsize, pfcnt, *pf, fmt,
@@ -141,10 +141,10 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
 
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
 
-   if (!di.TotalSectors) return DFME_NOMOUNT;
+   if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
-   if (volidx<0 && di.StartSector) return DFME_VINDEX;
+   if (volidx<0 && di.StartSector) return E_PTE_PINDEX;
    if (volidx>=0) {
       if (dsk_isgpt(di.Disk,volidx)==1) {
          // GPT partition
@@ -153,17 +153,17 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       } else {
          // MBR or hybrid partition
          dsk_ptquery(di.Disk,volidx,0,0,0,0,&hidden);
-         if (hidden==FFFF) return DFME_EXTERR;
+         if (hidden==FFFF) return E_PTE_EXTERR;
       }
    }
    // turn off align for floppies
    if ((di.Disk&QDSK_FLOPPY)!=0) align = 0;
    // sectors in 4k
    sectin4k = 4096 / di.SectorSize;
-   if (!sectin4k || 4096 % di.SectorSize) return DFME_SSIZE;
+   if (!sectin4k || 4096 % di.SectorSize) return E_DSK_SSIZE;
    /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
       flag, so no any volume caching will occur until the end of format */
-   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return E_DSK_UMOUNTERR;
    // try to query actual values: LVM/PT first, BIOS - next
    if (!dsk_getptgeo(di.Disk,&geo)) {
       // ignore LVM surprise
@@ -219,7 +219,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    loc_data = loc_dir + dirsize;              // data area start sector
    // too small volume
    if (di.TotalSectors < loc_data + unitsize - di.StartSector)
-      return DFME_SMALL;
+      return E_DSK_VSMALL;
 
    // determine number of clusters and final check of validity of the FAT type
    clusters = (di.TotalSectors - reserved - fatsize * fatcnt - dirsize) / unitsize;
@@ -230,7 +230,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       reserved, fatsize, loc_fat, loc_data, clusters);
 
    if (fmt==_FAT16 && clusters < MIN_FAT16 || fmt==_FAT32 && clusters < MIN_FAT32)
-      return DFME_FTYPE;
+      return E_DSK_SELTYPE;
 
    media = di.StartSector?0xF8:0xF0;
 
@@ -280,9 +280,9 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    }
    // write it to the VBR sector
    if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, di.StartSector, 1, brdata))
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
 
-   pf     = (u32t*)hlp_memalloc(_32KB, 0),
+   pf     = (u32t*)hlp_memalloc(_32KB, QSMA_LOCAL),
    pfcnt  = _32KB/di.SectorSize;                       // sectors in 32k
 
    // clear "reserved" area
@@ -293,7 +293,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
          u32t cpy = ii>pfcnt?pfcnt:ii;
          if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf)!=cpy) {
             hlp_memfree(pf);
-            return DFME_IOERR;
+            return E_DSK_ERRWRITE;
          }
          wsect+= cpy;
          ii   -= cpy;
@@ -327,7 +327,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
          // write 32k at time (i/o buffer size)
          if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
             hlp_memfree(pf);
-            return DFME_IOERR;
+            return E_DSK_ERRWRITE;
          }
          wsect+= cpy;
          pv   -= cpy;
@@ -343,7 +343,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       u32t cpy = ii>pfcnt?pfcnt:ii;
       if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
          hlp_memfree(pf);
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
       }
       wsect+= cpy;
       ii   -= cpy;
@@ -413,7 +413,7 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
                // write this 32k (i/o buffer size)
                if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
                   hlp_memfree(pf);
-                  return DFME_IOERR;
+                  return E_DSK_ERRWRITE;
                }
                wsect+= cpy;
                pv   -= cpy;
@@ -455,22 +455,15 @@ u32t _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
 u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t badcnt) {
    // determine and change ID in partition table
    if (volidx>=0 && ptbyte>=0) {
-      u32t rc = dsk_setpttype(di.Disk, volidx, (u8t)ptbyte);
-      log_it(2, "set partition type to %02X, rc %d\n", ptbyte, rc);
-      // handle error codes
-      switch (rc) {
-         case DPTE_ERRREAD :
-         case DPTE_ERRWRITE: return DFME_IOERR;
-         case DPTE_PINDEX  : return DFME_VINDEX;
-         case DPTE_INVALID : return DFME_PTERR;
-         default: if (rc) return DFME_INTERNAL;
-      }
+      qserr rc = dsk_setpttype(di.Disk, volidx, (u8t)ptbyte);
+      log_it(2, "set partition type to %02X, rc %X\n", ptbyte, rc);
+      if (rc) return rc;
    }
    // force rescanning of disk if it is a (big) floppy
    if (di.StartSector==0) dsk_ptrescan(di.Disk,1);
    // mount volume back
    if (!hlp_mountvol(vol, di.Disk, di.StartSector, di.TotalSectors))
-      return DFME_MOUNT;
+      return E_DSK_MOUNTERR;
    /* update bad clusters count in internal volume info.
       this value will be saved only until unmount, but can be used by format
       command nice printing */
@@ -484,7 +477,7 @@ u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t ba
    return 0;
 }
 
-u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
+qserr _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
    read_callback cbprint)
 {
    if (fsname) {
@@ -495,14 +488,14 @@ u32t _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
       if (stricmp(fsname,"EXFAT")==0)
          return exf_format(vol, flags, unitsize, cbprint);
    }
-   return DFME_UNKFS;
+   return E_SYS_INVPARM;
 }
 
 u32t exf_sum(u8t src, u32t sum) {
    return (sum&1?0x80000000:0) + (sum>>1) + src;
 }
 
-u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
+qserr _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
    int            align = flags&DFMT_NOALIGN?0:1,  // AF align flag
                   kbask = flags&DFMT_BREAK?1:0;    // allow keyboard ESC break
    u8t             *buf, secshift;
@@ -519,11 +512,11 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    disk_volume_data  di;
 
    hlp_volinfo(vol, &di);
-   if (!di.TotalSectors) return DFME_NOMOUNT;
-   if (di.TotalSectors<0x1000) return DFME_SMALL;
+   if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
+   if (di.TotalSectors<0x1000) return E_DSK_VSMALL;
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
-   if (volidx<0 && di.StartSector) return DFME_VINDEX;
+   if (volidx<0 && di.StartSector) return E_PTE_RESCAN;
    // GPT partition?
    if (volidx>=0)
       if (dsk_isgpt(di.Disk,volidx)==1) flags|=DFMT_NOPTYPE;
@@ -531,10 +524,10 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    if ((di.Disk&QDSK_FLOPPY)!=0) align = 0;
    // sectors in 4k
    sectin4k = 4096 / di.SectorSize;
-   if (!sectin4k || 4096 % di.SectorSize) return DFME_SSIZE;
+   if (!sectin4k || 4096 % di.SectorSize) return E_DSK_SSIZE;
    /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
       flag, so no any volume caching will occur until the end of format */
-   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return E_DSK_UMOUNTERR;
    // cluster size auto selection
    if (!unitsize) {
       unitsize = 8;
@@ -543,7 +536,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       if (di.TotalSectors>=0x80000) unitsize = 64;          // >= 512KS
    } else {
       // should be a single bit
-      if (bsf32(unitsize)!=bsr32(unitsize)) return DFME_CSIZE;
+      if (bsf32(unitsize)!=bsr32(unitsize)) return E_DSK_CLSIZE;
       unitsize /= di.SectorSize;
       if (unitsize == 0) unitsize = 1;
       if (unitsize > 32768) unitsize = 32768;
@@ -562,12 +555,12 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    secshift   = bsf32(di.SectorSize);
    n_clusters = (di.TotalSectors - datapos) / unitsize;
 
-   if (datapos >= di.TotalSectors/2) return DFME_SMALL;
-   if (n_clusters<16) return DFME_SMALL;
-   if (n_clusters>MAX_EXFAT) return DFME_LARGE;
+   if (datapos >= di.TotalSectors/2) return E_DSK_VSMALL;
+   if (n_clusters<16) return E_DSK_VSMALL;
+   if (n_clusters>MAX_EXFAT) return E_DSK_VLARGE;
    // unable to operate without CPLIB here!
    cpi     = NEW(qs_cpconvert);
-   if (!cpi) return DFME_CPLIB;
+   if (!cpi) return E_SYS_CPLIB;
 
    log_printf("Formatting vol %c, disk %02X, index %d to exFAT\n",
       vol+'A', di.Disk, volidx);
@@ -616,7 +609,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
          if (!si || ii==bufsize) {      /* Write buffered data when buffer full or end of process */
             sum = ii + di.SectorSize - 1 >> secshift;
             if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, sum, buf)!=sum) {
-               err = DFME_IOERR;
+               err = E_DSK_ERRWRITE;
                break;
             }
             wsect+=sum; ii=0;
@@ -667,7 +660,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
       bre->BR_ExF_PhysDisk = 0x80;
 
       if (!exf_updatevbr(di.Disk|QDSK_DIRECT, di.StartSector, buf, 1+exf_bsacount, 1))
-         err = DFME_IOERR;
+         err = E_DSK_ERRWRITE;
    }
    // write FAT
    if (!err) {
@@ -697,7 +690,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
          clpos+= _32KB/4;
          // write this 32k (i/o buffer size)
          if (hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, cpy, pf) != cpy) {
-            err = DFME_IOERR;
+            err = E_DSK_ERRWRITE;
             break;
          }
          wsect+= cpy;
@@ -709,7 +702,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
    // write bitmap
    if (!err)
       if (hlp_diskwrite(di.Disk|QDSK_DIRECT, di.StartSector+datapos, bm_nsec,
-         cbm->mem()) < bm_nsec) err = DFME_IOERR;
+         cbm->mem()) < bm_nsec) err = E_DSK_ERRWRITE;
    // write root directory
    if (!err) {
       memset(buf, 0, di.SectorSize);
@@ -725,7 +718,7 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) 
 
       if (!hlp_diskwrite(di.Disk|QDSK_DIRECT, wsect, 1, buf) ||
          unitsize>1 && dsk_emptysector(di.Disk|QDSK_DIRECT, wsect+1, unitsize-1))
-            err = DFME_IOERR;
+            err = E_DSK_ERRWRITE;
    }
    if (bclist) DELETE(bclist);
    DELETE(cbm);

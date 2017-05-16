@@ -6,15 +6,14 @@
 #include "classes.hpp"
 #include "stdlib.h"
 #include "errno.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qsconst.h"
-#include "direct.h"
 #include "time.h"
 #include "qsint.h"
-#include "qsmodext.h"
 
 #define SESS_SIGN     0x53534553
 #define MODE_ECHOOFF      0x0001
+#define MODE_DLAUNCH      0x0002
 
 static const char *no_cmd_err="Unable to load batch file \"%s\"\n";
 
@@ -24,7 +23,7 @@ typedef CmdList*           PCmdList;
 static CmdList *ext_shell = 0, *embedded = 0, *ext_mode = 0;
 
 static const char *internal_commands = "IF\nECHO\nGOTO\nGETKEY\nCLS\n"
-                             "SET\nFOR\nSHIFT\nREM\nPAUSE\nEXIT\nCALL";
+                    "PUSHKEY\nSET\nFOR\nSHIFT\nREM\nPAUSE\nEXIT\nCALL";
 
 struct session_info {
    u32t          sign;
@@ -113,6 +112,9 @@ static spstr &subst_env(spstr &str,session_info *si) {
            } else
            if (ename=="RANDOM") {
               eval = random(32768);
+           } else
+           if (ename=="SAFEMODE") {
+              eval = hlp_insafemode();
            } else
            if (ename=="LINES") {
               u32t lines = 25;
@@ -312,7 +314,7 @@ static u32t process_for(TStrings &plist, session_info *si) {
    return rc;
 }
 
-static u32t cmd_process(spstr ln,session_info *si) {
+static u32t cmd_process(spstr ln, session_info *si) {
    spstr   cmd = subst_env(ln,si).word(1).trim(), parm;
    int  noecho = cmd[0]=='@', linediff=1;
    u32t     rc = 0, ii;
@@ -340,8 +342,9 @@ static u32t cmd_process(spstr ln,session_info *si) {
       if (!plist.Count()) {
          cmd_shellerr(EMSG_CLIB,EINVAL,0);
       } else {
-         int icase = plist[0].upper()=="/I"?1:0, exec=0;
-         if (icase) plist.Delete(0);
+         plist[0].upper();
+         int icase = plist[0]=="/I", exec=0, bootvol = plist[0]=="/B";
+         if (icase || bootvol) plist.Delete(0);
          int  _not = plist[0].upper()=="NOT"?1:0;
          if (_not) plist.Delete(0);
          spstr next(plist[0].upper());
@@ -351,10 +354,14 @@ static u32t cmd_process(spstr ln,session_info *si) {
                exec = mod_query(plist[1](),MODQ_NOINCR)!=0;
             } else
             if (next[1]=='X') {
-               char buf[QS_MAXPATH+1];
-               *buf = 0;
-               _searchenv(plist[1](), 0, buf);
-               exec = *buf!=0;
+               if (bootvol) {
+                  exec = hlp_fexist(plist[1]())?1:0;
+               } else {
+                  char buf[QS_MAXPATH+1];
+                  *buf = 0;
+                  _searchenv(plist[1](), 0, buf);
+                  exec = *buf!=0;
+               }
             } else {
                exec = atoi(getenv("ERRORLEVEL"))>=plist[1].Int();
             }
@@ -416,6 +423,11 @@ static u32t cmd_process(spstr ln,session_info *si) {
       } else
          while (log_hotkey(ii=key_read()));
       set_errorlevel(ii);
+   } else
+   if (cmd=="PUSHKEY") {
+      ii = parm.Dword();
+      if (!ii) ii = 0x3920;
+      key_push(ii);
    } else
    if (cmd=="CLS") {
       vio_clearscr();
@@ -502,16 +514,25 @@ static u32t cmd_process(spstr ln,session_info *si) {
                                    (module*)mod_searchload(cmd(),0,&error);
             if (md) {
                char *env = envcopy(mod_context(), 0);
-               s32t   rc = mod_exec((u32t)md, env, parm());
-               if (rc<0) printf("Unable to launch module \"%s\"\n",cmd());
+               s32t   rc;
+
+               if (si->mode&MODE_DLAUNCH) {
+                  qs_mtlib mt = get_mtlib();
+                  error = mt ? mt->execse((u32t)md, env, parm(), QEXS_DETACH|
+                               QEXS_NOTACHILD, 0) : E_MT_DISABLED;
+                  rc    = qserr2errno(error);
+               } else {
+                  rc = mod_exec((u32t)md, env, parm(), 0);
+                  if (rc<0) printf("Unable to launch module \"%s\"\n", cmd());
+                  mod_free((u32t)md);
+               }
                free(env);
-               mod_free((u32t)md);
                // set errorlevel env. var
                set_errorlevel(rc);
                rc = 0;
             } else {
-               printf("Error loading module \"%s\"\n",cmd());
-               char *msg = cmd_shellerrmsg(EMSG_QS,error);
+               printf("Error loading module \"%s\"\n", cmd());
+               char *msg = cmd_shellerrmsg(EMSG_QS, error);
                if (msg) {
                   printf("(%s)\n", msg);
                   free(msg);
@@ -531,22 +552,23 @@ u32t _std cmd_run(cmd_state commands, u32t flags) {
    u32t rc=0, svmode=si->mode;
 
    if (flags&CMDR_ECHOOFF) si->mode|=MODE_ECHOOFF;
+   if (flags&CMDR_DETACH) si->mode|=MODE_DLAUNCH;
 
    while (true) {
       //log_printf("calling line %d nest %x lines %d\n", si->nextline, si->nest,si->list.Count());
       if (si->nest) {
-         rc=cmd_run(si->nest,flags|CMDR_NESTCALL);
+         rc = cmd_run(si->nest, flags|CMDR_NESTCALL);
          if (rc==CMDR_RETEND) {
             cmd_close(si->nest);
             si->nest=0;
-            rc=0;
+            rc = 0;
          }
          continue;
       } else
       if (si->nextline>=si->list.Count()) {
-         rc=CMDR_RETEND; break;
+         rc = CMDR_RETEND; break;
       } else
-         rc=cmd_process(si->list[si->nextline],si);
+         rc = cmd_process(si->list[si->nextline], si);
 
       if (flags&CMDR_ONESTEP) break;
    }
@@ -561,6 +583,7 @@ u32t _std cmd_getflags(cmd_state commands) {
    if (!si||si->sign!=SESS_SIGN) return 0;
    u32t rc = 0;
    if ((si->mode&MODE_ECHOOFF)!=0) rc|=CMDR_ECHOOFF;
+   if ((si->mode&MODE_DLAUNCH)!=0) rc|=CMDR_DETACH;
    return rc;
 }
 
@@ -716,4 +739,62 @@ module* load_module(spstr &name, u32t *error) {
    // launch or search module
    return name[1]==':'?(module*)mod_load((char*)name(),0,error,0):
                        (module*)mod_searchload(name(),0,error);
+}
+
+u32t _std cmd_argtype(char *arg) {
+   if (!arg || !*arg) return ARGT_UNKNOWN;
+   spstr path(arg);
+   path.upper();
+   if (path[1]==':'&&(path.length()==2||path[2]=='\\'&&path.length()==3)) {
+      return ARGT_DISKSTR;
+   } else
+   if (cmd_shellquery(path())) return ARGT_SHELLCMD; else {
+      int search = 0, tryext = 0;
+      spstr  dir, name;
+
+      splitfname(path, dir, name);
+
+      if (!dir) search = 1;
+      if (name.cpos('.')<0) tryext = 1;
+      // skip directories
+      io_handle_info  fi;
+      int exist = io_pathinfo(path(), &fi)==0;
+      if (exist && (fi.attrs&IOFA_DIR)!=0) exist = 0;
+      
+      if (exist) fullpath(path); else {
+         int    err = 0;
+         spstr srch;
+         // append possible extensions
+         if (tryext) {
+            srch=path; srch+=".EXE";
+            // dir will be denied by our`s access on R_OK
+            if (access(srch(), R_OK)) {
+               srch=path; srch+=".CMD";
+               if (access(srch(), R_OK)) err = 1;
+            }
+            if (!err) { path=srch; fullpath(path); }
+         }
+         // search in path
+         if (search && (err||!tryext)) {
+            char lp[QS_MAXPATH+1];
+            err  = 0;
+            _searchenv(path(), "PATH", lp);
+            if (!lp[0])
+               if (tryext) {
+                  srch=path; srch+=".EXE";
+                  _searchenv(srch(), "PATH", lp);
+                  if (!lp[0]) {
+                     srch=path; srch+=".CMD";
+                     _searchenv(srch(), "PATH", lp);
+                     if (!lp[0]) err = 1;
+                  }
+               } else err = 1;
+            if (!err) path = lp;
+         }
+         if (err || path.length()>QS_MAXPATH) return ARGT_UNKNOWN;
+      }
+      spstr ext = path.upper().right(4);
+      strcpy(arg, path());
+      return ext==".CMD"||ext==".BAT"?ARGT_BATCHFILE:ARGT_FILE;
+   }
 }

@@ -68,10 +68,13 @@ rs_seltype      db      ?
 rels_info       ends
 ;cc typedef struct rels_info rels_type;
 
+FXRELO_T16      equ     01h        ;/< target is 16-bit part
+FXRELO_S16      equ     02h        ;/< offset is 16-bit part
+
 relo_info       struc
 ro_offset       dd      ?
 ro_target       dd      ?
-ro_tgt16        db      ?
+ro_flags        db      ?
 relo_info       ends
 ;cc typedef struct relo_info relo_type;
 

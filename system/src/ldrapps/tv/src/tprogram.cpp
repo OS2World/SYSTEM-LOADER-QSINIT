@@ -1,20 +1,16 @@
-
 /*------------------------------------------------------------*/
 /* filename -       tprogram.cpp                              */
 /*                                                            */
 /* function(s)                                                */
 /*                  TProgram member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TProgram
@@ -29,6 +25,7 @@
 #define Uses_TMenuBar
 #define Uses_TStatusDef
 #define Uses_TStatusItem
+#define Uses_TDialog
 #define Uses_TThreaded
 #include <tv.h>
 #include <tvhelp.h>
@@ -197,6 +194,22 @@ void TProgram::shutDown() {
    TGroup::shutDown();
 }
 
+Boolean TProgram::canMoveFocus() {
+   return deskTop->valid(cmReleasedFocus);
+}
+
+ushort TProgram::executeDialog(TDialog* pD, void* data) {
+   ushort cc=cmCancel;
+
+   if (validView(pD)) {
+      if (data) pD->setData(data);
+      cc = deskTop->execView(pD);
+      if ((cc != cmCancel) && (data)) pD->getData(data);
+      destroy(pD);
+   }
+   return cc;
+}
+
 inline Boolean hasMouse(TView *p, void *s) {
    return Boolean((p->state & sfVisible) != 0 &&
                   p->mouseInView(((TEvent *)s)->mouse.where));
@@ -310,14 +323,10 @@ void TProgram::getEvent(TEvent &event) {
 }
 
 TPalette &TProgram::getPalette() const {
-   static TPalette color(cpColor cHelpColor, sizeof(cpColor cHelpColor)-1);
-   static TPalette blackwhite(cpBlackWhite cHelpBlackWhite, sizeof(cpBlackWhite cHelpBlackWhite)-1);
-   static TPalette monochrome(cpMonochrome cHelpMonochrome, sizeof(cpMonochrome cHelpMonochrome)-1);
-   static TPalette *palettes[] = {
-      &color,
-      &blackwhite,
-      &monochrome
-   };
+   static TPalette color ( cpAppColor, sizeof( cpAppColor )-1 );
+   static TPalette blackwhite(cpAppBlackWhite, sizeof( cpAppBlackWhite )-1 );
+   static TPalette monochrome(cpAppMonochrome, sizeof( cpAppMonochrome )-1 );
+   static TPalette *palettes[] = { &color, &blackwhite, &monochrome };
    return *(palettes[appPalette]);
 }
 
@@ -415,6 +424,16 @@ TStatusLine *TProgram::initStatusLine(TRect r) {
                           *new TStatusItem(0, kbF5, cmZoom) +
                           *new TStatusItem(0, kbCtrlF5, cmResize)
                          );
+}
+
+TWindow* TProgram::insertWindow(TWindow* pWin) {
+   if (validView(pWin))
+      if (canMoveFocus()) {
+         deskTop->insert(pWin);
+         return pWin;
+      } else
+         destroy(pWin);
+   return NULL;
 }
 
 void TProgram::outOfMemory() {

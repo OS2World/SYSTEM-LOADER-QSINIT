@@ -22,7 +22,7 @@ typedef struct qs_emudisk_s {
    /** open existing image file.
        @param  fname    file path
        @retval 0             on success
-       @retval E_DSK_UNCKFS  unknown file format. */
+       @retval E_DSK_UNKFS  unknown file format. */
    qserr _exicc (*open   )(const char *fname);
    /** query "disk" info.
        @param  info     disk size & geometry info, can be 0
@@ -51,8 +51,8 @@ typedef struct qs_emudisk_s {
    qserr _exicc (*close  )(void);
 
    /** enable/disable tracing of this disk instance calls.
-       Function not starts actual tracing! It just switches including of
-       these instances into global tracing when it turned on.
+       Function does not start the actual tracing! It just switches including
+       of these instances into global tracing when it turned on.
        Undocumented "VHDD trace disk" command can be used in console to
        turn bitmap tracing ON for this disk.
 

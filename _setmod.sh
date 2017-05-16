@@ -11,6 +11,7 @@ chmod +111 system/src/init/make.sh
 chmod +111 system/src/ldrefi/make.sh
 chmod +111 system/src/ldrapps/make.sh
 chmod +111 system/src/usrapps/example/make.sh
+chmod +111 system/src/usrapps/fixcfg/make.sh
 chmod +111 system/src/usrapps/mptable/make.sh
 chmod +111 system/src/usrapps/mttest/make.sh
 chmod +111 system/src/tools/setupi.sh

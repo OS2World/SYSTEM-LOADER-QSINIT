@@ -38,7 +38,7 @@ typedef struct qs_mtlib_s {
        @retval E_MT_OLDCPU     no local APIC on CPU (P5 and below)
        @retval E_SYS_NOMEM     memory allocation error
        @retval E_SYS_DONE      mode already on */
-   u32t   _exicc (*initialize)  (void);
+   qserr  _exicc (*initialize)  (void);
    /// return current mtlib state (on/off).
    u32t   _exicc (*active)      (void);
    /** get pid of EXEcuting module.
@@ -54,6 +54,9 @@ typedef struct qs_mtlib_s {
    qserr  _exicc (*resumethread)(u32t pid, u32t tid);
    /// set thread comment
    qserr  _exicc (*threadname)  (const char *str);
+   /// start session
+   qserr  _exicc (*execse)      (u32t module, const char *env, const char *params,
+                                 u32t flags, mt_pid *ppid);
 } _qs_mtlib, *qs_mtlib;
 
 #ifdef __cplusplus

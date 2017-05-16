@@ -4,14 +4,13 @@
 //
 #include "qsint.h"
 #include "qsutil.h"
-#include "stdlib.h"
 #include "qsstor.h"
 #include "qslog.h"
 #include "meminit.h"
 #include "qspage.h"
 #include "classes.hpp"
 #include "qsmodext.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "pagedesc.h"
 #include "qssys.h"
 #include "errno.h"
@@ -36,6 +35,8 @@ typedef struct {
 
 static physmem_block  *physmem = 0; // exported physmem array
 u32t                  maxmap4g = 0; // top address to be mapped in 1st 4GBs
+static u32t           pages_lo = 0, // total free pages below 4Gb
+                      pages_hi = 0; // total free pages above 4Gb
 
 void setup_memlist(void);
 void hlp_pgprint(void);
@@ -133,10 +134,14 @@ void setup_memory(void) {
    maxmap4g = _1MB;
    for (ii = 0; ii<pcmem.Count(); ii++) {
       mem_entry  &me = pcmem[ii];
-      if (me.start<_4GBLL && me.owner==PCMEM_FREE) {
-         u32t eaddr = me.start + me.len;
-         if (eaddr > maxmap4g) maxmap4g = eaddr;
-      }
+      if (me.owner==PCMEM_FREE)
+         if (me.start<_4GBLL) {
+            u32t eaddr = me.start + me.len;
+            if (eaddr > maxmap4g) maxmap4g = eaddr;
+         
+            if (me.start>=_1MB) pages_lo += me.len>>PAGESHIFT;
+         } else
+            pages_hi += me.len>>PAGESHIFT;
    }
    /* mark blocks:
       * 1st Mb            - DIRECT
@@ -202,6 +207,11 @@ pcmem_entry* _std sys_getpcmem(int freeonly) {
    rc[ti].start = 0;
    rc[ti].pages = 0;
    return rc;
+}
+
+u32t _std sys_ramtotal(u32t *above4gb) {
+   if (above4gb) *above4gb = pages_hi;
+   return pages_lo;
 }
 
 u32t _std sys_endofram(void) {
@@ -470,7 +480,7 @@ void setup_memlist(void) {
 }
 
 /// find block index in memx array
-static int pag_findidx(u32t physaddr, u32t len, u32t flags = 0) {
+static int pag_findidx(u32t physaddr, u32t len) {
    if (!memx.Count()) return -1;
    // len with overflow?
    if (physaddr+len < physaddr) return -1;

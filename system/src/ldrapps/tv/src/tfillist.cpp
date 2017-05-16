@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TFileList member functions                */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TVMemMgr
 #define Uses_MsgBox
@@ -22,6 +19,7 @@
 #define Uses_TSearchRec
 #define Uses_TEvent
 #define Uses_TGroup
+#define Uses_TKeys
 #include <tv.h>
 #include <tvdir.h>
 
@@ -46,7 +44,8 @@
 
 TFileList::TFileList(const TRect &bounds,
                      TScrollBar *aScrollBar) :
-   TSortedListBox(bounds, 2, aScrollBar) {
+   TSortedListBox(bounds, 2, aScrollBar)
+{
 }
 
 TFileList::~TFileList() {
@@ -56,6 +55,10 @@ TFileList::~TFileList() {
 void TFileList::focusItem(int item) {
    TSortedListBox::focusItem(item);
    message(owner, evBroadcast, cmFileFocused, list()->at(item));
+}
+
+void TFileList::selectItem(int item) {
+   message(owner, evBroadcast, cmFileDoubleClicked, list()->at(item));
 }
 
 void TFileList::getData(void *) {
@@ -71,7 +74,7 @@ size_t TFileList::dataSize() {
 void *TFileList::getKey(const char *s) {
    static TSearchRec sR;
 
-   if ((getShiftState() & 0x03) != 0 || *s == '.')
+   if ((shiftState & kbShift) != 0 || *s == '.')
       sR.attr = FA_DIREC;
    else
       sR.attr = 0;
@@ -88,16 +91,6 @@ void TFileList::getText(char *dest, int item, int maxChars) {
    strncpy(dest, f->name, maxChars);
    dest[maxChars] = '\0';
    if (f->attr & FA_DIREC) strcat(dest, "\\");
-}
-
-void TFileList::handleEvent(TEvent &event) {
-   if (event.what == evMouseDown && event.mouse.doubleClick) {
-      event.what = evCommand;
-      event.message.command = cmOK;
-      putEvent(event);
-      clearEvent(event);
-   } else
-      TSortedListBox::handleEvent(event);
 }
 
 void TFileList::readDirectory(const char *dir, const char *wildCard) {

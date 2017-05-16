@@ -12,16 +12,13 @@
 /*                      TColorGroupList                       */
 /*                      TColorDialog                          */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TColorSelector
@@ -45,6 +42,8 @@
 #include <tv.h>
 #include <ttypes.h>
 #include <string.h>
+
+static TColorIndex *colorIndexes = 0;
 
 TColorItem::TColorItem(const char *nm, uchar idx, TColorItem *nxt) {
    index = idx;
@@ -113,12 +112,12 @@ void TColorSelector::draw() {
    for (int i = 0; i <= size.y; i++) {
       if (i < 4) {
          for (int j = 0; j < 4; j++) {
-            int c = i*4+j;
-            b.moveChar(j*3, icon, c, 3);
+            int c = i * 4 + j;
+            b.moveChar(j * 3, icon, c, 3);
             if (c == color) {
-               b.putChar(j*3+1, 8);
+               b.putChar(j * 3 + 1, 8);
                if (c == 0)
-                  b.putAttribute(j*3+1, 0x70);
+                  b.putAttribute(j * 3 + 1, 0x70);
             }
          }
       }
@@ -140,76 +139,73 @@ void TColorSelector::handleEvent(TEvent &event) {
 
    TView::handleEvent(event);
 
+   uchar oldColor = color;
+   int maxCol = (selType == csBackground) ? 7 : 15;
    switch (event.what) {
 
-      case evMouseDown: {
-         uchar oldColor = color;
-         do {
-            if (mouseInView(event.mouse.where)) {
-               TPoint mouse = makeLocal(event.mouse.where);
-               color = mouse.y*4 + mouse.x/3;
-            } else
-               color = oldColor;
-            colorChanged();
-            drawView();
-         } while (mouseEvent(event, evMouseMove));
-      }
-      break;
-
-      case evKeyDown: {
-         int maxCol = (selType == csBackground) ? 7 : 15;
-
-         switch (ctrlToArrow(event.keyDown.keyCode)) {
-            case kbLeft:
-               if (color > 0)
-                  color--;
-               else
-                  color = maxCol;
-               break;
-
-            case kbRight:
-               if (color < maxCol)
-                  color++;
-               else
-                  color = 0;
-               break;
-
-            case kbUp:
-               if (color > width-1)
-                  color -= width;
-               else if (color == 0)
-                  color = maxCol;
-               else
-                  color += maxCol - width;
-               break;
-
-            case kbDown:
-               if (color < maxCol - (width-1))
-                  color += width;
-               else if (color == maxCol)
-                  color = 0;
-               else
-                  color -= maxCol - width;
-               break;
-
-            default:
-               return;
-         }
-      }
-      break;
-
-      case evBroadcast:
-         if (event.message.command == cmColorSet) {
-            if (selType == csBackground)
-               color = event.message.infoByte >> 4;
-            else
-               color = event.message.infoByte & 0x0F;
-            drawView();
-            return ;
+   case evMouseDown:
+      do  {
+         if (mouseInView(event.mouse.where)) {
+            TPoint mouse = makeLocal(event.mouse.where);
+            color = mouse.y * 4 + mouse.x / 3;
          } else
-            return;
+            color = oldColor;
+         colorChanged();
+         drawView();
+      } while (mouseEvent(event, evMouseMove));
+      break;
+
+   case evKeyDown:
+      switch (ctrlToArrow(event.keyDown.keyCode)) {
+      case kbLeft:
+         if (color > 0)
+            color--;
+         else
+            color = maxCol;
+         break;
+
+      case kbRight:
+         if (color < maxCol)
+            color++;
+         else
+            color = 0;
+         break;
+
+      case kbUp:
+         if (color > width - 1)
+            color -= width;
+         else if (color == 0)
+            color = maxCol;
+         else
+            color += maxCol - width;
+         break;
+
+      case kbDown:
+         if (color < maxCol - (width - 1))
+            color += width;
+         else if (color == maxCol)
+            color = 0;
+         else
+            color -= maxCol - width;
+         break;
+
       default:
+         return;
+      }
+      break;
+
+   case evBroadcast:
+      if (event.message.command == cmColorSet) {
+         if (selType == csBackground)
+            color = event.message.infoByte >> 4;
+         else
+            color = event.message.infoByte & 0x0F;
+         drawView();
          return ;
+      } else
+         return;
+   default:
+      return ;
    }
    drawView();
    colorChanged();
@@ -236,15 +232,16 @@ TStreamable *TColorSelector::build() {
 
 TColorSelector::TColorSelector(StreamableInit) : TView(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
+#endif // NO_TV_STREAMS
 
 const uchar monoColors[] = { 0x07, 0x0F, 0x01, 0x70, 0x09 };
 
 TMonoSelector::TMonoSelector(const TRect &bounds) :
    TCluster(bounds, new TSItem(normal,
-                               new TSItem(highlight,
-                                          new TSItem(underline,
-                                                new TSItem(inverse,  0))))) {
+                    new TSItem(highlight,
+                    new TSItem(underline,
+                    new TSItem(inverse, 0)))))
+{
    eventMask |= evBroadcast;
 }
 
@@ -288,7 +285,8 @@ TStreamable *TMonoSelector::build() {
 
 TMonoSelector::TMonoSelector(StreamableInit) : TCluster(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
+#endif // NO_TV_STREAMS
+
 
 TColorDisplay::TColorDisplay(const TRect &bounds, const char *aText) :
    TView(bounds),
@@ -303,14 +301,12 @@ TColorDisplay::~TColorDisplay() {
 
 void TColorDisplay::draw() {
    uchar c = *color;
-#ifndef __IDA__
    if (c == 0)
       c = errorAttr;
-#endif
    const int len = strlen(text);
    TDrawBuffer b;
-   for (int i = 0; i <= size.x/len; i++)
-      b.moveStr(i*len, text, c);
+   for (int i = 0; i <= size.x / len; i++)
+      b.moveStr(i * len, text, c);
    writeLine(0, 0, size.x, size.y, b);
 }
 
@@ -318,14 +314,14 @@ void TColorDisplay::handleEvent(TEvent &event) {
    TView::handleEvent(event);
    if (event.what == evBroadcast)
       switch (event.message.command) {
-         case cmColorBackgroundChanged:
-            *color = (*color & 0x0F) | ((event.message.infoByte << 4) & 0xF0);
-            drawView();
-            break;
+      case cmColorBackgroundChanged:
+         *color = (*color & 0x0F) | ((event.message.infoByte << 4) & 0xF0);
+         drawView();
+         break;
 
-         case cmColorForegroundChanged:
-            *color = (*color & 0xF0) | (event.message.infoByte & 0x0F);
-            drawView();
+      case cmColorForegroundChanged:
+         *color = (*color & 0xF0) | (event.message.infoByte & 0x0F);
+         drawView();
       }
 }
 
@@ -354,7 +350,7 @@ TStreamable *TColorDisplay::build() {
 
 TColorDisplay::TColorDisplay(StreamableInit) : TView(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
+#endif // NO_TV_STREAMS
 
 TColorGroupList::TColorGroupList(const TRect &bounds,
                                  TScrollBar *aScrollBar,
@@ -396,7 +392,7 @@ void TColorGroupList::focusItem(int item) {
    TColorGroup *curGroup = groups;
    while (item-- > 0)
       curGroup = curGroup->next;
-   message(owner, evBroadcast, cmNewColorItem, curGroup->items);
+   message(owner, evBroadcast, cmNewColorItem, curGroup);
 }
 
 void TColorGroupList::getText(char *dest, int item, int maxChars) {
@@ -423,6 +419,7 @@ void TColorGroupList::writeItems(opstream &os, TColorItem *items) {
    }
 }
 
+
 void TColorGroupList::writeGroups(opstream &os, TColorGroup *groups) {
    int count = 0;
    TColorGroup *cur;
@@ -437,7 +434,49 @@ void TColorGroupList::writeGroups(opstream &os, TColorGroup *groups) {
       writeItems(os, cur->items);
    }
 }
+#endif // NO_TV_STREAMS
 
+void TColorGroupList::handleEvent(TEvent &ev) {
+   TListViewer::handleEvent(ev);
+   if ((ev.what == evBroadcast) &&
+         (ev.message.command == cmSaveColorIndex))
+      setGroupIndex(focused, ev.message.infoByte);
+}
+
+void TColorGroupList::setGroupIndex(uchar groupNum, uchar itemNum) {
+   TColorGroup *g = getGroup(groupNum);
+   if (g)
+      g->index = itemNum;
+}
+
+uchar TColorGroupList::getGroupIndex(uchar groupNum) {
+   TColorGroup *g = getGroup(groupNum);
+   if (g)
+      return g->index;
+   else
+      return NULL;
+}
+
+TColorGroup *TColorGroupList::getGroup(uchar groupNum) {
+   TColorGroup *g = groups;
+
+   while (groupNum--)
+      g = g->next;
+
+   return g;
+}
+
+uchar TColorGroupList::getNumGroups() {
+   uchar n;
+   TColorGroup *g = groups;
+
+   for (n = 0; g; n++)
+      g = g->next;
+
+   return n;
+}
+
+#ifndef NO_TV_STREAMS
 void TColorGroupList::write(opstream &os) {
    TListViewer::write(os);
    writeGroups(os, groups);
@@ -449,11 +488,11 @@ TColorItem *TColorGroupList::readItems(ipstream &is) {
    TColorItem *items = 0;
    TColorItem **cur = &items;
    while (count-- > 0) {
-      /* const */ char *nm = is.readString();
+      char *nm = is.readString();
       uchar index;
       is >> index;
       *cur = new TColorItem(nm, index);
-      delete nm; // BF
+      delete nm;
       cur = &((*cur)->next);
    }
    *cur = 0;
@@ -466,11 +505,11 @@ TColorGroup *TColorGroupList::readGroups(ipstream &is) {
    TColorGroup *groups = 0;
    TColorGroup **cur = &groups;
    while (count-- > 0) {
-      /* const */ char *nm = is.readString();
+      char *nm = is.readString();
       TColorItem *grp = readItems(is);
       *cur = new TColorGroup(nm, grp);
-      delete nm; // BF
       cur = &((*cur)->next);
+      delete nm;
    }
    *cur = 0;
    return groups;
@@ -489,7 +528,7 @@ TStreamable *TColorGroupList::build() {
 TColorGroupList::TColorGroupList(StreamableInit) :
    TListViewer(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
+#endif // NO_TV_STREAMS
 
 TColorItemList::TColorItemList(const TRect &bounds,
                                TScrollBar *aScrollBar,
@@ -508,6 +547,8 @@ TColorItemList::TColorItemList(const TRect &bounds,
 
 void TColorItemList::focusItem(int item) {
    TListViewer::focusItem(item);
+   message(owner, evBroadcast, cmSaveColorIndex, (void *)item);
+
    TColorItem *curItem = items;
    while (item-- > 0)
       curItem = curItem->next;
@@ -524,17 +565,25 @@ void TColorItemList::getText(char *dest, int item, int maxChars) {
 
 void TColorItemList::handleEvent(TEvent &event) {
    TListViewer::handleEvent(event);
-   if (event.what == evBroadcast && event.message.command == cmNewColorItem) {
-      items = (TColorItem *)event.message.infoPtr;
-      TColorItem *curItem = items;
+   if (event.what == evBroadcast) {
+      TColorGroup *g = (TColorGroup *) event.message.infoPtr;
+      TColorItem *curItem;
       int i = 0;
-      while (curItem != 0) {
-         curItem = curItem->next;
-         i++;
+
+      switch (event.message.command) {
+      case cmNewColorItem:
+         curItem = items = g->items;
+         while (curItem != 0) {
+            curItem = curItem->next;
+            i++;
+         }
+         setRange(i);
+         focusItem(g->index);
+         drawView();
+         break;
+      default:
+         break;
       }
-      setRange(i);
-      focusItem(0);
-      drawView();
    }
 }
 
@@ -546,69 +595,71 @@ TStreamable *TColorItemList::build() {
 TColorItemList::TColorItemList(StreamableInit) :
    TListViewer(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
+#endif // NO_TV_STREAMS
 
 TColorDialog::TColorDialog(TPalette *aPalette, TColorGroup *aGroups):
-#ifndef __IDA__
-#define SELEND 11
-#else
-#define SELEND 11+2
-#endif
-   TDialog(TRect(0, 0, 61, SELEND+7), colors),
-   TWindowInit(TColorDialog::initFrame) {
+   TDialog(TRect(0, 0, 79, 18), colors),
+   TWindowInit(&TColorDialog::initFrame) {
    options |= ofCentered;
-   pal = aPalette;
+   if (aPalette != 0) {
+      pal = new TPalette("", 0);
+      *pal = *aPalette;
+   } else
+      pal = 0;
 
-   TScrollBar *sb = new TScrollBar(TRect(18, 3, 19, SELEND+3));
+   TScrollBar *sb = new TScrollBar(TRect(27, 3, 28, 14));
    insert(sb);
 
-   groups = new TColorGroupList(TRect(3, 3, 18, SELEND+3), sb, aGroups);
+   groups = new TColorGroupList(TRect(3, 3, 27, 14), sb, aGroups);
    insert(groups);
-   insert(new TLabel(TRect(2, 2, 8, 3), groupText, groups));
+   insert(new TLabel(TRect(3, 2, 10, 3), groupText, groups));
 
-   sb = new TScrollBar(TRect(41, 3, 42, SELEND+3));
+   sb = new TScrollBar(TRect(59, 3, 60, 14));
    insert(sb);
 
-   TView *p = new TColorItemList(TRect(21, 3, 41, SELEND+3), sb, aGroups->items);
+   TView *p = new TColorItemList(TRect(30, 3, 59, 14), sb, aGroups->items);
    insert(p);
-   insert(new TLabel(TRect(20, 2, 25, 3), itemText, p));
+   insert(new TLabel(TRect(30, 2, 36, 3), itemText, p));
 
-   forSel = new TColorSelector(TRect(45, 3, 57, 7),
+   forSel = new TColorSelector(TRect(63, 3, 75, 7),
                                TColorSelector::csForeground);
    insert(forSel);
-   forLabel = new TLabel(TRect(45, 2, 57, 3), forText, forSel);
+   forLabel = new TLabel(TRect(63, 2, 75, 3), forText, forSel);
    insert(forLabel);
 
-   bakSel = new TColorSelector(TRect(45, 9, 57, SELEND),
+   bakSel = new TColorSelector(TRect(63, 9, 75, 11),
                                TColorSelector::csBackground);
    insert(bakSel);
-   bakLabel = new TLabel(TRect(45, 8, 57, 9), bakText, bakSel);
+   bakLabel = new TLabel(TRect(63, 8, 75, 9), bakText, bakSel);
    insert(bakLabel);
 
-   display = new TColorDisplay(TRect(44, SELEND+1, 58, SELEND+3), textText);
+   display = new TColorDisplay(TRect(62, 12, 76, 14), textText);
    insert(display);
 
-   monoSel = new TMonoSelector(TRect(44, 3, 59, 7));     // was 8
+   monoSel = new TMonoSelector(TRect(62, 3, 77, 7));
    monoSel->hide();
    insert(monoSel);
-   monoLabel = new TLabel(TRect(43, 2, 49, 3), colorText, monoSel);
+   monoLabel = new TLabel(TRect(62, 2, 69, 3), colorText, monoSel);
    monoLabel->hide();
    insert(monoLabel);
 
-   if (aGroups != 0 && aGroups->items != 0)
-      display->setColor((uchar *)&pal->data[ aGroups->items->index ]);
-
-   insert(new TButton(TRect(36, SELEND+4, 46, SELEND+6), okText, cmOK, bfDefault));
-   insert(new TButton(TRect(48, SELEND+4, 58, SELEND+6),
-                      cancelText,
-                      cmCancel,
-                      bfNormal));
+   insert(new TButton(TRect(51, 15, 61, 17), okText, cmOK, bfDefault));
+   insert(new TButton(TRect(63, 15, 73, 17), cancelText, cmCancel, bfNormal));
    selectNext(False);
+
+   if (pal != 0)
+      setData(pal);
+}
+
+TColorDialog::~TColorDialog() {
+   delete pal;
 }
 
 void TColorDialog::handleEvent(TEvent &event) {
+   if (event.what == evBroadcast && event.message.command == cmNewColorItem)
+      groupIndex = groups->focused;
    TDialog::handleEvent(event);
-   if (event.what==evBroadcast && event.message.command==cmNewColorIndex)
+   if (event.what == evBroadcast && event.message.command == cmNewColorIndex)
       display->setColor((uchar *)&pal->data[event.message.infoByte]);
 }
 
@@ -617,15 +668,18 @@ size_t TColorDialog::dataSize() {
 }
 
 void TColorDialog::getData(void *rec) {
-   memcpy(rec, pal->data, *pal->data+1);
+   getIndexes(colorIndexes);
+   *(TPalette *) rec = *pal;
 }
 
 void TColorDialog::setData(void *rec) {
-   TPalette *p = (TPalette *)rec;
+   if (!pal)
+      pal = new TPalette("", 0);
+   *pal = *(TPalette *) rec;
 
-   memcpy(pal->data, p->data, *p->data+1);
-   display->setColor((uchar *)&pal->data[1]);
-   groups->focusItem(0);
+   setIndexes(colorIndexes);
+   display->setColor((uchar *)&pal->data[groups->getGroupIndex(groupIndex)]);
+   groups->focusItem(groupIndex);
    if (showMarkers) {
       forLabel->hide();
       forSel->hide();
@@ -635,6 +689,38 @@ void TColorDialog::setData(void *rec) {
       monoSel->show();
    }
    groups->select();
+}
+
+void TColorDialog::setIndexes(TColorIndex *&colIdx) {
+   uchar numGroups, index;
+
+   numGroups = groups->getNumGroups();
+   if (colIdx && (colIdx->colorSize != numGroups)) {
+      delete colIdx;
+      colIdx = NULL;      // BUG FIX
+   }
+   if (!colIdx) {
+      colIdx = (TColorIndex *) new uchar[numGroups + 2];
+      colIdx->groupIndex = 0;
+      memset(colIdx->colorIndex, 0, numGroups);
+      colIdx->colorSize = numGroups;
+   }
+   for (index = 0; index < numGroups; index++)
+      groups->setGroupIndex(index, colIdx->colorIndex[index]);
+
+   groupIndex = colIdx->groupIndex;
+}
+
+void TColorDialog::getIndexes(TColorIndex *&colIdx) {
+   uchar n = groups->getNumGroups();
+   if (!colIdx) {
+      colIdx = (TColorIndex *) new uchar[n + 2];
+      memset(colIdx->colorIndex, 0, n);
+      colIdx->colorSize = n;
+   }
+   colIdx->groupIndex = groupIndex;
+   for (uchar index = 0; index < n; index++)
+      colIdx->colorIndex[index] = groups->getGroupIndex(index);
 }
 
 #ifndef NO_TV_STREAMS
@@ -662,4 +748,3 @@ TColorDialog::TColorDialog(StreamableInit) :
    TWindowInit(0) {
 }
 #endif  // ifndef NO_TV_STREAMS
-

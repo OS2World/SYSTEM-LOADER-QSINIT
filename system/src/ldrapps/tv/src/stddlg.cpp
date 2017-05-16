@@ -8,16 +8,13 @@
 /*                      TSearchRec                            */
 /*                      TFileInfoPane                         */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 
 #define Uses_MsgBox
@@ -56,30 +53,38 @@ struct  ftime   {
 };
 #endif
 
-#ifdef __MSDOS__
-char &shiftKeys = *(char *)MK_FP(0x0, 0x417);
-unsigned char getShiftState(void) { return shiftKeys; }
-#endif // __MSDOS__
-
 void fexpand(char *);
 
 #define cpInfoPane "\x1E"
 
 TFileInputLine::TFileInputLine(const TRect &bounds, short aMaxLen) :
    TInputLine(bounds, aMaxLen) {
-   eventMask = eventMask | evBroadcast;
+   eventMask |= evBroadcast;
 }
 
 void TFileInputLine::handleEvent(TEvent &event) {
    TInputLine::handleEvent(event);
-   if (event.what == evBroadcast &&
-       event.message.command == cmFileFocused &&
-       !(state & sfSelected)
-      ) {
+   if (event.what == evBroadcast && event.message.command == cmFileFocused &&
+      !(state & sfSelected)) 
+   {
+      // Prevents incorrect display in the input line if wildCard has
+      // already been expanded.
       if ((((TSearchRec *)event.message.infoPtr)->attr & FA_DIREC) != 0) {
-         strcpy(data, ((TSearchRec *)event.message.infoPtr)->name);
-         strcat(data, "\\");
-         strcat(data, ((TFileDialog *)owner)->wildCard);
+         strcpy(data, ((TFileDialog *)owner)->wildCard);
+         if (!strchr(data, ':') && !strchr(data, '\\')) {
+            strcpy(data, ((TSearchRec *)event.message.infoPtr)->name);
+            strcat(data, "\\");
+            strcat(data, ((TFileDialog *)owner)->wildCard);
+         } else {
+            // Insert "<name>\\" between last name or wildcard and last '\'
+            fexpand(data);    // Insure complete expansion to begin with
+            char *tmp = strrchr(data, '\\') + 1;
+            char *nm = ((TSearchRec *)event.message.infoPtr)->name;
+            memmove(tmp + strlen(nm) + 1, tmp, strlen(tmp) + 1);
+            memcpy(tmp, nm, strlen(nm));
+            *(tmp + strlen(nm)) = '\\';
+            fexpand(data);    // Expand again incase it was '..'.
+         }
       } else
          strcpy(data, ((TSearchRec *)event.message.infoPtr)->name);
       drawView();
@@ -91,7 +96,8 @@ TSortedListBox::TSortedListBox(const TRect &bounds,
                                TScrollBar *aScrollBar) :
    TListBox(bounds, aNumCols, aScrollBar),
    searchPos(-1),
-   shiftState(0) {
+   shiftState(0) 
+{
    showCursor();
    setCursor(1, 0);
 }
@@ -107,8 +113,9 @@ void TSortedListBox::handleEvent(TEvent &event) {
 
    oldValue = focused;
    TListBox::handleEvent(event);
-   if (oldValue != focused) searchPos = -1;
-
+   if (oldValue != focused || (event.what == evBroadcast &&
+      event.message.command == cmReleasedFocus))
+         searchPos = -1;
    if (event.what == evKeyDown) {
       if (event.keyDown.charScan.charCode != 0) {
          value = focused;
@@ -120,10 +127,10 @@ void TSortedListBox::handleEvent(TEvent &event) {
          if (event.keyDown.keyCode == kbBack) {
             if (searchPos == -1)
                return;
-            curString[searchPos] = EOS;
             searchPos--;
             if (searchPos == -1)
-               shiftState = getShiftState();
+               shiftState = (ushort) event.keyDown.controlKeyState;
+            curString[searchPos + 1] = EOS;
          } else if ((event.keyDown.charScan.charCode == '.')) {
             char *loc = strchr(curString, '.');
             if (loc == 0)
@@ -133,7 +140,7 @@ void TSortedListBox::handleEvent(TEvent &event) {
          } else {
             searchPos++;
             if (searchPos == 0)
-               shiftState = getShiftState();
+               shiftState = (ushort) event.keyDown.controlKeyState;
             curString[searchPos] = event.keyDown.charScan.charCode;
             curString[searchPos+1] = EOS;
          }
@@ -144,7 +151,7 @@ void TSortedListBox::handleEvent(TEvent &event) {
             if (equal(curString, newString, searchPos+1)) {
                if (value != oldValue) {
                   focusItem(value);
-                  setCursor(cursor.x+searchPos, cursor.y);
+                  setCursor(cursor.x+searchPos+1, cursor.y);
                } else
                   setCursor(cursor.x+(searchPos-oldPos), cursor.y);
             } else
@@ -180,21 +187,26 @@ void TFileInfoPane::draw() {
    ftime *time;
    char path[MAXPATH];
 
-   strcpy(path, ((TFileDialog *)owner)->directory);
-   strcat(path, ((TFileDialog *)owner)->wildCard);
-   fexpand(path);
+   // Prevents incorrect directory name display in info pane if wildCard
+   // has already been expanded.
+   strcpy(path, ((TFileDialog *)owner)->wildCard);
+   if (!strchr(path, ':') && !strchr(path, '\\')) {
+      strcpy(path, ((TFileDialog *)owner)->directory);
+      strcat(path, ((TFileDialog *)owner)->wildCard);
+      fexpand(path);
+   }
 
    color = getColor(0x01);
-   b.moveChar(0, ' ', color, size.x);
+   b.moveChar(0, ' ', color, (ushort) size.x);
    if (strlen(path)+3 > size.x) {
       b.moveStr(3, path+(strlen(path)-size.x+4), color);
       b.moveStr(1, "..", color);
    } else {
       b.moveStr(1, path, color);
    }
-   writeLine(0, 0, size.x, 1, b);
+   writeLine(0, 0, (ushort) size.x, 1, b);
 
-   b.moveChar(0, ' ', color, size.x);
+   b.moveChar(0, ' ', color, (ushort) size.x);
    b.moveStr(1, file_block.name, color);
 
    if (*(file_block.name) != EOS) {
@@ -248,9 +260,9 @@ void TFileInfoPane::draw() {
          b.moveStr(43, amText, color);
    }
 
-   writeLine(0, 1, size.x, 1, b);
-   b.moveChar(0, ' ', color, size.x);
-   writeLine(0, 2, size.x, size.y-2, b);
+   writeLine(0, 1, (ushort) size.x, 1, b);
+   b.moveChar(0, ' ', color, (ushort) size.x);
+   writeLine(0, 2, (ushort) size.x, (ushort)(size.y - 2), b);
 }
 
 TPalette &TFileInfoPane::getPalette() const {
@@ -269,5 +281,20 @@ void TFileInfoPane::handleEvent(TEvent &event) {
 #ifndef NO_TV_STREAMS
 TStreamable *TFileInfoPane::build() {
    return new TFileInfoPane(streamableInit);
+}
+
+TStreamable *TSortedListBox::build() {
+   return new TSortedListBox(streamableInit);
+}
+
+void *TSortedListBox::read(ipstream &is) {
+   TListBox::read(is);
+
+   // Must initialize these or serious memory overwrite
+   // problems can occur!
+   searchPos = -1;
+   shiftState = 0;
+
+   return this;
 }
 #endif  // ifndef NO_TV_STREAMS

@@ -2,6 +2,7 @@
 #include "qslog.h"
 #include "seldesc.h"
 #include "stdlib.h"
+#include "syslocal.h"
 
 void get_gdt(struct lidt64_s *gdt);
 void get_idt(struct lidt64_s *idt);
@@ -69,10 +70,8 @@ void _std sys_gdtdump(void) {
          }
          if (good==1) {
             u32t limit = gd->d_limit | (u32t)(gd->d_attr & D_EXTLIMIT)<<16,
-                  base = gd->d_loaddr | (u32t)gd->d_hiaddr<<16 | (u32t)gd->d_extaddr<<24,
-                  rlim, rbase;
-            rlim  = gd->d_attr&D_GRAN4K ? (limit<<12) + PAGEMASK : limit;
-
+                  rlim = _lsl_(ii<<3), rbase,
+                  base = gd->d_loaddr | (u32t)gd->d_hiaddr<<16 | (u32t)gd->d_extaddr<<24;
             if (edn) {
                rbase = rlim+1+base;
                rlim  = (gd->d_attr&D_DBIG? FFFF : 0xFFFF) - (rlim+1);

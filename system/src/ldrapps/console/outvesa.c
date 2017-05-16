@@ -157,7 +157,7 @@ static int fixmodeinfo(u16t mode, VBEModeInfo *cm) {
 /** query all available vesa modes
     @param         vinfo    array for modes (256 entries)
     @param         minfo    mode info array for mode numbers
-    @param         mmask    bitmask for color modes: bit 0 = 8 bit, 
+    @param         mmask    bitmask for color modes: bit 0 = 8 bit,
                             bit 1 = 15 bit, bit 2 = 16 bit, bit 3 = 24 bit,
                             bit 4 = 32 bit, bit 5 = 1 bit,  bit 6 = 4 bit.
                             By default 0x5F is used.
@@ -247,7 +247,7 @@ u32t vesadetect(VBEModeInfo *vinfo, con_intinfo *minfo, u32t mmask, u32t *memsiz
                   if (cm->XResolution>132 || cm->YResolution>60) break;
                }
                vinfo[ii] = *cm;
-               /* log_printf("%4u x %4u -> %08X\n", cm->XResolution, 
+               /* log_printf("%4u x %4u -> %08X\n", cm->XResolution,
                   cm->YResolution, cm->PhysBasePtr); */
                minfo[ii].vesaref = ii;
                minfo[ii].modenum = *modes;
@@ -391,7 +391,7 @@ static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf
             // update shadow buffer
             if (mi->shadow) MoveBlock(buf, mi->shadow + y*mi->shadowpitch + x*2,
                dx<<1, dy, pitch, mi->shadowpitch);
-         } else 
+         } else
             MoveBlock(b800+y*mi->width+x, buf, dx<<1, dy, mi->width<<1, pitch);
       } else {
          if (write) evio_writebuf(x,y,dx,dy,buf,pitch);
@@ -452,7 +452,7 @@ static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
          if ((m_act->flags&CON_GRAPHMODE)!=0) {
             static const char *cstr[MTRRF_TYPEMASK+1] = { "UC", "WC", "??", "??",
               "WT", "WP", "WB", "Mixed" };
-            u32t     cstart, 
+            u32t     cstart,
                    ct, clen = mi->BytesPerScanline*mi->YResolution;
 
             m_act->physaddr = no_fb ? 0 : mi->PhysBasePtr;
@@ -479,11 +479,11 @@ static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
 
             mode_pitch     = mi->BytesPerScanline;
             mode_bpp       = BytesBP(mi->BitsPerPixel);
-            mode_bshift    = bsf64(mode_bpp);
+            mode_bshift    = bsf32(mode_bpp);
          }
          // allocate shadow buffer (allowed both for text & graphic mode)
          if (flags&CON_SHADOW)
-            if (m_act->bits<8 || !alloc_shadow(m_act,flags&CON_NOSCREENCLEAR)) 
+            if (m_act->bits<8 || !alloc_shadow(m_act,flags&CON_NOSCREENCLEAR))
                flags&=~CON_SHADOW;
 
          current_mode   = idx;
@@ -531,7 +531,7 @@ static void _std out_init(void) {
    mem_zero(modes);
    // common text modes
    modes[0].width = modes[1].width = modes[2].width = 80;
-   modes[0].height = 25; modes[0].font_x = 9; modes[0].font_y = 16; 
+   modes[0].height = 25; modes[0].font_x = 9; modes[0].font_y = 16;
    modes[1].height = 43; modes[1].font_x = 8; modes[1].font_y = 8;
    modes[2].height = 50; modes[2].font_x = 8; modes[2].font_y = 8;
 
@@ -639,7 +639,7 @@ static void out_addfonts(void) {
    fb = addfont(6,0);     // 8 x 16, 9 x 16
    if (fb) addfont(7,fb);
    fb = addfont(3,0);     // 8 x 8
-   if (fb) addfont(4,fb); 
+   if (fb) addfont(4,fb);
 }
 
 int plinit_vesa(void) {

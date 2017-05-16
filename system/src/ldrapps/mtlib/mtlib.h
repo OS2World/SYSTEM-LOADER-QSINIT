@@ -11,12 +11,14 @@
 #include "stdlib.h"
 #include "errno.h"
 #include "qspdata.h"
+#include "qsvdata.h"
 #include "seldesc.h"
 #include "efnlist.h"
 #include "qsmodext.h"
 #include "qcl/sys/qsmuxapi.h"
 
 #define MUTEX_MAXLOCK       0xFFFF    ///< max. number of nested requests
+#define ATTIMECB_ENTRIES         4    ///< number of supported "attime" callbacks
 
 /// setup DPMI & real mode interrupt handlers
 u32t _std sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint);
@@ -33,6 +35,7 @@ u32t _std sys_rmtstat(void);
 void*_std sys_setyield(void *func);
 
 void  init_process_data(void);
+void  init_session_data(void);
 
 void* alloc_thread_memory(u32t pid, u32t tid, u32t size);
 
@@ -41,6 +44,8 @@ void mt_setregs(mt_fibdata *fd, struct tss_s *regs);
 
 /// set eax value in regs
 void mt_seteax(mt_fibdata *fd, u32t eaxvalue);
+
+u32t _std mt_exit   (process_context *pq);
 
 void _std regs32to64(struct xcpt64_data *dst, struct tss_s *src);
 void _std regs64to32(struct tss_s *dst, struct xcpt64_data *src);
@@ -109,8 +114,18 @@ mt_prcdata* get_by_pid(u32t pid);
 mt_thrdata* get_by_tid(mt_prcdata *pd, u32t tid);
 
 u32t        pid_by_module(module* handle);
+/// is key press available in session sno?
+u32t        key_available(u32t sno);
 
 void        update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue);
+
+/** release childs, who waits for mt_waitobject() from parent pid.
+    Must be called inside lock only!
+    @param        parent     launcher process pid, who should call mt_waitobject()
+    @param        child      process, waiting for parent to be ready, can be 0
+                             for all */
+void        update_lwait(u32t parent, u32t child);
+
 /// just retn
 void        pure_retn(void);
 
@@ -151,6 +166,11 @@ typedef void* _std (*pf_memcpy)   (void *dst, const void *src, u32t length);
 typedef void  _std (*pf_mtstartcb)(qs_sysmutex mproc);
 typedef void  _std (*pf_usleep)   (u32t usec);
 typedef void  _std (*pf_mtpexitcb)(mt_thrdata *td);
+typedef int   _std (*pf_selquery) (u16t sel, void *desc);
+typedef void  _std (*pf_beep)     (u16t freq, u32t ms);
+
+int      _std sys_selquery(u16t sel, void *desc);
+void     _std v_beep(u16t freq, u32t ms);
 
 extern u32t           *apic;      ///< APIC, really - in dword addressing mode
 extern u8t   apic_timer_int;      ///< APIC timer interrupt number
@@ -169,10 +189,15 @@ extern u32t       mh_qsinit,
 extern pf_memset    _memset;      ///< direct memset call, without chunk
 extern pf_memcpy    _memcpy;      ///< direct memcpy call, without chunk
 extern pf_usleep    _usleep;      ///< direct original usleep call
+extern pf_beep        _beep;      ///< original vio_beep call
+extern
+pf_selquery   _sys_selquery;      ///< direct sys_selquery call, without chunk
 extern
 pf_mtstartcb     mt_startcb;
 extern
 pf_mtpexitcb     mt_pexitcb;
+extern
+qs_fpustate     fpu_intdata;
 extern
 mt_prcdata       *pd_qsinit;      ///< top of process tree
 extern volatile
@@ -190,28 +215,34 @@ extern u32t      tick_shift;
 extern u16t        force_ss;      ///< force this SS sel for all new threads
 extern
 u32t              *pid_list;
+extern qshandle       sys_q;      ///< system queue for special events
 extern
 mt_prcdata       **pid_ptrs;
 extern
 u32t              pid_alloc,      ///< number of allocated entires in pid_list
                tls_prealloc;      ///< number of preallocated TLS entires
 extern
-qs_muxcvtfunc    hlp_cvtmux;
+qe_availfunc     hlp_qavail;      ///< queue check helper from START
+extern
+qs_muxcvtfunc    hlp_cvtmux;      ///< mutex check helper from START
 extern
 qs_sysmutex     mux_hlpinst;      ///< mutex helper instance for START module
 
 typedef struct _we_list_entry {
-   mt_thrdata   *caller;
-   int         signaled;          ///< result, -1 while waiting
-   qserr         reterr;          ///< error returned instead of result
-   u32t            ecnt;          ///< number of entries in we
-   u32t          clogic;          ///< combine logic
+   mt_thrdata       *caller;
+   int             signaled;      ///< result, -1 while waiting
+   qserr             reterr;      ///< error returned instead of result
+   u32t                ecnt;      ///< number of entries in we
+   u32t              clogic;      ///< combine logic
    struct
-   _we_list_entry *prev,
-                  *next;
-   u8t            *sigf;          ///< "entry signaled" array (bool value)
-   mt_waitentry      we[1];       ///< array, actually
+   _we_list_entry     *prev,
+                      *next;
+   u8t                *sigf;      ///< "entry signaled" array (bool value)
+   mt_waitentry       we[1];      ///< array, actually
 } we_list_entry;
+
+#define MUTEX_SIGN       0x4458554D   ///< mutex_data signature
+#define SEDAT_SIGN       0x52445345   ///< se_start_data signature
 
 typedef struct _mutex_data {
    u32t                sign;
@@ -222,6 +253,33 @@ typedef struct _mutex_data {
    u32t             lockcnt;      ///< lock count (by current owner)
    u32t             waitcnt;      ///< # of active wait entries (to block delete)
 } mutex_data;
+
+///< session start data (mtdata parameter for mod_exec)
+typedef struct {
+   u32t                sign;
+   u32t               flags;      ///< mod_execse() flags parameter
+   u32t                 pid;      ///< process pid (on success)
+   u32t                 sno;      ///< process ses number (on success)
+} se_start_data;
+
+///< session free list entry
+typedef struct _se_free_data {
+   mt_prcdata           *pd;
+   struct
+   _se_free_data      *prev,
+                      *next;
+} se_free_data;
+
+///< attime callback entry
+typedef struct {
+   u64t           start_tsc,
+                   diff_tsc;
+   qs_croncbfunc        cbf;
+   void            *usrdata;
+} attime_entry;
+
+extern
+attime_entry          attcb[ATTIMECB_ENTRIES];
 
 /** inform about process/thread exit and check wait lists for action.
     Must be called inside MT lock only!
@@ -243,8 +301,9 @@ void w_del(we_list_entry *entry);
     @param newstate    new thread state */
 void w_term(mt_thrdata *wth, u32t newstate);
 
-#define memset      _memset
-#define memcpy      _memcpy
+#define memset         _memset
+#define memcpy         _memcpy
+#define sys_selquery   _sys_selquery
 
 #define THROW_ERR_PQ(pq) \
    sys_exfunc4(xcpt_prcerr, pq->self->name, pq->pid)
@@ -252,5 +311,10 @@ void w_term(mt_thrdata *wth, u32t newstate);
 #define THROW_ERR_PD(pd) \
    sys_exfunc4(xcpt_prcerr, pd->piModule->name, pd->piPID)
 
+/// @name sys_q commands
+//@{
+#define SYSQ_SESSIONFREE    0x00001       ///< session free (mt_prcdata* in event.a)
+#define SYSQ_BEEP           0x00002       ///< speaker (freq in a, dur in b)
+//@}
 
 #endif // MTLIB_INTERNAL

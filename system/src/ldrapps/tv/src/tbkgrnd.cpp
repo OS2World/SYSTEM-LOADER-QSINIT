@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*          TBackground member functions                      */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TBackground
 #define Uses_TDrawBuffer
@@ -27,7 +24,8 @@
 
 TBackground::TBackground(const TRect &bounds, char aPattern) :
    TView(bounds),
-   pattern(aPattern) {
+   pattern(aPattern)
+{
    growMode = gfGrowHiX | gfGrowHiY;
 }
 

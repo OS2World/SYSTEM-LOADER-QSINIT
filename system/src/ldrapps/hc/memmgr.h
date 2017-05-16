@@ -84,6 +84,7 @@ void          __stdcall mem_statmax(int topcount);
 #define QSMEMOWNER_TRACE       0x42435254  ///< trace buffers
 #define QSMEMOWNER_MTLIB       0x4243544D  ///< MTLIB internals
 #define QSMEMOWNER_COLIB       0x42434F4C
+#define QSMEMOWNER_SESTATE     0x42434D53  ///< session data
 #define QSMEMOWNER_COPROCESS   0x42434F50
 #define QSMEMOWNER_LINENUM     0xFFFFE000  ///< 0xFFFFE000..0xFFFFFFFE
 #define QSMEMOWNER_COTHREAD    0xFFFFD000  ///< 0xFFFFD000..0xFFFFDFFF

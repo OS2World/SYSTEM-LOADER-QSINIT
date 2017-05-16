@@ -4,27 +4,21 @@
     - allocated size is zero filled
     - incorrect free/damaged block structure will cause immediate panic
 */
-#include "qstypes.h"
-#include "clib.h"
-#include "qsutil.h"
-#include "qsint.h"
-#include "qsmodint.h"    // for mod_secondary only
+#include "qslocal.h"
 
 #define CALLER(x) (((u32t*)(&x))[-1])
 
 // memtable & memftable - arrays with 64k step
-u32t         *memtable; // size of block if used block starts here
-                        // zero if this 64k is free
-                        // -1   if it is in the middle of the used block
-u8t        *memheapres; // bit array - r/o blocks, available to heap mgr
-u32t       *memsignlst; // 4 chars info signature
-free_block **memftable; // pointers to first block in list of free blocks with same size
-extern u32t  memblocks; // number of 64k blocks
-extern u32t   availmem; // total avail memory for as (above 16M, including those arrays)
-extern u32t  phmembase; // physical address of used memory (16Mb or larger on PXE)
-
-extern mod_addfunc
-        *mod_secondary; // secondary function table, from "start" module
+u32t             *memtable; // size of block if used block starts here
+                            // zero if this 64k is free
+                            // -1   if it is in the middle of the used block
+u8t            *memheapres; // bit array - r/o blocks, available to heap mgr
+u32t           *memsignlst; // 4 chars info signature
+process_context **memowner; // pointers to process cintext or 0
+free_block     **memftable; // pointers to first block in list of free blocks with same size
+extern u32t      memblocks; // number of 64k blocks
+extern u32t       availmem; // total avail memory for as (above 16M, including those arrays)
+extern u32t      phmembase; // physical address of used memory (16Mb or larger on PXE)
 
 void memmgr_init(void) {
    free_block  *ib;
@@ -33,9 +27,10 @@ void memmgr_init(void) {
    memtable      = (u32t*)phmembase;
    memsignlst    = memtable + memblocks;
    memftable     = (free_block**)(memsignlst + memblocks);
-   memheapres    = (u8t*)(memftable + memblocks);
+   memowner      = (process_context**)(memftable + memblocks);
+   memheapres    = (u8t*)(memowner + memblocks);
 
-   sz = (memblocks*4*3)+(memblocks>>3);
+   sz = (memblocks*4*4)+(memblocks>>3);
    // init memory tables
    memset(memtable,0,sz);
    // save own tables as used block
@@ -132,7 +127,7 @@ static void fb_chkhdr(free_block *fb,char here,u32t caller,int first) {
 }
 
 // allocate memory
-static void *alloc_worker(u32t size, u32t caller, int ro, u32t sig) {
+static void *alloc_worker(u32t size, u32t caller, int ro, u32t sig, process_context *opq) {
    auto u32t*         mt= memtable; // to avoid many 32bit data segment offsets
    auto free_block **mft=memftable;
    void          *result=0;
@@ -154,11 +149,16 @@ static void *alloc_worker(u32t size, u32t caller, int ro, u32t sig) {
          ps=(u32t)fb-(u32t)memtable>>16;
          if (mt[ps]) mterr(result,ps,'a',caller);
          // save user size
-         mt[ps] = size;
+         mt        [ps] = size;
          memsignlst[ps] = sig;
+         memowner  [ps] = 0;
          // update const ptr flag
-         hptr=memheapres+(ps>>3);
-         if (ro) *hptr|=1<<(ps&7); else *hptr&=~(1<<(ps&7));
+         hptr = memheapres+(ps>>3);
+         if (ro) *hptr|=1<<(ps&7); else {
+            *hptr&=~(1<<(ps&7));
+            // set "local" owner for non-ro block only
+            memowner[ps] = opq;
+         }
          // create free block with smaller size
          if (ii!=sz) fb_add((free_block*)((u32t)result+Round64k(size)),ii-sz,'a',caller);
          // mark blocks in size array
@@ -179,7 +179,8 @@ void* _std hlp_memallocsig(u32t size, const char *sig, u32t flags) {
    if (!size) return 0;
    if (size<availmem) {
       u32t sv = sig ? *(u32t*)sig : 0;
-      rc = alloc_worker(size, CALLER(size), flags&QSMA_READONLY?1:0, sv);
+      rc = alloc_worker(size, CALLER(size), flags&QSMA_READONLY?1:0, sv,
+         flags&QSMA_LOCAL?mt_exechooks.mtcb_ctxmem:0);
    }
    if (!rc && (flags&QSMA_RETERR)==0) exit_pm32(QERR_NOMEMORY);
    // zero-fill requested part only
@@ -299,7 +300,7 @@ void* hlp_memrealloc(void *addr, u32t newsize) {
          }
       // common allocating via alloc/free
       if (cmway) {
-         void *rc = alloc_worker(newsize, caller, 0, memsignlst[pos]);
+         void *rc = alloc_worker(newsize, caller, 0, memsignlst[pos], memowner[pos]);
          // unlock it here because memcpy/memset can be looooong
          mt_swunlock();
          if (rc) {
@@ -333,29 +334,37 @@ u32t hlp_memqconst(u32t *array, u32t pairsize) {
    return cnt;
 }
 
-void* _std hlp_memreserve(u32t physaddr, u32t length) {
-   if (physaddr<phmembase || physaddr>=phmembase+availmem) return 0;
-   else {
-      auto u32t*         mt= memtable; // avoid 32bit offsets
-      auto free_block **mft=memftable;
-      u32t    sz,pos,caller=CALLER(physaddr);
+void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason) {
+   if (physaddr<phmembase || physaddr>=phmembase+availmem) {
+      if (reason) *reason = QSMR_OUTOFRANGE;
+      return 0;
+   } else {
+      auto u32t*         mt = memtable;
+      auto free_block **mft = memftable;
+      u32t          sz, pos,
+                     caller = CALLER(physaddr),
+                     whyerr = QSMR_SUCCESS;
       // truncate length (must never occur)
-      if (physaddr+length>phmembase+availmem) length=phmembase+availmem-physaddr;
-      // convert physical to qsinit flat
-      physaddr+=hlp_segtoflat(0);
-      // and round down to allocator step
+      if (physaddr+length>phmembase+availmem) {
+         length = phmembase+availmem-physaddr;
+         whyerr = QSMR_TRUNCATED;
+      }
+      // round addr down to allocator step
       sz = (u32t)physaddr-(u32t)memtable&0xFFFF;
       length  +=sz;
       physaddr-=sz;
       // invalid address?
       addrcheck((void*)physaddr,caller);
 
-      pos=physaddr-(u32t)memtable>>16;
-      sz =Round64k(length)>>16;
+      pos = physaddr-(u32t)memtable>>16;
+      sz  = Round64k(length)>>16;
 
       mt_swlock();
       // check entire length is free
-      if (memchrnd(mt+pos,0,sz)) physaddr = 0; else {
+      if (memchrnd(mt+pos,0,sz)) {
+         whyerr   = QSMR_USED;
+         physaddr = 0; 
+      } else {
          // mark this block as allocated
          free_block  *sfb;
          u32t  ii=pos, fbsz;
@@ -376,18 +385,34 @@ void* _std hlp_memreserve(u32t physaddr, u32t length) {
             if (mt[++pos]) mterr((void*)physaddr,pos,'i',caller); else mt[pos]=FFFF;
       }
       mt_swunlock();
-#ifdef INITDEBUG
-      log_printf("resrvd: %08X %d\n",physaddr,length);
+#ifndef INITDEBUG
+      if (whyerr)
 #endif
+         log_printf("resrvd: %08X %u %u!\n",physaddr, length, whyerr);
+
+      if (reason) *reason = whyerr;
       return (void*)physaddr;
    }
+}
+
+// process exit callback
+void mem_procexit(process_context *pq) {
+   auto u32t* mt = memtable;
+   u32t       ii;
+   mt_swlock();
+   for (ii=0; ii<memblocks; ii++)
+      if (mt[ii] && mt[ii]<FFFF)
+         if (memowner[ii])
+            if (memowner[ii]->pid==pq->pid) hlp_memfree((u8t*)mt + (ii<<16));
+   mt_swunlock();
 }
 
 // print memory contol table contents (debug)
 void hlp_memprint(void) {
 #if 1
    if (mod_secondary)
-      mod_secondary->memprint(memtable,memftable,memheapres,memsignlst,memblocks);
+      mod_secondary->memprint(memtable, memftable, memheapres, memsignlst,
+         memblocks, memowner);
 #else // moved to start
    auto u32t*         mt =   memtable;
    auto free_block **mft =  memftable;
@@ -450,4 +475,3 @@ u32t _std hlp_memavail(u32t *maxblock, u32t *total) {
    if (total) *total = availmem;
    return rc;
 }
-

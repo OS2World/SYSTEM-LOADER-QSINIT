@@ -34,7 +34,7 @@ desired.  (Do not use a 0 attribute, black on black).
 #endif
 
 #if defined (TV2)
-#   include <tvision/tv.h>
+#   include <tv.h>
 #elif defined (TV1)
 #   include <tv.h>
 #else

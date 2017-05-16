@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TDirListBox member functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TDirListBox
 #define Uses_TEvent
@@ -32,7 +29,8 @@
 
 TDirListBox::TDirListBox(const TRect &bounds, TScrollBar *aScrollBar) :
    TListBox(bounds, 1, aScrollBar),
-   cur(0) {
+   cur(0)
+{
    *dir = EOS;
 }
 
@@ -46,14 +44,8 @@ void TDirListBox::getText(char *text, int item, int maxChars) {
    text[maxChars] = '\0';
 }
 
-void TDirListBox::handleEvent(TEvent &event) {
-   if (event.what == evMouseDown && event.mouse.doubleClick) {
-      event.what = evCommand;
-      event.message.command = cmChangeDir;
-      putEvent(event);
-      clearEvent(event);
-   } else
-      TListBox::handleEvent(event);
+void TDirListBox::selectItem(short item) {
+   message(owner, evCommand, cmChangeDir, list()->at(item));
 }
 
 Boolean TDirListBox::isSelected(int item) {
@@ -140,7 +132,8 @@ void TDirListBox::showDirs(TDirCollection *dirs) {
          if (isFirst) {
             memcpy(org, firstDir, strlen(firstDir)+1);
             isFirst = False;
-         } else memcpy(org, middleDir, strlen(middleDir)+1);
+         } else
+            memcpy(org, middleDir, strlen(middleDir)+1);
          strcpy(name, ff.ff_name);
          strcpy(end, ff.ff_name);
          dirs->insert(new TDirEntry(org - indent, path));
@@ -183,8 +176,8 @@ void TDirListBox::newDirectory(const char *str) {
 
 void TDirListBox::setState(ushort nState, Boolean enable) {
    TListBox::setState(nState, enable);
-   if ((nState & sfFocused) && ((TChDirDialog *)owner)->chDirButton)
-      ((TChDirDialog *)owner)->chDirButton->makeDefault(enable);
+   if ((nState & sfFocused) != 0)
+      message(owner, evCommand, cmDirSelection, (void *)enable);  //!!
 }
 
 #ifndef NO_TV_STREAMS

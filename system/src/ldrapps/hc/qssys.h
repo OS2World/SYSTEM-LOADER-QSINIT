@@ -81,7 +81,7 @@ int      _std sys_seldesc(u16t sel, void *desc);
 int      _std sys_selquery(u16t sel, void *desc);
 
 /** enable/disable interrupts.
-    It is good to call it with saving previous state:
+    It is good to call it with saving of previous state:
 @code
     int state = sys_intstate(0);
     // do something...
@@ -107,6 +107,17 @@ int      _std sys_is64mode(void);
     @return address or 0 */
 void*    _std sys_getlapic(void);
 
+/// query FPU state buffer size
+u32t     _std fpu_statesize(void);
+
+/** save FPU state.
+    Buffer must be aligned to 64 byte. */
+void     _std fpu_statesave(void *buffer);
+
+/** restore FPU state.
+    Buffer must be aligned to 64 byte. */
+void     _std fpu_staterest(void *buffer);
+
 /// @name bit flags for sys_isavail
 //@{
 #define SFEA_PAE     0x00000001            ///< PAE supported
@@ -118,6 +129,8 @@ void*    _std sys_getlapic(void);
 #define SFEA_X64     0x00000040            ///< AMD64 present
 #define SFEA_CMODT   0x00000080            ///< clock modulation supported
 #define SFEA_LAPIC   0x00000100            ///< Local APIC available
+#define SFEA_FXSAVE  0x00000200            ///< FXSAVE available
+#define SFEA_XSAVE   0x00000400            ///< XSAVE available
 #define SFEA_INTEL   0x10000000            ///< CPU is Intel
 #define SFEA_AMD     0x20000000            ///< CPU is AMD
 //@}
@@ -147,10 +160,15 @@ typedef struct {
     @return pcmem_entry array with pages=0 in last entry. Entry must be free()-d. */
 pcmem_entry * _std sys_getpcmem(int freeonly);
 
+/** return number of free pages, available on PC initially.
+    @param [out] above4gb   Number of free pages, available above 4Gb border.
+    @return number of free pages (4kb), available above 4Gb border. */
+u32t     _std sys_ramtotal(u32t *above4gb);
+
 /** mark PC memory as used.
     This is NOT a malloc call. This function manages PC memory (for
     information reason, basically - and resolving possible conflicts).
-    QSINIT self - use only blocks marked as PCMEM_QSINIT in this list.
+    QSINIT itself - uses only blocks marked as PCMEM_QSINIT in this list.
     Other FREE memory is available for any kind of use.
 
     OS/2 boot will use only memory, not marked by PCMEM_HIDE flag, so
@@ -210,12 +228,28 @@ u32t     _std sys_queryinfo(u32t index, void *outptr);
 //@{
 #define QSQI_VERSTR       0x0000    ///< version string
 #define QSQI_OS2LETTER    0x0001    ///< boot drive letter from bpb or 0
+#define QSQI_OS2BOOTFLAGS 0x0002    ///< OS/2 boot flags (BF_*, defined in filetab.inc)
 #define QSQI_TLSPREALLOC  0x0010    ///< number of constantly used TLS entries
 //@}
 
+/// info record for SECB_CPCHANGE event
+typedef struct {
+   /// code page number
+   u16t    cpnum;
+   /// OEM-Unicode bidirectional conversion
+   u16t _std (*convert)(u16t src, int to_unicode);
+   /// unicode upper-case conversion
+   u16t _std (*wtoupper)(u16t src);
+   /// uppercase table for high 128 OEM chars (should be copied)
+   u8t   *oemupr;
+} codepage_info;
+
 typedef struct {
    u32t   eventtype;
-   u32t        info;
+   union {
+      u32t        info;
+      void       *data;
+   };
 } sys_eventinfo;
 
 /** callback procedure for sys_notifyevent().
@@ -237,8 +271,8 @@ typedef void _std (*sys_eventcb)(sys_eventinfo *info);
     to run if MT mode will be off when event occurs. I.e. you can install
     new thread launch at the moment of MT mode activation (for example).
 
-    Also note, what SECB_QSEXIT flag cannot be combined with SECB_THREAD and
-    for SECB_DISKREM only absence of SECB_THREAD flag guarantee disk presence
+    SECB_THREAD flag cannot be combined with SECB_QSEXIT or SECB_CPCHANGE.
+    For SECB_DISKREM only absence of SECB_THREAD flag guarantee disk presence
     at the time of call.
 
     @param   eventmask  Bit mask of events to call cbfunc (SECB_*).
@@ -257,6 +291,7 @@ u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 #define SECB_IODELAY  0x00000010    ///< IODelay value changed (value in info field)
 #define SECB_DISKADD  0x00000020    ///< new disk added (disk handle in info field)
 #define SECB_DISKREM  0x00000040    ///< disk removing (disk handle in info field)
+#define SECB_CPCHANGE 0x00000080    ///< code page changed (codepage_info* in data)
 
 #define SECB_THREAD   0x40000000    ///< callback is new thread in process context
 #define SECB_GLOBAL   0x80000000    ///< global callback (see sys_notifyevent())

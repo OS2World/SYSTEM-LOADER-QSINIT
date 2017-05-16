@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   VIEWS.H                                                               */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TView, TFrame, TScrollBar, TScroller,             */
 /*   TListViewer, TGroup, and TWindow                                      */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
@@ -33,6 +37,16 @@
 #define cmYes           (12)
 #define cmNo            (13)
 #define cmDefault       (14)
+
+// Standard application commands
+#define cmNew           (30)
+#define cmOpen          (31)
+#define cmSave          (32)
+#define cmSaveAs        (33)
+#define cmSaveAll       (34)
+#define cmChDir         (35)
+#define cmDosShell      (36)
+#define cmCloseAll      (37)
 
 //  TView State masks
 #define sfVisible       (0x001)
@@ -60,6 +74,7 @@
 #define ofCenterX       (0x100)
 #define ofCenterY       (0x200)
 #define ofCentered      (0x300)
+#define ofValidate      (0x400)
 
 // TView GrowMode masks
 #define gfGrowLoX       (0x01)
@@ -68,6 +83,7 @@
 #define gfGrowHiY       (0x08)
 #define gfGrowAll       (0x0f)
 #define gfGrowRel       (0x10)
+#define gfFixed         (0x20)
 
 // TView DragMode masks
 #define dmDragMove      (0x01)
@@ -238,9 +254,9 @@ public:
 
    TPalette &operator = (const TPalette &);
 
-   char &operator[](int) const;
+   uchar &operator[](int) const;
 
-   char *data;
+   uchar *data;
 
 };
 
@@ -300,7 +316,8 @@ public:
    void show();
    virtual void draw();
    void drawView();
-   Boolean TV_CDECL exposed();
+   Boolean exposed();
+   Boolean focus();
    void hideCursor();
    void drawHide(TView *lastView);
    void drawShow(TView *lastView);
@@ -311,10 +328,11 @@ public:
    virtual void getData(void *rec);
    virtual void setData(void *rec);
 
+   virtual void awaken();
    void blockCursor();
    void normalCursor();
-   virtual void TV_CDECL resetCursor();
-   void setCursor(short x, short y);
+   virtual void resetCursor();
+   void setCursor(int x, int y);
    void showCursor();
    void drawCursor();
 
@@ -331,13 +349,14 @@ public:
    static void enableCommand(ushort command);
    static void getCommands(TCommandSet &commands);
    static void setCommands(TCommandSet &commands);
+   static void setCmdState(TCommandSet &commands, Boolean enable);
 
    virtual void endModal(ushort command);
    virtual ushort execute();
 
    ushort getColor(ushort color);
    virtual TPalette &getPalette() const;
-   uchar TV_CDECL mapColor(uchar);
+   uchar mapColor(uchar);
 
    Boolean getState(ushort aState);
    void select();
@@ -359,12 +378,12 @@ public:
    void putInFrontOf(TView *Target);
    TView *TopView();
 
+   void writeBuf(short x, short y, short w, short h, const void *b);
    void writeBuf(short x, short y, short w, short h, const TDrawBuffer &b);
+   void writeChar(short x, short y, char c, uchar color, short count);
    void writeLine(short x, short y, short w, short h, const TDrawBuffer &b);
-   void TV_CDECL writeBuf(short x, short y, short w, short h, const void *b);
-   void TV_CDECL writeChar(short x, short y, char c, uchar color, short count);
-   void TV_CDECL writeLine(short x, short y, short w, short h, const void *b);
-   void TV_CDECL writeStr(short x, short y, const char *str, uchar color);
+   void writeLine(short x, short y, short w, short h, const void *b);
+   void writeStr(short x, short y, const char *str, uchar color);
 
    TPoint size;
    ushort options;
@@ -383,7 +402,8 @@ public:
    static uchar errorAttr;
 
    virtual void shutDown();
-
+   // dixie: just 8 bytes for any user needs, zeroed in constructor
+   ulong userValue[2];
 private:
 
    void moveGrow(TPoint p,
@@ -393,7 +413,7 @@ private:
                  TPoint maxSize,
                  uchar mode
                 );
-   void change(uchar, TPoint delta, TPoint &p, TPoint &s);
+   void change(uchar, TPoint delta, TPoint &p, TPoint &s, ulong ctrlState);
 
    int exposedRec1(short x1, short x2, TView *p);
    int exposedRec2(short x1, short x2, TView *p);
@@ -484,7 +504,7 @@ public:
 
 private:
 
-   void TV_CDECL frameLine(TDrawBuffer &frameBuf, short y, short n, uchar color);
+   void frameLine(TDrawBuffer &frameBuf, short y, short n, uchar color);
    void dragWindow(TEvent &event, uchar dragMode);
 
    friend class TDisplay;
@@ -552,28 +572,28 @@ public:
    virtual TPalette &getPalette() const;
    virtual void handleEvent(TEvent &event);
    virtual void scrollDraw();
-   virtual short scrollStep(short part);
-   void setParams(short aValue, short aMin, short aMax,
-                  short aPgStep, short aArStep);
-   void setRange(short aMin, short aMax);
-   void setStep(short aPgStep, short aArStep);
-   void setValue(short aValue);
+   virtual int scrollStep(int part);
+   void setParams(int aValue, int aMin, int aMax,
+                  int aPgStep, int aArStep);
+   void setRange(int aMin, int aMax);
+   void setStep(int aPgStep, int aArStep);
+   void setValue(int aValue);
 
-   void drawPos(short pos);
-   short getPos();
-   short getSize();
+   void drawPos(int pos);
+   int getPos();
+   int getSize();
 
-   short value;
+   int value;
 
    TScrollChars chars;
-   short minVal;
-   short maxVal;
-   short pgStep;
-   short arStep;
+   int minVal;
+   int maxVal;
+   int pgStep;
+   int arStep;
 
 private:
 
-   short getPartCode(void);
+   int getPartCode(void);
 
    static TScrollChars vChars;
    static TScrollChars hChars;
@@ -638,11 +658,12 @@ public:
    virtual TPalette &getPalette() const;
    virtual void handleEvent(TEvent &event);
    virtual void scrollDraw();
-   void scrollTo(short x, short y);
-   void setLimit(short x, short y);
+   void scrollTo(int x, int y);
+   void setLimit(int x, int y);
    virtual void setState(ushort aState, Boolean enable);
    void checkDraw();
    virtual void shutDown();
+   TPoint delta;
 
 protected:
 
@@ -650,7 +671,6 @@ protected:
    Boolean drawFlag;
    TScrollBar *hScrollBar;
    TScrollBar *vScrollBar;
-   TPoint delta;
    TPoint limit;
 
 private:
@@ -697,6 +717,8 @@ class TScrollBar;
 class TEvent;
 
 class TListViewer : public TView {
+
+   static const char *emptyText;
 
 public:
 
@@ -779,14 +801,16 @@ public:
 
    ushort execView(TView *p);
    virtual ushort execute();
+   virtual void awaken();
 
    void insertView(TView *p, TView *Target);
-   void TV_CDECL remove(TView *p);
+   void remove(TView *p);
    void removeView(TView *p);
-   void TV_CDECL resetCurrent();
+   void resetCurrent();
    void setCurrent(TView *p, selectMode mode);
    void selectNext(Boolean forwards);
    TView *firstThat(Boolean(*func)(TView *, void *), void *args);
+   Boolean focusNext(Boolean forwards);
    void forEach(void (*func)(TView *, void *), void *args);
    void insert(TView *p);
    void insertBefore(TView *p, TView *Target);
@@ -813,7 +837,7 @@ public:
    void redraw();
    void lock();
    void unlock();
-   virtual void TV_CDECL resetCursor();
+   virtual void resetCursor();
 
    virtual void endModal(ushort command);
 
@@ -840,6 +864,7 @@ private:
    Boolean invalid(TView *p, ushort command);
    void focusView(TView *p, Boolean enable);
    void selectView(TView *p, Boolean enable);
+   TView *findNext(Boolean forwards);
 
 #ifndef NO_TV_STREAMS
    virtual const char *streamableName() const
@@ -875,6 +900,10 @@ inline opstream &operator << (opstream &os, TGroup *cl)
 
 #if defined( Uses_TWindow ) && !defined( __TWindow )
 #define __TWindow
+
+#define cpBlueWindow "\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F"
+#define cpCyanWindow "\x10\x11\x12\x13\x14\x15\x16\x17"
+#define cpGrayWindow "\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F"
 
 class TFrame;
 class TRect;

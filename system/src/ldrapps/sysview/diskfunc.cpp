@@ -67,7 +67,7 @@ u32t TSysApp::GetDiskDialog(int floppies, int vdisks, int dlgtype) {
 }
 
 int TSysApp::CanChangeDisk(u32t disk) {
-   TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+   TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
    if (win)
       if (win->disk==disk)
          if (win->sectEd->isChanged()) {
@@ -78,7 +78,7 @@ int TSysApp::CanChangeDisk(u32t disk) {
 }
 
 void TSysApp::DiskChanged(u32t disk) {
-   TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+   TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
    if (win)
       if (win->disk==disk || disk==FFFF) win->sectEd->dataChanged();
 }
@@ -117,8 +117,8 @@ static int se_askupdate(int userdata, le_cluster_t cluster, void *data) {
 void TSysApp::OpenPosDiskWindow(ul disk, uq sector) {
    char title[128];
 
-   if (windows[TWin_SectEdit]) windows[TWin_SectEdit]->close();
-   if (windows[TWin_SectEdit]) return;
+   if (windows[AppW_Sector]) windows[AppW_Sector]->close();
+   if (windows[AppW_Sector]) return;
 
    strcpy(title,"Sector view ");
 
@@ -146,12 +146,15 @@ void TSysApp::OpenPosDiskWindow(ul disk, uq sector) {
       if (win->sectEd) {
          win->led.clusters   = dsk_size64(disk, &win->led.clustersize);
          win->led.showtitles = 1;
+         win->led.poswidth   = 0;
          win->led.noreaderr  = 0;
+         win->led.lcbytes    = win->led.clustersize;
          win->led.userdata   = disk;
          win->led.read       = se_read;
          win->led.write      = se_write;
          win->led.gettitle   = se_gettitle;
          win->led.askupdate  = se_askupdate;
+         win->led.setsize    = 0;
          win->sectEd->setData(&win->led);
          win->sectEd->processKey(TLongEditor::posSet, sector);
       }
@@ -164,8 +167,8 @@ void TSysApp::DiskInit(u32t dsk, int makegpt) {
 #ifdef __QSINIT__
       u32t rc = dsk_ptrescan(dsk, 0);
       
-      if (rc==DPTE_ERRREAD) errDlg(MSGE_MBRREAD); else
-      if (rc!=DPTE_EMPTY) errDlg(MSGE_NOTEMPTY); else {
+      if (rc==E_DSK_ERRREAD) errDlg(MSGE_MBRREAD); else
+      if (rc!=E_PTE_EMPTY) errDlg(MSGE_NOTEMPTY); else {
          if (makegpt) {
             rc = dsk_gptinit(dsk);
          } else {
@@ -179,8 +182,8 @@ void TSysApp::DiskInit(u32t dsk, int makegpt) {
             DiskChanged(dsk);
             infoDlg(MSGI_DONE);
          } else {
-            if (rc==DPTE_EMPTY) errDlg(MSGE_NOTEMPTY); else
-            if (rc==DPTE_ERRWRITE) errDlg(MSGE_MBRWRITE);
+            if (rc==E_PTE_EMPTY) errDlg(MSGE_NOTEMPTY); else
+            if (rc==E_DSK_ERRWRITE) errDlg(MSGE_MBRWRITE);
          }
       }
 #endif
@@ -211,12 +214,12 @@ void TSysApp::DiskMBRCode(u32t dsk) {
 void TSysApp::UpdateLVM(u32t disk, int firstTime) {
    if (CanChangeDisk(disk)) {
 #ifdef __QSINIT__
-      u32t lvmrc = lvm_checkinfo(disk);
+      qserr lvmrc = lvm_checkinfo(disk);
       if (!lvmrc) infoDlg(MSGI_LVMOK); else {
          int  sep = firstTime? 0 : -1;
 
          if (!firstTime) {
-            char *msg = GetPTErr(lvmrc, MSGTYPE_LVM), buf[128];
+            char *msg = GetPTErr(lvmrc), buf[128];
             snprintf(buf, 128, "\3""Current LVM error: %s\n\3""Update LVM info?", msg);
             free(msg);
             if (messageBox(buf, mfConfirmation+mfYesButton+mfNoButton)!=cmYes) return;
@@ -230,7 +233,7 @@ void TSysApp::UpdateLVM(u32t disk, int firstTime) {
          }
          lvmrc = lvm_initdisk(disk, 0, sep);
          DiskChanged(disk);
-         if (lvmrc) PrintPTErr(lvmrc, MSGTYPE_LVM); else infoDlg(MSGI_DONE);
+         if (lvmrc) PrintPTErr(lvmrc); else infoDlg(MSGI_DONE);
       }
 #endif
    }

@@ -1,11 +1,16 @@
 //
 // QSINIT
-// unzip code
+// sequential zip (stream) read.
+// --------------------------------------------------------
+// uses no memory in memory mode & 64k for cache + buffer for compressed file
+// data in file mode.
 //
 #include "clib.h"
 #include "qsutil.h"
 #include "unzip.h"
 #include "puff.h"
+#include "qslocal.h"
+#include "qsio.h"
 
 //#define ZIP_DEBUG
 #ifndef ZIP_DEBUG
@@ -14,306 +19,442 @@
   #define Message log_printf
 #endif
 
-#define CEN_SIG 0x02014B50 // central directory
-#define LOC_SIG 0x04034B50 // local file signature
-#define ARC_SIG 0x08064B50 // archive extra data record
-#define DAT_SIG 0x08074B50 // data descripror signature
+#define ZIP_SIGN    0x5150495A    ///< ZIPQ
 
-static inline unsigned int read16_ex(char **bufptr) {
-    unsigned int  rc = *((u16t*)(*bufptr));
-    *bufptr += 2;
-    return rc;
-}
+#define ST_INITNEXT        0x1    ///< initial zip_nextfile() done, to check is it a ZIP?
+#define ST_NEXTREADY       0x2
+#define ST_DATAREADY       0x3    ///< file data was recieved by zip_readfile() call
+#define ST_ERROR           0x4
 
-static inline u32t read32_buf(char *buf) {
-    return *((u32t*)buf);
-}
+#define CEN_SIG     0x02014B50    ///< central directory
+#define LOC_SIG     0x04034B50    ///< local file signature
+#define ARC_SIG     0x08064B50    ///< archive extra data record
+#define DAT_SIG     0x08074B50    ///< data descripror signature
 
-static inline u32t read32_ex(char **bufptr) {
-    u32t  rc = *((u32t*)(*bufptr));
-    *bufptr += 4;
-    return rc;
-}
+#define CACHE_SIZE       _64KB
 
-static inline int search_sig(unsigned int *distance, char *buffer, int bufsize, unsigned int sig)
-{
-    char s1 = (char)((sig)       & 0xff);
-    char s2 = (char)((sig >> 8)  & 0xff);
-    char s3 = (char)((sig >> 16) & 0xff);
-    char s4 = (char)((sig >> 24) & 0xff);
+typedef struct {
+   u16t        ver;
+   u16t      flags;
+   u16t     method;
+   u32t    dostime;
+   u32t        crc;
+   u32t      csize;     ///< compressed size
+   u32t       size;     ///< uncompressed size
+   u16t    namelen;     ///< filename length
+   u16t      extra;     ///< extra data length
+} zip_filerec;
 
-    char *bufptr = buffer;
+typedef struct {
+   u32t       sign;
+   u32t        crc;
+   u32t      csize;     ///< compressed size
+   u32t       size;     ///< uncompressed size
+} zip_datarec;
 
-    while (bufptr - buffer + 4 <= bufsize) {
-        if(s1 == bufptr[0] && s2 == bufptr[1] && s3 == bufptr[2] && s4 == bufptr[3]) {
-            *distance = bufptr - buffer;
-            return true;
-        }
-        ++bufptr;
-    }
-    return false;
-}
+qserr _std zip_open(ZIP *zip, void *in_data, u32t in_size) {
+   if (!zip || !in_data || !in_size) return E_SYS_INVPARM;
+   memset(zip, 0, sizeof(ZIP));
+   zip->memdata = (char*)in_data;
+   zip->srcsize = in_size;
+   zip->sign    = ZIP_SIGN;
+   zip->state   = ST_DATAREADY;
 
-static inline u32t zip_read32(ZIP *zip) {
-    return read32_ex(&zip->dptr);
-}
-
-
-static inline unsigned int zip_read16(ZIP *zip) {
-    return read16_ex(&zip->dptr);
-}
-
-
-static inline unsigned int buf_rest(ZIP *zip) {
-    return zip->insize - (zip->dptr - zip->indata);
-}
-
-static int read_desc(ZIP *zip, u32t *c_size, u32t *u_size, u32t *stored_crc) {
-   unsigned int rest, distance = 0;
-
-   Message("read_desc() entry\n");
-   rest = buf_rest(zip);
-
-#ifdef ZIP_DEBUG
-   Message("indata = 0x%08X, dptr = 0x%08X, rest = %d\n",
-      zip->indata, zip->dptr, rest);
-#endif
-   for (;;) {
-      unsigned int sub_distance = 0;
-
-      if (search_sig(&sub_distance, zip->dptr + distance,
-         rest - distance, DAT_SIG) && distance + sub_distance + 16 < rest)
-      {
-         u32t real_crc, real_compressed, real_uncompressed;
-         distance += sub_distance;
-#ifdef ZIP_DEBUG
-         Message("distance = %u\n", distance);
-#endif
-         real_crc = read32_buf(zip->dptr + distance + 4);
-         real_compressed   = read32_buf(zip->dptr + distance + 8);
-         real_uncompressed = read32_buf(zip->dptr + distance + 12);
-
-#ifdef ZIP_DEBUG
-         Message("crc 0x%08x\n", real_crc);
-         Message("compressed   %d\n", real_compressed);
-         Message("uncompressed %d\n", real_uncompressed);
-#endif
-         // check that it is not an accident match
-         if (distance == real_compressed) {
-            *c_size = real_compressed;
-            *u_size = real_uncompressed;
-            *stored_crc = real_crc;
-
-            Message("read_desc() done\n");
-
-            return true;
-         }
-         distance += 4;
-      } else {
-          // the rare case when no data descripror signature is provided
-          // is not supported
-          Message("read_desc() failed\n");
-          return false;
-      }
+   if (zip_nextfile(zip,0,0)==0) {
+      zip->state = ST_INITNEXT;
+      return 0;
+   } else {
+      zip_close(zip);
+      return E_SYS_BADFMT;
    }
 }
 
-
-int zip_open(ZIP *zip, void *in_data, u32t in_size) {
-   if (!zip||!in_data||!in_size) return false;
+qserr _std zip_openfile(ZIP *zip, const char *path, int bootvol) {
+   qserr  res = 0;
+   if (!zip || !path) return E_SYS_INVPARM;
    memset(zip, 0, sizeof(ZIP));
-   zip->indata  = (char*)in_data;
-   zip->dptr    = (char*)in_data;
-   zip->insize  = in_size;
-   return true;
+
+   if (bootvol) {
+      zip->srcsize = hlp_fopen2(path,1);
+      if (zip->srcsize==FFFF) return E_SYS_NOFILE;
+      if (!pxemicro && !zip->srcsize) res = E_SYS_BADFMT;
+
+      zip->isboot  = 1;
+   } else {
+      u32t  action;
+      u64t    sz64;
+      if (!mod_secondary) return E_SYS_UNSUPPORTED;
+
+      res = mod_secondary->io_open(path, IOFM_OPEN_EXISTING|IOFM_READ|
+         IOFM_SHARE_READ|IOFM_SHARE_DEL|IOFM_SHARE_REN, &zip->fh, &action);
+      if (res) return res;
+
+      res = mod_secondary->io_size(zip->fh, &sz64);
+      if (!res && sz64>=FFFF) res = E_SYS_BADFMT;
+      if (!res) zip->srcsize = sz64;
+   }
+   zip->sign = ZIP_SIGN;
+   // cache buffer
+   zip->buf  = (char*)hlp_memalloc(CACHE_SIZE, QSMA_RETERR|QSMA_LOCAL|QSMA_NOCLEAR);
+   zip->bpos = CACHE_SIZE;
+   if (!zip->buf) res = E_SYS_NOMEM;
+
+   if (!res) {
+      zip->state = ST_DATAREADY;
+      if (zip_nextfile(zip,0,0)==0) zip->state = ST_INITNEXT; else
+         res = E_SYS_BADFMT;
+   }
+#ifdef ZIP_DEBUG
+   Message("zip_openfile \"%s\" (%i) = %X\n", path, bootvol, res);
+#endif     
+   if (res) zip_close(zip);
+   return res;
 }
 
-void zip_close(ZIP *zip) {
+/** read/skip zip stream data.
+    Note, that for PXE source file size is UNKNOWN.
+    Smart code, which uses memory, file, micro-FSD file & moveton`s unhandy
+    streams as a source.
+
+    @param [in]     zip      instance data
+    @param [in]     buffer   buffer for data or 0 to skip it
+    @param [in,out] bytes    number of bytes to read, real value on exit
+    @return 0 on success or error code. Function returns E_SYS_EOF when
+            read after the end of file. Function returns NO error when reaches
+            the end of file on PXE boot. In this case out bytes value will be
+            smaller, than in! */
+static qserr zip_getdata(ZIP *zip, void *buffer, u32t *bytes) {
+   u32t   rest = 0, 
+       readlen = *bytes;
+   qserr  errv = 0;
+   // we should have size even for PXE, after we reach the end of file
+   if (zip->srcsize && zip->srcpos>=zip->srcsize) return E_SYS_EOF;
+   if (zip->srcsize) {
+      rest = zip->srcsize - zip->srcpos;
+      if (readlen>rest) /*readlen = rest;*/ return E_SYS_EOF;
+   }
+
+   if (zip->memdata) {
+      if (buffer) memcpy(buffer, zip->memdata+zip->srcpos, readlen);
+      zip->srcpos += readlen;
+      readlen = 0;
+   } else 
+   while (readlen) {
+      // get/update cache position until cache is empty
+      if (zip->bpos<CACHE_SIZE) {
+         u32t clen = CACHE_SIZE - zip->bpos;
+         if (clen>readlen) clen = readlen;
+         if (buffer) {
+            memcpy(buffer, zip->buf+zip->bpos, clen);
+            buffer = (u8t*)buffer + clen;
+         }
+         zip->bpos+= clen;
+         readlen  -= clen;
+         zip->srcpos += clen;
+         if (rest) rest = zip->srcsize - zip->srcpos;
+      }
+      if (!readlen) break;
+      // still have something to read/skip?
+      if (zip->isboot) {
+         // moveton`s stream read has no offset at all, i.e. we MUST read it all
+         if (pxemicro || buffer) {
+            int tocache = !buffer || readlen<CACHE_SIZE;
+            u32t  rsize = tocache ? (rest && rest<CACHE_SIZE?rest:CACHE_SIZE) : readlen,
+                  asize = hlp_fread(zip->srcpos, tocache?zip->buf:buffer, rsize);
+            // in PXE mode we just discover EOF by uncomplete read
+            if (asize<rsize)
+               if (pxemicro) zip->srcsize = zip->srcpos + asize;
+                  else { errv = E_DSK_ERRREAD; break; }
+            // loop it to get data from cache
+            if (tocache) { zip->bpos = 0; continue; }
+         }
+      } else {
+         if (!buffer) {
+            // cache is empty, i.e. file position should be in the right place
+            if (mod_secondary->io_seek(zip->fh, readlen, IO_SEEK_CUR)==FFFF64) {
+               errv = mod_secondary->io_lasterror(zip->fh);
+               break;
+            }
+         } else {
+            int tocache = readlen<CACHE_SIZE;
+            u32t  rsize = tocache ? (rest<CACHE_SIZE?rest:CACHE_SIZE) : readlen;
+#if 0
+            log_printf("zip->srcsize %u zip->srcpos %u(%X) rsize %u readlen %u\n",
+               zip->srcsize, zip->srcpos, zip->srcpos, rsize, readlen);
+#endif
+            if (mod_secondary->io_read(zip->fh, tocache?zip->buf:buffer, rsize)!=rsize) {
+               errv = mod_secondary->io_lasterror(zip->fh);
+               if (!errv) errv = E_DSK_ERRREAD;
+               break;
+            }
+            // loop it to get data from cache
+            if (tocache) { zip->bpos = 0; continue; }
+         }
+      }
+      zip->srcpos += readlen;
+      readlen = 0;
+   }
+   *bytes -= readlen;
+   return errv;
 }
 
-int zip_nextfile(ZIP *zip, char** filename, u32t *filesize) {
-   int finish = false;
-   Message("zip_nextfile() entry\n");
+void _std zip_close(ZIP *zip) {
+   // make it thread safe ;)
+   if (mt_cmpxchgd(&zip->sign,0,ZIP_SIGN) != ZIP_SIGN) return;
 
-   while (!finish && buf_rest(zip) >= 4) {
-      switch (zip_read32(zip)) {
+   if (zip->isboot) hlp_fclose(); else
+      if (zip->fh) mod_secondary->io_close(zip->fh);
+
+   if (zip->buf) hlp_memfree(zip->buf);
+   if (zip->cdata) hlp_memfree(zip->cdata);
+}
+
+static qserr _zip_nextdata(ZIP *zip, void *buffer, u32t toread
+#ifdef ZIP_DEBUG
+                           , const char *message
+#endif
+) {
+   u32t  rds = toread;
+   qserr res = zip_getdata(zip, buffer, &rds);
+   if (res || rds<toread) {
+      Message(message);
+      return res?res:E_SYS_EOF;
+   }
+   return 0;
+}
+
+#ifdef ZIP_DEBUG
+#define zip_next(z,buf,rds,msg) _zip_nextdata(z,buf,rds,msg)
+#else
+#define zip_next(z,buf,rds,msg) _zip_nextdata(z,buf,rds)
+#endif
+
+qserr _std zip_nextfile(ZIP *zip, char** filename, u32t *filesize) {
+   qserr        res = 0;
+   u32t   sign, rds;
+   if (zip->sign!=ZIP_SIGN) return E_SYS_INVOBJECT;
+   // we have a file from zip_open, just return it here
+   if (zip->state==ST_INITNEXT) {
+      zip->state = zip->cdata?ST_DATAREADY:ST_NEXTREADY;
+      if (filename) *filename = zip->name;
+      if (filesize) *filesize = zip->uncompressed;
+      return 0;
+   }
+   /* it should be the sequence of ST_NEXTREADY || ST_DATAREADY, any other
+      value is error */
+   if (zip->state==ST_NEXTREADY) {
+      res = zip_next(zip, 0, zip->compressed, "ZIP error: skip file\n");
+      if (res) return res;
+      zip->state = ST_DATAREADY;
+   }
+   if (zip->state!=ST_DATAREADY) return E_SYS_BADFMT;
+   // error until the success in header parse
+   zip->state = ST_ERROR;
+   // release possible lost cdata
+   if (zip->cdata) { hlp_memfree(zip->cdata); zip->cdata = 0; }
+
+   while (!res) {
+      res = zip_next(zip, &sign, 4, "ZIP error: no signature\n");
+      if (res) return res;
+
+      switch (sign) {
          case CEN_SIG:
             Message("Central directory\n");
-            return false;
+            return E_SYS_EOF;
          case LOC_SIG: {
-            u32t  bitflag, method;
-            u32t  stored_crc, dostime;
-            u32t  compressed, uncompressed;
-            u32t  name_size, extra_size;
-            char *name;
-         
+            zip_filerec hdr;
             Message("Local file signature\n");
-         
-            if (buf_rest(zip) < 28) {
-               Message("ZIP corrupted: broken LOC\n");
-               return false;
-            }
-            // version needed to extract
-            zip->dptr += 2;
-            // general purpose bit flag
-            bitflag      = zip_read16(zip);
-            // compression method
-            method       = zip_read16(zip);
-            // last modified file date in DOS format
-            dostime      = zip_read32(zip);
-            // crc32
-            stored_crc   = zip_read32(zip);
-            // compressed size
-            compressed   = zip_read32(zip);
-            // uncompressed size
-            uncompressed = zip_read32(zip);
-            // filename length
-            name_size    = zip_read16(zip);
-            // extra field length
-            extra_size   = zip_read16(zip);
-            // file name
-            name = zip->dptr;
+
+            res = zip_next(zip, &hdr, sizeof(hdr), "ZIP error: broken LOC\n");
+            if (res) return res;
 #ifdef ZIP_DEBUG
-            Message("bitflag       0x%08x\n", bitflag);
-            Message("method        %d\n", method);
-            Message("stored_crc    0x%08x\n", stored_crc);
-            Message("compressed    %d\n", compressed);
-            Message("uncompressed  %d\n", uncompressed);
-            Message("name_size     %d\n", name_size);
-            Message("extra_size    %d\n", extra_size);
-#endif    
-            if (buf_rest(zip) < name_size + extra_size) {
-               Message("ZIP corrupted: no file name\n");
-               return false;
+            Message("flags         %04X\n", hdr.flags);
+            Message("method        %u\n"  , hdr.method);
+            Message("crc           %08X\n", hdr.crc);
+            Message("compressed    %u\n"  , hdr.csize);
+            Message("uncompressed  %u\n"  , hdr.size);
+            Message("name length   %u\n"  , hdr.namelen);
+            Message("extra         %u\n"  , hdr.extra);
+#endif
+            if (hdr.namelen>ZIP_NAMELEN-1) {
+               Message("ZIP error: file name too long\n");
+               return E_SYS_BADFMT;
             }
-            // skip file name & skip extra data
-            zip->dptr += name_size + extra_size;
-          
-            // check whether compressed/uncompressed size fields are set
-            // if not, search for the end of the current file data manually
-            if (bitflag & 8) {
-               if (!read_desc(zip,&compressed,&uncompressed,&stored_crc)) {
-                  Message("ZIP corrupted: no descriptor\n");
-                  return false;
+            res = zip_next(zip, &zip->name, hdr.namelen, "ZIP error: broken file name\n");
+            if (res) return res;
+
+            if (hdr.extra) {
+               res = zip_next(zip, 0, hdr.extra, "ZIP error: broken extra\n");
+               if (res) return res;
+            }
+            /* DUMB option. It requires slow forward searching with unknown
+               size and, at least, JAR archives use it */
+            if (hdr.flags & 8) {
+               /* field can be set and Info-ZIP trusts to this value, so we
+                  can too */
+               if (hdr.csize) {
+                  zip_datarec dh;
+                  zip->cdata = hlp_memallocsig(hdr.csize, "zip", QSMA_RETERR|QSMA_LOCAL|QSMA_NOCLEAR);
+                  // no memory?
+                  if (!zip->cdata) return E_SYS_NOMEM;
+                  res = zip_next(zip, zip->cdata, hdr.csize, "ZIP error: data (pt.1)\n");
+                  if (res) return res;
+                  res = zip_next(zip, &dh, sizeof(dh), "ZIP error: data descriptor\n");
+                  if (res) return res;
+                  // check signature, at least
+                  if (dh.sign!=DAT_SIG) {
+                     Message("ZIP error: missing data descriptor\n");
+                     return E_SYS_BADFMT;
+                  }
+               } else {
+                  u32t asize = _64KB, aofs = 0, ddc, rp;
+                  zip->cdata = hlp_memallocsig(asize, "zip", QSMA_RETERR|QSMA_LOCAL|QSMA_NOCLEAR);
+
+                  if (!zip->cdata) return E_SYS_NOMEM;
+
+                  ddc = 16;
+                  rp  = 0;
+                  while (!hdr.csize) {
+                     // realloc compressed file buffer
+                     if (aofs+32>=asize) {
+                        zip->cdata = hlp_memrealloc(zip->cdata, asize+=_64KB);
+                        if (!zip->cdata) return E_SYS_NOMEM;
+                     }
+                     res  = zip_next(zip, (u8t*)zip->cdata+aofs, ddc, "ZIP error: data (pt.2)\n");
+                     if (res) return res;
+                     aofs+= ddc;
+                     // first call is 16, next is 12 to be less, than zip_datarec
+                     ddc  = 12;
+
+                     while (rp <= aofs-4)
+                        if (*(u32t*)((u8t*)zip->cdata+rp)==DAT_SIG) {
+                           u32t rem = 16 - (aofs-rp);
+                           // remaining part of header
+                           if (rem) res = zip_next(zip, (u8t*)zip->cdata+aofs, 
+                              rem, "broken data (pt.3)\n");
+                           if (res) return res; else {
+                              zip_datarec *zd = (zip_datarec*)((u8t*)zip->cdata+rp);
+                              aofs += rem;
+                              // check that it is not an accident match
+                              if (zd->csize==rp) {
+                                 hdr.crc   = zd->crc;
+                                 hdr.csize = zd->csize;
+                                 hdr.size  = zd->size;
+                                 break;
+                              } else
+                                 rp++;
+                           }
+                        } else
+                           rp++;
+                  }
                }
             }
-          
-            zip->bufpos       = zip->dptr;
-            zip->method       = method;
-            zip->compressed   = compressed;
-            zip->uncompressed = uncompressed;
-            zip->stored_crc   = stored_crc;
-            zip->dostime      = dostime;
-            zip->extradata    = extra_size;
-          
-            strncpy(zip->name, name, name_size);
-            zip->name[name_size] = 0;
+            if (!res) {
+               zip->method       = hdr.method;
+               zip->compressed   = hdr.csize;
+               zip->uncompressed = hdr.size;
+               zip->stored_crc   = hdr.crc;
+               zip->dostime      = hdr.dostime;
+               zip->state        = hdr.flags&8?ST_DATAREADY:ST_NEXTREADY;
+               zip->crc          = 0;
+               
+               zip->name[hdr.namelen] = 0;
 #ifdef ZIP_DEBUG
-            Message("name '%s'\n", zip->name);
+               Message("name          \"%s\"\n", zip->name);
 #endif     
-            *filename = zip->name;
-            *filesize = zip->uncompressed;
-            // a normal file found
-            finish = true;
-            
-            if (buf_rest(zip) < zip->compressed) {
-                Message("ZIP corrupted: no file data\n");
-                return false;
+               if (filename) *filename = zip->name;
+               if (filesize) *filesize = zip->uncompressed;
+
+               return 0;
             }
-            // skip compressed data
-            zip->dptr += zip->compressed;
-           
-            // skip data descriptor
-            if (bitflag & 8) {
-               if (buf_rest(zip)<16) {
-                  Message("ZIP corrupted: no data descriptor\n");
-                  return false;
-               }
-               zip->dptr += 16;
-            }
-            Message("skipped to the next file/eof\n");
             break;
          }
          case ARC_SIG: {
-            u32t extra;
             Message("Extra data record\n");
-         
-            if (buf_rest(zip) < 4) {
-               Message("ZIP corrupted: no extra data info\n");
-               return false;
-            }
-            extra = zip_read32(zip);
-         
-            if (buf_rest(zip) < extra) {
-               Message("ZIP corrupted: no extra data\n");
-               return false;
-            }
-            zip->dptr += extra;
+            res = zip_next(zip, &sign, 4, "ZIP error: no extra data info\n");
+            if (res) return res;
+            res = zip_next(zip, 0, sign, "ZIP error: no extra data\n");
+            if (res) return res;
             break;
          }
          default:
-            return false;
+            return E_SYS_BADFMT;
       }
    }
    Message("zip_nextfile() done\n");
-   return true;
+   return res;
 }
 
-void *zip_readfile(ZIP *zip) {
-   void *rc = hlp_memallocsig(zip->uncompressed, "zip", 0);
+qserr _std zip_readfile(ZIP *zip, void **buffer) {
+   void *res;
+   qserr  rc = 0;
+   if (buffer) *buffer = 0; else return E_SYS_ZEROPTR;
+   if (zip->sign!=ZIP_SIGN) return E_SYS_INVOBJECT;
+   // wrong state?
+   if (!(zip->state==ST_NEXTREADY || zip->state==ST_DATAREADY && zip->cdata))
+      return E_SYS_NONINITOBJ;
+   // actually, after this error operation can be restarted
+   res = hlp_memallocsig(zip->uncompressed, "zip", QSMA_RETERR|QSMA_NOCLEAR);
+   if (!res) return E_SYS_NOMEM;
+#ifdef ZIP_DEBUG
+   Message("zip_readfile \"%s\" -> %X (cdata:%08X, %u->%u)\n", zip->name, *buffer,
+      zip->cdata, zip->compressed, zip->uncompressed);
+#endif
    zip->crc = crc32(0,0,0); 
-
-   if (!zip->method) { // no compression
-      Message("zip_readfile: no compression\n");
-
-      memcpy(rc, zip->bufpos, zip->compressed);
-      zip->crc = crc32(zip->crc, rc, zip->compressed);
+   do {
+      if (!zip->method) { // no compression
+         if (zip->cdata) memcpy(res, zip->cdata, zip->compressed); else
+            rc = zip_next(zip, res, zip->compressed, "ZIP error: data (pt.3)\n");
+         zip->state = rc?ST_ERROR:ST_DATAREADY;
+         if (rc) break;
+         zip->uncompressed = zip->compressed;
+      } else {
+         u32t dlen = zip->uncompressed,
+              slen = zip->compressed;
+         int   err;
+   
+         if (!zip->cdata) { 
+            zip->cdata = hlp_memallocsig(zip->compressed, "zip", QSMA_RETERR|QSMA_NOCLEAR);
+            if (!zip->cdata) { rc = E_SYS_NOMEM; break; }
+            rc = zip_next(zip, zip->cdata, zip->compressed, "ZIP error: data (pt.4)\n");
+            if (rc) break;
+         }
+         err = puff((u8t*)res, &dlen, (u8t*)zip->cdata, &slen);
+   
+         if (err || dlen!=zip->uncompressed) {
 #ifdef ZIP_DEBUG
-      Message("zip_readfile: %d bytes, crc:0x%08X\n", zip->compressed, zip->crc);
+            Message("zip_readfile: inflate error %i (%d!=%d)\n", err, zip->uncompressed, dlen);
 #endif
-   } else {
-      u32t dlen = zip->uncompressed,
-           slen = zip->compressed;
-      int result;
-
-      Message("zip_readfile: opening compressed ZIP file\n");
-
-      result = puff((u8t*)rc, &dlen, (u8t*)zip->bufpos, &slen);
-
-      if (result || dlen!=zip->uncompressed) {
-#ifdef ZIP_DEBUG
-         Message("zip_readfile: inflate error %d (%d!=%d)\n",result, zip->uncompressed, dlen);
-#endif
-         hlp_memfree(rc);
-         return 0;
+            rc = E_SYS_CRC;
+         }
       }
-      zip->crc = crc32(zip->crc, rc, zip->uncompressed);
+   } while (0);
+
+   if (!rc) {
+      zip->crc = crc32(zip->crc, res, zip->uncompressed);
 #ifdef ZIP_DEBUG
-      Message("zip_readfile: %d bytes, crc:0x%08X\n", zip->uncompressed, zip->crc);
+      Message("zip_readfile: %08X, %u bytes, crc: %08X\n", res, zip->uncompressed, zip->crc);
 #endif
-   }
+      zip->state = ST_DATAREADY;
+      *buffer = res;
+      /* this may occur only for uncompressed data (for compressed puff() has
+         returned error earlier) */
+      if (zip->crc!=zip->stored_crc) rc = E_SYS_CRC;
+   } else
+   if (res) hlp_memfree(res);
+
+   if (zip->cdata) { hlp_memfree(zip->cdata); zip->cdata = 0; }
+
    return rc;
 }
 
+u32t _std zip_unpacked(ZIP *zip, u32t *totalfiles) {
+   u32t rcsize, fsz, files;
+   if (zip->sign!=ZIP_SIGN) return 0;
+   rcsize = 0;
+   files  = 0;
+   while (zip_nextfile(zip,0,&fsz)==0) { rcsize += fsz; files++; }
 
-int zip_isok(ZIP *zip) {
-    int rc = zip->crc == zip->stored_crc;
-#ifdef ZIP_DEBUG
-    Message("zip_isok (%s, crc 0x%08X, stored crc 0x%08X)\n", 
-       zip->name, zip->crc, zip->stored_crc);
-#endif
-    return rc;
-}
-
-u32t zip_unpacked(ZIP *zip, u32t *totalfiles) {
-   unsigned long rc = 0;
-   char *filename;
-   u32t  filesize, files = 0;
-
-   if (!zip) return 0;
-
-   while (zip_nextfile(zip,&filename,&filesize)) { rc+=filesize; files++; }
-
-   if (totalfiles) *totalfiles=files;
-   return rc;
+   if (totalfiles) *totalfiles = files;
+   return rcsize;
 }

@@ -1,152 +1,39 @@
-#include "diskio.h"
-#include "qsint.h"
-#include "qsinit.h"
-#include "qsutil.h"
+#include "qslocal.h"
 #include "qssys.h"
-#include "clib.h"
-#include "ffconf.h"
+#include "stdlib.h"
 #include "qsconst.h"
 #include "dskinfo.h"
-#include "qsmodint.h"
 #ifndef EFI_BUILD
 #include "ioint13.h"
 #include "filetab.h"
 extern struct   Disk_BPB BootBPB;
 #endif
+
+#define QDSK_VALID    (QDSK_FLOPPY|QDSK_VOLUME|QDSK_DISKMASK|QDSK_DIRECT|\
+                       QDSK_IAMCACHE|QDSK_IGNACCESS)
+
 extern void           *Disk1Data;
 extern u32t            Disk1Size;
-extern u32t            DiskBufPM; // flat disk buffer address
 extern
 struct qs_diskinfo      qd_array[MAX_QS_DISK];
 extern u8t      qd_fdds, qd_hdds;
 extern int            qd_bootidx; // index of boot disk info in qd_array, -1 if no
-extern u8t          dd_bootflags, // boot flags
-                     dd_bootdisk,
-                    bootio_avail;
 extern u16t               cp_num;
-extern vol_data*          extvol;
 extern u8t*                ExCvt; // FatFs OEM case conversion
 cache_extptr        *cache_eproc;
-extern
-mod_addfunc       *mod_secondary; // secondary function table, from "start" module
 // real mode thunk (this thunk pop parameters from stack)
 // disk info parameter must be placed in DGROUP (16-bit offset used in RM)
-u8t _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
-int _std sys_intstate(int on);
+u8t   _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
+int   _std sys_intstate(int on);
+qserr      format_vol1();
 
 // cache control
 void _std cache_ctrl(u32t action, u8t vol);
-// bss is zeroed
-static char was_inited[_VOLUMES];
-// Initialize a Drive
-DSTATUS disk_initialize(BYTE drv) {
-   if (drv>=_VOLUMES) return STA_NOINIT;
-#if 0 //def INITDEBUG
-   log_misc(2,"disk_init(%d)\n",(DWORD)drv);
-#endif
-   cache_ctrl(CC_RESET, drv);
-   was_inited[drv]=1;
-   return 0;
-}
-
-// Return Disk Status
-DSTATUS disk_status(BYTE drv) {
-   return !was_inited[drv]?STA_NOINIT:0;
-}
-
-DRESULT disk_read(BYTE drv, BYTE *buff, DWORD sector, UINT count) {
-   if (!count) return RES_OK;
-   if (!buff) return RES_PARERR;
-   //log_misc(2,"disk_read(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
-   switch (drv) {
-      case 1:
-         memcpy(buff,(char*)Disk1Data+(sector<<LDR_SSHIFT),count<<LDR_SSHIFT);
-         break;
-      case 0: 
-         if (!bootio_avail) return RES_NOTRDY;
-      default:
-         if (drv<_VOLUMES) {
-            vol_data *vdta = extvol + drv;
-            DRESULT    res = RES_OK;
-            mt_swlock();
-            if (drv&&!vdta->flags) res = RES_NOTRDY; else
-            if (hlp_diskread(vdta->disk, vdta->start+sector, count, buff) != count)
-               res = RES_ERROR;
-            mt_swunlock();
-            return res;
-         } else
-            return RES_ERROR;
-         break;
-   }
-   return RES_OK;
-}
-
-DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
-   //log_misc(2,"disk_ioctl(%d,%d,%X)\n",(DWORD)drv,(DWORD)ctrl,buff);
-   if (ctrl==CTRL_SYNC) {
-      cache_ctrl(CC_SYNC, drv);
-      return RES_OK;
-   }
-   if (ctrl==GET_BLOCK_SIZE) { *(DWORD*)buff=1; return RES_OK; }
-
-   if (ctrl==GET_SECTOR_SIZE || ctrl==GET_SECTOR_COUNT)
-   switch (drv) {
-      case 1:
-         if (!Disk1Size) return RES_NOTRDY;
-         if (ctrl==GET_SECTOR_SIZE ) *(WORD*) buff = LDR_SSIZE; else
-         if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = Disk1Size>>LDR_SSHIFT;
-         return RES_OK;
-      case 0:
-         if (!bootio_avail) return RES_NOTRDY;
-      default:
-         if (drv<_VOLUMES) {
-            vol_data *vdta = extvol + drv;
-            DRESULT    res = RES_OK;
-            mt_swlock();
-            if (drv&&!vdta->flags) res = RES_NOTRDY; else {
-               if (ctrl==GET_SECTOR_SIZE ) *(WORD*) buff = vdta->sectorsize; else
-               if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = vdta->length;
-            }
-            mt_swunlock();
-            return res;
-         } else
-            return RES_ERROR;
-         break;
-   }
-   return RES_PARERR;
-}
-
-DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
-   if (!count) return RES_OK;
-   if (!buff) return RES_PARERR;
-   //log_misc(2,"disk_write(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
-   switch (drv) {
-      case 1:
-         memcpy((char*)Disk1Data+(sector<<LDR_SSHIFT),(void*)buff,count<<LDR_SSHIFT);
-         break;
-      case 0: 
-         if (!bootio_avail) return RES_NOTRDY;
-      default:
-         if (drv<_VOLUMES) {
-            vol_data *vdta = extvol + drv;
-            DRESULT    res = RES_OK;
-            mt_swlock();
-            if (drv&&!vdta->flags) res = RES_NOTRDY; else
-            if (hlp_diskwrite(vdta->disk, vdta->start+sector, count, (void*)buff) != count)
-               res = RES_ERROR;
-            mt_swunlock();
-            return res;
-         } else
-            return RES_ERROR;
-         break;
-   }
-   return RES_OK;
-}
 
 u32t _std hlp_diskcount(u32t *floppies) {
    u32t rc = 0, ii;
    mt_swlock();
-   /* number of floppies is not touched duaring QS work, but hdd number can
+   /* number of floppies is not touched during QS work, but hdd number can
       be altered by hlp_diskadd() */
    for (ii=MAX_QS_FLOPPY; ii<MAX_QS_DISK; ii++)
       if (qd_array[ii].qd_flags&HDDF_PRESENT) rc = ii+1-MAX_QS_FLOPPY;
@@ -162,15 +49,17 @@ u32t _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo) {
    if (geo) memset(geo, 0, sizeof(disk_geo_data));
 
    if (disk & QDSK_VOLUME) { // mounted volume
-      if (sectsize||geo) {
-         u32t dsize = 0;
-         disk_ioctl(idx,GET_SECTOR_SIZE,&dsize);
-         if (sectsize) *sectsize = dsize;
-         if (geo) geo->SectorSize = dsize;
+      vol_data *vdta = extvol + idx;
+      // wrong volume number
+      if (idx>=DISK_COUNT) return 0;
+      mt_swlock();
+      if (vdta->flags&VDTA_ON) {
+         if (sectsize) *sectsize = vdta->sectorsize;
+         if (geo) geo->SectorSize = vdta->sectorsize;
+         result = vdta->length;
+         if (result && geo) geo->TotalSectors = result;
       }
-      if (disk_ioctl(idx,GET_SECTOR_COUNT,&result)!=RES_OK)
-         result = 0;
-      if (result && geo) geo->TotalSectors = result;
+      mt_swunlock();
    } else  {
       mt_swlock();
       if (disk & QDSK_FLOPPY) {  // floppy disk
@@ -214,18 +103,14 @@ u64t _std hlp_disksize64(u32t disk, u32t *sectsize) {
 }
 
 static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
-   static u8t nestlevel = 0;
    u32t   rc = 0;
    // lock it! this saves nestlevel usage too
    mt_swlock();
    // try to ask cache for action
-   if (cache_eproc && !nestlevel) {
-      nestlevel = 1;
+   if (cache_eproc && (disk&QDSK_IAMCACHE)==0)
       if ((disk&QDSK_DIRECT)==0 || write)
          rc = (*(write?cache_eproc->cache_write:cache_eproc->cache_read))
             (disk,sector,count,data);
-      nestlevel = 0;
-   }
    // process i/o
    if (rc<count) {
       u8t     idx = disk&QDSK_DISKMASK;
@@ -233,8 +118,7 @@ static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
       
       if (disk & QDSK_FLOPPY) {  // floppy disk
          if (idx<MAX_QS_FLOPPY) qe = qd_array + idx;
-      } else
-      if ((disk & ~(QDSK_DISKMASK|QDSK_DIRECT))==0) { // hdd
+      } else {                   // hdd
          u8t flags = qd_array[idx+MAX_QS_FLOPPY].qd_flags;
          if (idx<MAX_QS_DISK-MAX_QS_FLOPPY && (flags&HDDF_PRESENT)!=0) {
             qe = qd_array + idx + MAX_QS_FLOPPY;
@@ -255,18 +139,29 @@ static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
          rc = count;
          do {
             u32t actsize = count>s32k?s32k:count;
+            u64t dsksize = qe->qd_sectors;
             int     step;
             count  -= actsize;
-         
+#ifndef EFI_BUILD
+            /* special handling for imbecile HP BIOS writers : we have no
+               int 13h Fn48h, but know at least boot volume location */
+            if (!dsksize)
+               if (qe->qd_biosdisk==dd_bootdisk)
+                  dsksize = extvol[DISK_BOOT].start + extvol[DISK_BOOT].length;
+               else
+                  dsksize = 1;    // allow to read partition table
+#endif         
             for (step=0; step<2; step++)
                if (step^write) {
                   // move from/to buffer
                   u32t szm = actsize << qe->qd_sectorshift;
-                  memcpy(write?(void*)DiskBufPM:data, write?data:(void*)DiskBufPM, szm);
+                  if (data!=(void*)DiskBufPM)
+                     memcpy(write?(void*)DiskBufPM:data, write?data:(void*)DiskBufPM, szm);
                   data = (u8t*)data + szm;
                } else {
                   int err = 0;
-                  if (sector + actsize > qe->qd_sectors) err = 1; else
+
+                  if (sector + actsize > dsksize) err = 1; else
                   // read/write by 32k via buffer in 1st Mb
                   if (raw_io(qe, sector, actsize, write)) err = 1;
                   // unlock and exit
@@ -281,16 +176,70 @@ static u32t action(int write, u32t disk, u64t sector, u32t count, void *data) {
 }
 
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data) {
-   if (disk & QDSK_VOLUME)
-      return disk_read(disk&QDSK_DISKMASK,data,sector,count)==RES_OK?count:0;
-   else
+   // check disk handle
+   if (disk & ~QDSK_VALID) return 0;
+   // check access
+   if ((disk&(QDSK_IAMCACHE|QDSK_IGNACCESS))==0 && mod_secondary)
+      if (mod_secondary->dsk_canread)
+         if ((count = mod_secondary->dsk_canread(disk,sector,count))==0)
+            return 0;
+   // is it volume or direct disk handle?
+   if (disk & QDSK_VOLUME) {
+      u8t drv = disk&QDSK_DISKMASK;
+      switch (drv) {
+         case 1:
+            memcpy(data, (char*)Disk1Data+(sector<<LDR_SSHIFT), count<<LDR_SSHIFT);
+            return count;
+         case 0: 
+            if (!bootio_avail) return 0;
+         default:
+            if (drv<DISK_COUNT) {
+               vol_data *vdta = extvol + drv;
+               u32t       res = 0;
+               mt_swlock();
+               if (vdta->flags) res = hlp_diskread(vdta->disk|QDSK_IGNACCESS,
+                  vdta->start+sector, count, data);
+               mt_swunlock();
+               return res;
+            }
+            break;
+      }
+      return 0;
+   } else
       return action(0,disk,sector,count,data);
 }
 
 u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
-   if (disk & QDSK_VOLUME)
-      return disk_write(disk&QDSK_DISKMASK,data,sector,count)==RES_OK?count:0;
-   else
+   // check disk handle
+   if (disk & ~QDSK_VALID) return 0;
+   // check access
+   if ((disk&(QDSK_IAMCACHE|QDSK_IGNACCESS))==0 && mod_secondary)
+      if (mod_secondary->dsk_canwrite)
+         if ((count = mod_secondary->dsk_canwrite(disk,sector,count))==0)
+            return 0;
+   // is it volume or direct disk handle?
+   if (disk & QDSK_VOLUME) {
+      u8t drv = disk&QDSK_DISKMASK;
+      switch (drv) {
+         case 1:
+            memcpy((char*)Disk1Data+(sector<<LDR_SSHIFT), data, count<<LDR_SSHIFT);
+            return count;
+         case 0: 
+            if (!bootio_avail) return 0;
+         default:
+            if (drv<DISK_COUNT) {
+               vol_data *vdta = extvol + drv;
+               u32t       res = 0;
+               mt_swlock();
+               if (vdta->flags) res = hlp_diskwrite(vdta->disk|QDSK_IGNACCESS,
+                  vdta->start+sector, count, data);
+               mt_swunlock();
+               return res;
+            }
+            break;
+      }
+      return 0;
+   } else
       return action(1,disk,sector,count,data);
 }
 
@@ -331,28 +280,49 @@ static int check_diskinfo(struct qs_diskinfo *qdi, int bioschs) {
    return 1;
 }
 
-s32t _std hlp_diskadd(struct qs_diskinfo *qdi) {
-   u32t  ii;
-   s32t  rc = -1;
+s32t _std hlp_diskadd(struct qs_diskinfo *qdi, u32t flags) {
+   u8t  bmused[16];
+   u32t     ii;
+   s32t     rc = -1, 
+           rdn = -1;
    if (!qdi) return -1;
+
+   /* makes a bitmap for 128 BIOS HDD numbers & try to find an empty pos in it */
+   memset(&bmused, 0xFF, sizeof(bmused));
 
    mt_swlock();
    for (ii=MAX_QS_FLOPPY; ii<MAX_QS_DISK; ii++) {
-      u8t qfl = qd_array[ii].qd_flags;
+      u8t   qfl = qd_array[ii].qd_flags;
+      int empty = 0;
       if ((qfl&(HDDF_PRESENT|HDDF_HOTSWAP))==(HDDF_PRESENT|HDDF_HOTSWAP)) {
-         if (qd_array[ii].qd_sectorsize==0) break;
+         if (qd_array[ii].qd_sectorsize==0) empty = 1;
       } else
-      if ((qfl&HDDF_PRESENT)==0) break;
+      if ((qfl&HDDF_PRESENT)==0) empty = 1;
+
+      if (!empty) {
+         u8t biosnum = qd_array[ii].qd_biosdisk;
+         if (biosnum>=0x80 && biosnum<0xFF && mod_secondary)
+            mod_secondary->setbits(&bmused, biosnum-0x80, 1, 0);
+      } else
+      // get first of it
+      if (rdn<0) rdn = ii;
    }
-   if (ii<MAX_QS_DISK && check_diskinfo(qdi, 0)) {
-      struct qs_diskinfo *qe = qd_array + ii;
+   
+   if (rdn>=0 && rdn<MAX_QS_DISK && check_diskinfo(qdi, 0)) {
+      struct qs_diskinfo *qe = qd_array + rdn;
 
       memcpy(qe, qdi, sizeof(struct qs_diskinfo));
-      qe->qd_biosdisk  = 0xFF;
+
+      if (flags&HDDA_BIOSNUM) {
+         u32t bn = mod_secondary->bitfind(&bmused,128,1,1,0);
+         qe->qd_biosdisk = bn==FFFF ? 0xFF : bn+0x80;
+      } else
+         qe->qd_biosdisk = 0xFF;
+
       qe->qd_flags     = HDDF_LBAPRESENT|HDDF_PRESENT|HDDF_HOTSWAP|HDDF_LBAON;
       qe->qd_mediatype = 3;
 
-      rc = ii - MAX_QS_FLOPPY;
+      rc = rdn - MAX_QS_FLOPPY;
    }
    // "disk added" notification
    if (rc>=0 && mod_secondary) mod_secondary->sys_notifyexec(SECB_DISKADD, rc);
@@ -404,6 +374,7 @@ int  _std hlp_diskremove(u32t disk) {
          qe->qd_extwrite   = 0;
          qe->qd_extread    = 0;
          qe->qd_sectors    = 0;
+         qe->qd_biosdisk   = 0xFF;
       }
       rc = 1;
    }
@@ -413,7 +384,7 @@ int  _std hlp_diskremove(u32t disk) {
 
 #ifndef EFI_BUILD
 // setup boot partition i/o
-void bootdisk_setup() {
+void init_vol0() {
    // BPB available? Mount it to drive 0:
    if (bootio_avail) {
       int ii;
@@ -426,31 +397,90 @@ void bootdisk_setup() {
          vdta->start      = npb->NPB_VolStart;
          vdta->sectorsize = npb->NPB_BytesPerSec;
       } else {
+         u32t secsize = BootBPB.BPB_BytesPerSec;
+         // check sector size in BPB supplied by Moveton`s PXE loader
+         if (pxemicro)
+            if (bsr32(secsize)!=bsf32(secsize) || !secsize) {
+               log_printf("Invalid BPB!\n");
+               return;
+            }
          vdta->length     = BootBPB.BPB_TotalSec;
          if (!vdta->length) vdta->length = BootBPB.BPB_TotalSecBig;
          vdta->start      = BootBPB.BPB_HiddenSec;
-         vdta->sectorsize = BootBPB.BPB_BytesPerSec;
+         vdta->sectorsize = secsize;
       }
-      // cannot use BootBPB here - it can be FAT32 and it can contain 0x80
-      // from boot sector instead of actual value
-      vdta->disk       = dd_bootdisk^QDSK_FLOPPY;
-      vdta->flags      = VDTA_ON;
-      // locate boot disk in qd_array for easy access
-      for (ii=0; ii<MAX_QS_DISK; ii++) {
-         struct qs_diskinfo *qe = qd_array + ii;
-         if (qe->qd_flags)
-            if (qe->qd_biosdisk==dd_bootdisk) { qd_bootidx=ii; break; }
+      vdta->disk = hlp_diskbios(dd_bootdisk, 0);
+
+      if (vdta->disk!=FFFF) {
+         vdta->flags = VDTA_ON;
+         // position of boot disk in qd_array - for easy access
+         qd_bootidx  = vdta->disk&QDSK_FLOPPY?vdta->disk&~QDSK_FLOPPY :
+                                              vdta->disk+MAX_QS_FLOPPY;
       }
       // log_printf("volume 0: %02X %08X %08X \n",vdta->disk,vdta->start,vdta->length);
    }
 }
 #endif // EFI_BUILD
 
+u32t _std hlp_diskbios(u32t disk, int qs2bios) {
+   u32t rc = FFFF;
+#ifndef EFI_BUILD
+   mt_swlock();
+   if (qs2bios) {
+      struct qs_diskinfo *qe = hlp_diskstruct(disk, 0);
+      if (qe && qe->qd_biosdisk!=0xFF) rc = qe->qd_biosdisk;
+   } else
+   // 0xFF is used as invalid in QS code
+   if (disk<0xFF) {
+      u32t ii;
+      for (ii=0; ii<MAX_QS_DISK; ii++) {
+         struct qs_diskinfo *qe = qd_array + ii;
+         if (qe->qd_flags)
+            if (qe->qd_biosdisk==disk) {
+               rc = ii<MAX_QS_FLOPPY ? ii|QDSK_FLOPPY : ii-MAX_QS_FLOPPY;
+               break;
+            }
+      }
+   }
+   mt_swunlock();
+#endif
+   return rc;
+}
+
+
+void init_vol1(void) {
+   vol_data *vdta = extvol+DISK_LDR;
+   if (!vdta->length) {
+      qserr    res;
+      vdta->length = Disk1Size>>LDR_SSHIFT;
+      vdta->start  = 0;
+      vdta->disk   = QDSK_VOLUME + DISK_LDR;
+      vdta->sectorsize = LDR_SSIZE;
+      vdta->flags  = VDTA_ON;
+
+      res = format_vol1();
+      if (res) {
+         log_printf("fmt err %X\n", res);
+         exit_pm32(QERR_FATERROR);
+      }
+   }
+}
+
+void check_disks(void) {
+   u32t ii;
+   // locate boot disk in qd_array for easy access
+   for (ii=0; ii<MAX_QS_DISK; ii++) {
+      struct qs_diskinfo *qe = qd_array + ii;
+      if (qe->qd_flags)
+         if (!qe->qd_sectors) log_printf("disk %02X - no size!\n", qe->qd_biosdisk);
+   }
+}
+
 static u16t _std (*ext_convert)(u16t src, int to_unicode) = 0;
 static u16t _std (*ext_wtoupper)(u16t src) = 0;
 
 /* OEM-Unicode bidirectional conversion */
-WCHAR ff_convert (WCHAR src, UINT to_unicode) {
+u16t _std ff_convert(u16t src, unsigned int to_unicode) {
    if (ext_convert) {
       int state = sys_intstate(0);
       src = ext_convert(src, to_unicode);
@@ -461,7 +491,7 @@ WCHAR ff_convert (WCHAR src, UINT to_unicode) {
 }
 
 /* Unicode upper-case conversion */
-WCHAR ff_wtoupper (WCHAR src) {
+u16t _std ff_wtoupper(u16t src) {
    if (ext_wtoupper) {
       int state = sys_intstate(0);
       src = ext_wtoupper(src);
@@ -471,20 +501,16 @@ WCHAR ff_wtoupper (WCHAR src) {
    return toupper(src);
 }
 
-/** setup FatFs i/o to specified codepage.
-    setup itself and function usage above is covered by cli to guarantee
-    thread-safeness duaring convertion/setup calls */
-void _std hlp_setcpinfo(codepage_info *info) {
-   int state = sys_intstate(0);
+/** codepage changing callback.
+    All notifications are called in MT lock, so it should be safe. */
+void _std cb_codepage(sys_eventinfo *cbinfo) {
+   codepage_info *info = (codepage_info*)cbinfo->data;
    if (!info) {
       ext_convert  = 0;
-      ext_wtoupper = 0;
-      cp_num       = 0;
+      cp_num       = 0; 
    } else {
       memcpy(ExCvt, info->oemupr, 128);
       ext_convert  = info->convert;
-      ext_wtoupper = info->wtoupper;
       cp_num       = info->cpnum;
    }
-   sys_intstate(state);
 }

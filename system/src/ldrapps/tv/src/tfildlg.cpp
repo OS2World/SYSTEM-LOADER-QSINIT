@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TFileDialog member functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TFileDialog
 #define Uses_MsgBox
@@ -54,8 +51,9 @@ TFileDialog::TFileDialog(const char *aWildCard,
                          uchar histId
                         ) :
    TDialog(TRect(15, 1, 64, 20), aTitle),
-   directory(0),
-   TWindowInit(TFileDialog::initFrame) {
+   directory(newStr("")),
+   TWindowInit(TFileDialog::initFrame)
+{
    options |= ofCentered;
    strcpy(wildCard, aWildCard);
 
@@ -148,6 +146,8 @@ static void noWildChars(char *dest, const char *src) {
 }
 
 #if defined(__MSDOS__) || defined(__QSINIT__)
+/* 'src' is cast to unsigned char * so that isspace sign extends it
+   correctly. */
 static void trim(char *dest, const char *src) {
    while (*src != EOS &&  isspace(uchar(*src))) src++;
    while (*src != EOS && !isspace(uchar(*src))) *dest++ = *src++;
@@ -200,18 +200,24 @@ void TFileDialog::getFileName(char *s) {
 
 void TFileDialog::handleEvent(TEvent &event) {
    TDialog::handleEvent(event);
-   if (event.what == evCommand)
+   if (event.what == evCommand) {
       switch (event.message.command) {
-         case cmFileOpen:
-         case cmFileReplace:
-         case cmFileClear: {
-            endModal(event.message.command);
-            clearEvent(event);
-            break;
-         }
-         default:
-            break;
+      case cmFileOpen:
+      case cmFileReplace:
+      case cmFileClear:
+         endModal(event.message.command);
+         clearEvent(event);
+         break;
+      default:
+         break;
       }
+   } else
+   if (event.what == evBroadcast && event.message.command == cmFileDoubleClicked) {
+      event.what = evCommand;
+      event.message.command = cmOK;
+      putEvent(event);
+      clearEvent(event);
+   }
 }
 
 void TFileDialog::readDirectory() {
@@ -256,11 +262,13 @@ Boolean TFileDialog::checkDirectory(const char *str) {
 }
 
 Boolean TFileDialog::valid(ushort command) {
+   char fName[MAXPATH], drive[MAXDRIVE], dir[MAXDIR], name[MAXFILE], ext[MAXEXT];
+
    if (!TDialog::valid(command)) return False;
+
+   // The base TDialog::valid() doesn't handle these.
    if (command == cmValid || command == cmCancel || command == cmFileClear)
       return True;
-
-   char fName[MAXPATH], drive[MAXDRIVE], dir[MAXDIR], name[MAXFILE], ext[MAXEXT];
 
    getFileName(fName);
    if (isWild(fName)) {
@@ -281,7 +289,12 @@ Boolean TFileDialog::valid(ushort command) {
    if (isDir(fName)) {
       if (checkDirectory(fName)) {
          delete(char *)directory;
-         strcat(fName, "\\");
+
+         // BUG FIX - EFW - Fixed incorrect addition of an
+         // additional backslash under certain circumstances.
+         if (fName[strlen(fName) - 1] != '\\')
+            strcat(fName, "\\");
+
          directory = newStr(fName);
          if (command != cmFileInit) fileList->select();
          fileList->readDirectory(directory, wildCard);

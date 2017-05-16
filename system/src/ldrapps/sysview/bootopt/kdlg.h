@@ -22,26 +22,33 @@
 #include "tcolortx.h"
 #include "tcombo.h"
 
-#define cmImportKernel 500
-#define cmLaunchKernel 501
+#define cmImportKernel  500
+#define cmLaunchKernel  501
+#define cmLoadBatchFile 502
 
 class TKernBootDlg : public TDialog {
 public:
-   TKernBootDlg( );
-   virtual void handleEvent( TEvent& );
-   virtual Boolean valid( ushort );
+   TKernBootDlg();
+   virtual void handleEvent(TEvent&);
+   virtual Boolean valid(ushort);
+   /// SOURCE=... drive letter (display only)
+   char   source;
+   long  valimit;
 
-   TInputLine *k_name;
-   TCheckBoxes *k_opts;
-   TInputLine *k_pkey;
-   TInputLine *k_limit;
-   TInputLine *k_logsize;
-   TInputLine *k_cfgext;
-   TInputLine *k_letter;
-   TCheckBoxes *deb_opts;
-   TInputLine *deb_port;
-   TInputLine *deb_rate;
+   TInputLine      *k_name;
+   TInputLine    *cmd_name;
+   TCheckBoxes     *k_opts;
+   TInputLine      *k_pkey;
+   TInputLine     *k_limit;
+   TInputLine   *k_logsize;
+   TInputLine  *k_loglevel;
+   TInputLine    *k_cfgext;
+   TInputLine    *k_letter;
+   TCheckBoxes   *deb_opts;
+   TInputLine    *deb_port;
+   TInputLine    *deb_rate;
    TInputLine *deb_symname;
+   TColoredText *l_lvminfo;
 };
 
 #endif  // __KERNELOPTS_H

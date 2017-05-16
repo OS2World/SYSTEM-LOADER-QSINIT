@@ -303,7 +303,7 @@ void init(InitPacket far *pkt) {
             for (ii=0; ii<diskh->h4_tabsize; ii++)
                if (tb[ii].hde_1stpage<PAGESIN4GB) {
                   info_str("System loaded not by QSINIT who made this disk.\n");
-                  info_str("Disk found, but use low memory and cannot be used.\n");
+                  info_str("Disk found, but contains low memory pages and cannot be used.\n");
                   rc = 1;
                   break;
                }

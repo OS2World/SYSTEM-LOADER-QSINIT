@@ -8,6 +8,7 @@ version=0x0001
 [vars]
 aa=wasm
 cc=wcc386
+cpp=@wpp386
 ld=wlink
 
 *asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
@@ -15,6 +16,9 @@ ld=wlink
 
 *c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
      $(cc) $(cinc) $(cflags)$*.obj $(*cur_name)
+
+*cpp=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cpp) $(cinc) $(cppflags)$*.obj $(*cur_name)
 
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
@@ -24,8 +28,10 @@ ld=wlink
 
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
-cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
+cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
        -fi=%(QS_MHDR) -i=. -i=$(outdir) -fo=
+
+cppflags=-zv $(cflags)
 
 dlldir=dll
 cinc=
@@ -46,10 +52,10 @@ copy=cp
 ..\runtime\qsinit.ord
 ..\..\hc\inc\parttab.inc ..\..\hc\inc\dpmi.inc
 ..\..\hc\inc\seldesc.inc
-..\..\init\inc\qsinit.inc
+..\..\init\inc\qsinit.inc ..\..\init\inc\dskinfo.inc
 ..\..\hc\inc\qsconst.inc
-partmgr.c mount.c pboot.c pscan.c phlp.c format.c pclone.c
-se.asm lvm.c ptmgr.c gptmgr.c hpfs\formatfs.c hpfs\boot.asm
+partmgr.c mount.c pboot.c pscan.c phlp.cpp format.c pclone.cpp
+se.asm lvm.cpp ptmgr.cpp gptmgr.cpp hpfs\formatfs.c hpfs\boot.asm
 hpfs\fshelp.c
 
 [make_footer]
@@ -60,7 +66,7 @@ MAKEDIRS : $(outdir)
 hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c) $(**asm)
+nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c) $(**cpp) $(**asm)
 
 clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo Cleaning $(name)...
@@ -69,13 +75,17 @@ clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
 sys os2v2_dll
 name $(outname)
 file /[[$(**c)! !,]]
+file /[[$(**cpp)! !,]]
 file /[[$(**asm)! !,]]
 file %(appinit_lib)\bld\Common\initdll.obj
 lib %(appinit_lib)\runtime.lib
+lib %(appinit_lib)\cpplib.lib
+lib %(WATCOM)\lib386\plib3s.lib
 op map=$(name).map
 sort global
 op togglerelocs
 op quiet
+op vfr
 op el
 op nod
 op osname=%(QS_NAME)

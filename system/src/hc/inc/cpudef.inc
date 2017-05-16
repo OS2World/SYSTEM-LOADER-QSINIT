@@ -133,6 +133,10 @@ CPU_CR4_VMXE          = 00002000h        ;/< VMX enabling flag
 CPU_CR4_SMXE          = 00004000h        ;/< SMX enabling flag
 CPU_CR4_OSXSAVE       = 00040000h        ;/< another one extended states flag
 
+CPU_XCR0_FPU          = 00000001h        ;/< FPU in use (must be 1)
+CPU_XCR0_SSE          = 00000002h        ;/< xxm8-xmm15 support
+CPU_XCR0_AVX          = 00000004h        ;/< AVX support
+
 ; common MSRs
 MSR_IA32_APICBASE           = 001Bh
 MSR_IA32_MTRRCAP            = 00FEh

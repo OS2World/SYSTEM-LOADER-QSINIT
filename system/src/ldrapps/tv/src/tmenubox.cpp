@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TMenuBox member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TRect
 #define Uses_TMenu
@@ -33,7 +30,8 @@ static TRect getRect(const TRect &bounds, TMenu *aMenu) {
             short l = cstrlen(p->name) + 6;
             if (p->command == 0)
                l += 3;
-            else if (p->param != 0)
+            else 
+            if (p->param != 0)
                l += cstrlen(p->param) + 2;
             w = max(l, w);
          }

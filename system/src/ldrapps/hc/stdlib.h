@@ -35,15 +35,19 @@ s64t   __stdcall atoi64 (const char *ptr);
 
 double __stdcall atof   (const char *ptr);
 
+char*  __stdcall _gcvt  (double value, int digits, char *str);
+
 char*  __stdcall strstr (const char *str, const char *substr);
+
+size_t __stdcall strspn (const char *str, const char *charset);
+
+char*  __stdcall _strspnp(const char *str, const char *charset);
 
 char*  __stdcall strrchr(const char *s, int c);
 
 char*  __stdcall strupr(char *str);
 
 char*  __stdcall strlwr(char *str);
-
-int    __stdcall memcmp (const void *s1, const void *s2, u32t length);
 
 /** binary comparision.
     This function compatible with watcom bcmp, but returns position of
@@ -61,6 +65,8 @@ s64t   __stdcall strtoll(const char *ptr, char **endptr, int base);
 u32t   __stdcall strtoul(const char *ptr, char **endptr, int base);
 
 u64t   __stdcall strtoull(const char *ptr, char **endptr, int base);
+
+double __stdcall strtod (const char *str, char **endptr);
 
 char*  __stdcall strpbrk(const char *str, const char *charset);
 
@@ -116,24 +122,35 @@ int    __stdcall isalnum(int cc);
 
 int    __stdcall isdigit(int cc);
 
+int    __stdcall isxdigit(int cc);
+
+#define gcvt _gcvt
 #define itoa _itoa
-
 #define ltoa _ltoa
-
 #define utoa _utoa
-
 #define ultoa _ultoa
-
 #define ulltoa _utoa64
+#define strspnp _strspnp
 
 int    __stdcall abs(int value);
 
 int    __stdcall unlink(const char *path);
 
+int    __stdcall remove(const char *path);
+
 int    __stdcall rename(const char *oldname, const char *newname);
 
 // fopen supports binary mode only!
 FILE*  __stdcall fopen  (const char *filename, const char *mode);
+
+// watcom runtime compatible
+FILE*  __stdcall _fsopen(const char *filename, const char *mode, int share);
+
+#define SH_COMPAT   0x00    ///< compatibility mode
+#define SH_DENYRW   0x10    ///< deny read/write mode
+#define SH_DENYWR   0x20    ///< deny write mode
+#define SH_DENYRD   0x30    ///< deny read mode
+#define SH_DENYNO   0x40    ///< deny none mode
 
 int    __stdcall fclose (FILE *fp);
 
@@ -145,11 +162,19 @@ int    __stdcall ferror (FILE *fp);
 
 int    __stdcall feof   (FILE *fp);
 
-int    __stdcall fseek  (FILE *fp, s32t offset, int where);
+int    __stdcall fseek  (FILE *fp, s32t offset, int origin);
+
+s32t   __stdcall lseek  (int handle, s32t offset, int origin);
+
+s64t   __stdcall _lseeki64(int handle, s64t offset, int origin);
 
 void   __stdcall rewind (FILE *fp);
 
 s32t   __stdcall ftell  (FILE *fp);
+
+#define tell(fp) ftell((FILE*)(fp))
+
+s64t   __stdcall _telli64(int handle);
 
 int    __stdcall fflush (FILE *fp);
 
@@ -178,12 +203,16 @@ extern FILE  *stdin, *stdout, *stderr, *stdaux, *stdnul;
 #pragma aux stdnul "_*";
 
 int    __cdecl   fprintf(FILE *fp, const char *format, ...);
+int    __cdecl   fscanf (FILE *fp, const char *format, ...);
+int    __cdecl   scanf  (const char *format, ...);
 
 int    __stdcall getchar(void);
 int    __stdcall getc   (FILE *fp);
 int    __stdcall fputs  (const char *buf, FILE *fp);
 int    __stdcall puts   (const char *buf);
 int    __stdcall fputc  (int c, FILE *fp);
+int    __stdcall ungetc (int c, FILE *fp);
+int    __stdcall ungetch(int ch);
 #define putc(c,fp) fputc(c,fp)
 #define putchar(c) fputc(c,stdout);
 
@@ -196,9 +225,9 @@ FILE*  __stdcall freopen(const char *filename, const char *mode, FILE *fp);
 #define STDNUL_FILENO   4   ///< nul device
 
 /** fdopen - limited edition (tm).
-    Function simulate to standard fdopen(), but return valid FILE* for
+    Function simulate to standard fdopen(), but returns valid FILE* for
     STDIN_FILENO..STDNUL_FILENO only (i.e. implemented for opening of standard
-    i/o handles only).
+    i/o handles).
     Function returns NEW handle on every call! */
 FILE*  __stdcall fdopen(int handle, const char *mode);
 
@@ -215,8 +244,13 @@ char*  __stdcall _tempnam(char *dir, char *prefix);
     @return path in buffer/static buffer or 0 if no such variable/dir */
 char*  __stdcall tmpdir(char *buffer);
 
-
 #define fileno(fp) ((int)(fp))
+
+/** get OS handle.
+    WATCOM runtime compatible function.
+    @param  handle  stream i/o file handle (just use fileno() for a FILE*)
+    @return QS i/o file handle or 0 if no one. */
+qshandle __stdcall _os_handle(int handle);
 
 long   __stdcall filelength(int handle);
 
@@ -225,6 +259,8 @@ s64t   __stdcall _filelengthi64(int handle);
 int    __stdcall isatty(int handle);
 
 int    __stdcall _chsize(int handle, u32t size);
+
+int    __stdcall _chsizei64(int handle, u64t size);
 
 #define chsize _chsize
 
@@ -283,16 +319,18 @@ void   __stdcall qsort  (void *base, size_t num, size_t width,
 // not std C lib, but usable functions
 /***************************************************************************/
 
-/** open, read, close file & return buffer with it.
+/** open, read, close file & returns buffer with it.
     Buffer must be freed by hlp_memfree() - for compatibility with hlp_freadfull().
-    Function change errno value as any other fxxxx func.
+    Function sets errno value as any other fxxxx func.
+    Note, that block allocated with QSMA_LOCAL flag (process owned).
+
     @param [in]  name     File name.
     @param [out] bufsize  File size.
     @return buffer with file or 0 if no file/no memory */
 void*  __stdcall freadfull(const char *name, unsigned long *bufsize);
 
 /** open, write & close file.
-    Function change errno value as any other fxxxx func.
+    Function sets errno value as any other fxxxx func.
     @param [in]  name     File name.
     @param [in]  buf      File data.
     @param [in]  bufsize  File size.
@@ -310,7 +348,8 @@ char*  __stdcall _changeext(const char *name, const char *ext, char *path);
     @param [in]  fname    File name to split.
     @param [out] dir      Directory, with '\' only in rare cases like \name
                           or 1:\name (at least _MAX_PATH len, can be 0).
-    @param [out] name     Name without path, at least _MAX_PATH len. */
+    @param [out] name     Name without path (at least _MAX_PATH len, can be 0).
+    @return name value, or dir if name==0 */
 char*  __stdcall _splitfname(const char *fname, char *dir, char *name);
 
 /** file name pattern match.
@@ -409,7 +448,7 @@ u64t*  __stdcall memrchrnq(const u64t*mem, u64t chr, u32t buflen);
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
 /** string to uint.
-    Unlike strtol() makes only hex & dec convertions, but not octal.
+    Unlike strtol() it makes only hex & dec convertions, but not octal.
     Pair str2long() function available in clib.h for int values */
 u32t  __stdcall str2ulong(const char *str);
 /// string to int64. The same as str2ulong()
@@ -419,18 +458,21 @@ u64t  __stdcall str2uint64(const char *str);
 
 /** safe memcpy.
     Function makes a memmove(), but protected by exception handler.
-    Optionally it allow copying from/to page 0 (this page mapped as read-only
-    in PAE paging mode and inaccessible from FLAT DS in non-paged mode).
+    Optionally it allows copying from/to page 0 (1st page is mapped as
+read-only in PAE mode and inaccessible from FLAT DS in non-paged mode).
 
     @param dst    Destination address.
     @param src    Source address.
     @param length Number of bytes to copy
-    @param page0  Page 0 access (set 1 to allow page 0 be a part of source and
-                  destination)
+    @param flags  Flags (MEMCPY_PG0 to allow page 0 be a part of source
+                  and/or destination and MEMCPY_DI to copy memory under cli)
     @return 1 on success, 0 if exception occur */
-u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, int page0);
+u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, u32t flags);
 
-/// conver QSINIT error to nearest errno value
+#define MEMCPY_PG0   0x0001         ///< page 0 can be a part of src or dst
+#define MEMCPY_DI    0x0002         ///< disable interrupts during copying
+
+/// convert QSINIT error to nearest errno value
 int   __stdcall qserr2errno(qserr errv);
 
 #ifdef __cplusplus

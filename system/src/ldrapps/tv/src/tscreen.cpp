@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TScreen member functions                  */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TScreen
 #define Uses_TEvent
@@ -48,6 +45,7 @@ Boolean TScreen::hiResScreen   = False;
 Boolean TScreen::checkSnow     = False;
 uchar   *TScreen::screenBuffer = 0;
 ushort  TScreen::cursorLines   = 0;
+Boolean TScreen::clearOnSuspend = True;
 
 //--------------------------------------------------------------------------
 #define maxViewHeight 100
@@ -366,13 +364,13 @@ void TDisplay::setCursorType(ushort ct) {
    VioSetCurType(&cinfo,NULL);
 }
 
-#ifdef __WATCOMC__
+#if defined(__WATCOMC__) && (__WATCOMC__>1270)
 static unsigned char __far16 empty_scroll[] = { ' ', 15, 0 };
 static unsigned char __far16 *pescroll = &empty_scroll[0];
 #endif
 
 void TDisplay::clearScreen(int w, int h) {
-#ifdef __WATCOMC__
+#if defined(__WATCOMC__) && (__WATCOMC__>1270)
    VioScrollUp(0,0,h,w,h,pescroll,NULL);
 #else
    char *cell = " \x0F";
@@ -422,7 +420,7 @@ TScreen::~TScreen() {
    VIOMODEINFO info;
    info.cb = sizeof(VIOMODEINFO);
    VioGetMode(&info,0);
-#ifdef __WATCOMC__
+#if defined(__WATCOMC__) && (__WATCOMC__>1270)
    VioScrollUp(0,0,info.row,info.col,info.row,pescroll,NULL);
 #else
    char *cell = " \x0F";
@@ -672,7 +670,7 @@ void TScreen::setCrtData() {
    hiResScreen  = Boolean(screenHeight > 25);
 
    if (!screenBuffer) screenBuffer = (uchar *) hlp_memalloc(screenWidth *
-      screenHeight * sizeof(ushort), QSMA_RETERR);
+      screenHeight * sizeof(ushort), QSMA_RETERR|QSMA_LOCAL);
 
    if (!screenBuffer) {
       printf("\nFATAL: Can't allocate a screen buffer!\n");
@@ -720,7 +718,8 @@ TScreen::TScreen() {
 void TScreen::suspend() {
    if (startupMode != screenMode)
       setVideoMode(startupMode);
-   clearScreen();
+   if (clearOnSuspend)
+      clearScreen();
    setCursorType(startupCursor);
 }
 

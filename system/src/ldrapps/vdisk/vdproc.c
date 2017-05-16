@@ -9,6 +9,7 @@
 
 #define MAP_SIZE                  (_8MB)
 #define PAGE_SIZE                 (_2MB)
+#define PAGESIN4GB            (0x100000)   // # of pages in 4Gb
 // read size, which SHOULD fit into mapped MAP_SIZE area, aligned to PAGE_SIZE
 #define READ_IN_TIME              ((MAP_SIZE-PAGE_SIZE)/512 - 8)
 
@@ -21,6 +22,8 @@ static HD4_TabEntry *cde = 0;
 static u32t     cdecount = 0;
 static char     *maparea = 0;
 static u64t     mapstart = 0;
+static u64t    min4Gaddr = 0;   ///< lowest high memory address
+static u32t    min4Gsize = 0;   ///< size of lowest high memory block (in pages)
 static u32t     endofram = 0;
 static u32t  classid_ext = 0;   ///< external info "qs_extdisk" compatible class
 static qs_extdisk  eiptr = 0;
@@ -137,6 +140,13 @@ static void wipe_fat32bs(u8t vol) {
    if (hlp_volinfo(vol, &vi)==FST_FAT32) dsk_emptysector(vi.Disk, vi.StartSector, 1);
 }
 
+static void set_lvmname(u32t index, str_list* vol_names, u32t *pl_rc) {
+   if (vol_names)
+      if (vol_names->count>index && vol_names->item[index][0])
+         *pl_rc = lvm_setname(chdd, index, LVMN_PARTITION|LVMN_VOLUME,
+            vol_names->item[index]);
+}
+
 static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
    u32t rc = 0;
    // and format at last
@@ -170,15 +180,102 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
    return rc;
 }
 
+/** read/update PC memory list.
+    returns list qwords in form:
+       start_page<<32 | num_of_pages | (0x80000000 if memory is used by QSINIT) */
+static dq_list get_memory_list(u32t *lopages, u32t *hipages) {
+   pcmem_entry  *me, *pe;
+   dq_list      mem;
+   mem      = NEW(dq_list);
+   me       = sys_getpcmem(0);
+   *lopages = 0;
+   *hipages = 0;
+   if (me) {
+      pe = me;
+      while (pe->pages) {
+         u32t owner = pe->flags&PCMEM_TYPEMASK;
+         if (pe->start>=_4GBLL && pe->pages>=_4MB>>PAGESHIFT && owner==PCMEM_FREE) {
+            // address fit to 44 bits?
+            if (pe->start>>PAGESHIFT<=(u64t)FFFF) {
+               mem->add((pe->start>>PAGESHIFT)<<32|pe->pages);
+               *hipages += pe->pages;
+               // find lowest page
+               if (min4Gaddr && pe->start<min4Gaddr || !min4Gaddr) {
+                  min4Gaddr = pe->start;
+                  min4Gsize = pe->pages;
+               }
+            }
+         }
+         if (pe->start<_4GBLL && pe->pages>=_1MB>>PAGESHIFT && (owner==PCMEM_FREE
+            || owner==PCMEM_QSINIT))
+         {
+            u32t pages = pe->pages;
+            *lopages  += pages;
+            // mark qsinit pages
+            if (owner==PCMEM_QSINIT) pages|=0x80000000;
+            mem->add((pe->start>>PAGESHIFT)<<32|pages);
+         }
+         pe++;
+      }
+      free(me);
+   }
+   return mem;
+}
+
+static qserr check_pae(void) {
+   qserr rc = 0;
+   if (!sys_pagemode()) {
+      rc = pag_enable();
+      log_printf("set PAE (%d)\n", rc);
+      if (rc) return rc;
+   }
+   return sys_pagemode()?0:E_SYS_UNSUPPORTED;
+}
+
+/** check for disk presence at the start of 4th Gb.
+    @param [out] dh     returning disk header (on success, mapped)
+    @retval 0                  success, returns mapped disk header (must be released in caller)
+    @retval E_SYS_NONINITOBJ   no disk
+    @retval E_SYS_NOMEM        no memory above 4Gb
+    @retval E_SYS_UNSUPPORTED  no PAE
+    @retval E_SYS_BADFMT       disk present, but uses low pages  */
+static qserr vdisk_exists(HD4_Header **pdh) {
+   u32t  rc;
+   if (!min4Gaddr) return E_SYS_NOMEM;
+   // unable to set mode?
+   rc = check_pae();
+   if (!rc) {
+      HD4_Header *dh = (HD4_Header*)pag_physmap(min4Gaddr, PAGESIZE, 0);
+      if (dh) {
+         if (dh->h4_sign==EXPDATA_SIGN && dh->h4_version==1) {
+            HD4_TabEntry *tab = (HD4_TabEntry*)(dh+1);
+            u32t ii;
+            // enum page ranges
+            for (ii=0; ii<dh->h4_tabsize; ii++)
+               if (tab[ii].hde_1stpage<PAGESIN4GB) {
+                  log_printf("Disk found, but uses low memory!\n");
+                  rc = E_SYS_BADFMT;
+                  break;
+               }
+            if (!rc && pdh) *pdh = dh;
+         } else
+            rc = E_SYS_NONINITOBJ;
+         // release it if nobody receives out ptr
+         if (rc || !pdh) pag_physunmap(dh);
+      }
+   }
+   return rc;
+}
+
+
 qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
                        u32t divpos, char letter1, char letter2, u32t *disk)
 {
-   qserr        rc;
-   u32t         ii;
-   pcmem_entry *me, *pe;
-   dq_list     mem;
-   u32t    lopages = 0,
-           hipages = 0;
+   qserr         rc;
+   u32t          ii, 
+         persist_ok = 0;
+   dq_list      mem;
+   u32t     lopages, hipages;
    // disk was created?
    if (cdh) return E_SYS_INITED;
    // invalid flags
@@ -186,39 +283,14 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
        (flags&(VFDF_EMPTY|VFDF_SPLIT))==(VFDF_EMPTY|VFDF_SPLIT) ||
        (flags&(VFDF_FAT32|VFDF_NOFAT32))==(VFDF_FAT32|VFDF_NOFAT32) ||
        (flags&(VFDF_FAT32|VFDF_HPFS))==(VFDF_FAT32|VFDF_HPFS) ||
+       (flags&VFDF_EXACTSIZE)!=0 && !minsize ||
        (flags&VFDF_SPLIT)!=0 && !divpos ||
        (flags&VFDF_EMPTY)!=0 && divpos ||
-       (flags&VFDF_PERCENT)!=0 && divpos>=100 ||
-          maxsize && minsize>maxsize) return E_SYS_INVPARM;
+       (flags&VFDF_PERCENT)!=0 && divpos>=100) return E_SYS_INVPARM;
    // allow NOFAT32 with HPFS but clears it to not confuse later code
    if (flags&VFDF_HPFS) flags&=~VFDF_NOFAT32;
 
-   me = sys_getpcmem(0);
-   if (!me) return E_SYS_NOMEM;
-
-   mem = NEW(dq_list);
-   pe  = me;
-   while (pe->pages) {
-      u32t owner = pe->flags&PCMEM_TYPEMASK;
-      if (pe->start>=_4GBLL && pe->pages>=_4MB>>PAGESHIFT && owner==PCMEM_FREE) {
-         // address fit to 44 bits?
-         if (pe->start>>PAGESHIFT<=(u64t)FFFF) {
-            mem->add((pe->start>>PAGESHIFT)<<32|pe->pages);
-            hipages += pe->pages;
-         }
-      }
-      if (pe->start<_4GBLL && pe->pages>=_1MB>>PAGESHIFT && (owner==PCMEM_FREE
-         || owner==PCMEM_QSINIT))
-      {
-         u32t pages = pe->pages;
-         lopages   += pages;
-         // mark qsinit pages
-         if (owner==PCMEM_QSINIT) pages|=0x80000000;
-         mem->add((pe->start>>PAGESHIFT)<<32|pages);
-      }
-      pe++;
-   }
-   free(me);
+   mem = get_memory_list(&lopages, &hipages);
 
    if (flags&VFDF_NOHIGH) hipages = 0;
    if (flags&VFDF_NOLOW)  lopages = 0;
@@ -227,11 +299,29 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
       maxsize <<= 20 - PAGESHIFT;
       if (hipages>maxsize) hipages = maxsize;
    }
+   minsize <<= 20 - PAGESHIFT;
+   // adjust size before persistence check
+   if ((flags&VFDF_EXACTSIZE) && hipages>minsize) hipages = minsize;
+
+   if ((flags&VFDF_PERSIST) && hipages) {
+      HD4_Header *edh;
+      // fill it back from the header, but only on size match!
+      if (vdisk_exists(&edh)==0)
+         if (edh->h4_pages+1==hipages && hipages>=minsize) {
+            cdh        = edh;
+            cdhphys    = min4Gaddr;
+            cdhsize    = edh->h4_pages<<PAGESHIFT-9;
+            cde        = (HD4_TabEntry*)(edh+1);
+            cdecount   = edh->h4_tabsize;
+            persist_ok = 1;
+            rc = 0;
+         }
+   }
+   if (!cdh)
    do {
       rc = 0;
       // minimal size specified, check memory below 4Gb
       if (minsize) {
-         minsize <<= 20 - PAGESHIFT;
          if (hipages<minsize) {
             if (hipages+lopages<minsize) {
                log_printf("min %d pages, but avail: lo %d, high %d\n",
@@ -240,7 +330,10 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
                break;
             }
             lopages = minsize - hipages;
-         } else lopages = 0;
+         } else {
+            lopages = 0;
+            if (flags&VFDF_EXACTSIZE) hipages = minsize;
+         }
       } else lopages = 0;
 
       if (hipages+lopages==0) {
@@ -257,12 +350,8 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
       }
       // turn on PAE paging - if high pages used
       if (hipages) {
-         if (!sys_pagemode()) {
-            rc = pag_enable();
-            log_printf("set PAE (%d)\n", rc);
-            if (rc) break;
-         }
-         if (!sys_pagemode()) { rc=E_SYS_UNSUPPORTED; break; }
+         rc = check_pae();
+         if (rc) break;
 
          // walk over high memory
          for (ii=0; ii<mem->count(); ii++) {
@@ -319,7 +408,7 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
             u32t pages = addr&~0x80000000;
             addr = addr>>32<<PAGESHIFT;
             if (addr<_4GBLL) {
-               u32t res;
+               u32t res, reason;
 
                if (used) {
                   if (pages<=lopages) {
@@ -327,10 +416,10 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
                      break;
                   }
                   addr += pages - lopages << PAGESHIFT;
-                  reserved = hlp_memreserve(addr, lopages<<PAGESHIFT);
+                  reserved = hlp_memreserve(addr, lopages<<PAGESHIFT, &reason);
                   if (!reserved) {
-                     log_printf("Failed to reserve: %08X, %d pages\n",
-                        (u32t)addr, lopages);
+                     log_printf("Failed to reserve: %08X, %u pages, err %u\n",
+                        (u32t)addr, lopages, reason);
                      break;
                   }
                   pages = lopages;
@@ -398,51 +487,80 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
          dp.qd_extptr = eiptr;
       }
       // install new "hdd"
-      drvnum = hlp_diskadd(&dp);
+      drvnum = hlp_diskadd(&dp, HDDA_BIOSNUM);
       if (drvnum<0) {
          log_printf("hlp_diskadd err!\n");
          rc = E_DSK_MOUNTERR;
       } else {
-         u32t d_rc=0, l_rc=0;
+         u32t  d_rc = 0, l_rc = 0;
          chdd = drvnum;
          // # of disk slices
          cdh->h4_tabsize = cdecount;
 
-         log_it(3, "vdisk ranges: %d\n", cdecount);
+         log_it(3, "vdisk ranges: %d, bios fake num %02X\n", cdecount,
+            hlp_diskbios(chdd,1));
          for (ii=0; ii<cdecount; ii++)
             log_it(3, "%2d. %010LX - %d pages\n", ii+1,
                (u64t)cde[ii].hde_1stpage<<PAGESHIFT, cde[ii].hde_sectors>>3);
-         // wipe mbr sector
-         dsk_newmbr(chdd, DSKBR_CLEARALL);
-         // wipe LVM sector (to prevent of using previous disk data after "ramdisk delete")
-         dsk_emptysector(chdd, cdh->h4_spt-1, 1);
-         // init mbr & first lvm dlat
-         d_rc = dsk_ptinit(chdd, 1);
-         // create partition(s) and format it
-         if (!d_rc && (flags&VFDF_EMPTY)==0) {
-            u64t  start, size;
-            // div pos in megabytes
-            divpos >>= 20-PAGESHIFT;
-            // create single partition
-            d_rc = dsk_ptalign(chdd, 0, divpos?divpos:100, DPAL_CHSSTART|DPAL_CHSEND|
-               (divpos?0:DPAL_PERCENT), &start, &size);
-            if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
-            // and make it active
-            if (!d_rc) d_rc = dsk_setactive(chdd, 0);
-            // set disk LVM name
-            l_rc = lvm_setname(chdd, 0, LVMN_DISK, "PAE_RAM_DISK");
-            // format partition & assign LVM drive letter
-            if (!d_rc) d_rc = make_partition(0, flags, letter1, &l_rc);
-            /* second partition processing */
-            if (divpos) {
-               d_rc = dsk_ptalign(chdd, 0, 100, DPAL_CHSSTART|DPAL_CHSEND|DPAL_PERCENT,
-                  &start, &size);
-               if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
-               // format partition & assign LVM drive letter
-               if (!d_rc) d_rc = make_partition(1, flags, letter2, &l_rc);
+
+         if (!persist_ok) {
+            str_list *vol_names = 0;
+            // allows custom LVM names in form {RAM/V}DISKNAME = pt1 name, pt2 name
+            char       *vdnames = getenv("RAMDISKNAME");
+            if (!vdnames) vdnames = getenv("VDISKNAME");
+            // custom LVM volume names
+            if (vdnames) vol_names = str_split(vdnames, ",");
+
+            // wipe mbr sector
+            dsk_newmbr(chdd, DSKBR_CLEARALL);
+            // wipe LVM sector (to prevent of using previous disk data after "ramdisk delete")
+            dsk_emptysector(chdd, cdh->h4_spt-1, 1);
+            // init mbr & first lvm dlat
+            d_rc = dsk_ptinit(chdd, 1);
+            // create partition(s) and format it
+            if (!d_rc) {
+               // set disk LVM name
+               l_rc = lvm_setname(chdd, 0, LVMN_DISK, "PAE_RAM_DISK");
+
+               if ((flags&VFDF_EMPTY)==0) {
+                  u64t  start, size;
+                  // div pos in megabytes
+                  divpos >>= 20-PAGESHIFT;
+                  // create single partition
+                  d_rc = dsk_ptalign(chdd, 0, divpos?divpos:100, DPAL_CHSSTART|DPAL_CHSEND|
+                     (divpos?0:DPAL_PERCENT), &start, &size);
+                  if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
+                  // and make it active
+                  if (!d_rc) d_rc = dsk_setactive(chdd, 0);
+                  // format partition & assign LVM drive letter
+                  if (!d_rc) d_rc = make_partition(0, flags, letter1, &l_rc);
+                  // set custom (non-empty) volume name
+                  if (vol_names) set_lvmname(0, vol_names, &l_rc);
+                  /* second partition processing */
+                  if (divpos) {
+                     d_rc = dsk_ptalign(chdd, 0, 100, DPAL_CHSSTART|DPAL_CHSEND|DPAL_PERCENT,
+                        &start, &size);
+                     if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
+                     // format partition & assign LVM drive letter
+                     if (!d_rc) d_rc = make_partition(1, flags, letter2, &l_rc);
+                     // set custom (non-empty) volume name
+                     if (vol_names) set_lvmname(1, vol_names, &l_rc);
+                  }
+               }
+            }
+            log_printf("ram disk init: dmgr rc = %d, lvm rc = %d\n", d_rc, l_rc);
+            if (vol_names) free(vol_names);
+         } else {
+            log_printf("ram disk init: persistent!\n");
+            /* mount partition(s) to 1st available drive letter, but
+               ignore result. This should help for ones, who assume it as C:
+               in any case */
+            if ((flags&VFDF_EMPTY)==0) {
+               u8t vol = 0;
+               vol_mount(&vol, chdd, 0);
+               if (divpos) { vol = 0; vol_mount(&vol, chdd, 1); }
             }
          }
-         log_printf("ram disk init: dmgr rc = %d, lvm rc = %d\n", d_rc, l_rc);
 
          if (disk) *disk = chdd;
          /* save header page number to storage key for "bootos2" to prevent
@@ -460,8 +578,36 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
       }
    }
    if (rc) vdisk_free(0,0);
-   return rc;
+   return persist_ok && !rc ? E_SYS_EXIST : rc;
 }
+
+u32t _exicc vdisk_clean(EXI_DATA) {
+   if (chdd) return E_SYS_INITED; else {
+      qserr rc;
+      // just makes list at least once, to setup min4Gsize
+      if (!min4Gsize) {
+         u32t  nlo, nhi;
+         dq_list   meml = get_memory_list(&nlo, &nhi);
+         DELETE(meml);
+      }
+      rc = vdisk_exists(0);
+
+      if (!rc || rc==E_SYS_BADFMT) {
+         u32t clean_size = min4Gsize<PAGE_SIZE>>PAGESHIFT ? min4Gsize : PAGE_SIZE;
+         void *clean_ptr = pag_physmap(min4Gaddr, clean_size, 0);
+
+         if (clean_ptr) {
+            log_printf("ram disk clean: %LX %u\n", min4Gaddr, clean_size);
+            memset(clean_ptr, 0, clean_size);
+            pag_physunmap(clean_ptr);
+            return 0;
+         } else
+            return E_SYS_SOFTFAULT;
+      }
+      return rc;
+   }
+}
+
 
 u32t _exicc vdisk_free(EXI_DATA) {
    u32t     rc = 1;
@@ -617,7 +763,7 @@ static u32t _exicc dopt_state(EXI_DATA, u32t state) {
    return EDSTATE_NOCACHE;
 }
 
-static void *qs_vdisk_fn[] = { vdisk_init, vdisk_load, vdisk_free, vdisk_query, vdisk_setgeo };
+static void *qs_vdisk_fn[] = { vdisk_init, vdisk_load, vdisk_free, vdisk_query, vdisk_setgeo, vdisk_clean };
 
 static void *qs_extdisk_fn[] = { dopt_getgeo, dopt_setgeo, dopt_getname, dopt_state };
 
@@ -631,10 +777,10 @@ int unregister_class(void) {
 }
 
 int register_class(void) {
-   if (!classid_ext) classid_ext = exi_register("qs_ramdisk_ext", qs_extdisk_fn,
+   if (!classid_ext) classid_ext = exi_register("qs_vdisk_ext", qs_extdisk_fn,
       sizeof(qs_extdisk_fn)/sizeof(void*), sizeof(doptdata), 0, dopt_init, dopt_done, 0);
 
-   if (!classid_vd) classid_vd = exi_register("qs_ramdisk", qs_vdisk_fn,
+   if (!classid_vd) classid_vd = exi_register("qs_vdisk", qs_vdisk_fn,
       sizeof(qs_vdisk_fn)/sizeof(void*), 0, EXIC_GMUTEX, 0, 0, 0);
 
    if (!classid_ext || !classid_vd) { unregister_class(); return 0; }

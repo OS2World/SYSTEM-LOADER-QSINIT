@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  THistoryViewer member functions           */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_THistoryViewer
@@ -31,7 +28,8 @@ THistoryViewer::THistoryViewer(const TRect &bounds,
                                TScrollBar *aVScrollBar,
                                ushort aHistoryId) :
    TListViewer(bounds, 1, aHScrollBar, aVScrollBar),
-   historyId(aHistoryId) {
+   historyId(aHistoryId)
+{
    setRange(historyCount(aHistoryId));
    //    if( range > 1 )
    //        focusItem( 1 );
@@ -53,14 +51,15 @@ void THistoryViewer::getText(char *dest, int item, int maxChars) {
 }
 
 void THistoryViewer::handleEvent(TEvent &event) {
-   if ((event.what == evMouseDown && event.mouse.doubleClick) ||
-       (event.what == evKeyDown && event.keyDown.keyCode == kbEnter)
-      ) {
+   if ((event.what == evMouseDown && (event.mouse.eventFlags & meDoubleClick)) ||
+       (event.what == evKeyDown && event.keyDown.keyCode == kbEnter))
+   {
       endModal(cmOK);
       clearEvent(event);
-   } else if ((event.what ==  evKeyDown && event.keyDown.keyCode == kbEsc) ||
-              (event.what ==  evCommand && event.message.command ==  cmCancel)
-             ) {
+   } else
+   if ((event.what ==  evKeyDown && event.keyDown.keyCode == kbEsc) ||
+       (event.what ==  evCommand && event.message.command ==  cmCancel))
+   {
       endModal(cmCancel);
       clearEvent(event);
    } else

@@ -163,15 +163,7 @@ int main(int argc,char *argv[]) {
          if (!wc_addr) error(3, "Start address cannot be 0\n");
          if (!wc_len) error(3, "Length cannot be 0\n");
       } else {
-         printf("Set Write Combine for video memory\n\n"
-                "Usage: VMTRR                      - try to process automatically\n"
-                "       VMTRR hex_addr hex_length  - specify address and length (hex values)\n"
-                "       VMTRR vendor_id:device_id  - specify PCI ID of video card (hex values)\n"
-                "       VMTRR bus.slot.function    - specify PCI location of video card\n"
-                "Examples:\n"
-                "       VMTRR 0xD0000000 0x10000000\n"
-                "       VMTRR 1002:6719\n"
-                "       VMTRR 0.21.2\n");
+         cmd_shellhelp("VMTRR",CLR_HELP);
          return 0;
       }
    } else

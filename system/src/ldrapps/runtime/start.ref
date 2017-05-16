@@ -14,7 +14,10 @@ name = "START"
 
 exports = {
    _atoi             = { index =  1  group = "string"  format = "is"    }
-   _sscanf           = { index =  2  group = "string"  format = "iss."  }
+   _sscanf           = { 
+                         index =  2  group = "string"  format = "iss."  
+                         expname = "__sscanf"
+                       }
    _atof             = { index =  3  group = "string"  format = "vs"    }
    _strcmp           = { index =  4  group = "string"  format = "iss"   }
    _printf           = { 
@@ -27,7 +30,7 @@ exports = {
                        }
    _strstr           = { index =  7  group = "string"  format = "sss"   }
    _strrchr          = { index =  8  group = "string"  format = "ssc"   }
-   _memcmp           = { index =  9  group = "clib"    format = "ippu"  }
+   __telli64         = { index =  9  group = "clib"    format = "Ip"    }
    _strtol           = { index = 10  group = "string"  format = "is*&si" }
    _strtoul          = { index = 11  group = "string"  format = "us*&si" }
    _strpbrk          = { index = 12  group = "string"  format = "sss"   }
@@ -163,7 +166,13 @@ exports = {
                          expname = "__sprintf_dyn"
                        }
    _strclast         = { index = 75  group = "string"  format = "cs"    }
-
+   _isxdigit         = { index = 76  }
+   _vsscanf          = {
+                         index = 77  group = "string"  format = "iss."
+                         expname = "__vsscanf"
+                       }
+   _ungetc           = { index = 78  group = "stdio"   format = "ccp"   }
+   _ungetch          = { index = 79  group = "stdio"   format = "cc"    }
    _fopen            = {
                          index = 80  group = "stdio"   format = "pss"
                          expname = "__fopen"
@@ -187,7 +196,7 @@ exports = {
                          expname = "__fseek"
                        }
    _ftell            = { index = 87  group = "stdio"   format = "up"    }
-   # ordinal 88 removed (errno)
+   __scanf_common    = { index = 88 }
    _freadfull        = { index = 89  group = "stdio"   format = "ps&*u" }
    _fcloseall        = { index = 90  group = "stdio"   format = "iv"    }
    __chsize          = {
@@ -253,9 +262,15 @@ exports = {
    _str2int64        = { index =435  group = "clib"    format = "Is"    }
    _str2uint64       = { index =436  group = "clib"    format = "qs"    }
    _dostimetotime    = { index =437  group = "clib"    format = "u@u"   }
-   __filelengthi64   = { index =438  group = "clib"    format = "Ip"    }
-   _bsf32            = { index =439  group = "clib"    format = "iu"    }
-   _bsr32            = { index =440  group = "clib"    format = "iu"    }
+   __filelengthi64   = { index =438  group = "stdio"   format = "Ip"    }
+   _vfscanf          = { 
+                         index =439  group = "clib"    format = "ipsp"
+                         expname = "__vfscanf"
+                       }
+   _fscanf           = { 
+                         index =440  group = "clib"    format = "ips."
+                         expname = "__fscanf"
+                       }
    __get_errno       = { index =441  }
    _vsprintf_dyn     = {
                          index =442  group = "string"  format = "ssp"
@@ -264,6 +279,23 @@ exports = {
    _stdnul           = { index =443  offset = yes  }
    _qserr2errno      = { index =444  group = "clib"    format = "i@u"   }
    _fwritefull       = { index =445  group = "stdio"   format = "ispu"  }
+   __gcvt            = { index =446  group = "math"    format = "sDip"  }
+   _frexp            = { index =447  group = "math"    format = "DD*&i" }
+   __get_HugeVal_ptr = { index =448  group = "math"    format = "Dv"    }
+   _strtod           = { index =449  group = "math"    format = "Ds*&s" }
+   _scanf            = { 
+                         index =470  group = "stdio"   format = "is."
+                         expname = "__scanf"
+                       }
+   _stat             = { index =471  group = "clib"    format = "isp"   }
+   _remove           = { index =472  group = "clib"    format = "is"    }
+   _lseek            = { index =473  group = "stdio"   format = "ipii"  }
+   __lseeki64        = { index =474  group = "stdio"   format = "IpIi"  }
+   __fsopen          = { index =475  group = "stdio"   format = "pss@u" }
+   __os_handle       = { index =476  group = "stdio"   format = "@up"   }
+   __chsizei64       = { index =477  group = "stdio"   format = "ipq"   }
+   _strspn           = { index =478  group = "string"  format = "uss"   }
+   __strspnp         = { index =479  group = "string"  format = "sss"   }
 
    # memory manager
 
@@ -328,6 +360,10 @@ exports = {
    _cmd_modeqall     = { index =168  group = "shell"   format = "pi"    }
    _cmd_shellmsgall  = { index =169  group = "shell"   format = "p&*p"  }
    _cmd_shellerrmsg  = { index =490  group = "shell"   format = "sui"   }
+   _cmd_argtype      = { index =491  group = "shell"   format = "u!s"   }
+   _env_istrue       = { index =492  group = "shell"   format = "is"    }
+   _env_setvar       = { index =493  group = "shell"   format = "vsi"   }
+   _env_getvar       = { index =494  group = "shell"   format = "ss"    }
 
    # modules
 
@@ -342,8 +378,7 @@ exports = {
    _mod_dumptree     = { index =179  
                          expname = "__mod_dumptree" 
                        }
-
-   _env_istrue       = { index =180  group = "shell"   format = "is"    }
+   _mod_enum         = { index =180  group = "module"  format = "u&*p"  }
    _mod_buildthunk   = { index =181  group = "module"  format = "p@up"  }
    _mod_freethunk    = { index =182  group = "module"  format = "u@up"  }
    _mod_fnchain      = { index =183  }
@@ -508,8 +543,9 @@ exports = {
 
    _pag_physmap      = { index =300  group = "system"  format = "p@quu" }
    _pag_physunmap    = { index =301  group = "system"  format = "up"    }
-   _pag_enable       = { index =302  group = "system"  format = "iv"    }
+   _pag_enable       = { index =302  group = "system"  format = "@uv"   }
    _pag_printall     = { index =303  group = "system"  format = "vv"    }
+   _pag_query        = { index =304  group = "system"  format = "up"    }
 
    # disk/volume functions
 
@@ -532,10 +568,11 @@ exports = {
    _sys_markmem      = { index =366  group = "system"  format = "u@qu@u" }
    _sys_unmarkmem    = { index =367  group = "system"  format = "u@qu"  }
    _sys_memhicopy    = { index =368  group = "system"  format = "u@q@qq" }
+   _sys_ramtotal     = { index =369  group = "system"  format = "u&*u"  }
 
    _sys_tssalloc     = { index =380  group = "system"  format = "@hph"  }
    _sys_tssfree      = { index =381  group = "system"  format = "i@h"   }
-   # ordinal 382 reserved (moved to QSINIT)
+   _sys_notifyexec   = { index =382  group = "system"  format = "v@u@u" }
    _sys_notifyevent  = { index =383  group = "system"  format = "u@up"  }
    _sys_gdtdump      = { index =384  group = "system"  format = "vv"    }
    _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
@@ -581,13 +618,18 @@ exports = {
    _io_rmdir         = { index =605  group = "io"      format = "@us"   }
    _io_curdisk       = { index =606  group = "io"      format = "bv"    }
    _io_setdisk       = { index =607  group = "io"      format = "@ub"   }
-   _io_open          = { index =608  group = "io"      format = "@us@u&*@u&*@u" }
-   _io_read          = { index =609  group = "io"      format = "@u@upu" }
-   _io_write         = { index =610  group = "io"      format = "@u@upu" }
-   _io_seek          = { index =611  group = "io"      format = "@q@uIu" }
+   _io_open          = { index =608  group = "io"      format = "@us@u&*@u&*@u" 
+                         expname = "__io_open" }
+   _io_read          = { index =609  group = "io"      format = "@u@upu" 
+                          expname = "__io_read" }
+   _io_write         = { index =610  group = "io"      format = "@u@upu" 
+                          expname = "__io_write" }
+   _io_seek          = { index =611  group = "io"      format = "@q@uIu" 
+                          expname = "__io_seek" }
    _io_pos           = { index =612  group = "io"      format = "@q@u"  }
    _io_flush         = { index =613  group = "io"      format = "@u@u"  }
-   _io_close         = { index =614  group = "io"      format = "@u@u"  }
+   _io_close         = { index =614  group = "io"      format = "@u@u"  
+                          expname = "__io_close" }
    _io_size          = { index =615  group = "io"      format = "@u@u&*@q" }
    _io_setsize       = { index =616  group = "io"      format = "@u@u@q" }
    _io_setstate      = { index =617  group = "io"      format = "@u@u@uu" }
@@ -611,11 +653,82 @@ exports = {
    _io_iototime      = { index =635  group = "io"      format = "up"    }
    _io_vollabel      = { index =636  group = "io"      format = "@u@bs" }
    _io_ismounted     = { index =637  group = "io"      format = "u@b&*u" }
-   _io_volinfo       = { index =638  group = "io"      format = "@u@bp" }
+   _io_volinfo       = { 
+                         index =638  group = "io"      format = "@u@bp"
+                         expname = "__io_volinfo"
+                       }
    _io_mount         = { index =639  group = "io"      format = "@u@b@u@q@q" }
    _io_unmount       = { index =640  group = "io"      format = "@u@b@u" }
    _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@ui" }
    _io_dumpsft       = { index =642  group = "io"      format = "vv"    }
+   _io_blocksize     = { index =643  group = "io"      format = "u@u"   }
+
+   # FatFs.
+   # every new version of FatFs has bugs in exFAT, so ALL of functions
+   # here are traceable.
+
+   _f_mount          = { index =670  group="fatfs"     format="bpsb"
+                         expname = "__f_mount" }
+   _f_open           = { index =671  group="fatfs"     format="bps@c"
+                         expname = "__f_open" }
+   _f_read           = { index =672  group="fatfs"     format="bppu&*u"
+                         expname = "__f_read" }
+   _f_lseek          = { index =673  group="fatfs"     format="bp@q"
+                         expname = "__f_lseek" }
+   _f_close          = { index =674  group="fatfs"     format="bp"
+                         expname = "__f_close" }
+   _f_opendir        = { index =675  group="fatfs"     format="bps"
+                         expname = "__f_opendir" }
+   _f_readdir        = { index =676  group="fatfs"     format="bpp"
+                         expname = "__f_readdir" }
+   _f_stat           = { index =677  group="fatfs"     format="bsp"
+                         expname = "__f_stat" }
+   _f_write          = { index =678  group="fatfs"     format="bppu&*u"
+                         expname = "__f_write" }
+   _f_getfree        = { index =679  group="fatfs"     format="bs&*u&*p"
+                         expname = "__f_getfree" }
+   _f_truncate       = { index =680  group="fatfs"     format="bp"
+                         expname = "__f_truncate" }
+   _f_sync           = { index =681  group="fatfs"     format="bp"
+                         expname = "__f_sync" }
+   _f_unlink         = { index =682  group="fatfs"     format="bs"
+                         expname = "__f_unlink" }
+   _f_mkdir          = { index =683  group="fatfs"     format="bs"
+                         expname = "__f_mkdir" }
+   _f_chmod          = { index =684  group="fatfs"     format="bs@c@c"
+                         expname = "__f_chmod" }
+   _f_utime          = { index =685  group="fatfs"     format="bsp"
+                         expname = "__f_utime" }
+   _f_rename         = { index =686  group="fatfs"     format="bss"
+                         expname = "__f_rename" }
+   _f_closedir       = { index =687  group="fatfs"     format="bp"
+                         expname = "__f_closedir" }
+   _f_getlabel       = { index =688  group="fatfs"     format="bs&s&*@u"
+                         expname = "__f_getlabel" }
+   _f_setlabel       = { index =689  group="fatfs"     format="bs"
+                         expname = "__f_setlabel" }
+                                     
+   # queue functions
+
+   _qe_create        = { index =700  group = "queue"   format = "@us@&*u" }
+   _qe_open          = { index =701  group = "queue"   format = "@us@&*u" }
+   _qe_clear         = { index =702  group = "queue"   format = "@u@u"  }
+   _qe_waitevent     = { index =703  group = "queue"   format = "p@uu"  }
+   _qe_takeevent     = { index =704  group = "queue"   format = "p@uu"  }
+   _qe_peekevent     = { index =705  group = "queue"   format = "p@uu"  }
+   _qe_available     = { index =706  group = "queue"   format = "i@u"   }
+   _qe_postevent     = { index =707  group = "queue"   format = "@u@u@u@u@u@u" }
+   _qe_sendevent     = { index =708  group = "queue"   format = "@u@up" }
+   _qe_schedule      = { index =709  group = "queue"   format = "@u@u@q@u@u@u@u" }
+   _qe_reschedule    = { index =710  group = "queue"   format = "@u@u@q" }
+   _qe_unschedule    = { index =711  group = "queue"   format = "p@u"   }
+   _qe_close         = { index =712  group = "queue"   format = "@u@u"  }
+
+   # fpu helpers
+   _fpu_statesize    = { index =720  group = "fpu"     format = "uv"    }
+   _fpu_statesave    = { index =721  group = "fpu"     format = "vp"    }
+   _fpu_staterest    = { index =722  group = "fpu"     format = "vp"    }
+   _fpu_statedata    = { index =723  offset = yes  noimplib = yes }
 }
 
 class = {

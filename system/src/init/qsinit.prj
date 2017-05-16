@@ -18,15 +18,20 @@ name=qsinit
 ; 0.15 - rev 335, codepages, HPFS format, dmgr clone, class trace
 ; 0.16 - rev 360, linux build env, 5 years of this nice project ;)
 ; 0.17 - rev 378, mtlib, new i/o, process owned heap
-version=0x0017
+; 0.18 - rev 394, "detach" command, exFAT support
+; 0.19 - rev 405, floating point support, FatFs moved to START module
+; 0.20 - rev 415, binary file editor, CD boot, svn uptime = 5 years :)
+version=0x0020
 
 ;
 ; some notes about current crazy linking + WASM:
 ; * all assumes in 32-bit objects except unpack.asm must be FLAT.
-; * all variables/offsets in 16-bit segments must be defined NOT in
-;   the same file with 32-bit code, which uses it and exported to
-;   this files as 32-bit (i.e. 16 & 32 bit ASM code must be splitted in
-;   order to generate correct fixups).
+; * all variables/offsets, which stay in 16-bit segment, must be defined NOT
+;   in the same file with 32-bit code, who uses it and must be imported
+;   into such files via 32-bit offset (i.e. 16 & 32 bit ASM code must be
+;   splitted in order to generate correct fixups).
+; * 16-bit code can use only offsets to 32-bit variables and functions,
+;   relative & selector fixups does not supported by mkbin converter
 ;
 
 [config]
@@ -92,13 +97,14 @@ ainc=-dDEBUG -dINITDEBUG
 [files]
 ..\hc\inc\ioint13.inc ..\hc\inc\seldesc.inc ..\hc\inc\qsconst.inc 
 ..\hc\inc\filetab.inc inc\qsinit.inc inc\dskinfo.inc inc\qsbinfmt.inc
-..\hc\inc\parttab.inc inc\qspdata.inc
+..\hc\inc\parttab.inc inc\qspdata.inc inc\qsvdata.inc
 start.asm pm_open.asm pm_main.asm meminit.cc misc\timer.asm init32.c
-disk1.c misc\logmgr.c misc\iniparm.c misc\unpack.asm misc\util16.asm
+disk1.c misc\common.c misc\iniparm.c misc\unpack.asm misc\util16.asm
 misc\text.asm misc\util.asm misc\viofunc.c misc\disk.asm misc\wcrt.asm
 misc\membase.c misc\fileio.c misc\rmcall.asm misc\exptable.asm
-fat\diskio.c fat\ff.c misc\mdt.c misc\prn16.asm misc\log.asm
-misc\print.c misc\timer32.asm misc\process.c misc\task.asm
+fat\diskio.c fat\fmkfs.c misc\mdt.c misc\prn16.asm misc\vioroute.asm
+misc\print.c misc\timer32.asm misc\process.c misc\task.asm misc\log.asm
+fat\fatio.c
 zip\puff.c zip\crc32.c zip\unzip.c
 
 [deps]
@@ -130,7 +136,6 @@ file /[[$(**cc)! !,]]
 order clname INIT
       clname LCODE
       clname LDATA segment DATA16 segment CONST3 segment CONST4
-      clname FAR_DATA
       clname BSS16 segment BSSINIT segment _BSS16 segment BSSFINI
       clname CODE
       clname DATA

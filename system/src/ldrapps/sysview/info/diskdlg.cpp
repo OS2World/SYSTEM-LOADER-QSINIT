@@ -38,11 +38,12 @@ static const char *QSBIN1 = "QSINIT",
                  *OS2BOOT = "OS2BOOT",
                   *OS2LDR = "OS2LDR";
 
-static char *getfname(int open) {
+char *getfname(int open, const char *custom_title) {
    static char fname[MAXPATH+1];
 
-   TFileDialog *fo = new TFileDialog("*.*", open?"Import file":"Export to file",
-      "~F~ile name", open?fdOpenButton:fdOKButton, open?hhSectFnRead:hhSectFnWrite);
+   TFileDialog *fo = new TFileDialog("*.*", custom_title?custom_title:(
+      open?"Import file":"Export to file"), "~F~ile name",
+         open?fdOpenButton:fdOKButton, open?hhSectFnRead:hhSectFnWrite);
    fo->helpCtx = hcFileDlgCommon;
    int     res = SysApp.execView(fo)==cmFileOpen;
    if (res) fo->getFileName(fname);
@@ -64,8 +65,8 @@ TDiskCopyDialog::TDiskCopyDialog() :
    percentStr = new TColoredText(TRect(32, 2, 40, 3), "", 0x7f);
    insert(percentStr);
    selectNext(False);
-   source.isFile = 1; source.file = 0;
-   destin.isFile = 1; destin.file = 0;
+   source.type = cpsFile; source.file = 0;
+   destin.type = cpsFile; destin.file = 0;
    bytes  = 0;
    buf32k = (u8t*)malloc(DISK_BUFFER);
 }
@@ -82,34 +83,55 @@ void TDiskCopyDialog::processNext() {
    // overflow?
    if (bytes < sin32k) sin32k = bytes;
    // read data
-   u32t readed,
-       s_sc32k = source.isFile? 0 : (sin32k+source.ssize-1)/source.ssize,
-       d_sc32k = destin.isFile? 0 : (sin32k+destin.ssize-1)/destin.ssize;
+   u32t readed = 0,
+       s_sc32k = source.type==cpsDisk? (sin32k+source.ssize-1)/source.ssize : 0,
+       d_sc32k = destin.type==cpsDisk? (sin32k+destin.ssize-1)/destin.ssize : 0;
 
-   if (source.isFile) {
-      u32t until_end = fsize(source.file) - ftell(source.file);
-      if (until_end < sin32k) {
-         readed  = dsk_read(destin.disk, destin.pos, d_sc32k, buf32k);
-         if (readed!=d_sc32k) { stopreason = 1; endModal(cmCancel); return; }
-         sin32k  = until_end;
+   switch (source.type) {
+      case cpsDisk:
+         // can occurs at the end of copy between disks with different sector size
+         // only disk as source assumed here!
+         if (d_sc32k * destin.ssize > s_sc32k * source.ssize) {
+            readed  = dsk_read(destin.disk, destin.pos, d_sc32k, buf32k);
+            if (readed!=d_sc32k) { stopreason = 1; endModal(cmCancel); return; }
+         }
+         readed     = dsk_read(source.disk, source.pos, s_sc32k, buf32k);
+         source.pos+= readed;
+         readed    *= source.ssize;
+         break;
+      case cpsFile: {
+         u32t until_end = fsize(source.file) - ftell(source.file);
+         // only disk as source assumed here!
+         if (until_end < sin32k) {
+            readed  = dsk_read(destin.disk, destin.pos, d_sc32k, buf32k);
+            if (readed!=d_sc32k) { stopreason = 1; endModal(cmCancel); return; }
+            sin32k  = until_end;
+         }
+         readed  = fread(buf32k, 1, sin32k, source.file);
+         break;
       }
-      readed  = fread(buf32k, 1, sin32k, source.file);
-   } else {
-      // can be at the end copy between disks with different sector size
-      if (d_sc32k * destin.ssize > s_sc32k * source.ssize) {
-         readed  = dsk_read(destin.disk, destin.pos, d_sc32k, buf32k);
-         if (readed!=d_sc32k) { stopreason = 1; endModal(cmCancel); return; }
+      case cpsMem : {
+         u32t rds = Round256(sin32k)>>8, ii;
+         for (ii=0; ii<rds; ii++)
+            if (opts_memread(source.pos, buf32k+(ii<<8)))
+               { source.pos+=256; readed+=256; } else break;
+
+         if (readed>sin32k) readed = sin32k;
+         break;
       }
-      readed     = dsk_read(source.disk, source.pos, s_sc32k, buf32k);
-      source.pos+= readed;
-      readed    *= source.ssize;
    }
    if (readed) {
       u32t written = 0;
-      if (destin.isFile) written = fwrite(buf32k, 1, readed, destin.file); else {
-         written    = dsk_write(destin.disk, destin.pos, d_sc32k, buf32k);
-         destin.pos+= written;
-         written   *= destin.ssize;
+
+      switch (destin.type) {
+         case cpsDisk:
+            written    = dsk_write(destin.disk, destin.pos, d_sc32k, buf32k);
+            destin.pos+= written;
+            written   *= destin.ssize;
+            break;
+         case cpsFile: 
+            written = fwrite(buf32k, 1, readed, destin.file); 
+            break;
       }
       if (written < readed) { stopreason = 2; endModal(cmCancel); return; }
       if (bytes < written) bytes=0; else bytes -= written;
@@ -127,9 +149,9 @@ void TDiskCopyDialog::processNext() {
 }
 
 void TDiskCopyDialog::startFileToDisk(FILE *src, u32t disk, u64t start, u32t sectors) {
-   source.isFile = 1; source.file = src;
-   destin.isFile = 0; destin.disk = disk; destin.pos = start;
-   stopreason    = 0;
+   source.type = cpsFile; source.file = src;
+   destin.type = cpsDisk; destin.disk = disk; destin.pos = start;
+   stopreason  = 0;
    dsk_size(disk, &destin.ssize, 0);
    // auto calc length in sectors
    bytes = fsize(src);
@@ -138,9 +160,9 @@ void TDiskCopyDialog::startFileToDisk(FILE *src, u32t disk, u64t start, u32t sec
 }
 
 void TDiskCopyDialog::startDiskToFile(u32t disk, u64t start, FILE *dst, u32t sectors) {
-   source.isFile = 0; source.disk = disk; source.pos = start;
-   destin.isFile = 1; destin.file = dst;
-   stopreason    = 0;
+   source.type = cpsDisk; source.disk = disk; source.pos = start;
+   destin.type = cpsFile; destin.file = dst;
+   stopreason  = 0;
    dsk_size(disk, &source.ssize, 0);
    bytes = (u64t)sectors * source.ssize;
    total = bytes;
@@ -149,12 +171,20 @@ void TDiskCopyDialog::startDiskToFile(u32t disk, u64t start, FILE *dst, u32t sec
 void TDiskCopyDialog::startDiskToDisk(u32t sdisk, u64t sstart, u32t ddisk,
                                       u64t dstart, u32t sectors)
 {
-   source.isFile = 0; source.disk = sdisk; source.pos = sstart;
-   destin.isFile = 0; destin.disk = ddisk; destin.pos = dstart;
+   source.type = cpsDisk; source.disk = sdisk; source.pos = sstart;
+   destin.type = cpsDisk; destin.disk = ddisk; destin.pos = dstart;
    stopreason    = 0;
    dsk_size(sdisk, &source.ssize, 0);
    dsk_size(ddisk, &destin.ssize, 0);
    bytes = (u64t)sectors * source.ssize;
+   total = bytes;
+}
+
+void TDiskCopyDialog::startMemToFile(u64t addr, FILE *dst, u64t length) {
+   source.type = cpsMem;  source.pos  = addr;
+   destin.type = cpsFile; destin.file = dst;
+   stopreason  = 0;
+   bytes = length;
    total = bytes;
 }
 
@@ -194,7 +224,7 @@ void TSysApp::doDiskCopy(int mode, u32t disk, u64t pos, u32t len, const char *fp
    if (stop>0)  {
       errDlg(MSGE_READERR+stop-1);
       // pos in editor window
-      TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+      TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
       if (win) win->sectEd->processKey(TLongEditor::posSet,epos);
    } else
       DiskChanged(mode==SCSEL_COPY?dstdisk:disk);
@@ -268,19 +298,19 @@ u64t TSysApp::SelectSector(int mode, u32t disk, long vol, u64t start,
 
    do {
       if (dmode) {
-         char str[32];
+         char str[48];
          ulltoa(cpos, str, 10);
          sgHddPos->setData(str);
 
          if (mode==SCSEL_READ) {
             char *name = getfname(1);
             if (!name) break;
-            u32t sz = opts_fsize(name);
-            if (sz==FFFF) { errDlg(MSGE_FILESIZEERR); break; }
+            u64t sz = opts_fsize(name);
+            if (sz==FFFF64) { errDlg(MSGE_FILESIZEERR); break; }
             initlen = (sz + sectsize-1) / sectsize;
             sfname  = strdup(name);
          }
-         utoa(initlen, str, 10);
+         ulltoa(initlen, str, 10);
          sgLength->setData(str);
       }
 
@@ -386,6 +416,7 @@ TDiskSearchDialog::TDiskSearchDialog() :
    insert(percentStr);
    selectNext(False);
    setLimits(0, FFFF, 0);
+   pled = 0;
 }
 
 void TDiskSearchDialog::processNext() {
@@ -397,14 +428,20 @@ void TDiskSearchDialog::processNext() {
       endModal(cmCancel);
    }
    // sectors in 32k
-   u32t sin32k = DISK_BUFFER/sectorsize;
+   u32t sin32k = DISK_BUFFER/sectorsize,
+        memend = 0;
    // overflow?
    if (end+1-sector < sin32k) sin32k = end+1-sector;
+   // stops on the end of memory in 4th Gb
+   if (disk==DISK_MEMORY) {
+      memend = opts_memend()/sectorsize;
+      if (memend && sector<memend && sector+sin32k>=memend) sin32k = memend - sector;
+   }
    // read data
    u32t readed;
-   if (disk==DISK_MEMORY) {
+   if (disk==DISK_MEMORY || disk==DISK_FILE) {
       for (u32t ii=0; ii<sin32k; ii++)
-         if (opts_memread(sector+ii<<8, buf32k + sectorsize*(ii+1)))
+         if (pled->read(pled->userdata, sector+ii, buf32k + sectorsize*(ii+1)))
             readed++; else break;
    } else
       readed = dsk_read(disk, sector, sin32k, buf32k + sectorsize);
@@ -464,8 +501,12 @@ void TDiskSearchDialog::processNext() {
          if (sector-1 >= end) {
             stop = stopEnd;
             endModal(cmCancel);
+         } else 
+         if (memend && sector==memend) {
+            stop = stopEndOfMem;
+            endModal(cmCancel);
          } else {
-            if (disk==DISK_MEMORY)
+            if (disk==DISK_MEMORY || disk==DISK_FILE)
                sprintf(str, "Pos %010LX of %010X", sector<<8, end<<8);
             else
                sprintf(str, "Sector %09LX of %09LX", sector, end);
@@ -491,7 +532,7 @@ void TDiskSearchDialog::setLimits(u64t startpos, u64t endpos, u32t ofs_instart) 
    stop     = stopVoid;
 }
 
-void TSysApp::SearchBinStart(Boolean is_disk) {
+void TSysApp::SearchBinStart(TAppWindow *who) {
    TView *control;
    int   largeBox = TScreen::screenHeight>=32 ? LARGEBOX_INC : 0;
    TDialog   *dlg = new TDialog(TRect(0, 1, 80, 22+largeBox), "Search binary data");
@@ -530,42 +571,64 @@ void TSysApp::SearchBinStart(Boolean is_disk) {
       edBox->getData(&searchData);
       destroy(dlg);
 
-      SearchBinNext(is_disk);
+      SearchBinNext(who);
    } else
       destroy(dlg);
 }
 
-void TSysApp::SearchBinNext(Boolean is_disk) {
-   TMemEdWindow     *w0 = 0;
-   TDskEdWindow     *w1 = 0;
+void TSysApp::SearchBinNext(TAppWindow *who) {
    TLongEditor  *hxview = 0;
    u64t    total, stsec;
 
-   if (is_disk) {
-      w1 = (TDskEdWindow*)windows[TWin_SectEdit];
-      if (!w1) return;
+   if (!who) return;
+
+   if (who->wType==AppW_Sector) {
+      TDskEdWindow *wn = (TDskEdWindow*)who;
       // up to 512 bytes (to roll back by 1 sector max)
       if (searchData.size>512) { errDlg(MSGE_SRCHLONG); return; }
       // setup search dialog
-      searchDlg       = new TDiskSearchDialog();
-      searchDlg->disk = w1->disk;
-      total           = dsk_size64(w1->disk, &searchDlg->sectorsize);
-      hxview          = w1->sectEd;
-   } else {
-      w0 = (TMemEdWindow*)windows[TWin_MemEdit];
-      if (!w0) return;
+      searchDlg        = new TDiskSearchDialog();
+      searchDlg->disk  = wn->disk;
+      searchDlg->pled  = 0;
+      total            = dsk_size64(wn->disk, &searchDlg->sectorsize);
+      hxview           = wn->sectEd;
+   } else 
+   if (who->wType==AppW_Memory) {
+      TMemEdWindow *wn = (TMemEdWindow*)who;
       // up to 256 bytes (to roll back by 1 "cluster" max)
-      if (searchData.size>w0->led.clustersize) { errDlg(MSGE_SRCHLONG); return; }
+      if (searchData.size>wn->led.clustersize) { errDlg(MSGE_SRCHLONG); return; }
 
-      searchDlg       = new TDiskSearchDialog();
-      searchDlg->disk = DISK_MEMORY;
-      searchDlg->sectorsize = w0->led.clustersize;
-      total           = w0->led.clusters;
-      hxview          = w0->memEd;
+      searchDlg        = new TDiskSearchDialog();
+      searchDlg->disk  = DISK_MEMORY;
+      searchDlg->sectorsize = wn->led.clustersize;
+      searchDlg->pled  = &wn->led;
+      total            = wn->led.clusters;
+      hxview           = wn->memEd;
+   } else
+   if (who->wType==AppW_BinFile) {
+      THexEdWindow *wn = (THexEdWindow*)who;
+      if (searchData.size>wn->led.clustersize) { errDlg(MSGE_SRCHLONG); return; }
+      /* get actual size (wn->led.clusters is the _initial_ size).
+         Another one ugly thing is non-implemented end of last claster check.
+         This should not affect too much, because remaining part is always
+         zero-filled */
+      u64t dsize = wn->hexEd->fullSize();
+      u32t csize = wn->led.clustersize;
+
+      searchDlg        = new TDiskSearchDialog();
+      searchDlg->disk  = DISK_FILE;
+      searchDlg->sectorsize = csize;
+      searchDlg->pled  = &wn->led;
+      hxview           = wn->hexEd;
+      total            = dsize>>wn->bshift;
+      if (dsize & csize-1) total++;
+   } else {
+      errDlg(MSGE_NOTSUPPORTED);
+      return;
    }
    int line          = hxview->cursorLine(&stsec);
    searchDlg->buf32k = (u8t*)malloc(DISK_BUFFER + searchDlg->sectorsize);
-   lastSearchMode    = is_disk;
+   lastSearchWin     = who;
    // searching from the next line ...
    if (++line >= searchDlg->sectorsize>>4) {
       line = 0;
@@ -589,8 +652,14 @@ void TSysApp::SearchBinNext(Boolean is_disk) {
    } else {
       // pos in both cases: it was founded or cancel pressed
       hxview->posToCluster(t_sector, t_secpos);
-      if (lastSearchStop == TDiskSearchDialog::stopReadErr)
-         errDlg(MSGE_SRCHREADERR);
+      switch (lastSearchStop) {
+         case TDiskSearchDialog::stopReadErr : 
+            errDlg(MSGE_SRCHREADERR);
+            break;
+         case TDiskSearchDialog::stopEndOfMem:
+            infoDlg(MSGI_DEVICEMEM);
+            break;
+      }
    }
 }
 
@@ -643,11 +712,18 @@ void TSysApp::BootPartition(u32t disk, long index) {
       int rc = MSGE_COMMONFAIL;
 #ifdef __QSINIT__
       if (index>=0) rc = exit_bootvbr(disk,index,0,0); else {
-         rc = exit_bootmbr(disk,0);
-         if (rc==ENODEV) {
-            if (!askDlg(MSGA_PTEMPTY)) return; else
-               rc = exit_bootmbr(disk,EMBR_NOACTIVE);
-         }
+         // check sector 0 and select appropriate function
+         u32t st = dsk_sectortype(disk, 0, 0);
+
+         if (st==DSKST_ERROR) rc=EIO; else 
+         if (st==DSKST_PTABLE) {
+            rc = exit_bootmbr(disk,0);
+            if (rc==ENODEV) {
+               if (!askDlg(MSGA_PTEMPTY)) return; else
+                  rc = exit_bootmbr(disk,EMBR_NOACTIVE);
+            }
+         } else
+            rc = exit_bootvbr(disk,-1,0,0);
       }
       if (rc==ENODEV) rc = MSGE_BSEMPTY; else
          rc = rc==EIO?MSGE_MBRREAD:MSGE_COMMONFAIL;
@@ -656,58 +732,122 @@ void TSysApp::BootPartition(u32t disk, long index) {
    }
 }
 
+#ifdef __QSINIT__
+void* _std hpfs_freadfull(u8t vol, const char *name, u32t *bufsize);
+#endif
+
+void TSysApp::BootDirect(u32t disk, long index) {
+#ifdef __QSINIT__
+   u8t  vol = 0;
+   TempVolumeMounter automount(vol, disk, index);
+   if (vol==0xFF) errDlg(MSGE_MOUNTERROR); else {
+      char fs[20];
+      fs[0] = 0;
+      dsk_ptquery64(disk, index, 0, 0, fs, 0);
+
+      if (strcmp(fs,"HPFS")) errDlg(MSGE_FSUNSUITABLE); else {
+         TKernBootDlg *dlg = new TKernBootDlg();
+         snprintf(fs, 20, "SOURCE=%c", vol+'A');
+         if (SetupBootDlg(dlg, "OS2KRNL", fs)) execView(dlg);
+         destroy(dlg);
+      }
+   }
+#endif
+}
+
 // *************************************************************************
+
+#ifdef __QSINIT__
+TPTMakeDialog::TPTMakeDialog(u32t disk, u64t freespace, int logical) :
+   TDialog(TRect(15, 7, 64, 15), logical? "Create logical partition":
+   "Create primary partition"), TWindowInit(TPTMakeDialog::initFrame)
+{
+   TView *control;
+   options |= ofCenterX | ofCenterY;
+   helpCtx  = hcDmgrPtCreate;
+
+   elPtSize = new TInputLine(TRect(19, 3, 33, 4), 13);
+   elPtSize->helpCtx = hcDmgrPtSize;
+   insert(elPtSize);
+   insert(new TLabel(TRect(2, 3, 18, 4), "Partition size:", elPtSize));
+
+   cbFlags = new TCheckBoxes(TRect(3, 5, 33, 7),
+      new TSItem("at the end of free space", new TSItem("AF aligment", 0)));
+   insert(cbFlags);
+
+   control = new TButton(TRect(37, 2, 47, 4), "Cr~e~ate", cmOK, bfDefault);
+   insert(control);
+   control = new TButton(TRect(37, 4, 47, 6), "~C~ancel", cmCancel, bfNormal);
+   insert(control);
+
+   u32t sectsize;
+   char sizestr[80];
+   // free space size
+   hlp_disksize(disk, &sectsize, 0);
+   snprintf(sizestr, 80, "Free space    :  %s", getSizeStr(sectsize, freespace, True));
+   control = new TStaticText(TRect(3, 2, 28, 3), sizestr);
+   insert(control);
+   setstr(elPtSize, "100%");
+
+   gptdisk = dsk_isgpt(disk,-1) > 0;
+   endof   = 0;
+   // force AF for GPT disk
+   if (gptdisk) cbFlags->press(1);
+   selectNext(False);
+}
+
+void TPTMakeDialog::updateAF(int force) {
+   if (gptdisk) return;
+
+   if (force || Xor(cbFlags->mark(0),endof)) {
+      endof = cbFlags->mark(0);
+      cbFlags->setButtonState(0x2, endof?True:False);
+      cbFlags->drawView();
+   }
+}
+
+void TPTMakeDialog::handleEvent( TEvent& event) {
+   TDialog::handleEvent(event);
+   // mark was changed on MBR disk
+   if (!gptdisk && Xor(cbFlags->mark(0),endof)) updateAF();
+}
+#endif // __QSINIT__
+
+/*
+Boolean TPTMakeDialog::valid(ushort command) {
+   Boolean rslt = TDialog::valid(command);
+   if (rslt && (command == cmOK)) { }
+   return rslt;
+}*/
 
 void TSysApp::CreatePartition(u32t disk, u32t fspidx, int logical) {
 #ifdef __QSINIT__
-   TView *control;
    dsk_freeblock *info = new dsk_freeblock[fspidx+1];
 
    if (dsk_ptgetfree(disk, info, fspidx+1)<fspidx+1) {
       errDlg(MSGE_COMMONFAIL);
       return;
    }
-   TDialog *dlg = new TDialog(TRect(15, 8, 64, 15), logical?
-      "Create logical partition":"Create primary partition");
-   if (!dlg) return;
-   dlg->options|= ofCenterX | ofCenterY;
-   dlg->helpCtx = hcDmgrPtCreate;
-
-   TInputLine *elPtSize = new TInputLine(TRect(19, 3, 31, 4), 11);
-   elPtSize->helpCtx = hcDmgrPtSize;
-   dlg->insert(elPtSize);
-   dlg->insert(new TLabel(TRect(2, 3, 18, 4), "Partition size:", elPtSize));
-
-   TCheckBoxes *cbFlags = new TCheckBoxes(TRect(3, 5, 33, 6),
-      new TSItem("at the end of free space", 0));
-   dlg->insert(cbFlags);
-
-   control = new TButton(TRect(37, 2, 47, 4), "Cr~e~ate", cmOK, bfDefault);
-   dlg->insert(control);
-   control = new TButton(TRect(37, 4, 47, 6), "~C~ancel", cmCancel, bfNormal);
-   dlg->insert(control);
-
-   u32t sectsize;
-   char sizestr[80];
-   // free space size
-   hlp_disksize(disk, &sectsize, 0);
-   snprintf(sizestr, 80, "Free space    :  %s",
-      getSizeStr(sectsize, info[fspidx].Length, True));
-   control = new TStaticText(TRect(3, 2, 28, 3), sizestr);
-   dlg->insert(control);
-   setstr(elPtSize, "100%");
-   if (createAtTheEnd) cbFlags->press(0);
-
-   dlg->selectNext(False);
+   TPTMakeDialog *dlg = new TPTMakeDialog(disk, info[fspidx].Length, logical);
+   if (createAtTheEnd) {
+      dlg->cbFlags->press(0);
+      if (createAFal) dlg->cbFlags->press(1);
+   }
+   dlg->updateAF(1);
    int ok = execView(dlg)==cmOK;
-   createAtTheEnd = cbFlags->mark(0);
+   createAtTheEnd = dlg->cbFlags->mark(0);
+   createAFal     = dlg->cbFlags->mark(1);
+
+   delete[] info; info = 0;
 
    if (ok) {
       u64t   pt_pos, pt_len;
-      char   *szstr = getstr(elPtSize);
+      char   *szstr = getstr(dlg->elPtSize);
       u32t   ptsize = str2long(szstr), rc,
              aflags = createAtTheEnd?DPAL_ESPC:0;
       int   gptdisk = dsk_isgpt(disk,-1) > 0;
+
+      if (createAFal) aflags |= DPAL_AF;
       destroy(dlg);
 
       if (!ptsize) { errDlg(MSGE_INVVALUE); return; }
@@ -715,9 +855,10 @@ void TSysApp::CreatePartition(u32t disk, u32t fspidx, int logical) {
          aflags |= DPAL_PERCENT;
          if (!ptsize || ptsize>100) { errDlg(MSGE_RANGE); return; }
       }
-      /* align to CHS on MBR disks & AF on GPT,
-         actually dsk_ptalign() ignore AF on MBR and CHS on GPT ;)) */
-      aflags |= gptdisk ? DPAL_AF : DPAL_CHSSTART|DPAL_CHSEND;
+      // align to CHS on MBR disks
+      aflags |= gptdisk ? 0 : DPAL_CHSSTART|DPAL_CHSEND;
+      // this flag required for DPAL_AF only
+      aflags |= logical ? DPAL_LOGICAL : 0;
       // align partition coordinates
       rc = dsk_ptalign(disk, fspidx, ptsize, aflags, &pt_pos, &pt_len);
       // and create it!
@@ -732,24 +873,16 @@ void TSysApp::CreatePartition(u32t disk, u32t fspidx, int logical) {
       DiskChanged(disk);
    } else
       destroy(dlg);
-   delete[] info;
 #endif // __QSINIT__
 }
 
 
 char* TSysApp::GetPTErr(u32t rccode, int msgtype) {
 #ifdef __QSINIT__
-   if (msgtype==MSGTYPE_QS || msgtype==MSGTYPE_CLIB) {
+   if (msgtype==MSGTYPE_QS || msgtype==MSGTYPE_CLIB)
       return cmd_shellerrmsg(msgtype==MSGTYPE_QS?EMSG_QS:EMSG_CLIB, rccode);
-   } else {
-      char topic[16];
-      sprintf(topic, msgtype==MSGTYPE_LVM?"_LVME%02d":
-         (msgtype==MSGTYPE_FMT?"_FMT%02d":"_DPTE%02d"), rccode);
-      return cmd_shellgetmsg(topic);
-   }
-#else
-   return 0;
 #endif
+   return 0;
 }
 
 void TSysApp::PrintPTErr(u32t rccode, int msgtype) {
@@ -765,7 +898,7 @@ void TSysApp::PrintPTErr(u32t rccode, int msgtype) {
 
 void TSysApp::Unmount(u8t vol) {
 #ifdef __QSINIT__
-   char msg[80];
+   char msg[80];                	
    snprintf(msg, 80, "\3""Unmount QSINIT drive %c:/%c:?", vol+'0', vol+'A');
    if (messageBox(msg, mfConfirmation+mfYesButton+mfNoButton)==cmYes) {
       if (io_unmount(vol,0)) errDlg(MSGE_COMMONFAIL);
@@ -773,7 +906,7 @@ void TSysApp::Unmount(u8t vol) {
 #endif
 }
 
-static void FillDiskInfo(TDialog* dlg, u32t disk, u32t index) {
+static void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
    TView   *control;
    char     str[36];
    u32t  sectorsize = 0;
@@ -781,21 +914,26 @@ static void FillDiskInfo(TDialog* dlg, u32t disk, u32t index) {
    char volname[24] = { 0 },
         filesys[17] = { 0 };
 #ifdef __QSINIT__
-   dsk_ptquery64(disk, index, 0, &ptsize, filesys, 0);
-   hlp_disksize(disk, &sectorsize, 0);
-   lvm_partition_data pi;
-   if (lvm_partinfo(disk, index, &pi)) {
-      strncpy(volname, pi.VolName, 20);
-      volname[20] = 0;
-   }
+   ptsize = hlp_disksize64(disk, &sectorsize);
+   if (index>=0) {
+      dsk_ptquery64(disk, index, 0, &ptsize, filesys, 0);
+      lvm_partition_data pi;
+      if (lvm_partinfo(disk, index, &pi)) {
+         strncpy(volname, pi.VolName, 20);
+         volname[20] = 0;
+      }
+   } else
+      dsk_ptqueryfs(disk, 0, filesys, 0);
 #endif
    snprintf(str, 36, "Disk     : %d", disk);
    control = new TColoredText(TRect(3, 2, 4+strlen(str), 3), str, 0x7F);
    dlg->insert(control);
 
-   snprintf(str, 36, "Partition: %d", index);
-   control = new TColoredText(TRect(3, 3, 4+strlen(str), 4), str, 0x7F);
-   dlg->insert(control);
+   if (index>=0) {
+      snprintf(str, 36, "Partition: %d", index);
+      control = new TColoredText(TRect(3, 3, 4+strlen(str), 4), str, 0x7F);
+      dlg->insert(control);
+   }
 
    strcpy(str, "FS info  : ");
    strcat(str, filesys);
@@ -815,10 +953,12 @@ static void FillDiskInfo(TDialog* dlg, u32t disk, u32t index) {
    }
 }
 
-void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
-   TView *control;
+void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
+   // just a little check
+   if (!qsmode && index<0) return;
 
-   TDialog* dlg = new TDialog(TRect(14, 7, 65, 16), qsmode?"Mount QSINIT disk":
+   TView *control;
+   TDialog   *dlg = new TDialog(TRect(14, 7, 65, 16), qsmode?"Mount QSINIT disk":
       "LVM volume letter");
    if (!dlg) return;
    dlg->options |= ofCenterX | ofCenterY;
@@ -883,8 +1023,8 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
             u32t pterr  = vol_mount(&wl, disk, index);
             if (pterr) PrintPTErr(pterr);
          } else {
-            u32t lvmerr = lvm_assignletter(disk, index, ltr=='-'?0:ltr, 0);
-            if (lvmerr) PrintPTErr(lvmerr, MSGTYPE_LVM);
+            qserr lvmerr = lvm_assignletter(disk, index, ltr=='-'?0:ltr, 0);
+            if (lvmerr) PrintPTErr(lvmerr);
          }
 #endif
       }
@@ -892,7 +1032,7 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, u32t index, char letter) {
       destroy(dlg);
 }
 
-void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
+void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
 #ifdef __QSINIT__
    TempVolumeMounter  vm(vol, disk, index, True);
    disk_volume_data   di;
@@ -1004,14 +1144,14 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
       TView *svowner = current;
 
       PercentDlgOn("Format partition");
-      u32t rc = vol_formatfs(vol, fs_index<=1?"FAT":fs_str[fs_index], flags,
-                             unitsize, PercentDlgCallback);
+      qserr rc = vol_formatfs(vol, fs_index<=1?"FAT":fs_str[fs_index], flags,
+                              unitsize, PercentDlgCallback);
 
       PercentDlgOff(svowner);
       SysApp.DiskChanged(disk);
 
       if (rc) {
-         PrintPTErr(rc, MSGTYPE_FMT);
+         PrintPTErr(rc);
          return;
       } else {
          disk_volume_data vi;
@@ -1059,53 +1199,125 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, u32t index) {
 #endif // QSINIT
 }
 
+#ifdef __QSINIT__
+static qserr update_serial(u32t disk, u32t index, TInputLine *el, u32t vtype, u32t srcv) {
+   char str[32], *ep;
+   el->getData(str);
+   if (!str[0]) return 0;
+
+   u32t nv = strtoul(str, &ep, 16);
+   if (*ep || !nv) return E_LVM_BADSERIAL;
+   if (srcv==nv) return 0;
+
+   return lvm_setvalue(disk, index, vtype, nv);
+}
+#endif
 
 void TSysApp::LVMRename(u32t disk, u32t index) {
-   TInputLine *el;
-   TView *control;
-   char     cname[24];
 #ifdef __QSINIT__
+   qserr rc = lvm_checkinfo(disk);
+   if (rc) {
+      PrintPTErr(rc);
+      return;
+   }
+   char     vname[24],
+            dname[24], cstr[16];
    lvm_partition_data lpd;
-   if (!lvm_partinfo(disk, index, &lpd)) {
+   lvm_disk_data      lvd;
+
+   if (!lvm_partinfo(disk, index, &lpd) || !lvm_diskinfo(disk, &lvd)) {
       errDlg(MSGE_LVMQUERY);
       return;
    }
-   strncpy(cname+1, lpd.VolName, 20);
-   cname[0]  = ' ';
-   cname[21] = 0;
-#else
-   cname[0]  = 0;
-   cname[1]  = 0;
-#endif
-   TDialog* dlg = new TDialog(TRect(7, 9, 72, 14), "Rename LVM partition");
+   strncpy(vname, lpd.VolName, 20); vname[20] = 0;
+   strncpy(dname, lvd.Name,    20); dname[20] = 0;
+
+   TView *control;
+   TDialog   *dlg = new TDialog(TRect(19, 4, 61, 18), "LVM options");
    if (!dlg) return;
    dlg->options |= ofCenterX | ofCenterY;
+   dlg->helpCtx = hcLVMOptionsDlg;
 
-   el = new TInputLine(TRect(29, 2, 51, 3), 21);
-   el->setData(cname+1);
-   dlg->insert(el);
+   TInputLine *disk_ser = new TInputLine(TRect(19, 2, 31, 3), 11);
+   dlg->insert(disk_ser);
+   dlg->insert(new TLabel(TRect(1, 2, 13, 3), "Disk serial", disk_ser));
+   snprintf(cstr, 16, "%08X", lvd.DiskSerial);
+   disk_ser->setData(cstr);
 
-   control = new TColoredText(TRect(3, 2, 25, 3), cname, 0x1F);
+   TInputLine *boot_ser = new TInputLine(TRect(19, 3, 31, 4), 11);
+   dlg->insert(boot_ser);
+   dlg->insert(new TLabel(TRect(1, 3, 13, 4), "Boot serial", boot_ser));
+   snprintf(cstr, 16, "%08X", lvd.BootSerial);
+   boot_ser->setData(cstr);
+
+   TInputLine *disk_name = new TInputLine(TRect(16, 4, 38, 5), 21);
+   dlg->insert(disk_name);
+   dlg->insert(new TLabel(TRect(1, 4, 11, 5), "Disk name", disk_name));
+   disk_name->setData(dname);
+
+   TInputLine *vol_ser = new TInputLine(TRect(19, 6, 31, 7), 11);
+   dlg->insert(vol_ser);
+   dlg->insert(new TLabel(TRect(1, 6, 15, 7), "Volume serial", vol_ser));
+   snprintf(cstr, 16, "%08X", lpd.VolSerial);
+   vol_ser->setData(cstr);
+ 
+   TInputLine *part_ser = new TInputLine(TRect(19, 7, 31, 8), 11);
+   dlg->insert(part_ser);
+   dlg->insert(new TLabel(TRect(1, 7, 18, 8), "Partition serial", part_ser));
+   snprintf(cstr, 16, "%08X", lpd.PartSerial);
+   part_ser->setData(cstr);
+
+   TInputLine *vol_name = new TInputLine(TRect(16, 8, 38, 9), 21);
+   dlg->insert(vol_name);
+   dlg->insert(new TLabel(TRect(1, 8, 13, 9), "Volume name", vol_name));
+   vol_name->setData(vname);
+
+   TCheckBoxes *vol_opts = new TCheckBoxes(TRect(1, 10, 19, 12),
+      new TSItem("Installable", new TSItem("Boot manager", 0)));
+   dlg->insert(vol_opts);
+   dlg->insert(new TLabel(TRect(1, 9, 10, 10), "Options:", vol_opts));
+   if (lpd.Installable) vol_opts->press(0);
+   if (lpd.BootMenu) vol_opts->press(1);
+
+   control = new TButton(TRect(21, 11, 31, 13), "~U~pdate", cmOK, bfDefault);
    dlg->insert(control);
-
-   control = new TColoredText(TRect(26, 2, 28, 3), "->", 0x7C);
+   control = new TButton(TRect(31, 11, 40, 13), "~C~lose", cmCancel, bfNormal);
    dlg->insert(control);
-
-   control = new TButton(TRect(53, 2, 63, 4), "O~K~", cmOK, bfDefault);
+   control = new TStaticText(TRect(2, 5, 40, 6), "컴컴컴컴컴컴컴 Partition 컴컴컴컴컴컴�\n");
+   dlg->insert(control);
+   control = new TStaticText(TRect(2, 1, 40, 2), "컴컴컴컴컴컴컴컴 Disk 컴컴컴컴컴컴컴컴\n");
    dlg->insert(control);
 
    dlg->selectNext(False);
-   if (execView(dlg)==cmOK) {
-      el->getData(cname);
 
-      if (!strlen(cname)) errDlg(MSGE_INVVALUE); else {
-#ifdef __QSINIT__
-         u32t rc = lvm_setname(disk, index, LVMN_PARTITION|LVMN_VOLUME, cname);
-         if (rc) PrintPTErr(rc, MSGTYPE_LVM);
-#endif
-      }
+   if (execView(dlg)==cmOK) {
+      vol_name->getData(vname);
+      disk_name->getData(dname);
+
+      int inst = vol_opts->mark(0),
+          inbm = vol_opts->mark(1);
+      rc = 0;
+      if (!rc && Xor(inst,lpd.Installable)) 
+         rc = lvm_setvalue(disk, index, LVMV_INSTALL, inst?1:0);
+      if (!rc && Xor(inbm,lpd.BootMenu))
+         rc = lvm_setvalue(disk, index, LVMV_INBM, inbm?1:0);
+      if (!rc && strncmp(vname, lpd.VolName, 20))
+         rc = lvm_setname(disk, index, LVMN_PARTITION|LVMN_VOLUME, vname);
+      if (!rc && strncmp(dname, lvd.Name, 20))
+         rc = lvm_setname(disk, index, LVMN_DISK, dname);
+      if (!rc)
+         rc = update_serial(disk, index, disk_ser, LVMV_DISKSER, lvd.DiskSerial);
+      if (!rc)
+         rc = update_serial(disk, index, boot_ser, LVMV_BOOTSER, lvd.BootSerial);
+      if (!rc)
+         rc = update_serial(disk, index, vol_ser, LVMV_VOLSER, lpd.VolSerial);
+      if (!rc)
+         rc = update_serial(disk, index, part_ser, LVMV_PARTSER, lpd.PartSerial);
+
+      if (rc) PrintPTErr(rc);
    }
    destroy(dlg);
+#endif // __QSINIT__
 }
 
 
@@ -1124,10 +1336,11 @@ int TSysApp::CloneDisk(u32t srcdisk) {
 
    for (ii=0; ii<disks; ii++) {
       u32t  scan_rc = dsk_ptrescan(ii,0), sector;
-      if (scan_rc!=DPTE_EMPTY) continue;
+      if (scan_rc!=E_PTE_EMPTY) continue;
 
       disk_geo_data geo;
-      if (!hlp_disksize(ii, &sector, &geo)) continue;
+      hlp_disksize(ii, &sector, &geo);
+      if (!geo.TotalSectors) continue;
 
       if (sector) {
          char *str = new char[64];
@@ -1201,7 +1414,7 @@ int TSysApp::CloneDisk(u32t srcdisk) {
                                        SysApp.PercentDlgCallback, 0);
                SysApp.PercentDlgOff(svowner);
                if (rc) {
-                  if (rc!=DPTE_UBREAK) PrintPTErr(rc);
+                  if (rc!=E_SYS_UBREAK) PrintPTErr(rc);
                   break;
                }
             }
@@ -1246,7 +1459,7 @@ int TSysApp::ClonePart(u32t srcdisk, u32t index) {
       dsk_formatsize(s_sectsz, srcsize, 0, slen);
       dsk_formatsize(d_sectsz, dstsize, 0, dlen);
 
-      if (dstsize<srcsize) { PrintPTErr(DPTE_CSPACE); return 0; }
+      if (dstsize<srcsize) { PrintPTErr(E_PTE_CSPACE); return 0; }
       if (s_sectsz!=d_sectsz) { errDlg(MSGE_SECSIZEMATCH); return 0; }
 
       snprintf(msg, 128, "\3""Do you want to copy disk %s partition %d "
@@ -1312,10 +1525,11 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
             if (res)
                switch (res) {
                   case E_DSK_DISKFULL:
-                  case E_DSK_IO      : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
+                  case E_DSK_ERRWRITE:
+                  case E_DSK_ERRREAD : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
                   case E_SYS_ACCESS  : res = MSGE_ACCESSDENIED; break;
                   case E_SYS_EXIST   : res = MSGE_FILECREATERR; break;
-                  case E_DSK_UNCKFS  : res = MSGE_NOTVHDDFILE; break;
+                  case E_DSK_UNKFS   : res = MSGE_NOTVHDDFILE; break;
                   default            : res = MSGE_FILEOPENERR;
                }
          }
@@ -1371,7 +1585,7 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
 }
 
 
-void TSysApp::BootCodeDlg(u8t vol, u32t disk, u32t index) {
+void TSysApp::BootCodeDlg(u8t vol, u32t disk, long index) {
 #ifdef __QSINIT__
    TempVolumeMounter  vm(vol, disk, index);
    disk_volume_data   di;
@@ -1426,15 +1640,15 @@ void TSysApp::BootCodeDlg(u8t vol, u32t disk, u32t index) {
          default: errDlg(MSGE_UNCKFS);
                   return;
       }
-      u32t err = dsk_newvbr(disk, di.StartSector, bstype, fn&&*fn?fn:0);
+      qserr err = dsk_newvbr(disk, di.StartSector, bstype, fn&&*fn?fn:0);
 
-      if (err) PrintPTErr(err, MSGTYPE_FMT); else infoDlg(MSGI_BOOTCODEOK);
+      if (err) PrintPTErr(err); else infoDlg(MSGI_BOOTCODEOK);
    }
 #endif // __QSINIT__
 }
 
 
-void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
+void TSysApp::QSInstDlg(u8t vol, u32t disk, long index) {
 #ifdef __QSINIT__
    TempVolumeMounter  vm(vol, disk, index);
    disk_volume_data   di;
@@ -1457,7 +1671,7 @@ void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
       // trying to get LDI from memory, else going to boot device read
       ldilen = sto_size(STOKEY_ZIPDATA);
       if (ldilen)
-         if (!hlp_memcpy(ldi = hlp_memalloc(ldilen, QSMA_RETERR|QSMA_NOCLEAR),
+         if (!hlp_memcpy(ldi = hlp_memalloc(ldilen, QSMA_RETERR|QSMA_NOCLEAR|QSMA_LOCAL),
             sto_data(STOKEY_ZIPDATA), ldilen, 0))
                if (ldi) { hlp_memfree(ldi); ldi = 0; }
       if (!ldi) ldi = hlp_freadfull(QSBIN2, &ldilen, 0);
@@ -1485,7 +1699,7 @@ void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
          qserr rc = io_chdir(vp);
          while (!rc) {
             char cl[64];
-            // the easiest way to remove r/o attr ;)
+            // easiest way to remove r/o attr ;)
             sprintf(cl, "-r /q %s", QSBIN1);  cmd_shellcall(shl_attrib, cl, 0);
             sprintf(cl, "-r /q %s", QSBIN2);  cmd_shellcall(shl_attrib, cl, 0);
             sprintf(cl, "-r /q %s", OS2BOOT); cmd_shellcall(shl_attrib, cl, 0);
@@ -1494,8 +1708,8 @@ void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
                 cerr2 = fwritefull(QSBIN2, ldi, ldilen);
 
             if (cerr1 || cerr2) err = MSGE_QSWRITEERR; else {
-               u32t berr = dsk_newvbr(disk, di.StartSector, DSKBS_AUTO, QSBIN1);
-               if (berr) { PrintPTErr(berr, MSGTYPE_FMT); break; } else {
+               qserr berr = dsk_newvbr(disk, di.StartSector, DSKBS_AUTO, QSBIN1);
+               if (berr) { PrintPTErr(berr); break; } else {
                   io_remove(OS2BOOT);
                   // set rhs attr on QS files
                   sprintf(cl, "+r +h +s /q %s", QSBIN1); cmd_shellcall(shl_attrib, cl, 0);
@@ -1518,7 +1732,7 @@ void TSysApp::QSInstDlg(u8t vol, u32t disk, u32t index) {
 #endif // __QSINIT__
 }
 
-void TSysApp::ChangeDirty(u8t vol, u32t disk, u32t index) {
+void TSysApp::ChangeDirty(u8t vol, u32t disk, long index) {
 #ifdef __QSINIT__
    TempVolumeMounter  vm(vol, disk, index);
    disk_volume_data   di;
@@ -1537,7 +1751,7 @@ void TSysApp::ChangeDirty(u8t vol, u32t disk, u32t index) {
       }
       free(msg);
    }
-   if (state<0) PrintPTErr(-state, MSGTYPE_FMT);
+   if (state<0) PrintPTErr(-state);
 #endif // __QSINIT__
 }
 

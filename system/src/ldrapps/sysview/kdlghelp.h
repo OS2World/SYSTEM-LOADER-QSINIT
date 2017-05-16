@@ -1,8 +1,6 @@
 const int
   hcKernName             = 2000,
   hcKernOptions          = 2001,
-  hcKernLogSize          = 2007,
-  hcKernConfigExt        = 2008,
   hcKernDriveLetter      = 2009,
   hcKernDebOptions       = 2010,
   hcKernPushKey          = 2013,
@@ -118,4 +116,18 @@ const int
   hcBootCodeFName        = 2126,
   hcBootCodeQSInst       = 2127,
   hcBootCode             = 2128,
-  hcQSInst               = 2129;
+  hcQSInst               = 2129,
+  hcMemSave              = 2130,
+  hcBinNew               = 2131,
+  hcBinLoad              = 2132,
+  hcMemPos               = 2133,
+  hcMemLen               = 2134,
+  hcBinFilePos           = 2135,
+  hcBinEdit              = 2136,
+  hcBinTrunc             = 2137,
+  hcSelectCodepage       = 2138,
+  hcLVMOptionsDlg        = 2139,
+  hcKernLogSize          = 2140,
+  hcKernConfigExt        = 2141,
+  hcKernBatchName        = 2142,
+  hcKernLogLevel         = 2143;

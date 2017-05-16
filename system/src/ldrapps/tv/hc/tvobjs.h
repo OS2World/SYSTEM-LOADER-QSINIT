@@ -2,9 +2,6 @@
 /*                                                                         */
 /*   TVOBJS.H                                                              */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TObject, TNSCollection, and TNSSortedCollection.  */
 /*                                                                         */
 /*   The NS variants of collections are Not Streamable.  These are         */
@@ -13,6 +10,13 @@
 /*   rest of the library.                                                  */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
@@ -70,7 +74,7 @@ public:
    void atPut(ccIndex index, void *item);
    virtual ccIndex insert(void *item);
 
-   static void error(ccIndex code, ccIndex info);
+   virtual void error(ccIndex code, ccIndex info);
 
    void *firstThat(ccTestFunc Test, void *arg);
    void *lastThat(ccTestFunc Test, void *arg);

@@ -8,9 +8,12 @@
 #include "qsshell.h"
 #include "qsmodext.h"
 #include "time.h"
+#include "math.h"
+#include "qsio.h"
 #include "qslog.h"
 
 #define TEST_THREADS     20
+#define TEST_SCHEDULES    4
 
 mt_tid        ta[TEST_THREADS];
 qshandle   mutex;
@@ -29,13 +32,20 @@ static u32t _std threadfunc1(void *arg) {
 }
 
 static u32t _std threadfunc2(void *arg) {
-   qserr  res;
-   u64t   now = sys_clock();
+   qserr   res;
+   u64t    now = sys_clock();
+   int      i1;
+   double   f1;
 
    res = mt_tlsset(tlsvar, now);
    if (res) log_printf("I'm tid %2u, mt_tlsset() = %05X\n", mt_getthread(), res);
 
    log_printf("I'm tid %2u and clock now is %LX\n", mt_getthread(), now);
+
+   i1 = random(2000);
+   f1 = i1/2.5;
+   log_printf("I'm tid %2u, float test: x=%i==%g 0.4x=%g sqrt=%g\n", mt_getthread(),
+      i1, f1*2.5, f1, sqrt(i1));
 
    res = mt_muxcapture(mutex);
    if (res) log_printf("I'm tid %2u, mt_muxcapture() = %05X\n", mt_getthread(), res);
@@ -76,7 +86,6 @@ static u32t _std threadfunc4(void *arg) {
       if (++once==1) {
          log_printf("I'm tid %2u, grab file and going to sleep a bit\n", mt_getthread());
          usleep(CLOCKS_PER_SEC*5);
-         mt_dumptree();
       } else {
          log_printf("I'm unlucky tid %2u, just close file and exit\n", mt_getthread());
       }
@@ -92,6 +101,7 @@ void main(int argc, char *argv[]) {
    u32t          ii, sig;
    clock_t      stm;
    qserr        res;
+   qshandle     que;
    char         *cp;
    if (!mt_active()) {
       res = mt_initialize();
@@ -112,9 +122,10 @@ void main(int argc, char *argv[]) {
 
    for (ii=0; ii<TEST_THREADS; ii++) {
       ta[ii] = mt_createthread(threadfunc2, MTCT_SUSPENDED, 0, 0);
-      we[ii].htype = QWHT_TID;
-      we[ii].tid   = ta[ii];
-      we[ii].group = ii&1 ? 2 : 1;
+      we[ii].htype   = QWHT_TID;
+      we[ii].tid     = ta[ii];
+      we[ii].group   = ii&1 ? 2 : 1;
+      we[ii].resaddr = 0;
    }
    we[TEST_THREADS].htype = QWHT_CLOCK;
    we[TEST_THREADS].group = 0;
@@ -152,5 +163,34 @@ void main(int argc, char *argv[]) {
    log_printf("boot file i/o sync test\n", tid);
    mt_createthread(threadfunc4, 0, 0, 0);
    mt_createthread(threadfunc4, 0, 0, 0);
-   // here we exits, but main thread waits for secondary brothers
+
+   /* event scheduling test.
+      Post 4 events to the future and then check delivery time */
+   res = qe_create(0, &que);
+   if (res) { cmd_shellerr(EMSG_QS, res, "Queue creation error: "); return; } else 
+   {
+      static u32t timediff[TEST_SCHEDULES] = { 32, 38, 64, 126 };
+      qe_eid          eids[TEST_SCHEDULES];
+      stm = sys_clock();
+
+      for (ii=0; ii<TEST_SCHEDULES; ii++) {
+         eids[ii] = qe_schedule(que, stm+timediff[ii]*1000, ii+1, 0, 0, 0);
+         if (!eids[ii]) printf("Schedule # %u error!\n", ii+1); else
+            if (eids[ii]==QEID_POSTED) printf("Schedule # %u is too late!\n", ii+1);
+      }
+      for (ii=0; ii<TEST_SCHEDULES; ii++) {
+         qe_event *ev = qe_waitevent(que, 5000);
+         if (!ev) {
+            printf("Event is lost? (%Lu)\n", sys_clock() - stm);
+            break;
+         } else {
+            clock_t  now = sys_clock(),
+                  wanted = stm+timediff[ev->code-1]*1000;
+
+            printf("Event %u, time now %LX, should be %LX, diff = %Li mks\n",
+               ev->code, now, wanted, now-wanted);
+            free(ev);
+         }
+      }
+   }
 }

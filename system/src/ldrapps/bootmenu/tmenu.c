@@ -237,7 +237,7 @@ int MenuKernel(char *rcline, int errors) {
 
    vio_getmode(0,&lines);
 
-   if (kl->count > 1) {
+   if (kl->count >= 1) {
       int  key = 0;
       int  ii;
 
@@ -286,9 +286,9 @@ int MenuKernel(char *rcline, int errors) {
             // empty line
             vio_charout(13); VioEmptyLine(); vio_charout(13);
 
-            while (!KeyToKNumber(keyl, kl->count) && keyl!='\r' && key!=0x1C0A
-               && key!=0xE00A && keyh!=0x4D && !isFXaction(keyh)) {
-
+            while (!KeyToKNumber(keyl, kl->count) && keyl!='\r' && keyl!=' '
+               && key!=0x1C0A && key!=0xE00A && keyh!=0x4D && !isFXaction(keyh)) 
+            {
                if (keyh>=0x68&&keyh<=0x6C||keyh==0x12) {
                   forcekey=forcekey==key?0:key;
                   vio_charout(13); VioEmptyLine(); vio_charout(13);
@@ -353,7 +353,7 @@ int MenuKernel(char *rcline, int errors) {
             defcfg = KeyToKNumber(keyl, kl->count);
             break;
          } else
-         if ((keyl=='\r'||keyh==0x4D||key==0x1C0A||key==0xE00A) && defcfg) {
+         if ((keyl=='\r'||keyl==' '||keyh==0x4D||key==0x1C0A||key==0xE00A) && defcfg) {
             optmenu = keyh==0x4D;
             goedit  = keyl==0x0A;
             break;
@@ -491,7 +491,7 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
          rc = 0;
          break;
       } else
-      if ((keyl=='\r' || key==0x1C0A || key==0xE00A) && selected) {
+      if ((keyl=='\r' || keyl==' ' || key==0x1C0A || key==0xE00A) && selected) {
          char *src = values->item[selected-1];
          int em_on = keyl==0x0A;
          // ctrl-enter was pressed?
@@ -585,8 +585,8 @@ int MenuPtBoot(char *rcline) {
                // empty line
                vio_charout(13); VioEmptyLine(); vio_charout(13);
    
-               while (!KeyToKNumber(keyl, kl->count) && keyl!='\r' && key!=0x1C0A
-                  && key!=0xE00A && !isFXaction(keyh)) {
+               while (!KeyToKNumber(keyl, kl->count) && keyl!='\r'&& keyl!=' '
+                  && key!=0x1C0A && key!=0xE00A && !isFXaction(keyh)) {
    
                   if (keyh==0x48||keyh==0x50||keyh==0x47||keyh==0x4F) {
                      int prev=defcfg;
@@ -628,7 +628,7 @@ int MenuPtBoot(char *rcline) {
                defcfg = KeyToKNumber(keyl, kl->count);
                break;
             } else
-            if ((keyl=='\r'||key==0x1C0A||key==0xE00A) && defcfg) {
+            if ((keyl=='\r'||keyl==' '||key==0x1C0A||key==0xE00A) && defcfg) {
                goedit = keyl==0x0A;
                break;
             } else

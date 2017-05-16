@@ -41,7 +41,7 @@ static int check_esc(u32t disk, u64t sector) {
    if (kbask)                                     \
       if (check_esc(fd->voldisk, fd->volstart)) { \
          free_fmt_info(fd);                       \
-         return DFME_UBREAK;                      \
+         return E_SYS_UBREAK;                     \
       }
 
 static void marklist(bit_map bmp, int value, dd_list lst) {
@@ -275,7 +275,7 @@ static int prepare_codepage(fmt_info *fd) {
 }
 
 /** write filesystem data to volume.
-    @return DFME_* value */
+    @return error code */
 static int write_volume(fmt_info *fd, read_callback cbprint) {
    u32t dsk = fd->voldisk|QDSK_DIRECT, ii;
    u64t  v0 = fd->volstart, step;
@@ -284,11 +284,11 @@ static int write_volume(fmt_info *fd, read_callback cbprint) {
    if (!hlp_diskwrite(dsk, v0, 1, &fd->br) ||
       !hlp_diskwrite(dsk, v0+HPFSSEC_SUPERB, 1, &fd->sup) ||
          !hlp_diskwrite(dsk, v0+HPFSSEC_SPAREB, 1, &fd->spr))
-            return DFME_IOERR;
+            return E_DSK_ERRWRITE;
    // write remaining part of micro-FSD code
    if (hpfs_bscount>1)
       if (hlp_diskwrite(dsk, v0+1, hpfs_bscount-1, hpfs_bsect+512)!=hpfs_bscount-1)
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
    // zero sectors between micro-FSD & superblock (but ignore result)
    if (HPFSSEC_SUPERB-hpfs_bscount>0)
       dsk_emptysector(dsk, v0+hpfs_bscount, HPFSSEC_SUPERB-hpfs_bscount);
@@ -297,17 +297,17 @@ static int write_volume(fmt_info *fd, read_callback cbprint) {
    // code page dir
    if (fd->spr.cp_dir) {
       if (!hlp_diskwrite(dsk, v0+fd->spr.cp_dir, 1, &fd->cpi))
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
       if (!hlp_diskwrite(dsk, v0+fd->cpi.cpinfo[0].cpdata, 1, &fd->cpd_sector))
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
    }
    // hot fix table
    if (hlp_diskwrite(dsk, v0+fd->spr.hotfix, SPB, &fd->hotfixes)!=SPB)
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    if (cbprint) cbprint(92,0);
    // dirblk bitmap
    if (hlp_diskwrite(dsk, v0+fd->sup.dirblk_bmp, SPB, fd->dbbmp->mem())!=SPB)
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    // 8 empty sectors for userid table
    ii = dsk_emptysector(dsk, v0+fd->sup.sid_table, 8);
    if (ii) return ii;
@@ -318,15 +318,15 @@ static int write_volume(fmt_info *fd, read_callback cbprint) {
       dsk_fillsector(dsk, v0+fd->spr.spare_dirblk[ii], SEC_PER_DIRBLK, 0xF6);
    // root fnode
    if (!hlp_diskwrite(dsk, v0+fd->sup.rootfn, 1, &fd->rootfn))
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    // root dikblk
    if (hlp_diskwrite(dsk, v0+fd->rootdir.self, SPB, &fd->rootdir)!=SPB)
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    if (cbprint) cbprint(94,0);
    // bitmap indirect block
    if (hlp_diskwrite(dsk, v0+fd->sup.bitmaps.main, fd->mapidxlen * SPB,
       fd->mapidx) != fd->mapidxlen * SPB)
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
    if (cbprint) cbprint(95,0);
    // bitmaps
    step = fd->nfreemaps/4;
@@ -334,21 +334,21 @@ static int write_volume(fmt_info *fd, read_callback cbprint) {
    for (ii=0; ii<fd->nfreemaps; ii++) {
       if (cbprint && ii%step==0) cbprint(95+ii/step,0);
       if (hlp_diskwrite(dsk, v0+fd->mapidx[ii], SPB, fd->bmp->mem()+ii*SPB*512)!=SPB)
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
    }
    if (cbprint) cbprint(99,0);
    // first bad sector list
    if (hlp_diskwrite(dsk, v0+fd->sup.badlist.main, SPB, fd->bblist)!=SPB)
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    // remaining bad sector lists (if available)
    for (ii = 1; ii<fd->bbidxlen; ii++)
       if (hlp_diskwrite(dsk, v0+fd->bblist[ii-1].fwd, SPB, fd->bblist+ii)!=SPB)
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
    if (cbprint) cbprint(100,0);
    return 0;
 }
 
-u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
+qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    u32t  hidden = 0, percent = 0, pfcnt, ii, badcnt;
    int    align = flags&DFMT_NOALIGN?0:1,  // AF align flag
           kbask = flags&DFMT_BREAK?1:0;    // allow keyboard ESC break
@@ -360,10 +360,10 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
 
    hlp_volinfo(vol, &di);
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
-   if (!di.TotalSectors) return DFME_NOMOUNT;
+   if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
-   if (volidx<0 && di.StartSector) return DFME_VINDEX;
+   if (volidx<0 && di.StartSector) return E_PTE_PINDEX;
    if (volidx>=0) {
       if (dsk_isgpt(di.Disk,volidx)==1) {
          // GPT partition
@@ -372,17 +372,17 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
       } else {
          // MBR or hybrid partition
          dsk_ptquery(di.Disk,volidx,0,0,0,0,&hidden);
-         if (hidden==FFFF) return DFME_EXTERR;
+         if (hidden==FFFF) return E_PTE_EXTERR;
       }
    }
    // turn off align for floppies
    if ((di.Disk&QDSK_FLOPPY)!=0) align = 0;
-   if (di.SectorSize!=512) return DFME_SSIZE;
+   if (di.SectorSize!=512) return E_DSK_SSIZE;
    // limit to 64Gb
-   if (di.TotalSectors>=FORMAT_LIMIT) return DFME_LARGE;
+   if (di.TotalSectors>=FORMAT_LIMIT) return E_DSK_VLARGE;
    /* unmount will clear all cache and below all of r/w ops use QDSK_DIRECT
       flag, so no any volume caching will occur until the end of format */
-   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return DFME_UMOUNT;
+   if (io_unmount(vol, flags&DFMT_FORCE?IOUM_FORCE:0)) return E_DSK_UMOUNTERR;
    // try to query actual values: LVM/PT first, BIOS - next
    if (!dsk_getptgeo(di.Disk,&geo)) {
       // ignore LVM surprise
@@ -419,7 +419,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    memcpy(&fd->br+1,(struct Boot_Record *)&hpfs_bsect+1,512-sizeof(struct Boot_Record));
 
    // 32k buffer
-   fd->pf        = (u8t*)hlp_memalloc(_32KB, QSMA_RETERR|QSMA_NOCLEAR);
+   fd->pf        = (u8t*)hlp_memalloc(_32KB, QSMA_RETERR|QSMA_NOCLEAR|QSMA_LOCAL);
    // sectors in 32k
    pfcnt         = _32KB/di.SectorSize;
    // bad sector list & bitmap
@@ -452,7 +452,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    // check all of above
    if (!fd->pf || !fd->bslist || !fd->bmp || !fd->bmp->size() || !fd->mapidx) {
       free_fmt_info(fd);
-      return DFME_NOMEM;
+      return E_SYS_NOMEM;
    }
 
 
@@ -517,7 +517,7 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    // check availability of system sectors
    if (!fd->bmp->check(1, 0, HPFSSEC_SUPERB+SPB)) {
       free_fmt_info(fd);
-      return DFME_IOERR;
+      return E_DSK_ERRWRITE;
    }
    /* reserve first 20 sectors.
       sectors 18,19 never used because native format made such align to 4 */
@@ -539,12 +539,12 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
 
       if (fd->mapidx[ii]==FFFF) {
          free_fmt_info(fd);
-         return DFME_IOERR;
+         return E_DSK_ERRWRITE;
       }
    }
    /* sectors for the bad block list.
       !! bslist zeroed after this point! */
-   if (!prepare_bb_list(fd)) { free_fmt_info(fd); return DFME_NOMEM; }
+   if (!prepare_bb_list(fd)) { free_fmt_info(fd); return E_SYS_NOMEM; }
 
    fd->spr.header1    = HPFS_SPR_SIGN1;
    fd->spr.header2    = HPFS_SPR_SIGN2;
@@ -555,12 +555,12 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    fd->spr.hotfix_max = fd->ptsize>40000 ? MAX_HOTFIXES : fd->ptsize/400;
 
    // fill codepage data
-   if (!prepare_codepage(fd)) { free_fmt_info(fd); return DFME_INTERNAL; }
+   if (!prepare_codepage(fd)) { free_fmt_info(fd); return E_SYS_CPLIB; }
 
    for (ii = 0; ii<fd->spr.hotfix_max; ii++)
       fd->hotfixes[fd->spr.hotfix_max+ii] = allocate_early(fd->bmp, 1, 1);
    // allocate directory structures & root dir
-   if (!prepare_dirblk(fd)) { free_fmt_info(fd); return DFME_SMALL; }
+   if (!prepare_dirblk(fd)) { free_fmt_info(fd); return E_DSK_VSMALL; }
    // userid mapping table
    fd->sup.sid_table  = allocate_middle(fd->bmp, 8, SPB);
    // calc checksums (unused data was zeroed above)

@@ -12,17 +12,19 @@
 #include "longedit.h"
 
 #define DISK_MEMORY (0xFFFFFFFF)
+#define DISK_FILE   (0xFFFFFFFE)
 
 class TDiskSearchDialog : public TDialog {
-   u64t      start, end;
+   u64t       start, end;
 public:
-   u32t            disk,    // DISK_MEMORY for memory search
-             sectorsize;
-   u8t          *buf32k;
-   u64t          sector;
-   long        posinsec;
+   u32t             disk,    // DISK_MEMORY for memory search
+              sectorsize;
+   u8t           *buf32k;
+   u64t           sector;
+   long         posinsec;
+   TLongEditorData *pled;
 
-   enum stopReason { stopVoid, stopEnd, stopFound, stopReadErr };
+   enum stopReason { stopVoid, stopEnd, stopFound, stopReadErr, stopEndOfMem };
    stopReason    stop;
 
    TDiskSearchDialog();
@@ -33,16 +35,16 @@ public:
    TColoredText *percentStr;
 };
 
-struct DiskCopySide {
-   int    isFile;
-   u32t     disk;
-   u64t      pos;
-   FILE    *file;
-   u32t    ssize;
-};
-
 class TDiskCopyDialog : public TDialog {
 public:
+   enum copySide { cpsDisk, cpsFile, cpsMem };
+   struct DiskCopySide {
+      copySide type;
+      u32t     disk;
+      u64t      pos;
+      FILE    *file;
+      u32t    ssize;
+   };
    DiskCopySide  source,
                  destin;
    u64t    bytes, total;
@@ -55,6 +57,7 @@ public:
    void startFileToDisk(FILE *src, u32t disk, u64t start, u32t sectors);
    void startDiskToFile(u32t disk, u64t start, FILE *dst, u32t sectors);
    void startDiskToDisk(u32t sdisk, u64t sstart, u32t ddisk, u64t dstart, u32t sectors);
+   void startMemToFile (u64t addr, FILE *dst, u64t length);
    void processNext();
 
    TColoredText *sectorStr;
@@ -69,6 +72,18 @@ class TDiskBootDialog : public TDialog {
 public:
    TDiskBootDialog(u32t disk, long index);
    void processNext();
+};
+
+class TPTMakeDialog : public TDialog {
+public:
+   TPTMakeDialog(u32t disk, u64t freespace, int logical);
+   virtual void handleEvent(TEvent&);
+   //virtual Boolean valid(ushort);
+   int            endof,
+                gptdisk;
+   TInputLine *elPtSize;
+   TCheckBoxes *cbFlags;
+   void updateAF(int force = 0);
 };
 
 #endif // __DISKDLGS_H

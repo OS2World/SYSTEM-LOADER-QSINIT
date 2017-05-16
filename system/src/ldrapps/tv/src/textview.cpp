@@ -4,16 +4,13 @@
 /* function(s)                                                 */
 /*                  TTerminal and TTextDevice member functions */
 /*-------------------------------------------------------------*/
-
-/*-------------------------------------------------------------*/
-/*                                                             */
-/*    Turbo Vision -  Version 1.0                              */
-/*                                                             */
-/*                                                             */
-/*    Copyright (c) 1991 by Borland International              */
-/*    All Rights Reserved.                                     */
-/*                                                             */
-/*-------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TTextDevice
 #define Uses_TTerminal
@@ -26,15 +23,14 @@
 TTextDevice::TTextDevice(const TRect &bounds,
                          TScrollBar *aHScrollBar,
                          TScrollBar *aVScrollBar) :
-   TScroller(bounds,aHScrollBar,aVScrollBar) {
+   TScroller(bounds,aHScrollBar,aVScrollBar)
+{
 }
 
 #if defined(__OS2__) && defined(__BORLANDC__)
 int _RTLENTRY TTextDevice::overflow(int c)
-#elif defined(__IBMCPP__)
-int TTextDevice::overflow(int c)
 #else
-int TV_CDECL TTextDevice::overflow(int c)
+int TTextDevice::overflow(int c)
 #endif
 {
    if (c != EOF) {
@@ -51,7 +47,9 @@ TTerminal::TTerminal(const TRect &bounds,
    TTextDevice(bounds, aHScrollBar, aVScrollBar),
    getLineColor(0),
    queFront(0),
-   queBack(0) {
+   queBack(0),
+   curLineWidth(0)  // Added for horizontal cursor tracking.
+{
    growMode = gfGrowHiX + gfGrowHiY;
    bufSize = min(maxTerminalSize, aBufSize);
    buffer = new char[ bufSize ];
@@ -90,10 +88,12 @@ Boolean TTerminal::canInsert(size_t amount) {
 void TTerminal::draw() {
    short  i;
    size_t begLine, endLine;
-   char s[maxViewWidth+1];
-   size_t bottomLine;
+   char s[ maxViewWidth + 1 ]; // KRW: Bug Fix/Enhancement: 95/01/05
+   // Do *NOT* attempt to display more
+   // than maxViewWidth chars
+   // ** assume size.x <= maxViewWidth **
+   ushort bottomLine = size.y + delta.y;
 
-   bottomLine = size.y + delta.y;
    if (limit.y > bottomLine) {
       endLine = prevLines(queFront, limit.y - bottomLine);
       bufDec(endLine);
@@ -109,6 +109,11 @@ void TTerminal::draw() {
    }
 
    for (; i >= 0; i--) {
+      // KRW: Bug fix/enhancement - handle any length line by only copying
+      //   to s those characters to be displayed, which we assume will
+      //   be < maxViewWidth
+      //  This whole block rewritten
+      memset(s, ' ', size.x);   // must display blanks if no characters!
       begLine = prevLines(endLine, 1);
       if (endLine >= begLine) {
          int T = int(endLine - begLine);
@@ -171,11 +176,27 @@ size_t TTerminal::nextLine(size_t pos) {
 }
 
 int TTerminal::do_sputn(const char *s, int count) {
+   ushort screenWidth = limit.x;
    ushort screenLines = limit.y;
    size_t i;
-   for (i = 0; i < count; i++)
-      if (s[i] == '\n')
+   // BUG FIX - Mon 07/25/94 - EFW: Made TTerminal adjust horizontal
+   // scrollbar limit too.
+   for (i = 0; i < count; i++, curLineWidth++)
+      if (s[i] == '\n') {
          screenLines++;
+
+         // Check width when an LF is seen.
+         if (curLineWidth > screenWidth)
+            screenWidth = curLineWidth;
+
+         // Reset width for the next line.
+         curLineWidth = 0;
+      }
+
+   // One last check for width for cases where whole lines aren't
+   // received, maybe just a character or two.
+   if (curLineWidth > screenWidth)
+      screenWidth = curLineWidth;
 
    while (!canInsert(count)) {
       queBack = nextLine(queBack);
@@ -192,7 +213,7 @@ int TTerminal::do_sputn(const char *s, int count) {
       queFront += count;
    }
 
-   setLimit(limit.x, screenLines);
+   setLimit(screenWidth, screenLines);
    scrollTo(0, screenLines + 1);
    i = prevLines(queFront, 1);
    if (i <= queFront)

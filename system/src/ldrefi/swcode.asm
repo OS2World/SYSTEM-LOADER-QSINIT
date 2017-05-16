@@ -1,5 +1,7 @@
                 include inc/qstypes.inc                         ;
                 include inc/segdef.inc                          ;
+                include inc/qspdata.inc                         ;
+                include inc/cpudef.inc                          ;
                 include inc/efnlist.inc                         ;
                 .686p
 
@@ -11,11 +13,13 @@ _aboutstr       label   near                                    ;
                 db      10,0,10                                 ;
                 extrn   _ofs64:fword                            ;
                 extrn   _sel64:dword                            ;
+                extrn   _syscr4:dword                           ;
                 extrn   _ret64offset:dword                      ;
                 extrn   _logrmpos:word                          ;
                 extrn   xcptret:dword                           ;
-xcpt64handler   dd      0
-tm64handler     dd      0
+xcpt64handler   dd      0                                       ;
+tm64handler     dd      0                                       ;
+                extrn   _mt_exechooks:mt_proc_cb_s              ;
 _DATA           ends
 
 _TEXT           segment
@@ -72,6 +76,19 @@ _call64l        label   near
                 push    fs                                      ;
                 push    gs                                      ;
 
+                mov     eax,cr0                                 ; EFI BIOSes saves cr0, then
+                test    eax,CPU_CR0_TS                          ; going to #NP and then restores cr0
+                jz      @@c64_no_ts                             ; (to repeat this in next call)
+                mov     ecx,_mt_exechooks.mtcb_cfpt             ;
+                jecxz   @@c64_reset_ts                          ; no FPU onwer?
+                mov     ecx,_mt_exechooks.mtcb_rmcall           ;
+                jecxz   @@c64_reset_ts                          ;
+           lock inc     _mt_exechooks.mtcb_glock                ;
+                call    ecx                                     ;
+           lock dec     _mt_exechooks.mtcb_glock                ;
+@@c64_reset_ts:
+                clts                                            ;
+@@c64_no_ts:
                 mov     eax,32                                  ;
                 mov     ecx,[ebp+@@argcnt]                      ; align stack
                 lea     edx,[ecx*8]                             ; to 16
@@ -102,6 +119,13 @@ _call64l        label   near
                 jmp     fword ptr _ofs64                        ;
 _ret64:
                 lea     esp,[ebp-28]                            ;
+                mov     ebx,cr4                                 ; just to be safe
+                mov     esi,_syscr4                             ;
+                or      esi,ebx                                 ; restore our`s
+                cmp     esi,ebx                                 ; cr4 bits
+                jz      @@c64_skipcr4                           ;
+                mov     cr4,esi                                 ;
+@@c64_skipcr4:
                 sti                                             ;
                 pop     gs                                      ;
                 pop     fs                                      ;
@@ -124,11 +148,23 @@ _ret64:
                 ret                                             ;
 _call64         endp
 
+; Note, what this can be #NM exception from EFI INTERRUPT HANDLER!
+; These dumb EFI BIOS coders use SSE commands in any case and TS bit will
+; guide us here. And, when EFI leaves interrupt - it restores CR0 with TS=1,
+; in addition!
                 public  xcpt64entry
 xcpt64entry     proc    near
                 mov     ax,ss                                   ; esp points to temp buffer
                 mov     ds,ax                                   ; allocated by 64-bit part
                 mov     es,ax                                   ;
+
+;                mov     eax,cr4                                 ;
+;                mov     ecx,_syscr4                             ;
+;                or      ecx,eax                                 ;
+;                cmp     ecx,eax                                 ;
+;                jz      @@xc64_skipcr4                          ;
+;                mov     cr4,ecx                                 ;
+;@@xc64_skipcr4:
                 cmp     dword ptr [esp].x64_number,256          ; interrupts are disabled
                 cmovnz  ecx,xcpt64handler                       ; here
                 jnz     @@xc64_common                           ;
@@ -139,6 +175,7 @@ xcpt64entry     proc    near
                 call    ecx                                     ;
 @@xc64_nocall:
                 cli                                             ;
+                clts                                            ;
                 push    _sel64                                  ;
                 push    xcptret                                 ;
                 retf

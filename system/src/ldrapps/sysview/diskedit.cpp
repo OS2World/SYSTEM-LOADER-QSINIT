@@ -1,10 +1,10 @@
-/*--------------------------------------------------------------------*/
-/*                                                                    */
-/*   QSINIT: big TV app                                               */
-/*   Note  : this code looks like a garbage and was created only for  */
-/*           speed up QSINIT`s testing... in addition this is still a */
-/*           GUI (some kind of it ;))                                 */
-/*--------------------------------------------------------------------*/
+/*-------------------------------------------------------------------*
+ *  QSINIT: big TV app                                               *
+ *-------------------------------------------------------------------*
+ *  Note  : this code looks like a garbage and was created only for  *
+ *          speed up QSINIT testing... in addition this is still a   *
+ *          GUI (some kind of it ;))                                 *
+ *-------------------------------------------------------------------*/
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -77,11 +77,11 @@
 #define cmPowerOff     119
 #define cmBootMBR      120
 #define cmCpuInfo      121
-#define cmNew          122
+//#define cmNew          122
 #define cmShowClipbrd  123
 #define cmSaveLog      124
 #define cmWindowList   125
-#define cmCloseAll     126
+//#define cmCloseAll     126
 #define cmScrnRefresh  127
 #define cmCalendar     128
 #define cmBmgrMenu     129
@@ -101,10 +101,15 @@
 #define cmCalculator   143
 #define cmMemEdit      144
 #define cmSetCodepage  145
+#define cmMemSave      146
+#define cmBinNew       147
+#define cmBinLoad      148
 
 #define cmHelpIndex    200
 #define cmHelpCont     201
 #define cmAbout        202
+
+#define wfAppWindow    0x40    // bad idea - use free bit in TWindow::flags
 
 int         Modified=false;
 
@@ -126,24 +131,52 @@ static const char *helpFileName = "MSG\\SYSVIEW.HLP";
 
 TSysApp SysApp;
 
-TAppWindow::TAppWindow (const TRect &bounds, const char *aTitle, short aNumber) :
-   TWindow(bounds, aTitle, aNumber+1), TWindowInit(initFrame)
+TAppWindow::TAppWindow (const TRect &bounds, const char *aTitle, TAppWindowType wt) :
+   TWindow(bounds, aTitle, SysApp.allocWinNumber()), TWindowInit(initFrame)
 {
-   if (aNumber<TWin_Count) SysApp.windows[aNumber] = this;
-   if (aNumber==TWin_SectEdit) SysApp.SetCommandState(CS_D,True);
-   if (aNumber==TWin_MemEdit) SysApp.SetCommandState(CS_M,True);
+   wType = wt;
+   flags|= wfAppWindow;
+   if (wt==AppW_Sector) SysApp.SetCommandState(CS_D,True);
+   if (wt==AppW_Memory) SysApp.SetCommandState(CS_M,True);
+   // SetCommandState too smart to count multiple opens
+   if (wt==AppW_BinFile) SysApp.SetCommandState(CS_F,True); else
+      SysApp.windows[wt] = this;
 }
 
 void TAppWindow::removeAction() {
-   SysApp.windows[number-1] = 0;
-   if (number-1==TWin_SectEdit) SysApp.SetCommandState(CS_D,False);
-   if (number-1==TWin_MemEdit) SysApp.SetCommandState(CS_M,False);
+   if (wType==AppW_Sector) SysApp.SetCommandState(CS_D,False);
+   if (wType==AppW_Memory) SysApp.SetCommandState(CS_M,False);
+   // all special windows except AppW_BinFile should be saved in windows[]
+   if (wType==AppW_BinFile) SysApp.SetCommandState(CS_F,False); else
+      SysApp.windows[wType] = 0;
+
+   if (SysApp.lastSearchWin==this) SysApp.lastSearchWin = 0;
 }
 
 void TAppWindow::close() {
    TWindow::close();
    // is window closed actually?
    if (!frame) removeAction();
+}
+
+void TSysApp::CloseAll() {
+   TView *fm;
+   do {
+      fm = deskTop->firstMatch(sfVisible, ofSelectable);
+      if (fm) {
+         if (fm==clipWindow) clipWindow->hide(); else {
+            if (fm->valid(cmClose)) {
+               TAppWindow *wn = (TAppWindow*)fm;
+               // notify about closed windows
+               if (wn->flags&wfAppWindow) wn->removeAction();
+               // and remove it
+               deskTop->remove(fm);
+               destroy(fm);
+            } else
+               return;
+         }
+      }
+   } while (fm);
 }
 
 TSysApp::TSysApp() :
@@ -159,7 +192,8 @@ TSysApp::TSysApp() :
    cmd+=cmOK;
    cmd+=cmCancel;
    enableCommands(cmd);
-   ToggleEditorCommands(False);
+   ToggleEditorCommands(0,0);
+   ToggleEditorCommands(1,0);
 
    clipWindow = OpenEditor(1,1);
    if (clipWindow) {
@@ -174,6 +208,7 @@ TSysApp::TSysApp() :
    searchDlg   = 0;
    copyDlg     = 0;
    bootDlg     = 0;
+   cmEditName  = 0;
    lastSearchStop = TDiskSearchDialog::stopVoid;
    memset(windows, 0, sizeof(windows));
 
@@ -182,6 +217,8 @@ TSysApp::TSysApp() :
    lastBrowseExtPos   = 0;
    lastBrowseExtSlice = 0;
    createAtTheEnd     = 0;
+   createAFal         = 0;
+   lastSearchWin      = 0;
 }
 
 TSysApp::~TSysApp() {
@@ -205,7 +242,7 @@ void TMyStatusLine::handleEvent(TEvent &event) {
 
 char *getSizeStr(u32t sectsize, u64t disksize, Boolean trim) {
    static char buffer[64];
-   static char *suffix[] = { "kb", "mb", "gb", "tb" };
+   static char *suffix[] = { "kb", "mb", "gb", "tb", "pb", "eb", "zb" }; // ;)
 
    u64t size = disksize * (sectsize?sectsize:1);
    int   idx = 0;
@@ -218,12 +255,12 @@ char *getSizeStr(u32t sectsize, u64t disksize, Boolean trim) {
 static ushort _cmdState[][2] = {{cmGoto,CS_A+1}, {cmSectFind,CS_A+1},
    {cmSectFindNext,CS_A+1}, {cmSectPtEd,CS_D+1}, {cmSectBpbEd,CS_D+1},
    {cmSectDlatEd,CS_D+1}, {cmSectToFile,CS_D+1}, {cmSectToSect,CS_D+1},
-   {cmFileToSect,CS_D+1}, {0,0}};
+   {cmFileToSect,CS_D+1}, {cmBinTrunc,CS_F+1}, {0,0}};
 
 void TSysApp::SetCommandState(u16t mask, int onoff) {
    int    ii = 0;
    ushort st;
-   while ((st=_cmdState[ii][1])) {
+   while ((st=_cmdState[ii][1])!=0) {
       if (st&mask) {
          if (onoff) {
             if ((st&CS_MASK)==0) enableCommand(_cmdState[ii][0]);
@@ -248,12 +285,15 @@ int TSysApp::askDlg(int MsgType, u32t arg) {
                                "\3""This huge disk (>500Gb) is incompatible with LVM.\n"
                                "\3""Continue?\n",                        // 6
                                "\3""Perform quick format?\n",            // 7
-                               "\3""Access to this area requires PAE paging mode."
+                               "\3""Access to this area requires PAE paging mode. "
                                    "Turn it on?\n",                      // 8
                                "\3""There is no active partition in partition table!\n"
                                "\3""Continue?\n",                        // 9
                                "\3""Set \"BIOS Bootable\" attribute for this partition?\n", // 10
-                               "\3""Codepage selection failed. Continue format?\n" // 11
+                               "\3""Codepage selection failed. Continue format?\n", // 11
+                               "\3""A device space is a part of saving range. This can cause troubles. "
+                                   "Continue?\n",                        // 12
+                               "\3""Value: %08X?\n"                      // 13
                               };
    char *mptr = askMsgArray[MsgType];
 
@@ -274,7 +314,9 @@ void TSysApp::infoDlg(int MsgType) {
                                 "\3""Source and destination is the same!",
                                 "\3""LVM information is valid and not outdated!",
                                 "\3""Bootstrap code updated.",
-                                "\3""QSINIT files transfered."
+                                "\3""QSINIT files transfered.",
+                                "\3""A device memory space reached, searching in it can cause a deadlock!",
+                                "\3""Unable to select which window to use, make it active first!"
                                };
    messageBox(infoMsgArray[MsgType], mfInformation+mfOKButton);
 }
@@ -294,7 +336,7 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Unable to open help file!",
                                "\3""This is not a file!",
                                "\3""Insufficient disk space to write a file!",
-                               "\3""File size too large for target filesystem!",
+                               "\3""File size too large for the target filesystem!",
                                "\3""Source and destination interference each other!",
                                "\3""Disk read error!",
                                "\3""Disk write error!",
@@ -322,9 +364,31 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Boot code for this filesystem unable to handle partition above 2Tb border",
                                "\3""Boot code for this filesystem unable to handle partition which crosses 2Tb border",
                                "\3""Boot file name on FAT is limited to 11 characters",
-                               "\3""Unable to write QSINIT binaries!"
+                               "\3""Unable to write QSINIT binaries!",
+                               "\3""Error while truncating file!",
+                               "\3""Specified name is a directory!",
+                               "\3""Selected file is already open!",
+                               "\3""Unable to perform action on the target file system!"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
+}
+
+
+static void enum_windows(TView *win, void *arg) {
+   if ((win->options&ofSelectable)!=0 && win->getState(sfVisible)) {
+      short num = ((TWindow*)win)->number;
+      if (num>0 & num<10) ((u8t*)arg)[num-1] = 1;
+   }
+}
+
+short TSysApp::allocWinNumber() {
+   u8t wu[9];
+   memset(&wu, 0, sizeof(wu));
+   // enum windows to get next free number
+   TProgram::deskTop->forEach(enum_windows,&wu);
+   for (int ii=0; ii<9; ii++)
+      if (!wu[ii]) return ii+1;
+   return wnNoNumber;
 }
 
 void TSysApp::getEvent(TEvent& event) {
@@ -334,7 +398,7 @@ void TSysApp::getEvent(TEvent& event) {
       // catch help here else cmHelp will close menus and change "current"
       if (event.message.command==cmHelp && !in_help) {
          in_help = 1;
-         OpenHelp(getHelpCtx(), 1);
+         OpenHelp(0xFFFF /*getHelpCtx()*/, 1);
          clearEvent(event);
          in_help = 0;
       }
@@ -346,22 +410,21 @@ void TSysApp::handleEvent(TEvent& event) {
   if (event.what==evCommand) {
     switch (event.message.command)  {
       case cmSectFindNext:
-         if (lastSearchStop == TDiskSearchDialog::stopFound ||
-            lastSearchStop == TDiskSearchDialog::stopReadErr)
+         if (lastSearchWin && lastSearchStop == TDiskSearchDialog::stopFound ||
+            lastSearchStop == TDiskSearchDialog::stopReadErr ||
+               lastSearchStop == TDiskSearchDialog::stopEndOfMem)
          {
-            TSysWindows who = lastSearchMode?TWin_SectEdit:TWin_MemEdit;
-            if (windows[who]) {
-               windows[who]->select();
-               SearchBinNext(lastSearchMode);
-               break;
-            }
+            lastSearchWin->select();
+            SearchBinNext(lastSearchWin);
+            break;
          } // go to common find dialog if no search or it was ended
       case cmSectFind: {
-         int is_mem = IsMemAction();
-         if (is_mem>=0) {
-            windows[is_mem?TWin_MemEdit:TWin_SectEdit]->select();
-            SearchBinStart(is_mem?False:True);
-         }
+         TAppWindow *wn = BinActionWindow();
+         if (wn) {
+            wn->select();
+            SearchBinStart(wn);
+         } else
+            infoDlg(MSGI_WINSELFAILED);
          break;
       }
       case cmHelpCont:
@@ -374,7 +437,7 @@ void TSysApp::handleEvent(TEvent& event) {
          break;
       case cmSectBpbEd :
       case cmSectDlatEd: {
-            TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+            TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
             win->select();
             u64t  sector;
             win->sectEd->cursorLine(&sector);
@@ -394,7 +457,7 @@ void TSysApp::handleEvent(TEvent& event) {
          }
          break;
       case cmSectPtEd: {
-            TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+            TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
             win->select();
             u64t  sector;
             win->sectEd->cursorLine(&sector);
@@ -411,9 +474,9 @@ void TSysApp::handleEvent(TEvent& event) {
                if (sector)
                   act_goto += IS_EXTENDED(spte->goptbyte)? lastBrowseExtPos :
                      lastBrowseExtSlice;
-               /* trying to handle multiple extended partitions (one of it
-                  can be "hidden") - by remembering start of partition to
-                  which we`re press 1..4 in MBR */
+               /* trying to handle multiple extended partitions (one of them
+                  can be "hidden") - by remembering its start, was selected
+                  by 1..4 key in MBR */
                if (IS_EXTENDED(spte->goptbyte)) {
                   if (sector==0) lastBrowseExtPos = spte->gosector;
                   lastBrowseExtSlice = act_goto;
@@ -435,27 +498,40 @@ void TSysApp::handleEvent(TEvent& event) {
          }
          break;
       case cmGoto: {
-         int act = IsMemAction();
-         if (act>=0) {
-            TDskEdWindow *win = (TDskEdWindow*)windows[act?TWin_MemEdit:TWin_SectEdit];
-            if (win) win->select();
+         TAppWindow *wn = BinActionWindow();
+         if (wn) {
+            wn->select();
 
-            if (act>0) GotoMemDlg(); else
-            if (win) {
-               u64t pos = SelectSector(SCSEL_GOTO, win->disk);
-               if (pos!=FFFF) win->sectEd->processKey(TLongEditor::posSet, pos);
+            switch (wn->wType) {
+               case AppW_Memory: GotoMemDlg(); break;
+               case AppW_Sector: {
+                  TDskEdWindow *wd = (TDskEdWindow*)wn;
+                  u64t pos = SelectSector(SCSEL_GOTO, wd->disk);
+                  if (pos!=FFFF) wd->sectEd->processKey(TLongEditor::posSet, pos);
+                  break;
+               }
+               case AppW_BinFile: {
+                  THexEdWindow *wf = (THexEdWindow*)wn;
+                  wf->GotoFilePosDlg();
+                  break;
+               }
+               default:
+                  errDlg(MSGE_NOTSUPPORTED);
+                  break;
             }
-         }
+         } else
+            infoDlg(MSGI_WINSELFAILED);
          break;
       }
       case cmMemEdit:
          OpenPosMemWindow(cmMemEditPos);
          cmMemEditPos = 0;
          break;
+      case cmMemSave: MemSaveDlg(); break;
       case cmFileToSect:
       case cmSectToSect:
       case cmSectToFile: {
-         TDskEdWindow *win = (TDskEdWindow*)windows[TWin_SectEdit];
+         TDskEdWindow *win = (TDskEdWindow*)windows[AppW_Sector];
          if (win) {
             u64t  sector;
             u32t     cmd = event.message.command;
@@ -484,7 +560,10 @@ void TSysApp::handleEvent(TEvent& event) {
          break;
       }
       case cmNew: OpenEditor(True); break;
-      case cmLoad: OpenEditor(False); break;
+      case cmLoad: OpenEditor(False,False,cmEditName); cmEditName=0; break;
+      case cmBinNew: OpenHexEditor(True); break;
+      case cmBinLoad: OpenHexEditor(False,cmEditName); cmEditName=0; break;
+
       case cmShowClipbrd:
          if (clipWindow) {
             clipWindow->select();
@@ -569,7 +648,7 @@ void TSysApp::handleEvent(TEvent& event) {
          break;
       }
       case cmCalculator : {
-         TCalculatorWindow *win = (TCalculatorWindow*)windows[TWin_Calc];
+         TCalculatorWindow *win = (TCalculatorWindow*)windows[AppW_Calc];
 
          if (win) win->select(); else {
             win = (TCalculatorWindow *)validView(new TCalculatorWindow);
@@ -607,9 +686,14 @@ TMenuBar *CreateMenuBar( TRect r ) {
           new TMenuItem("~S~ave",cmSaveLog,kbNoKey,hcSaveLog,"",
           new TMenuItem("Save ~P~ure",cmPureLog,kbNoKey,hcPureLog,""
          )))))+
+      *new TMenuItem("~B~oot",kbNoKey,
+          new TMenu(
+         *new TMenuItem("OS/2 ~k~ernel",cmBootSetup,kbNoKey,hcNoContext,"",
+          new TMenuItem("OS/2 ~l~oader (os2ldr)",cmLdrBootSetup,kbNoKey,hcLdrName,"",
+          new TMenuItem("~M~aster boot record (MBR)",cmBootMBR,kbNoKey,hcBootMBR,"",
+          new TMenuItem("~B~oot Manager menu",cmBmgrMenu,kbNoKey,hcBootMGR,""
+         ))))))+
       *new TMenuItem("~S~elect codepage",cmSetCodepage,kbNoKey,hcSetCodepage,"")+
-      newLine()+
-      *new TMenuItem("~C~PU info",cmCpuInfo,kbNoKey,hcCpuInfo,"")+
       newLine()+
       *new TMenuItem( "E~x~it", cmQuit, kbCtrlX, hcExit, "Ctrl-X" )+
       *new TMenuItem("~P~ower off",cmPowerOff,kbNoKey,hcPowerOff,"")+
@@ -631,31 +715,33 @@ TMenuBar *CreateMenuBar( TRect r ) {
       *new TMenuItem("~C~opy sector from file",cmFileToSect,kbNoKey,hcSectImport,"")+
       newLine()+
       *new TMenuItem("Physical ~m~emory",cmMemEdit,kbNoKey,hcMemEdit,"")+
+      *new TMenuItem("Copy memory to ~f~ile",cmMemSave,kbNoKey,hcMemSave,"")+
+      newLine()+
+      *new TMenuItem("~C~PU info",cmCpuInfo,kbNoKey,hcCpuInfo,"")+
+   *new TSubMenu("~T~ext",hcNoContext)+
+      *new TMenuItem("~N~ew",cmNew,kbNoKey,hcFileNew,"")+
+      *new TMenuItem("~L~oad",cmLoad,kbF3,hcFileLoad,"F3")+
+      *new TMenuItem("~S~ave",cmSave,kbF2,hcFileSave,"F2")+
+      *new TMenuItem("Save ~a~s",cmSaveAs,kbShiftF2,hcFileSaveAs,"Shift-F2")+
+      newLine()+
+      *new TMenuItem("~F~ind",cmFind,kbF7,hcFind,"F7")+
+      *new TMenuItem("~R~eplace",cmReplace,kbF8,hcReplace,"F8")+
+      *new TMenuItem("Search again",cmSearchAgain,kbShiftF7,hcFindAgain,"Shift-F7")+
+      newLine()+
+      *new TMenuItem("~U~ndo",cmUndo,kbAltBack,hcUndo,"Alt-Bkspc")+
+      *new TMenuItem("Cu~t~",cmCut,kbShiftDel,hcCut,"Shift-Del")+
+      *new TMenuItem("~C~opy",cmCopy,kbCtrlIns,hcCopy,"Ctrl-Ins")+
+      *new TMenuItem("~P~aste",cmPaste,kbShiftIns,hcPaste,"Shift-Ins")+
+      *new TMenuItem("C~l~ear",cmClear,kbCtrlDel,hcClear,"Ctrl-Del")+
+   *new TSubMenu("~B~inary",hcNoContext)+
+      *new TMenuItem("~N~ew",cmBinNew,kbNoKey,hcBinNew,"")+
+      *new TMenuItem("~O~pen",cmBinLoad,kbShiftF3,hcBinLoad,"Shift-F3")+
+      *new TMenuItem("~S~ave",cmSave,kbF2,hcFileSave,"F2")+
+      *new TMenuItem("~T~runcate",cmBinTrunc,kbCtrlF10,hcBinTrunc,"Ctrl-F10")+
       newLine()+
       *new TMenuItem("~G~o to",cmGoto,kbF11,hcGoto,"F11")+
       *new TMenuItem("~F~ind binary data",cmSectFind,kbCtrlF,hcSectFind,"Ctrl-F")+
       *new TMenuItem("~F~ind next",cmSectFindNext,kbCtrlA,hcSectFindNext,"Ctrl-A")+
-   *new TSubMenu("~B~oot",hcNoContext)+
-      *new TMenuItem("OS/2 ~k~ernel",cmBootSetup,kbNoKey,hcNoContext,"")+
-      *new TMenuItem("OS/2 ~l~oader (os2ldr)",cmLdrBootSetup,kbNoKey,hcLdrName,"")+
-      *new TMenuItem("~M~aster boot record (MBR)",cmBootMBR,kbNoKey,hcBootMBR,"")+
-      *new TMenuItem("~B~oot Manager menu",cmBmgrMenu,kbNoKey,hcBootMGR,"")+
-   *new TSubMenu("~E~dit",hcNoContext)+
-     *new TMenuItem("~N~ew",cmNew,kbNoKey,hcFileNew,"",
-      new TMenuItem("~L~oad",cmLoad,kbF3,hcFileLoad,"F3",
-      new TMenuItem("~S~ave",cmSave,kbF2,hcFileSave,"F2",
-      new TMenuItem("Save ~a~s",cmSaveAs,kbShiftF2,hcFileSaveAs,"Shift-F2",
-      new TMenuItem(0, 0, 0, hcNoContext, 0,
-      new TMenuItem("~F~ind",cmFind,kbF7,hcFind,"F7",
-      new TMenuItem("~R~eplace",cmReplace,kbF8,hcReplace,"F8",
-      new TMenuItem("Search again",cmSearchAgain,kbShiftF7,hcFindAgain,"Shift-F7",
-      new TMenuItem(0, 0, 0, hcNoContext, 0,
-      new TMenuItem("~U~ndo",cmUndo,kbAltBack,hcUndo,"Alt-Bkspc",
-      new TMenuItem("Cu~t~",cmCut,kbShiftDel,hcCut,"Shift-Del",
-      new TMenuItem("~C~opy",cmCopy,kbCtrlIns,hcCopy,"Ctrl-Ins",
-      new TMenuItem("~P~aste",cmPaste,kbShiftIns,hcPaste,"Shift-Ins",
-      new TMenuItem("C~l~ear",cmClear,kbCtrlDel,hcClear,"Ctrl-Del"
-      ))))))))))))))+
    *new TSubMenu("~W~indow",hcNoContext)+
       *new TMenuItem("~T~ile",cmTile,kbNoKey,hcTile,0)+
       *new TMenuItem("C~a~scade",cmCascade,kbNoKey,hcCascade,0)+
@@ -692,9 +778,23 @@ void TSysApp::idle() {
    TApplication::idle();
    if (NeedStart) {
       NeedStart = 0;
-      SetCommandState(CS_D,False);
-
-      if (!bootcmd || bootcmd==cmMemEdit) {
+      SetCommandState(CS_A,False);
+#ifndef __QSINIT__
+      disableCommand(cmSetCodepage);
+      disableCommand(cmBmgrMenu);
+      disableCommand(cmPowerOff);
+#else
+      if (hlp_hosttype()==QSHT_EFI) {
+         disableCommand(cmBmgrMenu);
+         disableCommand(cmBootSetup);
+         disableCommand(cmLdrBootSetup);
+         disableCommand(cmBootMBR);
+      }
+#endif
+      // create common menu
+      if (!bootcmd || bootcmd==cmMemEdit || bootcmd==cmNew || bootcmd==cmLoad
+         || bootcmd==cmBinNew || bootcmd==cmBinLoad)
+      {
          removeView(menuBar);
          menuBar->owner = 0;
          destroy(menuBar);
@@ -703,25 +803,22 @@ void TSysApp::idle() {
       }
       if (bootcmd) message(application,evCommand,bootcmd,NULL);
    }
-   ToggleEditorCommands(!(deskTop->current==0||IsSysWindows(deskTop->current)));
-   // search/copy on disk is active ...
+   ToggleEditorCommands();
+   /* process special operations (if active one) or yields time
+      to system to cool down the CPU (in MT mode) */
    if (searchDlg) searchDlg->processNext(); else
    if (copyDlg) copyDlg->processNext(); else
-   if (bootDlg) bootDlg->processNext();
+   if (bootDlg) bootDlg->processNext(); else
+      opts_yield();
 }
 
-int TSysApp::IsSysWindows(TView *obj) {
-   if (!obj) return False;
-   for (int ii=0;ii<TWin_Count;ii++)
-      if (windows[ii]==obj) return True;
+int TSysApp::IsSysWindows(TView *obj, TAppWindowType *wtype) {
+   if (obj)
+      if (((TWindow*)obj)->flags&wfAppWindow) {
+         if (wtype) *wtype = ((TAppWindow*)obj)->wType;
+         return True;
+      }
    return False;
-}
-
-int TSysApp::CountSysWindows() {
-   int ii, count=0;
-   for (ii=0;ii<TWin_Count;ii++)
-      if (windows[ii]) count++;
-   return count;
 }
 
 TStatusLine *TSysApp::initStatusLine(TRect r) {
@@ -738,17 +835,42 @@ TStatusLine *TSysApp::initStatusLine(TRect r) {
    );
 }
 
-/* trying to select (or ask) memory or disk editor window for Search/Goto
-   dialogs */
-int TSysApp::IsMemAction() {
-   // no one
-   if (!windows[TWin_MemEdit] && !windows[TWin_SectEdit]) return -1;
+struct beinfo {
+   TAppWindow *win;
+   int       count;
+};
 
-   if (windows[TWin_MemEdit])
-      if (windows[TWin_MemEdit]->getState(sfActive|sfSelected)!=0) return 1;
-   if (windows[TWin_SectEdit])
-      if (windows[TWin_SectEdit]->getState(sfActive|sfSelected)!=0) return 0;
-   if (windows[TWin_MemEdit] && windows[TWin_SectEdit]) {
+static void enum_binedit(TView *win, void *arg) {
+   if ((win->options&ofSelectable)!=0 && win->getState(sfVisible))
+      if (((TWindow*)win)->flags&wfAppWindow) {
+         TAppWindow *wn = (TAppWindow*)win;
+
+         if (wn->wType==AppW_BinFile) {
+            beinfo *pbe = (beinfo*)arg;
+            if (!pbe->win) pbe->win = wn;
+            pbe->count++;
+         }
+      }
+}
+
+/* trying to select (or ask) memory/file/disk editor window for Search/Goto
+   dialogs */
+TAppWindow* TSysApp::BinActionWindow() {
+   if (!deskTop->current) return 0;
+   TAppWindow *cw = (TAppWindow*)deskTop->current;
+
+   if (cw->flags&wfAppWindow)
+      if (cw->wType==AppW_Sector || cw->wType==AppW_Memory ||
+         cw->wType==AppW_BinFile) return cw;
+   beinfo be = {0,0};
+   TProgram::deskTop->forEach(enum_binedit,&be);
+   // no memory/sector editors -> when single binary file will be the target
+   if (!windows[AppW_Memory] && !windows[AppW_Sector])
+      return be.count>1 ? 0 : be.win;
+   // we have binary file(s) & one of memory/disk - all of them not in focus
+   if (be.count) return 0;
+   // ask
+   if (windows[AppW_Memory] && windows[AppW_Sector]) {
       TRadioButtons *rb;
       TDialog      *dlg = new TDialog(TRect(24, 9, 55, 13), "What window?");
       if (!dlg) return 0;
@@ -758,11 +880,11 @@ int TSysApp::IsMemAction() {
       dlg->insert(new TButton(TRect(19, 1, 29, 3), "O~K~", cmOK, bfDefault));
       dlg->selectNext(False);
       execView(dlg);
-      int rc = rb->mark(0) ? 1 : 0;
+      cw = windows[rb->mark(0)?AppW_Memory:AppW_Sector];
       destroy(dlg);
-      return rc;
+      return cw;
    }
-   return windows[TWin_MemEdit] ? 1 : 0;
+   return windows[windows[AppW_Memory]?AppW_Memory:AppW_Sector];
 }
 
 static uchar loglncolor(const char *s) {
@@ -780,12 +902,12 @@ static uchar loglncolor(const char *s) {
 }
 
 void TSysApp::SwitchLogWindow() {
-   if (windows[TWin_Log]) {
-      windows[TWin_Log]->select();
+   if (windows[AppW_Log]) {
+      windows[AppW_Log]->select();
       // refresh?
    } else {
       TRect       rr = deskTop->getExtent();
-      TWindow   *win = new TAppWindow(rr,"Log view",TWin_Log);
+      TWindow   *win = new TAppWindow(rr, "Log view", AppW_Log);
 
       if (win && application->validView(win)) {
          const int TermBufferSize = 256*1024;
@@ -815,6 +937,13 @@ void TSysApp::SwitchLogWindow() {
 }
 
 void TSysApp::OpenHelp(ushort goHelpCtx, int dlgmode) {
+   /* try to get helpCtx of TGroup and ignore local controls */
+   if (goHelpCtx==0xFFFF) {
+      goHelpCtx = current && (current->userValue[0]&TVOF_CONTEXTHELP)==0
+                  ? current->helpCtx : hcNoContext;
+      if (goHelpCtx==hcNoContext) goHelpCtx = getHelpCtx();
+   }
+
    if (dlgmode) {
       FILE *hpf = fopen(helpFileName, "rb");
       if (!hpf) {
@@ -825,7 +954,7 @@ void TSysApp::OpenHelp(ushort goHelpCtx, int dlgmode) {
       execView(win);
       destroy(win);
    } else
-   if (!windows[TWin_Help]) {
+   if (!windows[AppW_Help]) {
       FILE *hpf = fopen(helpFileName, "rb");
       if (!hpf) {
          errDlg(MSGE_NOHELPFILE);
@@ -834,7 +963,7 @@ void TSysApp::OpenHelp(ushort goHelpCtx, int dlgmode) {
       TAppHlpWindow *win = new TAppHlpWindow(new THelpFile(hpf), goHelpCtx);
       deskTop->insert(win);
    } else {
-      TAppHlpWindow *win = (TAppHlpWindow*)windows[TWin_Help];
+      TAppHlpWindow *win = (TAppHlpWindow*)windows[AppW_Help];
       win->goTopic(goHelpCtx);
       win->select();
    }
@@ -844,8 +973,24 @@ extern "C" int tvMain(int argc,char *argv[]) {
    if (argc>2) {
       if (stricmp(argv[1],"/boot")==0||stricmp(argv[1],"/rest")==0) {
          SysApp.kernel = argv[2];
-         SysApp.kernel_parm = argc>3?argv[3]:0;
          SysApp.bootcmd = toupper(argv[1][1])=='R'?cmLdrBootSetup:cmBootSetup;
+         /* Parameter line can be splitted to multiple args by spaces in it.
+            To not annoy with quotes, just merge it back into the single line */
+         if (argc<=4) SysApp.kernel_parm = argc>3?argv[3]:0; else {
+#ifdef __QSINIT__
+            char *arglist = 0;
+            for (u32t ii=3; ii<argc; ii++) {
+               arglist = strcat_dyn(arglist, argv[ii]);
+               arglist = strcat_dyn(arglist, " ");
+            }
+            // let the system free this block
+            SysApp.kernel_parm = arglist;
+#endif // __QSINIT__
+         }
+      } else
+      if (stricmp(argv[1],"/edit")==0 || stricmp(argv[1],"/binedit")==0) {
+         SysApp.bootcmd = strlen(argv[1])==5?cmLoad:cmBinLoad;
+         SysApp.cmEditName = argv[2];
       }
    } else
    if (argc>1) {
@@ -857,7 +1002,9 @@ extern "C" int tvMain(int argc,char *argv[]) {
          // /mem:pos or /mem to go to 2nd Mb
          if (argv[1][4]==':') SysApp.cmMemEditPos = strtoul(argv[1]+5, 0, 16);
             else SysApp.cmMemEditPos = 0x100000;
-      }
+      } else
+      if (stricmp(argv[1],"/edit")==0 || stricmp(argv[1],"/binedit")==0)
+         SysApp.bootcmd = strlen(argv[1])==5?cmNew:cmBinNew;
    }
    SysApp.run();
    SysApp.shutDown();

@@ -2,6 +2,8 @@
 
 /** @mainpage QS Boot loader
 
+@section sec_warn (this doc is outdated permanently, but still usable)
+
 @section sec_intro Introduction
 QSINIT is a some kind of boot loader ;) Basically it load OS/2 kernel ;), but
 suitable for many other things - like playing tetris or writing boot time
@@ -12,8 +14,8 @@ with runtime and module executing support. It looks like old good DOS/4GW apps,
 but without DOS at all ;)
 
 Package contain of two parts: loader (OS2LDR) and zip archive with apps
-and data (QSINIT.LDI). Duaring init this archive unpacked to small virtual
-disk in memory and "system" operates with data on it as with normal files.
+and data (QSINIT.LDI). During init this archive unpacked to the small virtual
+disk in memory and "system" operates with data in it as normal files.
 
 So, common boot process is:
 @li partition boot code (FAT or micro-FSD on HPFS/JFS) loads OS2LDR (it looks
@@ -28,10 +30,10 @@ unpack QSINIT.LDI to it.
 - @ref pg_apps "Apps and modules"
 - @ref pg_apiref "API notes and reference"
 
-@defgroup API1 API functions (QSINIT module)
-@defgroup API2 API functions (START module)
+@defgroup API1 API functions
 @defgroup API4 API functions (CONSOLE module)
 @defgroup API5 Disk management functions (PARTMGR module)
+@defgroup API6 API functions (multi-thread mode functions)
 @defgroup CODE1 QSINIT source code
 @defgroup CODE2 START source code
 @defgroup CODE3 BootOS2.exe source code
@@ -39,6 +41,39 @@ unpack QSINIT.LDI to it.
 @defgroup CODE5 CACHE source code
 @defgroup CODE6 VDISK source code (PAE ram disk)
 @defgroup CODE7 CPLIB source code (code pages support)
+@defgroup CODE8 MTLIB source code (threads support)
+
+@file mtlib.c
+@ingroup CODE8
+MTLIB module main file
+
+@file mutex.c
+@ingroup CODE8
+Mutexes handling
+
+@file process.c
+@ingroup CODE8
+Process initialization/finalization code.
+
+@file sched.c
+@ingroup CODE8
+Context switching code.
+
+@file smcode.c
+@ingroup CODE8
+Session management
+
+@file thread.c
+@ingroup CODE8
+Thread-related code.
+
+@file tmproc.c
+@ingroup CODE8
+Timer interript.
+
+@file wobj.c 
+@ingroup CODE8
+Wait object implementation.
 
 @file cplib.c
 @ingroup CODE7
@@ -129,67 +164,67 @@ Additional LE/LX support code
 Dump module table
 
 @file errno.h
-@ingroup API2
+@ingroup API1
 API: errno values
 
 @file memmgr.h
-@ingroup API2
+@ingroup API1
 API: fast memory manager
 
 @file qsshell.h
-@ingroup API2
+@ingroup API1
 API: shell functions.
 
 @file qstask.h
-@ingroup API2
+@ingroup API6
 API: thread management functions.
 
 @file qsio.h 
-@ingroup API2
+@ingroup API1
 API: system file i/o functions.
 
 @file vioext.h
-@ingroup API2
+@ingroup API1
 API: additional console functions.
 
 @file qsxcpt.h
-@ingroup API2
+@ingroup API1
 API: exception handling.
 
 @file qslist.h
-@ingroup API2
+@ingroup API1
 API: pure C list support
 
 See classes.hpp for detailed list desctiption.
 
 @file qspage.h
-@ingroup API2
+@ingroup API1
 API: paging mode support
 
 
 @file bitmaps.h
-@ingroup API2
+@ingroup API1
 API: bitmap shared class
 
 @file qshm.h
-@ingroup API2
+@ingroup API1
 API: hardware management functions
 
 @file qssys.h
-@ingroup API2
+@ingroup API1
 API: system api
 
 @file stdarg.h
-@ingroup API2
+@ingroup API1
 API: C lib va_* support
 
 @file stdlib.h
-@ingroup API2
+@ingroup API1
 API: C lib, second part.
 This code located in START module.
 
 @file direct.h
-@ingroup API2
+@ingroup API1
 API: C lib, directory functions.
 This code located in START module.
 
@@ -253,7 +288,7 @@ API: utils
 API: module/process base functions
 
 @file qsmodext.h
-@ingroup API2
+@ingroup API1
 API: module/process additional functions
 
 @file qslog.h
@@ -289,9 +324,9 @@ Common memory allocating functions.
 @li Allocated size is zero filled.
 @li Incorrect free/damaged block structure will cause immediate panic.
 
-@file print32.c
+@file print.c
 @ingroup CODE1
-Tiny printf subset.
+Printf implementation.
 
 @file init32.c
 @ingroup CODE1
@@ -308,6 +343,14 @@ System memory tables parse code.
 @file fileio.c
 @ingroup CODE1
 Boot system file i/o.
+
+@file process.c
+@ingroup CODE1
+Default (non-MT mode) process initialization.
+
+@file iniparm.c
+@ingroup CODE1
+Ini file first time read.
 
 @file diskio.c
 @ingroup CODE1
@@ -400,15 +443,21 @@ in path and determining its type. This mean, in addition, what any application
 can call batch files internally, in own process context, with affecting own
 environment.
 
+But, be careful with side effects of this (ability of shell commands to open
+and write to a file, which is locked by the current process, for example).
+
 Embedded help is supported for all installed commands (and can be implemended
 for a new ones by calling cmd_shellhelp()). Messages located in msg.ini file.
 
 @section shdt_env Environment
 There are two predefined environment variables:
 BOOTTYPE - current boot type. Values are: FAT, FSD, PXE and SINGLE. SINGLE
-           mean FAT16/32 boot without OS/2 installed (detemined by absence of
-           OS2BOOT file in the root - FAT16 OS2BOOT file required for IBM OS/2
-           loader only).
+           mean FAT16/32/exFAT boot without OS/2 installed (detemined by
+           absence of OS2BOOT file in the root - FAT16 OS2BOOT file required
+           for IBM OS/2 loader only). CD-ROM boot in non-emulation mode has
+           FSD type, because boot code is CDFS micro-FSD in fact. EFI host
+           also presents itself as FSD (to block QSINIT access to the boot FAT
+           partition, such simultaneous access can damage data on it).
 
 HOSTTYPE - current host type. Values are: BIOS and EFI.
 
@@ -420,8 +469,9 @@ Some other can be accessed from shell as part of SET command syntax: "%TIME%",
 
 @section pgscr_text Text modes
 Though, direct writing to text mode memory is possible in easy way, it
-highly not recommended, because of "graphic console" presence - i.e. text mode
-simulation in VESA graphic modes.
+highly not recommended, because of "graphic console" presence (text mode
+simulation in VESA graphic modes) and because of DETACH command presence, which
+is switches any console output of detached command to the void.
 
 So, in addition to common vio_strout(), vio_writebuf() and vio_readbuf() was
 designed to read/write text mode memory contents.
@@ -438,32 +488,35 @@ console.dll (@ref console.h). */
 /** @page pg_fileio File and disk i/o.
 
 @section fdio_fileio File I/O
-QSINIT file i/o is based on
-<a href="http://elm-chan.org/fsw/ff/00index_e.html">ChaN`s FatFs</a> and use
-it without additional code changes, so all "disks" in system are named by
-numbers, not letters:
+
+QSINIT file access initially was based on
+<a href="http://elm-chan.org/fsw/ff/00index_e.html">ChaN`s FatFs</a> and used
+it without additional code changes, so all "disks" in system has additional
+namimg by numbers:
 @li "1:\"
 @li "0:\os2krnl"
 
+Where "0:" is equal to "A:" and so on. Both variants accepted everywhere in
+API.
+
 There are 2 predefined disks:
-@li 0:\ - FAT boot drive (not used in micro-FSD boot: HPFS, JFS).
-@li 1:\ - own virtual disk with data and apps, unpacked from qsinit.ldi
 
-Disk numbers 2:-9: can be used to mount FAT/FAT32 partitions from physical
-drives.
+@li 0:/A: - FAT boot drive (not used in micro-FSD boot: HPFS, JFS, PXE, cd-rom).
+@li 1:/B: - own virtual disk with data and apps, unpacked from qsinit.ldi
 
-C library functions (@ref stdlib.h, direct.h) support this drive numbering conversion
-to "standard names": A:..J:, so A: will be FAT boot drive, B: - virtual disk
-and so on. This is used in Turbo Vision code, at least. Because most of API
-uses C library as well, A: letters can be used in shell, batch files and so on.
+Disk numbers 2:..9:(C:..J:) can be used to mount FAT/FAT32/exFAT partitions
+from the physical drives.
+
+File access functions look usual and defined in @ref qsio.h.
+64-bit file size is also supported (on exFAT).
 
 Both "current directory" and "relative path" are supported. Default path after
-init is 1:\.
+init is B:\.
 
-Standard C library file i/o is "process" oriented. Every opened FILE* attached
-to current process and will be closed at process exit (even if it was opened in
-global DLL). To prevent this - fdetach() can be called - detached file became
-shared and can be used/closed by anyone.
+File i/o is "process" oriented. Every open file is attached to the current
+process and will be closed at process exit (even if it was opened in global
+DLL). To prevent this - is should be "detached": detached file becomes shared
+over system and can be used/closed by anyone.
 
 @attention FAT code read and write LFN names both on FAT and FAT32 - this is
 not compatible with OS/2. And file names must not contain characters above
@@ -476,7 +529,8 @@ close.\n
 And PXE API is even more limited ;) It unable to return size of file on open,
 so support only single read operation.
 
-FAT or FAT32 can be readed instantly, as normal partition with full access.
+FAT/FAT32/exFAT can be accessed instantly, as normal partition with full
+access.
 
 There are 3 possible variants of boot file i/o:
 @li <b>FSD</b> - @ref hlp_fopen, @ref hlp_fread, @ref hlp_fclose, @ref hlp_freadfull functions.
@@ -493,7 +547,9 @@ size and provide API to read and write it (@ref qsutil.h).
 
 Own virtual disk can be accessed at low level at the same way as real disks.
 
-Any part of disk can be mounted as FAT/FAT32 partition.
+Any part of disk can be mounted as QSINIT volume. If any type of FAT will be
+detected - it becomes available for use, else mounted volume can be formatted
+(for example) or accessed via sector level i/o from appilcation.
 
 Advanced functions is available in @ref sec_partmgr, which can be loaded
 by apps or QSINIT initialization code.
@@ -555,9 +611,7 @@ memory was founded.
 @li you can print memory table to log by hlp_memprint() (in debug build).
 @li hlp_memallocsig() allows to set 4 chars signature to block, which is
 visible in log dump.
-
-Note, that system alloc is shared over "system" - i.e. processes should free
-it at exit else it will be lost.
+@li you can select a block ownership - global system or current process.
 
 @section memm_heap Heap alloc
 Provided by memmgr.h and malloc.h. Fast "heap" memory manager.
@@ -578,7 +632,7 @@ when process or thread exits - any belonging blocks will be auto-released.
 DLL owned blocks acts as "system shared" while DLL is loaded and will be
 auto-released on its unload.
 
-Note, what these rules also includes C++ "new"! Its result must be converted
+Note, that these rules also include C++ "new"! It result must be converted
 to shared type block by special macro (__set_shared_block_info()) if you
 planning to use it after process exit/DLL unload.
 
@@ -620,7 +674,7 @@ access to this memory when QSINIT will be switched to PAE paging mode
 
 In safe mode (left shift was pressed on start) - all 4GBs are writable,
 including address 0. In normal mode - first page is placed beyond of segment
-limit and writing to offset 0...4095 of FLAT address space will cause GPF.
+limit and writing to offset 0...4095 of FLAT address space will cause a GPF.
 
 In PAE paging mode first page is mapped as r/o. Special hlp_memcpy() call
 can be used to access it in all modes.

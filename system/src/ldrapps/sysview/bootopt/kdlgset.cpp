@@ -3,6 +3,12 @@
 #include "stdlib.h"
 #include "stdio.h"
 #include "ctype.h"
+#ifdef __QSINIT__
+#include "qssys.h"
+#include "qsint.h"
+#include "filetab.h"
+#include "qcl/qsvdmem.h"
+#endif
 
 #define Uses_MsgBox
 #define Uses_TView
@@ -10,6 +16,14 @@
 #define Uses_TDeskTop
 #include "tv.h"
 #include "../../hc/qsshell.h"
+
+#define K_OPTS_CNT   8
+#define DEB_OPTS_CNT 3
+
+static const char *k_opts_param[K_OPTS_CNT] = { "PRELOAD", "ALTE", "NOLOGO",
+   "NOREV", "DEFMSG", "VIEWMEM", "NOAF" ,"NOMTRR" };
+static const char *deb_opts_param[DEB_OPTS_CNT] = { "CTRLC", "FULLCABLE",
+   "VERBOSE" };
 
 static TStaticText *reptext_common(TStaticText *txo, const char *str,
                                    int const_bounds, int color)
@@ -26,7 +40,7 @@ static TStaticText *reptext_common(TStaticText *txo, const char *str,
    owner->removeView(txo);
    txo->owner = 0;
    SysApp.destroy(txo);
-   txo  = color>=0 ? new TColoredText(rr,str,col) : 
+   txo  = color>=0 ? new TColoredText(rr,str,col) :
                      new TStaticText (rr,str);
    owner->insert(txo);
    return txo;
@@ -111,8 +125,19 @@ static void setint(TInputLine *ln, const char *str, int hex_chars) {
    ln->setData(buf);
 }
 
+char *getsname(const char *filename) {
+   static char fnstr[32];
+   int         fnlen = strlen(filename);
+   if (fnlen>20) {
+      strcpy(fnstr, "...");
+      strcat(fnstr, filename+fnlen-20);
+   } else
+      strcpy(fnstr, filename);
+   return fnstr;
+}
+
 long getRadioIdx(TRadioButtons *rb, long maxidx) {
-   for (long ll=0; ll<maxidx; ll++) 
+   for (long ll=0; ll<maxidx; ll++)
       if (rb->mark(ll)) return ll;
    return -1;
 }
@@ -140,24 +165,15 @@ int SetupBootDlg(TKernBootDlg *dlg, char *kernel, char *opts) {
    if (kernel) setstr(dlg->k_name,kernel);
    char *nm=opts_get("RESTART");
    if (nm) return 0;
-   nm=opts_get("NOREV");
-   if (nm) dlg->k_opts->press(3);
-   nm=opts_get("NOLOGO");
-   if (nm) dlg->k_opts->press(2);
-   nm=opts_get("PRELOAD");
-   if (nm) dlg->k_opts->press(0);
-   nm=opts_get("ALTE");
-   if (nm) dlg->k_opts->press(1);
-   nm=opts_get("NOLFB");
-   if (nm) dlg->k_opts->press(4);
-   nm=opts_get("VIEWMEM");
-   if (nm) dlg->k_opts->press(5);
-   nm=opts_get("CTRLC");
-   if (nm) dlg->deb_opts->press(0);
-   nm=opts_get("FULLCABLE");
-   if (nm) dlg->deb_opts->press(1);
-   nm=opts_get("VERBOSE");
-   if (nm) dlg->deb_opts->press(2);
+   u32t ii;
+   for (ii=0; ii<K_OPTS_CNT; ii++) {
+      nm = opts_get(k_opts_param[ii]);
+      if (nm) dlg->k_opts->press(ii);
+   }
+   for (ii=0; ii<DEB_OPTS_CNT; ii++) {
+      nm = opts_get(deb_opts_param[ii]);
+      if (nm) dlg->deb_opts->press(ii);
+   }
    nm=opts_get("CFGEXT");
    if (nm) setstr(dlg->k_cfgext,nm);
    nm=opts_get("LOGSIZE");
@@ -168,6 +184,68 @@ int SetupBootDlg(TKernBootDlg *dlg, char *kernel, char *opts) {
    if (nm) setstr(dlg->deb_symname,nm);
    nm=opts_get("DBPORT");
    if (nm) setint(dlg->deb_port,nm,4);
+   nm=opts_get("CALL");
+   if (nm) setstr(dlg->cmd_name,nm);
+
+   nm=opts_get("SOURCE");
+   if (nm) {
+      char lt = nm[0];
+#ifdef __QSINIT__
+      if (lt=='@') {
+         u32t   vdisk, ii;
+         qs_vdisk  rd = NEW(qs_vdisk);
+
+         if (rd) {
+            if (rd->query(0,&vdisk,0,0,0)==0)
+               for (ii = DISK_LDR+1; ii<DISK_COUNT; ii++) {
+                  disk_volume_data vi;
+                  hlp_volinfo(ii,&vi);
+                  if (vi.TotalSectors && vi.Disk==vdisk) { lt = 'A'+ii; break; }
+               }
+            DELETE(rd);
+         }
+      }
+#endif // __QSINIT__
+      if (isdigit(lt)) lt = lt-'0'+'A';
+      if (lt) lt = toupper(lt);
+      if (isalpha(lt)) dlg->source = lt;
+   }
+   // just save it
+   nm=opts_get("VALIMIT");
+   if (nm) dlg->valimit = atoi(nm);
+
+   nm=opts_get("LOGLEVEL");
+   if (nm)
+      setstr(dlg->k_loglevel, *nm=='3'?"all":(*nm>='0'&&*nm<='2'?nm:"no"));
+   else
+      setstr(dlg->k_loglevel,"no");
+   char *istr = 0;
+#ifdef __QSINIT__
+   u32t   bfl = sys_queryinfo(QSQI_OS2BOOTFLAGS, 0);
+   // boot volume information (based on SOURCE or defaults)
+   if (!dlg->source && (bfl&BF_NOMFSHVOLIO)) istr = sprintf_dyn("unknown source");
+      else
+   {
+      u32t  disk;
+      long index = vol_index((dlg->source?dlg->source:'A')-'A', &disk);
+      if (index<0) istr = sprintf_dyn("unknown partition"); else {
+         lvm_partition_data pd;
+         if (lvm_partinfo(disk, index, &pd)) {
+            istr = sprintf_dyn("LVM %c:\n%s partition %u", pd.Letter,
+               strupr(dsk_disktostr(disk,0)), index);
+         } else {
+            istr = sprintf_dyn("LVM info absent\n%s partition %u",
+               strupr(dsk_disktostr(disk,0)), index);
+         }
+         if (dlg->source) istr = strcat_dyn(istr, "\n(source redirection)");
+      }
+   }
+#endif
+   if (istr) {
+      replace_coltxt(&dlg->l_lvminfo, istr, 1);
+      free(istr);
+      istr = 0;
+   }
 
    char bstr[32];
    if (!kernel) { // direct call - read port from QSINIT
@@ -254,20 +332,40 @@ void RunKernelBoot(TKernBootDlg *dlg) {
    growstr (&opts,"SYM=%s,"       ,dlg->deb_symname);
    growstr (&opts,"CFGEXT=%s,"    ,dlg->k_cfgext   );
    growstr (&opts,"LETTER=%s,"    ,dlg->k_letter   );
+   growstr (&opts,"CALL=%s,"      ,dlg->cmd_name   );
 
    u32t baud = opts_baudrate(),
-       nbaud = getuint(dlg->deb_rate);
+       nbaud = getuint(dlg->deb_rate), ii;
    if (nbaud!=baud) growuint(&opts,"BAUDRATE=%d,",dlg->deb_rate);
+   /// append stored SOURCE option
+   if (dlg->source) {
+      char sb[16];
+      snprintf(sb, 16, "SOURCE=%c,", dlg->source);
+      opts = strcat_dyn(opts, sb);
+   }
+   vl = getstr(dlg->k_loglevel);
+   if (vl && *vl)
+      if (isdigit(*vl)) growuint(&opts,"LOGLEVEL=%u,",dlg->k_loglevel); else
+         if (*vl=='a') opts = strcat_dyn(opts, "LOGLEVEL=3,");
 
-   if (dlg->k_opts->mark(0)) opts = strcat_dyn(opts,"PRELOAD,");
-   if (dlg->k_opts->mark(2)) opts = strcat_dyn(opts,"NOLOGO,");
-   if (dlg->k_opts->mark(3)) opts = strcat_dyn(opts,"NOREV,");
-   if (dlg->k_opts->mark(4)) opts = strcat_dyn(opts,"NOLFB,");
-   if (dlg->k_opts->mark(5)) opts = strcat_dyn(opts,"VIEWMEM,");
-   if (dlg->deb_opts->mark(0)) opts = strcat_dyn(opts,"CTRLC,");
-   if (dlg->deb_opts->mark(1)) opts = strcat_dyn(opts,"FULLCABLE,");
-   if (dlg->deb_opts->mark(2)) opts = strcat_dyn(opts,"VERBOSE,");
-   if (dlg->k_opts->mark(1)) opts = strcat_dyn(opts,"PKEY=0x1200,"); else {
+   if (dlg->valimit==0) opts = strcat_dyn(opts, "VALIMIT,"); else
+   if (dlg->valimit>0) {
+      char sb[24];
+      snprintf(sb, 24, "VALIMIT=%u,", dlg->valimit);
+      opts = strcat_dyn(opts, sb);
+   }
+
+   for (ii=0; ii<K_OPTS_CNT; ii++)
+      if (dlg->k_opts->mark(ii)) {
+         opts = strcat_dyn(opts, k_opts_param[ii]);
+         opts = strcat_dyn(opts, ",");
+      }
+   for (ii=0; ii<DEB_OPTS_CNT; ii++)
+      if (dlg->deb_opts->mark(ii)) {
+         opts = strcat_dyn(opts, deb_opts_param[ii]);
+         opts = strcat_dyn(opts, ",");
+      }
+   if (!dlg->k_opts->mark(1)) {
        vl=getstr(dlg->k_pkey);
        if (vl&&vl[5]>='1'&&vl[5]<='5') {
           char buf[32];
@@ -280,7 +378,7 @@ void RunKernelBoot(TKernBootDlg *dlg) {
       if (*vl==',') *vl = 0;
    }
 #endif
-   vl=getstr(dlg->k_name);
+   vl = getstr(dlg->k_name);
    opts_bootkernel(vl,opts?opts:"");
    if (opts) free(opts);
 }

@@ -23,7 +23,8 @@ typedef struct {
 } str_list;
 
 /** split string to items.
-    Note that function trim spaces from both sides of all returning items.
+    Note, what function trims spaces from both sides of all returning items.
+    I.e. "key = value" strings will be always returned as "key=value".
     @param str          source string
     @param separators   string with separator characters (ex. ",-\n\t")
     @return string list, must be freed by single free() call */
@@ -100,6 +101,15 @@ u32t      _std str_length(const char *str);
     else integer value of env. string */
 int       _std env_istrue(const char *name);
 
+/// set environment variable (integer) value
+void      _std env_setvar(const char *name, int value);
+
+/** get environment variable.
+    Unlike getenv() - function is safe in MT mode.
+    @param name     name of env. string 
+    @return string in heap block (must be free()-ed) or 0. */
+char*     _std env_getvar(const char *name);
+
 //===================================================================
 //  execution (shell)
 //-------------------------------------------------------------------
@@ -133,6 +143,7 @@ cmd_state _std cmd_initbatch(const str_list* cmds, const str_list* args);
 #define CMDR_ONESTEP    0x0001        ///< run one step
 #define CMDR_ECHOOFF    0x0002        ///< echo is off by default
 #define CMDR_NESTCALL   0x0004        ///< internal, do not use
+#define CMDR_DETACH     0x0008        ///< any process launch must be detached
 
 #define CMDR_RETERROR   0xFFFFFFFF    ///< exit code: internal error
 #define CMDR_RETEND     0xFFFFFFFE    ///< exit code: execution finished
@@ -174,6 +185,22 @@ cmd_eproc _std cmd_shellrmv(const char *name, cmd_eproc proc);
     @param name     command name
     @return boolean */
 int       _std cmd_shellquery(const char *name);
+
+/// @name cmd_argtype() result
+//@{
+#define ARGT_FILE         0x0001    ///< any file except batch
+#define ARGT_BATCHFILE    0x0002    ///< .cmd or .bat file
+#define ARGT_DISKSTR      0x0003    ///< A: B: 1:
+#define ARGT_SHELLCMD     0x0004    ///< shell command
+#define ARGT_UNKNOWN      0x0005    ///< failed to determine string type
+//@}
+
+/** query type of argument.
+    @param [in,out] arg   file or command name, in buffer of QS_MAXPATH length,
+                          if result is ARGT_FILE or ARGT_BATCHFILE - file name
+                          in arg will be expanded to full path!
+    @return argument type (ARGT_*). */
+u32t      _std cmd_argtype  (char *arg);
 
 /// query list of all supported commands
 str_list* _std cmd_shellqall(int ext_only);
@@ -257,14 +284,14 @@ void      _std cmd_shellerr(u32t errtype, int errorcode, const char *prefix);
 char*     _std cmd_shellerrmsg(u32t errtype, int errorcode);
 
 /** add MODE command device handler.
-    Note, what if no device handler present at the time of MODE command
+    Note, that if no device handler present at the time of MODE command
     execution, command will search MODE_DEV_HANDLER environment variable
     (DEV - device name), where module name must be specified and try to
     load this module permanently.
     If no such variable - extcmd.ini will be asked for module name.
 
     Typically, this function must be called from such module at the moment
-    of it`s loading.
+    of its loading.
 
     @param name     device name
     @param proc     command processor
@@ -288,130 +315,96 @@ str_list* _std cmd_modeqall(void);
 /** COPY command.
     Use cmd_shellcall() for easy processing.
 
+    @attention Any shell command, executed via shl_* functions will use
+               CURRENT process context, i.e. it will have access to any
+               files, locked by your process and so on ...
+
     @param cmd      "COPY" string
     @param args     arguments.
     @return 0, errorlevel or CMDR_RETERROR, CMDR_RETEND. See cmd_eproc. */
 u32t      _std shl_copy   (const char *cmd, str_list *args);
-
 /// TYPE command.
 u32t      _std shl_type   (const char *cmd, str_list *args);
-
 /// DIR command.
 u32t      _std shl_dir    (const char *cmd, str_list *args);
-
 /// HELP command.
 u32t      _std shl_help   (const char *cmd, str_list *args);
-
 /// RESTART command.
 u32t      _std shl_restart(const char *cmd, str_list *args);
-
 /// MKDIR command.
 u32t      _std shl_mkdir  (const char *cmd, str_list *args);
-
 /// CHDIR command.
 u32t      _std shl_chdir  (const char *cmd, str_list *args);
-
 /// MEM command.
 u32t      _std shl_mem    (const char *cmd, str_list *args);
-
 /// DEL command.
 u32t      _std shl_del    (const char *cmd, str_list *args);
-
 /// BEEP command.
 u32t      _std shl_beep   (const char *cmd, str_list *args);
-
 /// RMDIR command.
 u32t      _std shl_rmdir  (const char *cmd, str_list *args);
-
 /// UNZIP command.
 u32t      _std shl_unzip  (const char *cmd, str_list *args);
-
 /// LM command.
 u32t      _std shl_loadmod(const char *cmd, str_list *args);
-
 /// MOUNT command.
 u32t      _std shl_mount  (const char *cmd, str_list *args);
-
 /// UMOUNT command.
 u32t      _std shl_umount (const char *cmd, str_list *args);
-
 /// POWER command.
 u32t      _std shl_power  (const char *cmd, str_list *args);
-
 /// DMGR command.
 u32t      _std shl_dmgr   (const char *cmd, str_list *args);
-
 /// LABEL command.
 u32t      _std shl_label  (const char *cmd, str_list *args);
-
 /// TRACE command.
 u32t      _std shl_trace  (const char *cmd, str_list *args);
-
 /// REN command.
 u32t      _std shl_ren    (const char *cmd, str_list *args);
-
 /// MTRR command.
 u32t      _std shl_mtrr   (const char *cmd, str_list *args);
-
 /// PCI command.
 u32t      _std shl_pci    (const char *cmd, str_list *args);
-
 /// DATE command.
 u32t      _std shl_date   (const char *cmd, str_list *args);
-
 /// TIME command.
 u32t      _std shl_time   (const char *cmd, str_list *args);
-
 /// FORMAT command.
 u32t      _std shl_format (const char *cmd, str_list *args);
-
 /// LVM command.
 u32t      _std shl_lvm    (const char *cmd, str_list *args);
-
 /// MSGBOX command.
 u32t      _std shl_msgbox (const char *cmd, str_list *args);
-
 /// CACHE command.
 u32t      _std shl_cache  (const char *cmd, str_list *args);
-
 /// MKSHOT command.
 u32t      _std shl_mkshot (const char *cmd, str_list *args);
-
 /// MODE command.
 u32t      _std shl_mode   (const char *cmd, str_list *args);
-
 /// RAMDISK command.
 u32t      _std shl_ramdisk(const char *cmd, str_list *args);
-
 /// LOG command.
 u32t      _std shl_log    (const char *cmd, str_list *args);
-
 /// ATTRIB command.
 u32t      _std shl_attrib (const char *cmd, str_list *args);
-
 /// GPT command.
 u32t      _std shl_gpt    (const char *cmd, str_list *args);
-
 /// PUSHD command.
 u32t      _std shl_pushd  (const char *cmd, str_list *args);
-
 /// POPD command.
 u32t      _std shl_popd   (const char *cmd, str_list *args);
-
 /// ANSI command.
 u32t      _std shl_ansi   (const char *cmd, str_list *args);
-
 /// MOVE command.
 u32t      _std shl_move   (const char *cmd, str_list *args);
-
 /// REBOOT command.
 u32t      _std shl_reboot (const char *cmd, str_list *args);
-
 /// CHCP command.
 u32t      _std shl_chcp   (const char *cmd, str_list *args);
-
 /// DELAY command.
 u32t      _std shl_delay  (const char *cmd, str_list *args);
+/// DETACH command.
+u32t      _std shl_detach (const char *cmd, str_list *args);
 
 #ifdef __cplusplus
 }

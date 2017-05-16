@@ -4,9 +4,9 @@
 // -------------------------------------
 //
 
-#include "stdlib.h"
 #include "qsint.h"
-#include "internal.h"
+#include "syslocal.h"
+#include "cpudef.h"
 #include "qstask.h"
 #include "qserr.h"
 #include "qssys.h"
@@ -14,18 +14,16 @@
 
 #define TLS_GROW_SIZE   64    ///< TLS array one time grow size
 
-static qs_mtlib           mtlib = 0;
-u8t                   in_mtmode = 0;
-qs_sysmutex               mtmux = 0;
-extern 
-mod_addfunc* _std mod_secondary;  // this thing is import from QSINIT module
-extern module * _std  mod_ilist;  // and this
-extern
-mt_proc_cb _std    mt_exechooks;  // and also this ;)
+static qs_mtlib               mtlib = 0;
+u8t                       in_mtmode = 0;
+qs_sysmutex                   mtmux = 0;
+extern mod_addfunc* _std  mod_secondary;  // this thing is import from QSINIT module
+extern module *     _std      mod_ilist;  // and this
+extern mt_proc_cb   _std   mt_exechooks;  // and also this ;)
 
-void setup_loader_mt(void);
-void setup_pagman_mt(void);
-void setup_exi_mt   (void);
+void   setup_loader_mt(void);
+void   setup_pagman_mt(void);
+void   setup_exi_mt   (void);
 
 static qserr _std muxcvtfunc(qshandle mutex, mux_handle_int *res) {
    if (!res) return E_SYS_ZEROPTR; else {
@@ -39,12 +37,15 @@ static qserr _std muxcvtfunc(qshandle mutex, mux_handle_int *res) {
 }
 
 static u32t _std memstat_thread(void *arg) {
-   mtlib->threadname("memstat thread");
+   mtlib->threadname("memstat");
+   // unzip LDI
+   unzip_delaylist();
    // dump memstat once per 2 minutes
-   while (true) {
-      mem_stat();
-      usleep(CLOCKS_PER_SEC*120);
-   }
+   if (env_istrue("MEMSTAT")==1)
+      while (true) {
+         mem_stat();
+         usleep(CLOCKS_PER_SEC*120);
+      }
    return 0;
 }
 
@@ -53,11 +54,10 @@ static u32t _std memstat_thread(void *arg) {
     we have fully functional threading here, but still no threads except
     "system idle" :) */
 void _std mt_startcb(qs_sysmutex mproc) {
-   mt_ctdata  tsd;
    // and we need this pointer too ;)
    if (!mtlib) get_mtlib();
    mtmux     = mproc;
-   mtmux->init(muxcvtfunc);
+   mtmux->init(muxcvtfunc, qe_available_spec);
    in_mtmode = 1;
    // create mutexes for QSINIT binary (module loader & micro-FSD access)
    setup_loader_mt();
@@ -68,13 +68,13 @@ void _std mt_startcb(qs_sysmutex mproc) {
    // run funcs, waiting for this happens
    sys_notifyexec(SECB_MTMODE, 0);
    // memstat thread
-   if (env_istrue("MEMSTAT")==1) {
-      mt_tid tid;
+   if (env_istrue("MEMSTAT")==1 || mod_delay) {
+      mt_ctdata  tsd;
       memset(&tsd, 0, sizeof(mt_ctdata));
       tsd.size      = sizeof(mt_ctdata);
-      tsd.stacksize = 8192;
+      tsd.stacksize = 65536;
       tsd.pid       = 1;
-      tid = mtlib->createthread(memstat_thread, 0, &tsd, 0);
+      mtlib->createthread(memstat_thread, 0, &tsd, 0);
    }
 }
 
@@ -86,6 +86,8 @@ void _std mt_pexitcb(mt_thrdata *td) {
    u32t pid = td?td->tiPID:mod_getpid();
    // main thread exit / non-MT mode
    if (!td || td->tiTID==1) {
+      // non-MT - reset FPU owner!
+      if (!td) fpu_strest();
       //log_it(0, "pid %u exit cb!\n", pid);
       /* call it here for the main thread, else notification code can be
          invoked in parent context after process exit */
@@ -124,13 +126,16 @@ qs_mtlib get_mtlib(void) {
 u32t _std mt_initialize(void) {
    qs_mtlib mt = get_mtlib();
    if (!mt) return E_SYS_NOFILE;
-   // note, what we callbacked to mt_startcb() above duaring this call
+   // note, what we callbacked to mt_startcb() above during this call
    return mt->initialize();
 }
 
 u32t _std mt_active(void) {
-   qs_mtlib mt = get_mtlib();
-   return mt ? mt->active() : 0;
+   // MT mode start callback will always set this pointer
+   if (!mtlib) return 0; else {
+      qs_mtlib mt = get_mtlib();
+      return mt ? mt->active() : 0;
+   }
 }
 
 /// get tid stub, will be replaced by MTLIB on its load.
@@ -190,17 +195,9 @@ qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
          sftable[fno]   = fe;
          sft_setblockowner(fe, fno);
       }
-      
+
       if (!rc) {
-         io_handle_data *fh = (io_handle_data*)malloc(sizeof(io_handle_data));
-         fh->sign       = IOHd_SIGN;
-         fh->pid        = pid;
-         fh->sft_no     = fno;
-         fh->lasterr    = 0;
-         // link it
-         fh->next       = fe->ioh_first;
-         fe->ioh_first  = ifno;
-         ftable[ifno]   = fh;
+         ioh_setuphandle(ifno, fno, pid);
          if (!rc) *res = IOH_HBIT+ifno;
       }
    }
@@ -227,19 +224,11 @@ qserr _std mt_muxopen(const char *name, qshandle *res) {
       u32t          ifno = ioh_alloc();
       sft_entry      *fe = sftable[fno];
 
-      if (!ifno) rc = E_SYS_NOMEM; else 
+      if (!ifno) rc = E_SYS_NOMEM; else
       if (fe->type!=IOHT_MUTEX) rc = E_SYS_INVHTYPE;
-     
+
       if (!rc) {
-         io_handle_data *fh = (io_handle_data*)malloc(sizeof(io_handle_data));
-         fh->sign       = IOHd_SIGN;
-         fh->pid        = pid;
-         fh->sft_no     = fno;
-         fh->lasterr    = 0;
-         // link it
-         fh->next       = fe->ioh_first;
-         fe->ioh_first  = ifno;
-         ftable[ifno]   = fh;
+         ioh_setuphandle(ifno, fno, pid);
          if (!rc) *res = IOH_HBIT+ifno;
       }
    }
@@ -270,7 +259,7 @@ qserr _std mt_muxstate(qshandle handle, u32t *lockcnt) {
       qs_sysmutex_state mi;
       int  lkcnt = mtmux->state(fe->mux.mh, &mi);
 
-      if (lkcnt<0) err = E_SYS_INVPARM; else 
+      if (lkcnt<0) err = E_SYS_INVPARM; else
       if (lkcnt==0) err = E_MT_SEMFREE; else
       if (!mi.owner) err = E_MT_NOTOWNER; else
       if (lockcnt) *lockcnt = lkcnt;
@@ -323,7 +312,7 @@ qserr _std mt_muxcapture(qshandle handle) {
 
 qserr _std mt_muxwait(qshandle handle, u32t timeout_ms) {
    if (!in_mtmode) return E_SYS_INVPARM; else {
-      // mutex must be first to be cathed on zero timeout
+      // mutex must be first to be catched on zero timeout
       mt_waitentry we[2] = {{QWHT_MUTEX,1}, {QWHT_CLOCK,2}};
       qserr       res;
       u32t        sig;
@@ -344,7 +333,7 @@ qserr _std mt_muxwait(qshandle handle, u32t timeout_ms) {
    vars usage in non-MT mode.
 
    In details, every TLS storage is not allocated until the first
-   write to it in running thread. This saves both time & memory. */
+   write into it in running thread. This saves both time & memory. */
 
 /** get process/thread data pointers.
     Must be called in MT lock! */
@@ -518,3 +507,198 @@ qserr _std mt_tlsaddr(u32t index, u64t **slotaddr) {
 qserr _std mt_tlsset(u32t index, u64t value) {
    return tlsset_common(index, 0, value);
 }
+
+/* -------------------------------------------------------------
+   F P U   l o g i c
+   -------------------------------------------------------------
+   FPU context switching logics is different in BIOS & EFI hosts.
+
+   In EFI TS bit always OFF. This mean FPU context switching at every
+   thread context switching.
+   On BIOS host TS bit is used as designed. */
+
+/// function must be called inside lock or cli
+static qserr _std fpu_allocstate(mt_thrdata *owner, int fiber) {
+   if (!owner) return E_SYS_ZEROPTR; else
+   if (owner->tiSign!=THREADINFO_SIGN) return E_SYS_INVOBJECT; else
+   if (fiber>0 && fiber>=owner->tiFibers) return E_MT_BADFIB; else {
+      u32t    fibidx = fiber<0?owner->tiFiberIndex:fiber;
+      mt_fibdata *fb = owner->tiList + fibidx;
+      // check it too
+      if (fibidx>=owner->tiFibers) return E_SYS_INVOBJECT;
+      // switch to fiber 0
+      if (fb->fiFPUMode==FIBF_FIB0 && fibidx) fb = owner->tiList;
+
+      if (!fb->fiFPURegs) {
+         // prevent re-scheduling in malloc functions mt_swunlock()
+         mt_swlock();
+         fb->fiFPUMode = FIBF_EMPTY;
+         fb->fiFPURegs = malloc(fpu_statesize()+48);
+         mem_zero(fb->fiFPURegs);
+         mem_threadblockex(fb->fiFPURegs, owner->tiPID, owner->tiTID);
+         /* allocate 48 bytes more to align it on 64 bytes (heap blocks
+            are always rounded up to 16 bytes).
+            We never free this pointer directly, this mean changing is safe. */
+         if ((u32t)fb->fiFPURegs&0x3F)
+            fb->fiFPURegs = (void*)Round64((u32t)fb->fiFPURegs);
+         mt_swunlock();
+      }
+#if 0
+      log_it(1, "fpu_allocstate: pid %u tid %u %X\n", owner->tiPID, owner->tiTID, fb->fiFPURegs);
+#endif
+      return 0;
+   }
+}
+
+/// called from exception handler
+static void _std fpu_stsave_int(mt_thrdata *owner) {
+   if ((owner->tiMiscFlags&TFLM_NOFPU)==0) {
+      mt_fibdata *fb = owner->tiList + owner->tiFiberIndex;
+      // go to fiber 0
+      if (fb->fiFPUMode==FIBF_FIB0) fb = owner->tiList;
+
+      if (!fb->fiFPURegs) {
+         qserr rc = fpu_allocstate(owner,-1);
+         if (rc) log_it(1, "fpu_allocstate: pid %u tid %u error %X\n",
+            owner->tiPID, owner->tiTID, rc);
+      }
+      fpu_statesave(fb->fiFPURegs);
+      fb->fiFPUMode = FIBF_OK;
+   }
+}
+
+/// must be called under lock or cli
+static void _std fpu_strest_int(mt_thrdata *nowner) {
+   if ((nowner->tiMiscFlags&TFLM_NOFPU)==0) {
+      mt_fibdata *fb = nowner->tiList + nowner->tiFiberIndex;
+      // clts
+      sys_clrtsflag();
+      // go to fiber 0
+      if (fb->fiFPUMode==FIBF_FIB0) fb = nowner->tiList;
+#if 0
+      log_it(1, "fpu_strest %u:%u %X %u\n", nowner->tiPID, nowner->tiTID,
+         fb->fiFPURegs, fb->fiFPUMode);
+#endif
+      if (fb->fiFPURegs && fb->fiFPUMode==FIBF_OK) fpu_staterest(fb->fiFPURegs);
+         else fpu_reinit();
+      // new owner
+      mt_exechooks.mtcb_cfpt = nowner;
+      mt_exechooks.mtcb_cfpf = nowner->tiFiberIndex;
+   } else {
+      sys_clrtsflag();
+      mt_exechooks.mtcb_cfpt = 0;
+#if 0
+      log_it(1, "pid %u (%s) tid %u is NOFPU, but use FPU!\n", nowner->tiPID,
+         nowner->tiParent->piContext->self->name, nowner->tiTID);
+#endif
+   }
+}
+
+/** this is #NM exception handler.
+    Called from various places, so make another one cli on enter */
+void _std fpu_xcpt_nm(void) {
+   mt_thrdata *owner, *cth;
+   int         state = sys_intstate(0);
+   // lock it, because nobody did it above
+   mt_swlock();
+
+   mt_getdata(0, &cth);
+   owner = mt_exechooks.mtcb_cfpt;
+
+   if (owner==cth && mt_exechooks.mtcb_cfpf==cth->tiFiberIndex) {
+      log_it(2, "someone set TS flag!\n");
+   } else {
+      sys_clrtsflag();
+      // save state
+      if (owner) fpu_stsave_int(owner);
+      // rest state
+      fpu_strest_int(cth);
+   }
+   sys_intstate(state);
+   mt_swunlock();
+}
+
+/** update TS bit to proper value.
+    Called from exception handler, in MT lock */
+void _std fpu_updatets(void) {
+   if (hlp_hosttype()==QSHT_EFI) sys_clrtsflag(); else {
+      mt_thrdata *owner = mt_exechooks.mtcb_cfpt, *cth;
+      int           off;
+      mt_getdata(0, &cth);
+      off = owner==cth && mt_exechooks.mtcb_cfpf==cth->tiFiberIndex;
+
+      if (Xor(getcr0()&CPU_CR0_TS,off))
+         if (off) sys_clrtsflag(); else sys_settsflag();
+   }
+}
+
+/* callback from switching code (to BIOS/EFI) when TS bit is set
+   and FPU owner is non-zero.
+   Callback MUST reset TS flag to zero on exit. MT lock is ON here. */
+void _std fpu_rmcallcb(void) {
+   int state = sys_intstate(0);
+
+   mt_thrdata *owner = mt_exechooks.mtcb_cfpt, *cth;
+   mt_getdata(0, &cth);
+#if 0
+   log_it(2, "fpu_rmcallcb!!! (owner %u:%u, current %u:%u)\n",
+      owner?owner->tiPID:0, owner?owner->tiTID:0, cth->tiPID,
+         cth->tiTID);
+#endif
+   if (getcr0()&CPU_CR0_TS) fpu_xcpt_nm();
+   sys_intstate(state);
+}
+
+/* process start cb in non-MT mode.
+   NEVER use TS flag on EFI host! */
+void _std fpu_stsave(process_context *newpq) {
+   if (hlp_hosttype()==QSHT_EFI) {
+      int         state = sys_intstate(0);
+      mt_thrdata *owner = mt_exechooks.mtcb_cfpt;
+      // save current thread context on exec
+      if (!owner) mt_getdata(0, &owner);
+      fpu_stsave_int(owner);
+      // reset owner & clts - else EFI will annoy us with tonns of #NM
+      mt_exechooks.mtcb_cfpt = 0;
+      sys_clrtsflag();
+
+      sys_intstate(state);
+   } else
+      sys_settsflag();
+}
+
+/* process exit cb in non-MT mode */
+void _std fpu_strest(void) {
+   mt_thrdata *cth;
+   int       state = sys_intstate(0);
+
+   mt_getdata(0, &cth);
+   if (cth==mt_exechooks.mtcb_cfpt) mt_exechooks.mtcb_cfpt = 0;
+
+   if (hlp_hosttype()==QSHT_EFI) {
+      process_context *pq = mt_exechooks.mtcb_ctxmem->pctx;
+      mt_prcdata      *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
+      mt_thrdata     *pth = pd->piList[cth->tiParent->piParentTID - 1];
+
+      fpu_strest_int(pth);
+   } else
+      sys_settsflag();
+
+   sys_intstate(state);
+}
+
+/* this is direct callback from thread switching code of MTLIB.
+   it can switch FPU context or do whatever he wants with FPU */
+static void _std fpu_switchto(mt_thrdata *to) {
+   if (hlp_hosttype()==QSHT_EFI) {
+      mt_thrdata *owner = mt_exechooks.mtcb_cfpt;
+      // always switch on EFI, because TS bit is unusable
+      if (owner) fpu_xcpt_nm(); else sys_clrtsflag();
+   } else {
+      if (to==mt_exechooks.mtcb_cfpt && to->tiFiberIndex==
+         mt_exechooks.mtcb_cfpf) sys_clrtsflag(); else sys_settsflag();
+   }
+}
+
+_qs_fpustate _std fpu_statedata = {
+   0, fpu_updatets, fpu_xcpt_nm, fpu_switchto, fpu_allocstate };

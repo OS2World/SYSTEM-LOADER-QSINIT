@@ -7,15 +7,14 @@
 #include "qs_rt.h"
 #include "errno.h"
 #include "vioext.h"
-#include "internal.h"
-#include "direct.h"
+#include "syslocal.h"
 #include "time.h"
 #include "qsint.h"
 #include "qsdm.h"
 #include "stdarg.h"
-#include "qsmodext.h"
 
 #define SPACES_IN_WIDE_MODE       4      ///< spaces between names in wide "dir" mode
+#define PRNSEQ_NP        (PRNSEQ_INITNOPAUSE^PRNSEQ_INIT)
 
 void cmd_shellerr(u32t errtype, int errorcode, const char *prefix) {
    if (!prefix) prefix = "\r";
@@ -36,32 +35,29 @@ char* _std cmd_shellerrmsg(u32t errtype, int errorcode) {
    return cmd_shellgetmsg(msgn);
 }
 
-static u32t   pp_lines = 25,
-             pp_lstart = 0,
-            pp_logcopy = 0,
-            pp_forcenp = 0; // force no pause until next init
-
-extern "C" module *mod_list; // loaded module list
-#pragma aux mod_list "_*";
-
 static int pause_check(int init_counter) {
-   /* pause (use signed comparition because ANSI commands can make negative
-      difference */
-   if (init_counter>=0 && !pp_forcenp && (int)(vio_ttylines-pp_lstart)>=(int)pp_lines-1) {
-       vio_setcolor(VIO_COLOR_GRAY);
-       vio_strout("Press any key to continue...");
-       vio_setcolor(VIO_COLOR_RESET);
-       do {
-          u16t key = key_read();
-          // exit by ESC
-          if ((key&0xFF)==27) { vio_charout('\n'); return 1; }
-          if (!log_hotkey(key)) break;
-       } while (1);
-       // write gray text & attribute
-       vio_setcolor(VIO_COLOR_WHITE);
-       vio_strout("\r                            \r");
-       vio_setcolor(VIO_COLOR_RESET);
-       pp_lstart = vio_ttylines;
+   u32t  pp_lines,
+        pp_lstart = mt_tlsget(QTLS_SHLINE),
+         pp_flags = mt_tlsget(QTLS_SHFLAGS);
+   vio_getmodefast(0, &pp_lines);
+
+   if (init_counter>=0 && (pp_flags&PRNSEQ_NP)==0 && 
+      (int)(*vio_ttylines()-pp_lstart)>=(int)pp_lines-1) 
+   {
+      vio_setcolor(VIO_COLOR_GRAY);
+      vio_strout("Press any key to continue...");
+      vio_setcolor(VIO_COLOR_RESET);
+      do {
+         u16t key = key_read();
+         // exit by ESC
+         if ((key&0xFF)==27) { vio_charout('\n'); return 1; }
+         if (!log_hotkey(key)) break;
+      } while (1);
+      // write gray text & attribute
+      vio_setcolor(VIO_COLOR_WHITE);
+      vio_strout("\r                            \r");
+      vio_setcolor(VIO_COLOR_RESET);
+      mt_tlsset(QTLS_SHLINE, *vio_ttylines());
    }
    return 0;
 }
@@ -76,23 +72,34 @@ static int pause_check(int init_counter) {
 static u32t pause_println(const char *line, int init_counter=0, u8t color=0) {
    // begin of sequence
    if (init_counter>0) {
-      vio_getmode(0,&pp_lines);
-      pp_lstart  = vio_ttylines;
-      pp_logcopy = init_counter & 2;
-      pp_forcenp = init_counter & 4;
+      mt_tlsset(QTLS_SHLINE, *vio_ttylines());
+      mt_tlsset(QTLS_SHFLAGS, init_counter);
    }
    if (!line) return 0;
+   u32t  pp_flags = mt_tlsget(QTLS_SHFLAGS);
+   if (pp_flags&PRNSEQ_LOGCOPY) log_it(2,"echo: %s\n", line);
 
-   FILE *stdo = get_stdout();
-   if (color) vio_setcolor(color);
-   fputs(line,stdo);
+   FILE     *stdo = get_stdout();
+   int    p_check = init_counter>=0 && (pp_flags&PRNSEQ_NP)==0 && isatty(fileno(stdo));
+   if (p_check) {
+      const char *lp = line;
+      while (*lp) {
+         char *eolp = strchr(lp, '\n');
+         int    len = eolp?eolp-lp+1:strlen(lp);
+
+         if (pause_check(init_counter)) return 1;
+      
+         if (color) vio_setcolor(color);
+         fwrite(lp, 1, len, stdo);
+         lp += len;
+      }
+   } else {
+      if (color) vio_setcolor(color);
+      fputs(line, stdo);
+   }
    if (color) vio_setcolor(VIO_COLOR_RESET);
-   fputc('\n',stdo);
-
-   if (pp_logcopy) log_it(2,"echo: %s\n",line);
-   // check pause if we have real console here
-   return init_counter>=0 && !pp_forcenp && isatty(fileno(stdo)) ?
-          pause_check(init_counter) : 0;
+   fputc('\n', stdo);
+   return 0;
 }
 
 int __cdecl cmd_printf(const char *fmt, ...) {
@@ -101,13 +108,13 @@ int __cdecl cmd_printf(const char *fmt, ...) {
    va_start(argptr, fmt);
    char *outstr = vsprintf_dyn(fmt, argptr);
    va_end(argptr);
-   int   prnlen = strlen(outstr);
-   FILE   *stdo = get_stdout();
+   int    prnlen = strlen(outstr);
+   FILE    *stdo = get_stdout();
+   u32t pp_flags = mt_tlsget(QTLS_SHFLAGS);
    fputs(outstr, stdo);
-   if (pp_logcopy) log_it(2,"%s", outstr);
+   if (pp_flags&PRNSEQ_LOGCOPY) log_it(2,"%s", outstr);
    free(outstr);
-   if (!pp_forcenp && isatty(fileno(stdo))) pause_check(0);
-
+   if ((pp_flags&PRNSEQ_NP)==0 && isatty(fileno(stdo))) pause_check(0);
    return prnlen;
 }
 
@@ -188,6 +195,13 @@ str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
 #define AllowSet " ^\r\n"
 #define CarrySet "-"
 
+u32t _std cmd_printtext(TStrings res, int pause, int init, u8t color) {
+   if (init) pause_println(0,1);
+   for (int ln=0; ln<res.Count(); ln++)
+      if (pause_println(res[ln](), pause?0:-1, color)) return 1;
+   return 0;
+}
+
 u32t _std cmd_printtext(const char *text, int pause, int init, u8t color) {
    if (!text) return 0;
    TStrings res;
@@ -195,11 +209,7 @@ u32t _std cmd_printtext(const char *text, int pause, int init, u8t color) {
 
    vio_getmode(&dX,0);
    splittext(text, dX, res);
-
-   if (init) pause_println(0,1);
-   for (ln=0;ln<res.Count();ln++)
-      if (pause_println(res[ln](),pause?0:-1,color)) return 1;
-   return 0;
+   return cmd_printtext(res, pause, init, color);
 }
 
 static void _std freadfull_callback(u32t percent, u32t readed) {
@@ -238,7 +248,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
    u32t  errtype = EMSG_CLIB;
 
    if (args->count>0) {
-      int frombp = 0, cpattr = 0;
+      int frombp = 0, cpattr = 0, beep = 0;
 
       TPtrStrings al;
       str_getstrs(args,al);
@@ -246,9 +256,9 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/boot|/q|/a";
-      static short argval[] = {    1, 1, 1};
-      process_args(al, argstr, argval, &frombp, &quiet, &cpattr);
+      static char *argstr   = "/boot|/q|/a|/beep";
+      static short argval[] = {    1, 1, 1,    1};
+      process_args(al, argstr, argval, &frombp, &quiet, &cpattr, &beep);
 
       al.TrimEmptyLines();
       if (al.Count()>=2) {
@@ -352,7 +362,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                      // 1-2Mb buffer
                      if (maxblock>_64MB) memsize<<=4; else
                         if (maxblock>_32MB) memsize<<=3;
-                     void *buf = hlp_memalloc(memsize,QSMA_RETERR);
+                     void *buf = hlp_memalloc(memsize,QSMA_RETERR|QSMA_LOCAL);
                      if  (!buf) rc = ENOMEM;
 
                      idx = 0;
@@ -420,6 +430,11 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
             }
          }
          if (rc>0) log_it(3, "copy err %d, file \"%s\"\n", rc, dst());
+         if (beep) {
+            vio_beep(rc>0?200:700,40);
+            while (vio_beepactive()) usleep(5000);
+            vio_beep(rc>0?100:600,40);
+         }
       }
    }
    if (rc<0) rc = EINVAL;
@@ -707,7 +722,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                disk_volume_data vinf;
                dir_total(ldrive, &cbi);
 
-               hlp_volinfo(drive[0]-'A',&vinf);
+               hlp_volinfo(drive[0]-'A', &vinf);
                if (vinf.FsVer==0) {
                   head.sprintf("File system in drive %c is not recognized\n", drive[0]);
                } else {
@@ -1167,24 +1182,23 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
 
          if (list) {
             if (verb) log_mdtdump_int(cmd_printf); else {
-               module *md = mod_list;
-               u32t   cnt = 0;
+               module_information *mi = 0;
+               u32t  cmi = mod_enum(&mi), ii;
 
-               while (md) {
-                  int islib = md->flags&MOD_LIBRARY,
-                      issys = md->flags&MOD_SYSTEM;
+               for (ii=0; ii<cmi; ii++) {
+                  int islib = mi[ii].flags&MOD_LIBRARY,
+                      issys = mi[ii].flags&MOD_SYSTEM;
                   char pstr[32];
 
-                  if (md->flags&MOD_EXECPROC) {
-                     snprintf(pstr, 32, "pid:%u", mod_getmodpid((u32t)md));
+                  if (mi[ii].flags & MOD_EXECPROC) {
+                     snprintf(pstr, 32, "pid:%u", mod_getmodpid(mi[ii].handle));
                   } else 
                      pstr[0] = 0;
 
                   cmd_printf("%3u. " ANSI_WHITE "%-20s" ANSI_RESET " %s %s%s\n",
-                     ++cnt, md->name, islib?ANSI_YELLOW "DLL" ANSI_RESET:
+                     ii+1, mi[ii].name, islib?ANSI_YELLOW "DLL" ANSI_RESET:
                         ANSI_LGREEN "EXE" ANSI_RESET, issys?
                            ANSI_LRED "system " ANSI_RESET:"", pstr);
-                  md = md->next;
                }
             }
             rc = 0;
@@ -1813,9 +1827,9 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
          if (al.IndexOfICase("PAE")>=0) {
             int err = pag_enable();
             rc = 0;
-            if (err==EEXIST) printf("QSINIT already in paging mode.\n"); else
-            if (err==ENOSYS) printf("QSINIT is EFI hosted and paging mode cannot be changed.\n"); else
-            if (err==ENODEV) printf("There is no PAE support in CPU unit.\n");
+            if (err==E_SYS_INITED) printf("QSINIT already in paging mode.\n"); else
+            if (err==E_SYS_EFIHOST) printf("QSINIT is EFI hosted and paging mode cannot be changed.\n"); else
+            if (err==E_SYS_UNSUPPORTED) printf("There is no PAE support in CPU unit.\n");
                else rc = err;
          }
          if (al.IndexOfICase("MT")>=0) {

@@ -4,16 +4,13 @@
 /* function(s)                                                  */
 /*                      TResourceCollection member functions    */
 /*--------------------------------------------------------------*/
-
-/*--------------------------------------------------------------*/
-/*                                                              */
-/*     Turbo Vision -  Version 1.0                              */
-/*                                                              */
-/*                                                              */
-/*     Copyright (c) 1991 by Borland International              */
-/*     All Rights Reserved.                                     */
-/*                                                              */
-/*--------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TResourceCollection
 #define Uses_TResourceItem

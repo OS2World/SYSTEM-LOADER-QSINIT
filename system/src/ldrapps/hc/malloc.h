@@ -37,11 +37,11 @@ malloc(), but when it changing ready block - it preserves its original type.
 But realloc_shared() and realloc_thread() are <b>always</b> returns shared and
 thread memory, even it wasn`t so before.
 
-In practice, this mean, what EXE module writing is supplied with automatic
-garbage collection on exit (for heap blocks, at least). DLL module writing
-is a bit harder task, because API functions returns blocks, attached to
-current process context, although DLL modules are global and shared over
-system. This requires additional block type setup call in some cases. */
+In practice, this mean, what EXE module writing supplied with automatic garbage
+collection on exit. DLL module writing is a bit harder task, because API
+functions returns blocks, attached to current process context, although DLL
+modules are global and shared over system. This requires additional block type
+setup call in some cases. */
 
 #ifndef QSINIT_MALLOC
 #define QSINIT_MALLOC

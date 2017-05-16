@@ -74,7 +74,14 @@ EDDTabOfs       dw      ?                                       ; offset of edd 
 DFTabOfs        dw      ?                                       ; offset of disk flags
 Pswcode         dw      ?                                       ; offset of swcode variable
 Ppaeppd         dw      ?                                       ; offset of paeppd variable
-ClockMod        dw      ?                                       ; clock modulation value
+ClockMod        dw      ?                                       ; > clock modulation value
+PushKey         dw      ?                                       ; > push key code (or 0)
+DBCSSeg         dw      ?                                       ; > OS2DBCS segment
+DBCSFontSeg     dw      ?                                       ; > OS2DBCS.FNT segment
+DBCSFontSize    dd      ?                                       ; > OS2DBCS.FNT size
+MemPagesLo      dd      ?                                       ; > # of memory pages below 4Gb (except 1st Mb)
+MemPagesHi      dd      ?                                       ; > # of memory pages above 4Gb
+SavedInt10h     dd      ?                                       ; BIOS int10h vector
 ExportFixupData ends
 
 ; ExportFixupData.Flags bits
@@ -85,6 +92,7 @@ EXPF_TWODSKBOOT equ     8                                       ; Two disk boot
 EXPF_FULLCABLE  equ    10h                                      ; COM port full cable option active
 EXPF_COMINITED  equ    20h                                      ; COM port inited at least once
 EXPF_AMDCPU     equ    40h                                      ; this is AMD CPU
+EXPF_DBCSI10H   equ    80h                                      ; DBCS int 10h call done
 
 KernelAccess    struc                                           ;
 ; AllocGDT call:                                                ;

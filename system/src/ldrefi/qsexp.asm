@@ -46,7 +46,7 @@ _sel64          dd      0
 _flat32cs       dd      0
                 dd      offset _mfsd_openname
 _ret64offset    dd      0
-_vio_ttylines   dd      0
+_cvio_ttylines  dd      0
                 dd      offset xcpt64entry
 xcptret         dd      0
 
@@ -69,7 +69,7 @@ exp64_tab_end   label   near
                 public  _qd_hdds, _gdt_pos, _gdt_size, _gdt_lowest
                 public  _pbin_header, _IODelay, _sel64, _ofs64
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
-                public  _vio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
+                public  _cvio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
                 public  _qd_bootdisk, _countsIn55ms
 
 _DATA           ends

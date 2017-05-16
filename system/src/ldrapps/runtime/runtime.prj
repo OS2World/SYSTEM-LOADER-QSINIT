@@ -78,7 +78,7 @@ copy=cp
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
 cplib.ref vhdd.ref extcmd.ref mtlib.ref
 start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace console.trace
-mtlib.trace
+mtlib.trace vdisk.trace
 init.asm initdll.asm cpproute.asm initdta.asm libmisc.asm
 rtcode.c defdll.c cpplib.cpp watcinit.c common.c
 rt\sp_defs.cpp rt\sp_ini.cpp rt\sp_str.cpp rt\qs_rt.cpp

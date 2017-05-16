@@ -195,13 +195,13 @@ void TView::writeView(short x1, short x2, short y, const void *buf) {
    writeViewRec2(x1, x2, this, 0);
 }
 
-void TV_CDECL TView::writeBuf(short x, short y, short w, short h, const void *buf) {
+void TView::writeBuf(short x, short y, short w, short h, const void *buf) {
    for (int i=0; i<h; i++) {
       writeView(x,x+w,y+i,(short *) buf + w*i);
    } /* endfor */
 }
 
-void TV_CDECL TView::writeChar(short x, short y, char c, uchar color, short count) {
+void TView::writeChar(short x, short y, char c, uchar color, short count) {
    ushort b[maxViewWidth];
    ushort myChar= (((ushort)mapColor(color))<<8) + (unsigned char) c;
    short count2=count;
@@ -212,14 +212,14 @@ void TV_CDECL TView::writeChar(short x, short y, char c, uchar color, short coun
    writeView(x, x+count2, y, b);
 }
 
-void TV_CDECL TView::writeLine(short x, short y, short w, short h, const void *buf) {
+void TView::writeLine(short x, short y, short w, short h, const void *buf) {
    if (h==0) return;
    for (int i=0; i<h; i++) {
       writeView(x, x+w, y+i, buf);
    }
 }
 
-void TV_CDECL TView::writeStr(short x, short y, const char *str, uchar color) {
+void TView::writeStr(short x, short y, const char *str, uchar color) {
    if (!str) return;
    ushort l= strlen(str);
    if (l==0) return;

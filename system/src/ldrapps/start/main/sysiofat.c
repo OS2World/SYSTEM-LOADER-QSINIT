@@ -7,7 +7,7 @@
 #include "parttab.h"
 #include "qsxcpt.h"
 #include "qcl/sys/qsvolapi.h"
-#include "fat/ff.h"
+#include "ff.h"
 #include "sysio.h"
 
 #define VFAT_SIGN        0x54414656   ///< VFAT string
@@ -36,7 +36,8 @@ typedef struct {
    char             fp[QS_MAXPATH+1];
 } file_handle;
 
-u32t fatio_classid = 0;
+u32t     fatio_classid = 0;
+static FATFS   *extdrv[_VOLUMES];
 
 #define instance_ret(type,inst,err)      \
    type *inst = (type*)data;             \
@@ -47,40 +48,38 @@ u32t fatio_classid = 0;
    if (inst->sign!=VFAT_SIGN) return;
 
 static qserr errcvt(FRESULT err) {
-   static u32t codes[FR_INVALID_PARAMETER+1] = { 0, E_DSK_IO, E_SYS_INVPARM,
+   static u32t codes[FR_INVALID_PARAMETER+1] = { 0, E_DSK_ERRREAD, E_SYS_INVPARM,
       E_DSK_NOTREADY, E_SYS_NOFILE, E_SYS_NOPATH, E_SYS_INVNAME, E_SYS_ACCESS,
       E_SYS_EXIST, E_SYS_INVOBJECT, E_DSK_WP, E_SYS_INVPARM, E_DSK_NOTMOUNTED,
-      E_DSK_UNCKFS, E_SYS_INCOMPPARAMS, E_SYS_TIMEOUT, E_SYS_SHARE, E_SYS_NOMEM,
+      E_DSK_UNKFS, E_SYS_INCOMPPARAMS, E_SYS_TIMEOUT, E_SYS_SHARE, E_SYS_NOMEM,
       E_SYS_FILES, E_SYS_INVPARM};
    return err>FR_INVALID_PARAMETER? E_SYS_INVOBJECT : codes[err];
 }
 
+/// convert read err to write err
+static qserr wrfunc(qserr err) {
+   return err==E_DSK_ERRREAD?E_DSK_ERRWRITE:err;
+}
+
 static qserr _exicc fat_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec) {
-   FATFS  **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
    if (vol>=_VOLUMES) return E_DSK_BADVOLNAME;
 
    if (extdrv) {
-      vol_data  *vdta = _extvol+vol;
-      FATFS     *fdta = extdrv[vol];
-      qserr       err = E_DSK_NOTMOUNTED;
-      if (flags&SFIO_APPEND) {
-         if (vol<=DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
-            if ((vdta->flags&VDTA_FAT) || (flags&SFIO_FORCE)) {
-               vd->vol = vol;
-               err = 0;
-            } else err = E_DSK_UNCKFS;
-         } else err = E_DSK_NOTMOUNTED;
-      } else {
-         struct Boot_Record *br = (struct Boot_Record*)bootsec;
-         char             dp[8];
-         FRESULT           mres;
-         u32t           *fsname = 0;
+      vol_data         *vdta = _extvol+vol;
+      FATFS            *fdta = extdrv[vol];
+      qserr              err = E_DSK_NOTMOUNTED;
+      struct Boot_Record *br = (struct Boot_Record*)bootsec;
+      FRESULT           mres;
+      u32t           *fsname = 0;
 
+      if ((flags&SFIO_NOMOUNT)==0) {
+         char          dp[8];
          snprintf(dp, 8, "%u:\\", (u32t)vol);
          // FatFs mount
          mres = f_mount(fdta, dp, 1);
+         if (mres!=FR_OK) log_printf("%s fatfs mount err %u\n", dp, mres);
 
          if (br->BR_BPB.BPB_SecPerFAT)
             if (br->BR_BPB.BPB_RootEntries) fsname = (u32t*)br->BR_EBPB.EBPB_FSType;
@@ -88,11 +87,15 @@ static qserr _exicc fat_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec)
          // if it is not FAT really - fix error code to acceptable
          if (mres!=FR_OK && (!fsname || (*fsname&0xFFFFFF)!=0x544146) &&
             strnicmp(br->BR_OEM,"EXFAT",5)) mres = FR_NO_FILESYSTEM;
-         // have a FAT
          if (mres==FR_OK) vdta->flags|=VDTA_FAT;
-         if (mres==FR_OK || mres==FR_NO_FILESYSTEM && (flags&SFIO_FORCE)) vd->vol = vol;
-         err = errcvt(mres);
+      } else {
+         mres  = FR_NO_FILESYSTEM;
+         flags|= SFIO_FORCE;
       }
+      // have a FAT
+      if (mres==FR_OK || mres==FR_NO_FILESYSTEM && (flags&SFIO_FORCE)) vd->vol = vol;
+      err = errcvt(mres);
+
       if (!err && (vdta->flags&VDTA_FAT)) {
          u8t vfs = fdta->fs_type;
          strcpy(vdta->fsname, vfs<=FS_FAT16?"FAT":(vfs==FS_EXFAT?"exFAT":"FAT32"));
@@ -223,8 +226,7 @@ static qserr _exicc fat_write(EXI_DATA, io_handle_int file, u64t pos,
    // check after FatFs - it can leave a swine for us, reporting no error
    if (!res && bw<*size) res = FR_NOT_READY;
    *size = bw;
-
-   return errcvt(res);
+   return wrfunc(errcvt(res));
 }
 
 static qserr _exicc fat_flush(EXI_DATA, io_handle_int file) {
@@ -232,7 +234,7 @@ static qserr _exicc fat_flush(EXI_DATA, io_handle_int file) {
 //   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (fh->sign!=VFATFH_SIGN) return E_SYS_INVPARM;
 
-   return errcvt(f_sync(&fh->fh));
+   return wrfunc(errcvt(f_sync(&fh->fh)));
 }
 
 static qserr _exicc fat_close(EXI_DATA, io_handle_int file) {
@@ -528,8 +530,7 @@ static qserr _exicc fat_dirclose(EXI_DATA, dir_handle_int dh) {
    return errcvt(res);
 }
 
-static qserr _exicc fat_volinfo(EXI_DATA, disk_volume_data *info) {
-   FATFS   **extdrv = (FATFS  **)sto_data(STOKEY_FATDATA);
+static qserr _exicc fat_volinfo(EXI_DATA, disk_volume_data *info, int fast) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
    if (!info) return E_SYS_ZEROPTR;
@@ -558,8 +559,10 @@ static qserr _exicc fat_volinfo(EXI_DATA, disk_volume_data *info) {
             info->FsVer       = fdta->fs_type;
             info->FSizeLim    = info->FsVer==FST_EXFAT ? fdta->csize*0x7FFFFFFDLL : FFFF;
             // update info to actual one
-            if (f_getfree(cp,&nclst,&pfat)==FR_OK) vdta->clfree = nclst;
-            if (!vdta->serial) f_getlabel(cp, vdta->label, &vdta->serial);
+            if (!fast) {
+               if (f_getfree(cp,&nclst,&pfat)==FR_OK) vdta->clfree = nclst;
+               if (!vdta->serial) f_getlabel(cp, vdta->label, &vdta->serial);
+            }
          } else {
             /* Not a FAT.
                HPFS format still can fill vdta in way, compatible with
@@ -589,7 +592,7 @@ static qserr _exicc fat_setlabel(EXI_DATA, const char *label) {
 
    if (vd->vol>=0) {
       vol_data  *vdta = _extvol+vd->vol;
-      FATFS     *fdta = ((FATFS  **)sto_data(STOKEY_FATDATA))[vd->vol];
+      FATFS     *fdta = extdrv[vd->vol];
 
       // mounted & FAT?
       if (vd->vol<=DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
@@ -635,11 +638,14 @@ static void *methods_list[] = { fat_initialize, fat_finalize, fat_volinfo,
    fat_dirclose };
 
 void register_fatio(void) {
+   u32t ii;
    // something forgotten! interface part is not match to implementation
    if (sizeof(_qs_sysvolume)!=sizeof(methods_list)) {
       log_printf("Function list mismatch\n");
       _throw_(xcpt_align);
    }
+   for (ii=0; ii<_VOLUMES; ii++) extdrv[ii] = (FATFS*)malloc(sizeof(FATFS));
+
    // register private(unnamed) class
    fatio_classid = exi_register(0 /*"qs_common_fatio"*/, methods_list,
       sizeof(methods_list)/sizeof(void*), sizeof(volume_data), 0,

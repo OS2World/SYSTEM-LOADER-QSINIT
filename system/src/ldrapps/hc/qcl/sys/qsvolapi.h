@@ -26,15 +26,19 @@ typedef struct qs_sysvolume_s {
        @param   flags    SFIO_* flags
        @param   bootsec  Boot sector data (only when append==0)
        @return error code. If SFIO_FORCE is set and no FS - volume is mounted,
-               but function returns E_DSK_UNCKFS error code here */
+               but function returns E_DSK_UNKFS error code here */
    qserr     _exicc (*init)     (u8t vol, u32t flags, void *bootsec);
    /// unmount volume
    qserr     _exicc (*done)     (void);
    /** query volume info.
        note, that info->FsVer should contain 0 if FS was not recognized, else
        any non-zero value (ex. FAT type)
+       @param   info     Returning information
+       @param   fast     Fast version flag (1/0). Fast call returns zero or
+                         wrong information in serial number, label and free
+                         space fields.
        @return error code */
-   qserr     _exicc (*volinfo)  (disk_volume_data *info);
+   qserr     _exicc (*volinfo)  (disk_volume_data *info, int fast);
    qserr     _exicc (*setlabel) (const char *label);
    /** mounted drive letter.
        @return -1 if volume is not mounted, else volume number (0..x) */
@@ -85,7 +89,7 @@ typedef struct qs_sysvolume_s {
 
 /// @name init() flags
 //@{
-#define SFIO_APPEND             1     ///< Boot time flag (i/o replacement in START`s start)
+#define SFIO_NOMOUNT            1     ///< Force mounting and ignore FS detection
 #define SFIO_FORCE              2     ///< Force mounting (if FS is not recognized)
 //@}
 

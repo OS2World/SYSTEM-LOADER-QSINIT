@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*          TButton member functions                          */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TButton
 #define Uses_TDrawBuffer
@@ -27,10 +24,8 @@
 #include <ctype.h>
 #include <string.h>
 
-const int
-
-cmGrabDefault    = 61,
-cmReleaseDefault = 62;
+const int cmGrabDefault    = 61,
+          cmReleaseDefault = 62;
 
 #define cpButton "\x0A\x0B\x0C\x0D\x0E\x0E\x0E\x0F"
 
@@ -42,7 +37,8 @@ TButton::TButton(const TRect &bounds,
    flags(aFlags),
    amDefault(Boolean((aFlags &bfDefault) != 0)),
    title(newStr(aTitle)),
-   command(aCommand) {
+   command(aCommand) 
+{
    options |= ofSelectable | ofFirstClick | ofPreProcess | ofPostProcess;
    eventMask |= evBroadcast;
    if (!commandEnabled(aCommand))
@@ -159,26 +155,28 @@ void TButton::handleEvent(TEvent &event) {
       if (!clickRect.contains(mouse))
          clearEvent(event);
    }
-   TView::handleEvent(event);
+   if (flags & bfGrabFocus)
+      TView::handleEvent(event);
 
    switch (event.what) {
-      case evMouseDown: {
-         clickRect.b.x++;
-         Boolean down = False;
-         do  {
-            mouse = makeLocal(event.mouse.where);
-            if (down != clickRect.contains(mouse)) {
-               down = Boolean(!down);
-               drawState(down);
+      case evMouseDown:
+         if ((state &  sfDisabled) == 0) {
+            clickRect.b.x++;
+            Boolean down = False;
+            do  {
+               mouse = makeLocal(event.mouse.where);
+               if (down != clickRect.contains(mouse)) {
+                  down = Boolean(!down);
+                  drawState(down);
+               }
+            } while (mouseEvent(event, evMouseMove));
+            if (down) {
+               press();
+               drawState(False);
             }
-         } while (mouseEvent(event, evMouseMove));
-         if (down) {
-            press();
-            drawState(False);
          }
          clearEvent(event);
-      }
-      break;
+         break;
 
       case evKeyDown: {
          char c = hotKey(title);
@@ -237,8 +235,14 @@ void TButton::makeDefault(Boolean enable) {
 
 void TButton::setState(ushort aState, Boolean enable) {
    TView::setState(aState, enable);
-   if (aState & (sfSelected | sfActive))
+   if (aState & (sfSelected | sfActive)) {
+      if (!enable) {
+         // BUG FIX - EFW - Thu 10/19/95
+         state &= ~sfFocused;
+         makeDefault(False);
+      }
       drawView();
+   }
    if ((aState & sfFocused) != 0)
       makeDefault(enable);
 }

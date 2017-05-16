@@ -66,26 +66,21 @@ args_error:
                 push    -1                                      ; of linking START
                 call    __exit                                  ; module to all apps.
 ;----------------------------------------------------------------
-                public  _call64l
-                extrn   _call64:near
-_call64l:
-                jmp     _call64
-;----------------------------------------------------------------
 next_random:
-                mov     eax,8088405h
-                mul     __RandSeed
-                inc     eax
-                mov     __RandSeed,eax
-                ret
+                mov     eax,8088405h                            ;
+                mul     __RandSeed                              ;
+                inc     eax                                     ;
+                mov     __RandSeed,eax                          ;
+                ret                                             ;
 
-                public  _random
-_random         label   near
-                mov     ecx, [esp+4]
-                call    next_random
-                mul     ecx                     ; Random * Range / 1 0000 0000h
-                mov     eax,edx                 ; 0 <= eax < Range
-                ret     4
-CODE32          ends
+                public  _random                                 ;
+_random         label   near                                    ;
+                mov     ecx, [esp+4]                            ;
+                call    next_random                             ;
+                mul     ecx                                     ; Random * Range / 1 0000 0000h
+                mov     eax,edx                                 ; 0 <= eax < Range
+                ret     4                                       ;
+CODE32          ends                                            ;
 
 _DATA           segment dword public USE32 'DATA'
                 public  __Module

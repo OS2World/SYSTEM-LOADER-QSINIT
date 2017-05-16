@@ -17,6 +17,8 @@
 #include "parttab.h"
 #include "qstask.h"
 #include "qssys.h"
+#include "sysio.h"
+#include "diskio.h"
 
 static cache_extptr *cache_eproc = 0;
 
@@ -33,13 +35,12 @@ static int _std catch_cacheptr(mod_chaininfo *info) {
    return 1;
 }
 
-static void _std notify_diskremove(sys_eventinfo *info) {
-   u32t disk = info->info;
+static void _std notify_diskremove(sys_eventinfo *cbinfo) {
+   u32t disk = cbinfo->info;
    // is disk present and emulated? then unmount all
    if ((hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED)!=0) hlp_unmountall(disk);
 }
 
-/* catch hlp_diskremove() to call hlp_unmountall() before it */
 void setup_cache(void) {
    u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
    if (qsinit)
@@ -63,6 +64,9 @@ char* _std dsk_disktostr(u32t disk, char *buffer) {
       mt_tlsaddr(QTLS_DSKSTRBUF, &rc);
       buffer = (char*)rc;
    }
+   // drop known service flags
+   disk&=~(QDSK_IAMCACHE|QDSK_IGNACCESS);
+
    if (disk&QDSK_FLOPPY) snprintf(buffer, 8, "fd%d", disk&QDSK_DISKMASK); else
    if (disk&QDSK_VOLUME) snprintf(buffer, 8, "%c:", 'A'+(disk&QDSK_DISKMASK)); else
    if ((disk&QDSK_DISKMASK)==disk)
@@ -120,11 +124,10 @@ char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf) {
 }
 
 u32t _std hlp_unmountall(u32t disk) {
-   vol_data *extvol = (vol_data*)sto_data(STOKEY_VOLDATA);
-   if (extvol) {
+   if (_extvol) {
       u32t umcnt=0, ii;
       for (ii=2; ii<DISK_COUNT; ii++) {
-         vol_data *vdta = extvol+ii;
+         vol_data *vdta = _extvol+ii;
          // mounted?
          if ((vdta->flags&VDTA_ON)!=0)
             if (vdta->disk==disk) { hlp_unmountvol(ii); umcnt++; }
@@ -156,3 +159,91 @@ qs_extdisk _std hlp_diskclass(u32t disk, const char *name) {
    mt_swunlock();
    return rcptr;
 }
+
+// Initialize a Drive
+DSTATUS disk_initialize(BYTE drv) {
+   if (drv>=DISK_COUNT) return STA_NOINIT;
+#if 0 //def INITDEBUG
+   log_misc(2,"disk_init(%d)\n",(DWORD)drv);
+#endif
+   cache_ctrl(CC_RESET, drv);
+   return 0;
+}
+
+// Return Disk Status
+DSTATUS disk_status(BYTE drv) {
+   return drv>=DISK_COUNT?STA_NOINIT:0;
+}
+
+DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
+   //log_misc(2,"disk_ioctl(%d,%d,%X)\n",(DWORD)drv,(DWORD)ctrl,buff);
+   if (ctrl==CTRL_SYNC) {
+      cache_ctrl(CC_SYNC, drv);
+      return RES_OK;
+   }
+   if (ctrl==GET_BLOCK_SIZE) { *(DWORD*)buff=1; return RES_OK; }
+
+   if (!_extvol) return RES_NOTRDY;
+
+   if (ctrl==GET_SECTOR_SIZE || ctrl==GET_SECTOR_COUNT) {
+      vol_data *vdta = _extvol + drv;
+      DRESULT    res = RES_OK;
+      mt_swlock();
+      if (vdta->flags&VDTA_ON) {
+         if (ctrl==GET_SECTOR_SIZE ) *(WORD*) buff = vdta->sectorsize; else
+         if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff = vdta->length;
+      } else
+         res = RES_NOTRDY; 
+      mt_swunlock();
+      return res;
+   }
+   return RES_PARERR;
+}
+
+DRESULT disk_read(BYTE drv, BYTE *buff, DWORD sector, UINT count) {
+   if (!count  ) return RES_OK;
+   if (!buff   ) return RES_PARERR;
+   if (!_extvol) return RES_NOTRDY;
+   //log_it(2,"disk_read(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
+   if (drv==DISK_LDR) {
+      return hlp_diskread(drv|QDSK_VOLUME, sector, count, (void*)buff)==count?
+         RES_OK:RES_ERROR;
+   } else {
+      if (drv<DISK_COUNT) {
+         vol_data *vdta = _extvol + drv;
+         DRESULT    res = RES_OK;
+         mt_swlock();
+         if (drv&&!vdta->flags) res = RES_NOTRDY; else
+         if (hlp_diskread(vdta->disk|QDSK_IGNACCESS, vdta->start+sector,
+            count, (void*)buff) != count) res = RES_ERROR;
+         mt_swunlock();
+         return res;
+      }
+   }
+   return RES_ERROR;
+}
+
+DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
+   if (!count  ) return RES_OK;
+   if (!buff   ) return RES_PARERR;
+   if (!_extvol) return RES_NOTRDY;
+   //log_it(2,"disk_write(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
+   if (drv==DISK_LDR) {
+      return hlp_diskwrite(drv|QDSK_VOLUME, sector, count, (void*)buff)==count?
+         RES_OK:RES_ERROR;
+   } else {
+      if (drv<DISK_COUNT) {
+         vol_data *vdta = _extvol + drv;
+         DRESULT    res = RES_OK;
+         mt_swlock();
+         if (drv&&!vdta->flags) res = RES_NOTRDY; else
+         if (hlp_diskwrite(vdta->disk|QDSK_IGNACCESS, vdta->start+sector,
+            count, (void*)buff) != count) res = RES_ERROR;
+         mt_swunlock();
+         return res;
+      }
+   }
+   return RES_ERROR;
+}
+
+u32t get_fattime(void) { return tm_getdate(); }

@@ -1,8 +1,7 @@
 #include "qshm.h"
 #include "pci.h"
 #include "qslog.h"
-#include <stdlib.h>
-#include "internal.h"
+#include "syslocal.h"
 #include "qsstor.h"
 #include "qsint.h"
 #include "qssys.h"

@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TListViewer member functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TListViewer
@@ -37,7 +34,8 @@ TListViewer::TListViewer(const TRect &bounds,
    range(0),
    numCols(aNumCols),
    focused(0),
-   topItem(0) {
+   topItem(0)
+{
    short arStep, pgStep;
 
    options |= ofFirstClick | ofSelectable;
@@ -54,7 +52,7 @@ TListViewer::TListViewer(const TRect &bounds,
    }
 
    if (aHScrollBar != 0)
-      aHScrollBar->setParams(0,0,size.x-1,8,1);       // ig 17.03.94
+      aHScrollBar->setStep(size.x / numCols, 1);
 
    hScrollBar = aHScrollBar;
    vScrollBar = aVScrollBar;
@@ -62,8 +60,10 @@ TListViewer::TListViewer(const TRect &bounds,
 
 void TListViewer::changeBounds(const TRect &bounds) {
    TView::changeBounds(bounds);
-   //    if( hScrollBar != 0 )                             // ig 17.03.94
-   //        hScrollBar->setStep( size.x / numCols, 1 );
+   if (hScrollBar != 0)
+      hScrollBar->setStep(size.x / numCols, hScrollBar->arStep);
+   if (vScrollBar != 0)
+      vScrollBar->setStep(size.y, vScrollBar->arStep);
 }
 
 void TListViewer::draw() {
@@ -122,7 +122,7 @@ void TListViewer::draw() {
                b.putChar(curCol+colWidth-2, specialChars[scOff+1]);
             }
          } else if (i == 0 && j == 0)
-            b.moveStr(curCol+1, "<empty>", getColor(1));
+            b.moveStr(curCol+1, emptyText, getColor(1));
 
          b.moveChar(curCol+colWidth-1, 179, getColor(5), 1);
       }
@@ -132,15 +132,15 @@ void TListViewer::draw() {
 
 void TListViewer::focusItem(int item) {
    focused = item;
-   if (vScrollBar != 0)
-      vScrollBar->setValue(item);
-   else drawView();
-   if (item < topItem)
+   if (vScrollBar != 0) vScrollBar->setValue(item);
+      else drawView();
+   if (item < topItem) {
       if (numCols == 1)
          topItem = item;
       else
          topItem = item - item % size.y;
-   else if (item >= topItem + size.y*numCols)
+   } else 
+   if (item >= topItem + size.y*numCols)
       if (numCols == 1)
          topItem = item - size.y + 1;
       else
@@ -148,9 +148,9 @@ void TListViewer::focusItem(int item) {
 }
 
 void TListViewer::focusItemNum(int item) {
-   if (item < 0)
-      item = 0;
-   else if (item >= range && range > 0)
+   if (item < 0) item = 0;
+      else
+   if (item >= range && range > 0)
       item = range - 1;
 
    if (range !=  0)
@@ -183,16 +183,17 @@ void TListViewer::handleEvent(TEvent &event) {
       colWidth = size.x / numCols + 1;
       oldItem =  focused;
       mouse = makeLocal(event.mouse.where);
-      newItem = mouse.y + (size.y * (mouse.x / colWidth)) + topItem;
+      if (mouseInView(event.mouse.where))
+         newItem = mouse.y + (size.y * (mouse.x / colWidth)) + topItem;
+      else
+         newItem = oldItem;
       count = 0;
       do  {
-         if (newItem != oldItem)
+         if (newItem != oldItem) {
             focusItemNum(newItem);
-         oldItem = newItem;
-         if (event.mouse.doubleClick && range > focused) {
-            selectItem(focused);
-            break;
+            drawView();
          }
+         oldItem = newItem;
          mouse = makeLocal(event.mouse.where);
          if (mouseInView(event.mouse.where))
             newItem = mouse.y + (size.y * (mouse.x / colWidth)) + topItem;
@@ -223,8 +224,13 @@ void TListViewer::handleEvent(TEvent &event) {
                }
             }
          }
+         if (event.mouse.eventFlags & meDoubleClick)
+            break;
       } while (mouseEvent(event, evMouseMove | evMouseAuto));
       focusItemNum(newItem);
+      drawView();
+      if ((event.mouse.eventFlags & meDoubleClick) && range > newItem)
+         selectItem(newItem);
       clearEvent(event);
    } else if (event.what == evKeyDown) {
       if (event.keyDown.charScan.charCode ==  ' ' && focused < range) {
@@ -273,14 +279,16 @@ void TListViewer::handleEvent(TEvent &event) {
          }
       }
       focusItemNum(newItem);
+      drawView();
       clearEvent(event);
    } else if (event.what == evBroadcast) {
       if ((options & ofSelectable) != 0) {
          if (event.message.command == cmScrollBarClicked &&
-             (event.message.infoPtr == hScrollBar ||
-              event.message.infoPtr == vScrollBar))
-            select();
-         else if (event.message.command == cmScrollBarChanged) {
+            (event.message.infoPtr == hScrollBar ||
+               event.message.infoPtr == vScrollBar))
+                  focus();        // BUG FIX                  <<------ Change
+         else 
+         if (event.message.command == cmScrollBarChanged) {
             if (vScrollBar == event.message.infoPtr) {
                focusItemNum(vScrollBar->value);
                drawView();
@@ -297,27 +305,27 @@ void TListViewer::selectItem(int) {
 
 void TListViewer::setRange(int aRange) {
    range = aRange;
-   if (focused > aRange) focused = 0;          /* ig 16.03.94 */
+
+   if (focused >= aRange)  // BUG FIX - EFW - Tue 06/26/95
+      focused = (aRange - 1 >= 0) ? aRange - 1 : 0;
+
    if (vScrollBar != 0)
-      vScrollBar->setParams(focused,
-                            0,
-                            aRange - 1,
-                            vScrollBar->pgStep,
-                            vScrollBar->arStep
-                           );
-   else drawView();
+      vScrollBar->setParams(focused, 0, aRange - 1, vScrollBar->pgStep,
+                            vScrollBar->arStep);
+   else
+      drawView();
 }
 
 void TListViewer::setState(ushort aState, Boolean enable) {
    TView::setState(aState, enable);
-   if ((aState & (sfSelected | sfActive)) != 0) {
+   if ((aState & (sfSelected | sfActive | sfVisible)) != 0) {
       if (hScrollBar != 0)
-         if (getState(sfActive))
+         if (getState(sfActive) && getState(sfVisible))
             hScrollBar->show();
          else
             hScrollBar->hide();
       if (vScrollBar != 0)
-         if (getState(sfActive))
+         if (getState(sfActive) && getState(sfVisible))
             vScrollBar->show();
          else
             vScrollBar->hide();

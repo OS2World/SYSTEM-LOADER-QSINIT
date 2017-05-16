@@ -59,20 +59,20 @@ typedef struct {
 /** delete partition's record from DLAT
     @param [in]  disk     disk number
     @param [in]  index    partition index
-    @return 0 on success or LVME_* error code. */
-int  _std lvm_delptrec(u32t disk, u32t index);
+    @return 0 on success or error code. */
+qserr _std lvm_delptrec(u32t disk, u32t index);
 
 #define LVM_INITCRC  FFFF
 
 /// CRC for LVM DLAT sector
-u32t _std lvm_crc32(u32t crc, void *Buffer, u32t BufferSize);
+u32t  _std lvm_crc32(u32t crc, void *Buffer, u32t BufferSize);
 
 /** wipe DLAT sector.
     Sector will be not wiped actually, but written with removed signatures.
     @param disk     disk number
     @param quadidx  dlat index (0 for primary, 1..x - extended)
-    @return 0 on success or LVME_* error code. */
-int  _std lvm_wipedlat(u32t disk, u32t quadidx);
+    @return 0 on success or error code. */
+qserr _std lvm_wipedlat(u32t disk, u32t quadidx);
 
 #ifdef __cplusplus
 }

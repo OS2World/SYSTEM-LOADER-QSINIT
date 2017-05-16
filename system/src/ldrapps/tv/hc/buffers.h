@@ -2,20 +2,24 @@
 /*                                                                         */
 /*   BUFFERS.H                                                             */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the functions getBufMem() and freeBufMem() for use            */
 /*   in allocating and freeing viedo buffers                               */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
 #if defined( Uses_TVMemMgr ) && !defined( __TVMemMgr )
 #define __TVMemMgr
 
-#define DEFAULT_SAFETY_POOL_SIZE  (4096)
+const int DEFAULT_SAFETY_POOL_SIZE = 4096;
 
 class TBufListEntry {
 
@@ -41,6 +45,7 @@ private:
 #else
    friend void *operator new(size_t);
 #endif
+   friend void *allocBlock( size_t );
 
 };
 
@@ -52,9 +57,11 @@ public:
 
    static void resizeSafetyPool(size_t = DEFAULT_SAFETY_POOL_SIZE);
    static int safetyPoolExhausted();
+   static void clearSafetyPool();
 
    static void allocateDiscardable(void *&, size_t);
    static void freeDiscardable(void *);
+   static void suspend(void);
 
 private:
 

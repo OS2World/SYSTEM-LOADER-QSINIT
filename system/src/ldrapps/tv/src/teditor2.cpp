@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*            TEditor member functions                        */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TEditor
@@ -30,7 +27,8 @@
 #include <ctype.h>
 
 inline int isWordChar(int ch) {
-   return isalnum(ch) || ch == '_';
+   return isalnum((uchar)ch) || ch == '_';
+   //                  ^^^^^- correction for extended ASCII.
 }
 
 #ifdef __DOS16__
@@ -226,7 +224,7 @@ int countLines(void *buf, size_t count) {
    int anzahl=0;
    char *str=(char *) buf;
    for (unsigned int i=0; i<count; i++) {
-      if (*(str++)==015) anzahl++;
+      if (*(str++)==0x0A) anzahl++;
    }
    return anzahl;
 }
@@ -341,7 +339,8 @@ Boolean TEditor::insertBuffer(char *p,
    if (allowUndo == True)
       if (curPtr == selStart)
          delLen = selLen;
-      else if (selLen > insCount)
+      else
+      if (selLen > insCount)
          delLen = selLen - insCount;
 
    long newSize = long(bufLen + delCount - selLen + delLen) + length;
@@ -349,6 +348,7 @@ Boolean TEditor::insertBuffer(char *p,
    if (newSize > bufLen + delCount)
       if (newSize > (UINT_MAX-0x1F) || setBufSize(size_t(newSize)) == False) {
          editorDialog(edOutOfMemory);
+         selEnd = selStart;
          return False;
       }
 
@@ -743,5 +743,4 @@ TStreamable *TEditor::build() {
 TEditor::TEditor(StreamableInit) : TView(streamableInit) {
 }
 #endif  // ifndef NO_TV_STREAMS
-
 

@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   DRAWBUF.H                                                             */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the class TDrawBuffer, which provides the high-level          */
 /*   interface to the Screen Manager.                                      */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <ttypes.h>
 #include <tvvo.h>

@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   SYSTEM.H                                                              */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes THWMouse, TMouse, TEventQueue, TDisplay,          */
 /*   TScreen, and TSystemError                                             */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
@@ -37,6 +41,9 @@
 #define mbLeftButton  (0x01)
 #define mbRightButton (0x02)
 
+#define meMouseMoved  (0x01)
+#define meDoubleClick (0x02)
+
 #endif  // __EVENT_CODES
 
 
@@ -44,10 +51,15 @@
 #define __TEvent
 
 struct MouseEventType {
-   uchar buttons;
-   Boolean doubleClick;
    TPoint where;
+   ulong eventFlags;           // Replacement for doubleClick.
+   ulong controlKeyState;
+   uchar buttons;
 };
+
+#ifdef __OS2__
+class TRect;
+#endif
 
 class THWMouse {
 
@@ -72,7 +84,7 @@ protected:
    static void resume();
    static void inhibit();
 
-protected:
+//protected:
 
    static uchar buttonCount;
 
@@ -151,6 +163,7 @@ struct KeyDownEvent {
       ushort keyCode;
       CharScanType charScan;
    };
+   ulong controlKeyState;
 };
 
 struct MessageEvent {
@@ -316,6 +329,7 @@ public:
    static Boolean checkSnow;
    static uchar *screenBuffer;
    static ushort cursorLines;
+   static Boolean clearOnSuspend;
 
    static void setCrtData();
    static ushort fixCrtMode(ushort);

@@ -9,12 +9,11 @@
 #define LOG_INTERNAL
 #define STORAGE_INTERNAL
 #define SORT_BY_OBJECTS_ON
-#include "internal.h"
+#include "syslocal.h"
 #include "qsbase.h"
 #include "sp_ini.h"
 #include "qs_rt.h"
 #include "time.h"
-#include "stdlib.h"
 #include "qsinit.h"
 #include "qsint.h"
 #include "errno.h"
@@ -77,6 +76,7 @@ int get_ini_parms(void) {
       no_tgates = ini.ReadInt(cfg_section,"NOTASK");
       msg_name  = ini.ReadStr(shell_section, "MESSAGES");
       ecmd_name = ini.ReadStr(shell_section, "EXTCOMMANDS");
+      mod_delay = !ini.ReadInt(cfg_section, "UNZALL", 0);
       // disable clock in menu
       rc        = ini.ReadInt(cfg_section,"NOCLOCK");
       if (rc || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1);
@@ -405,16 +405,19 @@ void splitfname(const spstr &fname, spstr &dir, spstr &name) {
 }
 
 char* _std _splitfname(const char *fname, char *dir, char *name) {
-   if (!fname||!name) return 0;
+   if (!fname || !name&&!dir) return 0;
    spstr _dir, _name;
-   splitfname(fname,_dir,_name);
+   splitfname(fname, _dir, _name);
    if (dir) {
-      strncpy(dir,_dir(),_MAX_PATH);
+      strncpy(dir, _dir(), _MAX_PATH);
       dir[_MAX_PATH-1] = 0;
    }
-   strncpy(name,_name(),_MAX_PATH);
-   name[_MAX_PATH-1] = 0;
-   return name;
+   if (name) {
+      strncpy(name, _name(), _MAX_PATH);
+      name[_MAX_PATH-1] = 0;
+      return name;
+   } else
+      return dir;
 }
 
 //**********************************************************************
@@ -519,7 +522,11 @@ void setup_storage() {
 }
 
 u32t _std hlp_insafemode(void) {
-   return sto_dword(STOKEY_SAFEMODE);
+   if (!storage) return 0;
+
+   static int sfcache = -1;
+   if (sfcache<0) sfcache = sto_dword(STOKEY_SAFEMODE);
+   return sfcache;
 }
 
 //**********************************************************************

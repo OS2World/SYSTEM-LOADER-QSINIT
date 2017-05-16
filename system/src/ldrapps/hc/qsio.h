@@ -57,7 +57,7 @@ qserr    _std io_unmount  (u8t drive, u32t flags);
     type.
     @param  drive     Drive number: 0..x.
     @param  info      Volume information. Unlike hlp_volinfo(), this pointer
-                      CANNOT be NULL 
+                      CANNOT be NULL
     @return error code */
 qserr    _std io_volinfo  (u8t drive, disk_volume_data *info);
 
@@ -100,6 +100,7 @@ typedef struct {
    io_time   ctime;
    io_time   atime;
    io_time   wtime;
+   u8t         vol;                   ///< QS volume (zero based)
 } io_handle_info;
 
 typedef struct {
@@ -141,6 +142,7 @@ typedef struct {
 #define IOFM_SHARE_MASK    0xF000     ////< bit mask for share bits in open mode
 
 #define IOFM_CLOSE_DEL       0x40     ///< Delete file on last close
+#define IOFM_SECTOR_IO    0x10000     ///< Use sector size as size/offset enum, not byte
 //@}
 
 qserr    _std io_open     (const char *name, u32t mode, io_handle *pfh,
@@ -150,7 +152,7 @@ u32t     _std io_write    (io_handle fh, const void *buffer, u32t size);
 
 /** set file position.
     @param fh      file handle
-    @param offset  offset value (signed!)
+    @param offset  offset value (inn bytes or sectors, signed!)
     @param origin  pointer move method
     @return new position or -1LL (64-bit 0xFFF.... value) - on error,
             known as FFFF64 constant */
@@ -164,9 +166,12 @@ u64t     _std io_seek     (io_handle fh, s64t offset, u32t origin);
 //@}
 
 /** query file position.
+    Position value depends on sector i/o mode (IOFM_SECTOR_IO flag). By
+    default it returned in bytes, but for sector i/o mode - in sectors. This
+    note applied to all size/position functions.
     @param fh      file handle
-    @return position or -1LL (64-bit 0xFFF.... value) - on error, well
-            known as FFFF64 constant */
+    @return position (in bytes or sectors) or -1LL (64-bit 0xFFFF.. value) -
+            on error, known as FFFF64 constant */
 u64t     _std io_pos      (io_handle fh);
 
 qserr    _std io_flush    (io_handle fh);
@@ -174,7 +179,7 @@ qserr    _std io_close    (io_handle fh);
 
 /** query file size.
     @param fh      file handle
-    @param size    ptr to returning file size
+    @param size    ptr to returning file size (in bytes or sectors)
     @return error code */
 qserr    _std io_size     (io_handle fh, u64t *size);
 
@@ -186,22 +191,36 @@ qserr    _std io_setsize  (io_handle fh, u64t newsize);
                    by owner only and cannot be reset back, IOFS_RENONCLOSE
                    can only be reset to 0 (i.e. this terminates file
                    renaming/moving action) and IOFS_BROKEN cannot be set,
-                   only return by io_getstate().
-                   Broken objects deny most ops, but IOFS_DETACHED still can
-                   be set for it.
+                   only returned by io_getstate().
+                   Broken objects deny most ops, but IOFS_DETACHED still
+                   accepted for it.
     @param value   value to set for flag(s) above (1 or 0)
     @return error code */
 qserr    _std io_setstate (qshandle fh, u32t flags, u32t value);
 qserr    _std io_getstate (qshandle fh, u32t *flags);
 
 qserr    _std io_lasterror(io_handle fh);
+
+/** file information by handle.
+    Note, what io_direntry_info.size value depends on sector i/o mode
+    too.
+    @param fh      file/directory/mutex handle
+    @param info    buffer for file information
+    @return error code */
 qserr    _std io_info     (io_handle fh, io_direntry_info *info);
+
+/** query block (sector) size for sector-based i/o.
+    @param fh      file handle
+    @return block size for IOFS_SECTORIO mode or 0 on invalid handle/access. */
+u32t     _std io_blocksize(io_handle fh);
 
 /** query handle type.
     @return IOFT_* constant or 0 on error */
 u32t     _std io_handletype(qshandle fh);
 
 /** duplicate handle.
+    @attention note, that duplicated handle does NOT share file position with
+               source handle!
     @param  [in]  src      handle to duplicate (accepts file & mutex handles now).
     @param  [out] dst      ptr to new handle
     @param  [in]  priv     make private handle if source is detached (shared)
@@ -221,6 +240,7 @@ qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
 #define IOFS_DELONCLOSE   0x0002    ///< delete file on close
 #define IOFS_RENONCLOSE   0x0004    ///< rename/move file on close was scheduled
 #define IOFS_BROKEN       0x0008    ///< file/object is broken (volume was unmounted and so on)
+#define IOFS_SECTORIO     0x0010    ///< file offsets and sizes calculated in sectors (blocks)
 //@}
 
 /// @name io_handletype() result
@@ -230,6 +250,7 @@ qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
 #define IOFT_CHAR              2    ///< handle is character device (con, aux)
 #define IOFT_DIR               3    ///< dir_handle object
 #define IOFT_MUTEX             4    ///< mutex object handle
+#define IOFT_QUEUE             5    ///< queue object handle
 #define IOFT_UNKNOWN           7    ///< handle type is unknown
 //@}
 

@@ -1,15 +1,17 @@
-const char *Hints[131]= {
+#define HELP_LASTHLPIDX  2150  // must be the last
+
+const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Type kernel file name here",
   "Preload all basedev and psd files before initing ACPI (OS/4)",
   "Call boot time kernel CONFIG.SYS editor (OS/4)",
   "Turn off kernel boot logo",
-  "Do not show kernel revision",
-  "Disable LFB usage in OS/4 VESA logo",
+  "Turn off kernel revision string",
+  "Load original IBM messages instead of own ones",
   "Call memory viewer before going to kernel",
-  "Select kernel boot log size, in kylobytes",
-  "Select EXTension instead of SYS for boot CONFIG.SYS",
+  "Turn off hard disk Advanced Format aligment during boot i/o",
+  "Reset all MTRR changes, was done in QSINIT",
   "Manual selection of OS/2 boot drive letter (optional)",
-  "Allow Ctrl-C check by kernel debugger (slow)",
+  "Allow Ctrl-C check by kernel debugger (slow down the debug kernel)",
   "COM port link cable with hardware flow control support",
   "Verbose kernel log (internal)",
   "Push service key for OS/2 kernel",
@@ -31,7 +33,7 @@ const char *Hints[131]= {
   "Power OFF this PC",
   "Select HDD and boot from it without system reset",
   "View CPU model info and available features",
-  "Save QSINIT internal log to file on mounted partition",
+  "Save QSINIT internal log to a file on mounted partition",
   "Replace master boot record (MBR) code on disk",
   "Create a new text file in a new edit window",
   "Locate and open a text file in an edit window",
@@ -66,7 +68,7 @@ const char *Hints[131]= {
   "View current physical sector as partition table",
   "Exit back to QSINIT",
   "Open \"Window\" menu",
-  "Save pure log text to file (no time marks)",
+  "Save pure log text to a file (without time marks)",
   "View current sector as boot sector BPB",
   "Save sector(s) to a binary file on disk",
   "Copy binary file contents to sector(s) on disk",
@@ -127,9 +129,21 @@ const char *Hints[131]= {
   "Put QSINIT binaries to the root (FAT volumes only)",
   "Update boot code on partition",
   "Put QSINIT binaries and update partition bootstrap for it",
-  ""
+  "Svae a block of memory to file on disk",
+  "Create and edit a new binary file",
+  "Locate and open a binary file in an edit window",
+  "Type memory position here in hex form",
+  "The size of memory block to save, in bytes (use 0x prefix for hex)",
+  "Type position in this file here, in hex form",
+  "",
+  "Truncate binary file at the current position",
+  "Press arrow down to select codepage from the list of available",
+  "",
+  "Select kernel boot log size, in kilobytes",
+  "Select EXTension instead of SYS for boot CONFIG.SYS",
+  "QSINIT batch file name to execute before launching kernel",
+  "Level of QSINIT log message to copy into kernel log",
+  "","","","","","","",
   };
 
 const char *EmptyStr="";
-
-#define HELP_LASTHLPIDX  2131  // must be the last

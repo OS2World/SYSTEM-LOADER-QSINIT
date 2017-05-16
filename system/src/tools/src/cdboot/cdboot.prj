@@ -1,0 +1,67 @@
+[project]
+name=cdboot.bin
+version=0x0001
+
+[config]
+0=Debug
+1=Release
+
+[vars]
+aa=wasm
+cc=wcc386
+ld=wlink
+
+*asm=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(aa) $(ainc) $(aflags)$*.obj $(*cur_name)
+
+aflags=-mf -4p -zq -i=%(QS_BASE)\hc $(dbgkey) -fo=
+
+ainc=
+bld_dir=bld
+outdir=$(bld_dir)\$(config)
+outname=$(name)
+exedir=%(QS_BIN)
+del=del
+cp=copy
+&wlnk=$(outdir)\$(name).lnk
+
+[vars.linux]
+del=rm
+copy=cp
+
+[vars.*.0]
+dbgkey=-dDEBUG
+
+[vars.*.1]
+dbgkey=
+
+[files]
+cdboot.asm
+
+[make_footer]
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo Building $(name)...
+
+nolink : MAKEDIRS hello @@wait $(**asm)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
+
+[&wlnk]
+sys os2v2
+name $(outname)
+file /[[$(**asm)! !,]]
+op nod
+op start=cdb_start
+op quiet
+OUTPUT RAW OFF=0x10000
+
+[config.0,1]
+*out=$(outname) | nolink | \
+     echo Linking ... | \
+     $(ld) @$(&wlnk) | \
+     $(cp) $(outname) $(exedir) >%(DEVNUL)

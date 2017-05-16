@@ -4,6 +4,7 @@
 #include "qsinit_ord.h"
 #include "console.h"
 #include "qsutil.h"
+#include "qstask.h"
 #include "vio.h"
 
 static u32t       *fnt_data = 0,
@@ -23,8 +24,7 @@ static u32t         m_color[16];
 
 static con_drawinfo     cdi;
 
-extern u32t    vio_ttylines;
-#pragma aux vio_ttylines "_*";
+extern u32t* _std vio_ttylines();
 
 static void writechar(u32t x, u32t y, char ch, u8t color) {
    con_modeinfo *mi = modes + real_mode;
@@ -101,58 +101,71 @@ static u32t charout_common(char ch, int in_seq) {
    // update cursor
    if (!in_seq && cdi.cdi_CurMask) updatechar(pos_x, pos_y);
    // update global line counter
-   vio_ttylines+=lines;
+   *vio_ttylines() += lines;
 
    return lines;
 }
 
 u32t _std evio_charout(char ch) {
+   if (se_sesno()==SESN_DETACHED) return 0;
    return charout_common(ch,0);
 }
 
 u32t _std evio_strout(const char *str) {
-   u32t rc = 0;
-   while (*str) rc+=charout_common(*str++,1);
-   // update cursor after string output without cursor changes
-   if (cdi.cdi_CurMask) updatechar(pos_x, pos_y);
-   return rc;
+   if (se_sesno()==SESN_DETACHED) return 0; else {
+      u32t rc = 0;
+      while (*str) rc+=charout_common(*str++,1);
+      // update cursor after string output without cursor changes
+      if (cdi.cdi_CurMask) updatechar(pos_x, pos_y);
+      return rc;
+   }
 }
 
 void _std evio_clearscr(void) {
-   con_modeinfo *mi = modes + current_mode;
-   // fill screen
-   pl_clear(real_mode, 0, top_ofs, 0, fnt_y*m_y, m_color[txcolor>>4]);
-   // fill text buffer
-   memsetw((u16t*)mi->shadow, (u16t)txcolor<<8|0x20, m_x*m_y);
-   // cursor pos
-   pos_x = 0;
-   pos_y = 0;
-   if (cdi.cdi_CurMask) updatechar(0,0);
+   if (se_sesno()!=SESN_DETACHED) {
+      con_modeinfo *mi = modes + current_mode;
+      // fill screen
+      pl_clear(real_mode, 0, top_ofs, 0, fnt_y*m_y, m_color[txcolor>>4]);
+      // fill text buffer
+      memsetw((u16t*)mi->shadow, (u16t)txcolor<<8|0x20, m_x*m_y);
+      // cursor pos
+      pos_x = 0;
+      pos_y = 0;
+      if (cdi.cdi_CurMask) updatechar(0,0);
+   }
 }
 
 void _std evio_setpos(u8t line, u8t col) {
-   u32t opx = pos_x,
-        opy = pos_y;
-
-   if ((pos_y=line)>m_y) pos_y = m_y-1;
-   if ((pos_x=col )>m_x) pos_x = m_x-1;
-   // update cursor view
-   if (cdi.cdi_CurMask && (opx!=pos_x || opy!=pos_y)) {
-      updatechar(opx, opy);
-      updatechar(pos_x, pos_y);
+   if (se_sesno()!=SESN_DETACHED) {
+      u32t opx = pos_x,
+           opy = pos_y;
+      
+      if ((pos_y=line)>m_y) pos_y = m_y-1;
+      if ((pos_x=col )>m_x) pos_x = m_x-1;
+      // update cursor view
+      if (cdi.cdi_CurMask && (opx!=pos_x || opy!=pos_y)) {
+         updatechar(opx, opy);
+         updatechar(pos_x, pos_y);
+      }
+      // fix global line counter
+      *vio_ttylines() += pos_y-opy;
    }
-   // fix global line counter
-   vio_ttylines += pos_y-opy;
 }
 
 void _std evio_getpos(u32t *line, u32t *col) {
-   if (line) *line = pos_y;
-   if (col)  *col  = pos_x;
+   if (se_sesno()==SESN_DETACHED) {
+      if (line) *line = 0;
+      if (col)  *col  = 0;
+   } else {
+      if (line) *line = pos_y;
+      if (col)  *col  = pos_x;
+   }
 }
 
 static void evio_bufcommon(u32t col, u32t line, u32t width, u32t height,
    void *buf, u32t pitch, int tosrc)
 {
+   if (se_sesno()==SESN_DETACHED) return;
    if (line>=m_y||col>=m_x) return;
    if (!pitch) pitch = width*2;
    if (col+width   > m_x) width  = m_x - col;
@@ -189,6 +202,7 @@ void _std evio_readbuf (u32t col, u32t line, u32t width, u32t height,
 }
 
 void _std evio_setshape(u8t start, u8t end) {
+   if (se_sesno()==SESN_DETACHED) return;
    txshape = (u16t)end<<8|start;
    cdi.cdi_CurMask = 0; 
    if ((end&0x20)==0) {
@@ -201,22 +215,30 @@ void _std evio_setshape(u8t start, u8t end) {
 }
 
 u16t _std evio_getshape(void) {
+   if (se_sesno()==SESN_DETACHED) return VIO_SHAPE_NONE;
    return txshape;
 }
 
 void _std evio_setcolor(u16t color) {
+   if (se_sesno()==SESN_DETACHED) return;
    colored = color&0x100?0:1;
    txcolor = color&0xFF;
 }
 
 u8t  _std evio_getmode(u32t *cols, u32t *lines) {
-   if (cols)  *cols  = m_x;
-   if (lines) *lines = m_y;
+   if (se_sesno()==SESN_DETACHED) {
+      if (cols) *cols = 80;
+      if (lines) *lines = 25;
+   } else {
+      if (cols)  *cols  = m_x;
+      if (lines) *lines = m_y;
+   }
    return 1;
 }
 
 void _std evio_defshape(u8t shape) {
    u8t bs,be;
+   if (se_sesno()==SESN_DETACHED) return;
    switch (shape) {
       case VIO_SHAPE_FULL: bs=0; be=fnt_y-1; break;
       case VIO_SHAPE_HALF: be=fnt_y-1; bs=be>>1; break;

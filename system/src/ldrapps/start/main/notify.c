@@ -10,7 +10,7 @@
 #include "qslog.h"
 #include "malloc.h"
 #include "qsmodext.h"
-#include "internal.h"
+#include "syslocal.h"
 
 typedef struct {
    u32t     evmask;
@@ -23,13 +23,16 @@ static u32t         cballoc = 0;
 
 #define ALLOC_STEP  20
 #define VALID_MASK  (SECB_QSEXIT|SECB_PAE|SECB_MTMODE|SECB_CMCHANGE|SECB_IODELAY|\
-                     SECB_DISKADD|SECB_DISKREM)
+                     SECB_DISKADD|SECB_DISKREM|SECB_CPCHANGE)
 #define ONCE_MASK   (SECB_QSEXIT|SECB_PAE|SECB_MTMODE)
 
 u32t _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc) {
    u32t rc = 0;
    /// unable to start thread while QSINIT exits
    if ((eventmask&(SECB_QSEXIT|SECB_THREAD))==(SECB_QSEXIT|SECB_THREAD))
+      return 0;
+   /// unable to post caller pointers to threads
+   if ((eventmask&(SECB_CPCHANGE|SECB_THREAD))==(SECB_CPCHANGE|SECB_THREAD))
       return 0;
    if (cbfunc) {
       u32t   ii;

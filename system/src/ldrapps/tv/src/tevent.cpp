@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TEvent member functions                   */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TEventQueue
 #define Uses_TEvent
@@ -23,9 +20,6 @@
 #define Uses_TThreaded
 #include <tv.h>
 #include <stdio.h>
-
-
-
 
 #ifdef __OS2__
 #include <assert.h>
@@ -130,22 +124,24 @@ void TEventQueue::getMouseEvent(TEvent &ev) {
 
       if (ev.mouse.buttons != 0 && lastMouse.buttons == 0) {
          if (ev.mouse.buttons == downMouse.buttons &&
-             ev.mouse.where == downMouse.where &&
-             ev.what - downTicks <= doubleDelay)
-            ev.mouse.doubleClick = True;
+            ev.mouse.where == downMouse.where &&
+               ev.what - downTicks <= doubleDelay &&
+                 !(downMouse.eventFlags & meDoubleClick))
+                    ev.mouse.eventFlags |= meDoubleClick;
 
-         downMouse = ev.mouse;
-         autoTicks = downTicks = ev.what;
-         autoDelay = repeatDelay;
-         ev.what = evMouseDown;
-         lastMouse = ev.mouse;
-         return;
+          downMouse = ev.mouse;
+          autoTicks = downTicks = ev.what;
+          autoDelay = repeatDelay;
+          ev.what = evMouseDown;
+          lastMouse = ev.mouse;
+          return;
       }
 
       ev.mouse.buttons = lastMouse.buttons;
 
       if (ev.mouse.where != lastMouse.where) {
          ev.what = evMouseMove;
+         ev.mouse.eventFlags |= meMouseMoved;
          lastMouse = ev.mouse;
          return;
       }
@@ -178,9 +174,12 @@ void TEventQueue::getMouseState(TEvent &ev) {
    curMouse.where.x = irp->Event.MouseEvent.dwMousePosition.X;
    curMouse.where.y = irp->Event.MouseEvent.dwMousePosition.Y;
    curMouse.buttons = irp->Event.MouseEvent.dwButtonState;
-   curMouse.doubleClick = (irp->Event.MouseEvent.dwEventFlags & DOUBLE_CLICK)
-                          ? True
-                          : False;
+
+   curMouse.eventFlags = 0;
+   if (irp->Event.MouseEvent.dwEventFlags & DOUBLE_CLICK)
+      curMouse.eventFlags |= meDoubleClick;
+   curMouse.controlKeyState = irp->Event.MouseEvent.dwControlKeyState;
+
    ev.mouse = curMouse;
    if (lastMouse.buttons == 0) ev.what = getTicks();
 #else   // __NT__
@@ -221,7 +220,7 @@ void TEventQueue::mouseInt() {
    MouseEventType tempMouse;
 
    tempMouse.buttons = _BL;
-   tempMouse.doubleClick = False;
+   tempMouse.eventFlags = 0;
    tempMouse.where.x = _CX >> 3;
    tempMouse.where.y = _DX >> 3;
 
@@ -253,6 +252,11 @@ keyWaiting:
       INT 16h;
    };
    keyDown.keyCode = _AX;
+   asm {
+      MOV AH,2;
+      INT 16h;
+   };
+   keyDown.controlKeyState = _AL;
    return;
 }
 
@@ -271,25 +275,25 @@ void _loadds mouseInt(int flag,int buttons,int x,int y) {
    MouseEventType tempMouse;
 
    tempMouse.buttons = buttons;
-   tempMouse.doubleClick = False;
+   tempMouse.eventFlags = 0;
    tempMouse.where.x = x >> 3;
    tempMouse.where.y = y >> 3;
 
    if ((flag & 0x1e) != 0 && TEventQueue::eventCount < eventQSize) {
       TEventQueue::eventQTail->what = getTicks();
-      TEventQueue::eventQTail->mouse.buttons     = TEventQueue::curMouse.buttons    ;
-      TEventQueue::eventQTail->mouse.doubleClick = TEventQueue::curMouse.doubleClick;
-      TEventQueue::eventQTail->mouse.where.x     = TEventQueue::curMouse.where.x    ;
-      TEventQueue::eventQTail->mouse.where.y     = TEventQueue::curMouse.where.y    ;
+      TEventQueue::eventQTail->mouse.buttons    = TEventQueue::curMouse.buttons;
+      TEventQueue::eventQTail->mouse.eventFlags = TEventQueue::curMouse.eventFlags;
+      TEventQueue::eventQTail->mouse.where.x    = TEventQueue::curMouse.where.x;
+      TEventQueue::eventQTail->mouse.where.y    = TEventQueue::curMouse.where.y;
       if (++TEventQueue::eventQTail >= TEventQueue::eventQueue + eventQSize)
          TEventQueue::eventQTail = TEventQueue::eventQueue;
       TEventQueue::eventCount++;
    }
 
-   TEventQueue::curMouse.buttons     = tempMouse.buttons    ;
-   TEventQueue::curMouse.doubleClick = tempMouse.doubleClick;
-   TEventQueue::curMouse.where.x     = tempMouse.where.x    ;
-   TEventQueue::curMouse.where.y     = tempMouse.where.y    ;
+   TEventQueue::curMouse.buttons    = tempMouse.buttons;
+   TEventQueue::curMouse.eventFlags = tempMouse.eventFlags;
+   TEventQueue::curMouse.where.x    = tempMouse.where.x;
+   TEventQueue::curMouse.where.y    = tempMouse.where.y;
    TEventQueue::mouseIntFlag = True;
 }
 
@@ -311,21 +315,21 @@ void TEvent::getKeyEvent() {
    } else {
       what = evKeyDown;
       keyDown.keyCode = _bios_keybrd(_KEYBRD_READ);
+      int shift = getShiftState();
+      keyDown.controlKeyState = shift;
       //printf("keyCode=%04X\n",keyDown.keyCode);
       switch (keyDown.charScan.scanCode) {
          case scSpaceKey:
-            if (getShiftState() & kbAltShift)     keyDown.keyCode = kbAltSpace;
+            if (shift & kbAltShift) keyDown.keyCode = kbAltSpace;
             break;
          case scInsKey: {
-            unsigned char state = getShiftState();
-            if (state & kbCtrlShift)     keyDown.keyCode = kbCtrlIns;
-            else if (state & (kbLeftShift|kbRightShift))     keyDown.keyCode = kbShiftIns;
+            if (shift & kbCtrlShift) keyDown.keyCode = kbCtrlIns; else
+               if (shift & (kbLeftShift|kbRightShift)) keyDown.keyCode = kbShiftIns;
          }
          break;
          case scDelKey: {
-            unsigned char state = getShiftState();
-            if (state & kbCtrlShift)     keyDown.keyCode = kbCtrlDel;
-            else if (state & (kbLeftShift|kbRightShift))     keyDown.keyCode = kbShiftDel;
+            if (shift & kbCtrlShift) keyDown.keyCode = kbCtrlDel; else
+               if (shift & (kbLeftShift|kbRightShift)) keyDown.keyCode = kbShiftDel;
          }
          break;
       }
@@ -370,7 +374,8 @@ void TEventQueue::mouseThread(void *arg) {
                           (((info->fs & 0140) != 0) << 2);
       tempMouse.where.x = info->col;
       tempMouse.where.y = info->row;
-      tempMouse.doubleClick = False;
+      tempMouse.eventFlags = False;
+      tempMouse.controlKeyState = getShiftState();
 
       jsSuspendThread
       DosRequestMutexSem(TThreads::hmtxMouse1,SEM_INDEFINITE_WAIT);
@@ -473,18 +478,11 @@ void TEvent::getKeyEvent() {
    }
    if (keyDown.charScan.scanCode == scGreyEnterKey)
       keyDown.keyCode = kbEnter;
+   keyDown.controlKeyState = shiftState;
 
    return;
 
 }
-
-
-
-
-
-
-
-
 #endif  // __OS2__
 
 //-------------------------------------------------------------------------
@@ -647,19 +645,20 @@ void TEvent::getKeyEvent() {
 
    what = evKeyDown;
 
-#define kbShift (kbLeftShift|kbRightShift)
    int shift = getShiftState();
 
    // Convert NT style virtual key codes to Tvision keycodes
 
    uchar vk = irp->Event.KeyEvent.wVirtualKeyCode;
    ushort tk;
-   if (shift & kbShift) tk = translate_vkey(shift_trans, vk);
-   else if (shift & kbCtrlShift) tk = translate_vkey(ctrl_trans, vk);
-   else if (shift & kbAltShift) tk = translate_vkey(alt_trans, vk);
-   else                            tk = translate_vkey(plain_trans, vk);
-   if (tk != 0)     keyDown.keyCode = tk;
-
+   if (shift & kbShift) tk = translate_vkey(shift_trans, vk); else
+      if (shift & kbCtrlShift) tk = translate_vkey(ctrl_trans, vk); else
+         if (shift & kbAltShift) tk = translate_vkey(alt_trans, vk); else
+            tk = translate_vkey(plain_trans, vk);
+   if (tk!=0) {
+      keyDown.keyCode = tk;
+      keyDown.controlKeyState = shift;
+   }
 #if 0
    static FILE *fp = NULL;
    if (fp == NULL) fp = fopen("keys.out","w");
@@ -713,7 +712,7 @@ void TEvent::getKeyEvent() {
    } else {
       what = evKeyDown;
       keyDown.keyCode = key_read();
-
+      keyDown.controlKeyState = getShiftState();
       // ignore extended keyboard
       if (keyDown.charScan.charCode==0xE0) keyDown.charScan.charCode = 0;
       // drop scan code to make Ctrl-char working
@@ -725,20 +724,23 @@ void TEvent::getKeyEvent() {
       //printf("keyCode=%04X\n",keyDown.keyCode);
       switch (keyDown.charScan.scanCode) {
          case scSpaceKey:
-            if (getShiftState()&kbAltShift) keyDown.keyCode = kbAltSpace;
+            if (keyDown.controlKeyState&kbAltShift) keyDown.keyCode = kbAltSpace;
             break;
          case 0x92:
          case scInsKey: {
             unsigned char state = getShiftState();
-            if (state&kbCtrlShift) keyDown.keyCode = kbCtrlIns; else 
-            if (state&(kbLeftShift|kbRightShift)) keyDown.keyCode = kbShiftIns;
+            if (keyDown.controlKeyState&kbCtrlShift) keyDown.keyCode = kbCtrlIns;
+               else 
+            if (keyDown.controlKeyState&(kbLeftShift|kbRightShift))
+               keyDown.keyCode = kbShiftIns;
             break;
          }
          case 0x93:
          case scDelKey: {
-            unsigned char state = getShiftState();
-            if (state&kbCtrlShift) keyDown.keyCode = kbCtrlDel; else 
-            if (state&(kbLeftShift|kbRightShift)) keyDown.keyCode = kbShiftDel;
+            if (keyDown.controlKeyState&kbCtrlShift) keyDown.keyCode = kbCtrlDel;
+               else 
+            if (keyDown.controlKeyState&(kbLeftShift|kbRightShift))
+               keyDown.keyCode = kbShiftDel;
             break;
          }
       }

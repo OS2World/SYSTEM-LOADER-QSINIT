@@ -2,10 +2,17 @@
 /*                                                                         */
 /*   TV.H                                                                  */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
+/*   includes other header files based on which Uses_XXXX symbols are      */
+/*   defined.                                                              */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
@@ -15,7 +22,7 @@
 #endif
 #endif // __DOS16__
 
-#define _TV_VERSION 0x0103
+#define _TV_VERSION 0x0200
 
 #define Uses_EventCodes
 #define Uses_ViewCommands
@@ -84,6 +91,16 @@
 #define __INC_TEXTVIEW_H
 #endif
 
+#if defined( Uses_TOutline )
+#define Uses_TOutlineViewer
+#endif
+
+#if defined( Uses_TOutlineViewer )
+#define Uses_TScroller
+#define Uses_TScrollBar
+#define __INC_OUTLINE_H
+#endif
+
 #if defined( Uses_TTextDevice )
 #define Uses_TScroller
 #define __INC_TEXTVIEW_H
@@ -99,6 +116,11 @@
 #endif
 
 #if defined( Uses_TStatusItem )
+#define __INC_MENUS_H
+#endif
+
+#if defined( Uses_TMenuPopup )
+#define Uses_TMenuBox
 #define __INC_MENUS_H
 #endif
 
@@ -131,6 +153,7 @@
 #endif
 
 #if defined( Uses_TColorDialog )
+#define Uses_TColorGroup
 #define Uses_TDialog
 #define __INC_COLORSEL_H
 #endif
@@ -188,6 +211,33 @@
 #define __INC_STDDLG_H
 #endif
 
+#if defined ( Uses_TRangeValidator )
+#define Uses_TFilterValidator
+#endif
+
+#if defined ( Uses_TFilterValidator )
+#define Uses_TValidator
+#endif
+
+#if defined ( Uses_TStringLookupValidator )
+#define Uses_TLookupValidator
+#define Uses_TStringCollection
+#endif
+
+#if defined ( Uses_TLookupValidator )
+#define Uses_TValidator
+#endif
+
+#if defined ( Uses_TPXPictureValidator )
+#define Uses_TValidator
+#endif
+
+#if defined ( Uses_TValidator )
+#define Uses_TObject
+#define Uses_TStreamable
+#define __INC_VALIDATOR_H
+#endif
+
 #if defined( Uses_TDirEntry )
 #define __INC_STDDLG_H
 #endif
@@ -211,7 +261,6 @@
 #endif
 
 #if defined( Uses_TSortedListBox )
-#define Uses_TSortedCollection
 #define Uses_TListBox
 #define __INC_STDDLG_H
 #endif
@@ -271,6 +320,11 @@
 #define __INC_DIALOGS_H
 #endif
 
+#if defined( Uses_TMultiCheckBoxes )
+#define Uses_TCluster
+#define __INC_DIALOGS_H
+#endif
+
 #if defined( Uses_TRadioButtons )
 #define Uses_TCluster
 #define __INC_DIALOGS_H
@@ -292,6 +346,7 @@
 
 #if defined( Uses_TInputLine )
 #define Uses_TView
+#define Uses_TValidator
 #define __INC_DIALOGS_H
 #endif
 
@@ -412,7 +467,7 @@
 #endif
 
 #if defined( Uses_TEvent )
-#define Uses_TRect
+#define Uses_TPoint
 #define __INC_SYSTEM_H
 #endif
 
@@ -582,6 +637,10 @@
 #include <dialogs.h>
 #endif
 
+#if defined( __INC_VALIDATOR_H )
+#include <validate.h>
+#endif
+
 #if defined( __INC_STDDLG_H )
 #include <stddlg.h>
 #endif
@@ -600,6 +659,10 @@
 
 #if defined( __INC_EDITORS_H )
 #include <editors.h>
+#endif
+
+#if defined( __INC_OUTLINE_H )
+#include <outline.h>
 #endif
 
 #if defined( __INC_APP_H )

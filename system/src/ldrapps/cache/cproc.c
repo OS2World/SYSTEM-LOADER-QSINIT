@@ -207,6 +207,8 @@ static void alloc_structs() {
 
 static diskinfo *get_di(u32t disk) {
    if (!cdi) return 0;
+   // drop known service flags
+   disk&=~(QDSK_DIRECT|QDSK_IGNACCESS);
    if ((disk&~QDSK_FLOPPY) > QDSK_DISKMASK) return 0; else {
       u32t num = disk & QDSK_DISKMASK;
       if (disk&QDSK_FLOPPY) {
@@ -461,7 +463,7 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
                   // is end of disk?
                   if (rpos + rcnt > di->sectors) rcnt = di->sectors - rpos;
                   // read it!
-                  if (hlp_diskread(di->disk|QDSK_DIRECT, rpos, rcnt,
+                  if (hlp_diskread(di->disk|QDSK_IAMCACHE, rpos, rcnt,
                      cache+(block<<15))!=rcnt) break;
                }
                // readed - add entry to cache
@@ -582,7 +584,7 @@ u32t cache_read(u32t disk, u64t pos, u32t ssize, void *buf) {
 // caller provides MT locking in own code
 u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
    int   direct = disk&QDSK_DIRECT?1:0;
-   diskinfo *di = cache?get_di(disk&~QDSK_DIRECT):0;
+   diskinfo *di = cache?get_di(disk):0;
    // wrong disk, pos, size
    if (!di || !di->enabled || !ssize || pos>=di->sectors ||
       pos+ssize>di->sectors) return 0;
@@ -592,7 +594,7 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
       return 0; 
    } else {
       // write first
-      u32t rc = hlp_diskwrite(disk|QDSK_DIRECT, pos, ssize, buf);
+      u32t rc = hlp_diskwrite(disk|QDSK_IAMCACHE, pos, ssize, buf);
       // update written part
       if (rc) cache_io(di, pos, rc, (u8t*)buf, 1+direct);
       // return to common hlp_diskwrite()
@@ -602,8 +604,7 @@ u32t cache_write(u32t disk, u64t pos, u32t ssize, void *buf) {
 
 // called WITHOUT MT locking, but all ops here are safe
 void cache_ioctl(u8t vol, u32t action) {
-   if (dblevel>1 && action!=CC_IDLE)
-      log_it(2,"cache_ioctl(%d,%d)\n",vol,action);
+   if (dblevel>1) log_it(2,"cache_ioctl(%d,%d)\n",vol,action);
    switch (action) {
       case CC_MOUNT    : // Mount/Unmount volume
       case CC_UMOUNT   : {
@@ -621,7 +622,6 @@ void cache_ioctl(u8t vol, u32t action) {
       case CC_RESET    : // FatFs disk_initialize()
          return;
       case CC_SYNC     : // FatFs CTRL_SYNC command
-      case CC_IDLE     : // Idle action (keyboard read)
       case CC_FLUSH    : // Flush all
          return;
       default:

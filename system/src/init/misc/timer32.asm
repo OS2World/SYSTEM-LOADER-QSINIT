@@ -186,7 +186,7 @@ _tm_getdate     proc    near                                    ;
                 popfd                                           ;
                 ret                                             ;
 @@tmgtme_err:
-                mov     ecx,40210000h                           ; return 1-1-2012
+                mov     ecx,4A210000h                           ; return 1-1-2017
                 jmp     @@tmgtme_exit                           ; on error
 _tm_getdate     endp                                            ;
 

@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TScroller member functions                */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TScroller
 #define Uses_TScrollBar
@@ -35,7 +32,8 @@ TScroller::TScroller(const TRect &bounds,
    drawLock(0),
    drawFlag(False),
    hScrollBar(aHScrollBar),
-   vScrollBar(aVScrollBar) {
+   vScrollBar(aVScrollBar)
+{
    delta.x = delta.y = limit.x = limit.y = 0;
    options |= ofSelectable;
    eventMask |= evBroadcast;
@@ -102,7 +100,7 @@ void TScroller::scrollDraw() {
    }
 }
 
-void TScroller::scrollTo(short x, short y) {
+void TScroller::scrollTo(int x, int y) {
    drawLock++;
    if (hScrollBar != 0)
       hScrollBar->setValue(x);
@@ -112,7 +110,7 @@ void TScroller::scrollTo(short x, short y) {
    checkDraw();
 }
 
-void TScroller::setLimit(short x, short y) {
+void TScroller::setLimit(int x, int y) {
    limit.x = x;
    limit.y = y;
    drawLock++;
@@ -121,14 +119,14 @@ void TScroller::setLimit(short x, short y) {
                             0,
                             x - size.x,
                             size.x-1,
-                            1
+                            hScrollBar->arStep
                            );
    if (vScrollBar != 0)
       vScrollBar->setParams(vScrollBar->value,
                             0,
                             y - size.y,
                             size.y-1,
-                            1
+                            vScrollBar->arStep
                            );
    drawLock--;
    checkDraw();

@@ -21,23 +21,6 @@
                 extrn   _hlp_fread      :near
                 extrn   _hlp_fclose     :near
                 extrn   _hlp_freadfull  :near
-                extrn   _f_mount        :near
-                extrn   _f_open         :near
-                extrn   _f_read         :near
-                extrn   _f_lseek        :near
-                extrn   _f_close        :near
-                extrn   _f_opendir      :near
-                extrn   _f_readdir      :near
-                extrn   _f_stat         :near
-                extrn   _f_write        :near
-                extrn   _f_getfree      :near
-                extrn   _f_truncate     :near
-                extrn   _f_sync         :near
-                extrn   _f_unlink       :near
-                extrn   _f_mkdir        :near
-                extrn   _f_chmod        :near
-                extrn   _f_utime        :near
-                extrn   _f_rename       :near
                 extrn   _snprintf       :near
                 extrn   __snprint       :near
                 extrn   _memset         :near
@@ -65,7 +48,7 @@
                 extrn   _zip_nextfile   :near
                 extrn   _zip_readfile   :near
                 extrn   _crc32          :near
-                extrn   _zip_isok       :near
+                extrn   _zip_openfile   :near
                 extrn   _zip_unpacked   :near
                 extrn   _BootBPB        :byte
                 extrn   _hlp_selalloc   :near
@@ -130,9 +113,6 @@
                 extrn   _hlp_readmsr    :near
                 extrn   _hlp_writemsr   :near
                 extrn   _hlp_diskmode   :near
-                extrn   _f_getlabel     :near
-                extrn   _f_setlabel     :near
-                extrn   _f_closedir     :near
                 extrn   _tm_calibrate   :near
                 extrn   _vio_getmodefast:near
                 extrn   _key_waithlt    :near
@@ -188,7 +168,6 @@
                 extrn   _hlp_disksize64 :near
                 extrn   _sys_setxcpt64  :near
                 extrn   _sys_selquery   :near
-                extrn   _hlp_setcpinfo  :near
                 extrn   _hlp_diskstruct :near
                 extrn   _exit_restirq   :near
                 extrn   _hlp_rmcallreg  :near
@@ -209,6 +188,13 @@
                 extrn   _sys_clock      :near
                 extrn   _hlp_blistadd   :near
                 extrn   _hlp_blistdel   :near
+                extrn   _se_sesno       :near
+                extrn   _memcmp         :near
+                extrn   _ExCvt          :byte
+                extrn   _ff_convert     :near
+                extrn   _ff_wtoupper    :near
+                extrn   _hlp_fexist     :near
+                extrn   _hlp_diskbios   :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -275,33 +261,12 @@ _exptable_data:
                 dd      offset _hlp_fread                       ;
                 dd      offset _hlp_fclose                      ;
                 dd      offset _hlp_freadfull                   ;
+                dd      offset _hlp_fexist                      ;
 ;----------------------------------------------------------------
                 nextord <40>                                    ;
-                dd      offset _f_mount                         ;
-                dd      offset _f_open                          ;
-                dd      offset _f_read                          ;
-                dd      offset _f_lseek                         ;
-                dd      offset _f_close                         ;
-                dd      offset _f_opendir                       ;
-                dd      offset _f_readdir                       ;
-                dd      offset _f_stat                          ;
-                dd      offset _f_write                         ;
-                dd      offset _f_getfree                       ;
-                dd      offset _f_truncate                      ;
-                dd      offset _f_sync                          ;
-                dd      offset _f_unlink                        ;
-                dd      offset _f_mkdir                         ;
-                dd      offset _f_chmod                         ;
-                dd      offset _f_utime                         ;
-                dd      offset _f_rename                        ;
-                dd      offset _f_closedir                      ;
-                dd      0                                       ;
-                dd      0                                       ;
-                dd      0                                       ;
-                dd      0                                       ;
-                dd      offset _f_getlabel                      ;
-                dd      offset _f_setlabel                      ;
-                dd      offset _hlp_setcpinfo                   ;
+                dd      offset _memcmp                          ;
+                dd      offset _ff_convert                      ;
+                dd      offset _ff_wtoupper                     ;
 ;----------------------------------------------------------------
                 nextord <70>                                    ;
                 dd      offset _snprintf                        ;
@@ -353,14 +318,14 @@ _exptable_data:
                 dd      offset _zip_nextfile                    ;
                 dd      offset _zip_readfile                    ;
                 dd      offset _crc32                           ;
-                dd      offset _zip_isok                        ;
+                dd      offset _zip_openfile                    ;
                 dd      offset _zip_unpacked                    ;
 ;----------------------------------------------------------------
                 nextord <120>                                   ;
                 dd      offset _hlp_int15mem                    ;
                 dd      offset _exit_poweroff                   ;
                 dd      offset _exit_restirq                    ;
-                dd      0                                       ;
+                dd      offset _se_sesno                        ;
                 next_is_offset                                  ;
                 dd      offset _BootBPB                         ; *
                 dd      offset _hlp_runcache                    ;
@@ -371,7 +336,8 @@ _exptable_data:
                 dd      offset _IODelay                         ; *
                 dd      offset _page0_fptr                      ; *
                 dd      offset _exit_prepare                    ;
-                dd      0                                       ;
+                next_is_offset                                  ;
+                dd      offset _ExCvt                           ;
                 dd      offset _hlp_boottype                    ;
                 dd      offset _hlp_getcpuid                    ;
                 dd      offset _hlp_readmsr                     ;
@@ -447,8 +413,7 @@ _exptable_data:
                 dd      offset _vio_setmodeex                   ;
                 dd      offset _vio_writebuf                    ;
                 dd      offset _vio_readbuf                     ;
-                next_is_offset                                  ;
-                dd      offset _vio_ttylines                    ; *
+                dd      offset _vio_ttylines                    ;
 ;----------------------------------------------------------------
                 nextord <210>                                   ;
                 dd      offset _hlp_diskcount                   ;
@@ -459,8 +424,8 @@ _exptable_data:
                 dd      offset _hlp_fddline                     ;
                 dd      offset _hlp_diskadd                     ;
                 dd      offset _hlp_diskremove                  ;
-                dd      0                                       ; mount/unmount
-                dd      0                                       ; was here
+                dd      offset _hlp_diskbios                    ;
+                dd      0                                       ;
                 dd      0                                       ;
                 dd      offset _hlp_disksize64                  ;
                 dd      offset _hlp_diskstruct                  ;

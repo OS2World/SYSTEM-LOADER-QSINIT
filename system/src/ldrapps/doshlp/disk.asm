@@ -5,6 +5,9 @@
 ; * must be placed in discardable part of doshlp (for readbuf_ptr usage)
 ; * was shared with QSINIT until rev 268
 ;
+                ; 1 - ordinary debug
+                disk_debug = 0
+
                 include inc/qstypes.inc                         ;
                 include inc/segdef.inc                          ; segments
                 include inc/basemac.inc                         ;
@@ -24,7 +27,8 @@ DriveParams     ends
 NUMBER_DISKS     =  4                                           ; 2 floppies, 2 hard disks
 MAX_INT13_RETRY  = 10                                           ; maximum number of read retries
 AF_SECTORS      equ     AF_ALIGN SHR SECTSHIFT                  ;
-SECT_PER_READ    = 120                                          ; number of sectors per one r/w op
+SEC_EXTREAD      = 120                                          ; # of sectors per one r/w op
+SEC_EXTREAD_MAX  = 127                                          ; max. # of sectors for one op
 
                 public  _driveparams                            ;
                 public  _edparmtable                            ;
@@ -201,10 +205,10 @@ int13check      proc    near
                 mov     ah, 41h                                 ; check for int 13 ext.
                 mov     bx, 55AAh                               ;
                 call    int13                                   ;
-                ;dbg16print <"int13 41h: %x %x %x",10>,<cx,bx,ax>
-                jc      @@i13c_testread                         ; no support?
-                cmp     ah, 21h                                 ; check version
-                jb      @@i13c_testread                         ;
+                jc      @@i13c_testread                         ; has no support?
+if disk_debug GT 0
+                dbg16print <"int13 41h: %x %x %x",10>,<cx,bx,ax>
+endif
                 cmp     bx, 0AA55h                              ; check signature
                 jnz     @@i13c_testread                         ;
                 and     cl, 1                                   ; check r/w support
@@ -213,12 +217,12 @@ int13check      proc    near
 @@i13c_nonboot:
                 mov     bl, dl                                  ;
                 and     bx, 07Fh                                ; zero high bits
-                or      cl, 2                                   ; drive present
-                mov     _i13ext_table[bx], cl                   ; save flag
-                mov     word ptr [si].ED_BufferSize, size EDParmTable
-                mov     ah, 48h                                 ; get extended drive parameters
+                or      cl, 6                                   ; drive present & LBA on
+                mov     _i13ext_table[bx], cl                   ;
+                mov     [si].ED_BufferSize, size EDParmTable    ; buffer should be zeroed
+                mov     ah, 48h                                 ;
                 push    dx                                      ;
-                call    int13                                   ;
+                call    int13                                   ; get extended drive parameters
                 jc      @@i13c_testread                         ;
                 cmp     word ptr [si], size EDParmTable         ; too old table
                 jb      @@i13c_testread                         ;
@@ -250,45 +254,8 @@ int13check      proc    near
                 mov     [si].ED_SectOnTrack,63                  ;
                 dbg16print <"empty EDD for disk %x",10>,<dx>
 @@i13c_chsok:
-; read sector at the end of disk to test actual int13ext functionality,
-; but for boot disk only (some bioses can hang on connected USB drives)
                 push    dx                                      ;
-                mov     ecx, dword ptr [si+4].ED_Sectors        ; number of sectors - hi dword
-                jecxz   @@i13c_10                               ;
-                mov     ecx, 0FFFFFFFFh                         ;
-                jmp     @@i13c_11                               ;
-@@i13c_10:
-                mov     ecx, dword ptr [si].ED_Sectors          ; number of sectors - lo dword
-                or      ecx,ecx                                 ; no disk size?
-                jz      @@i13c_testend                          ; let the c code thinking about...
-@@i13c_11:
-                mov     bl, dl                                  ; flag i13x
-                and     bx, 07Fh                                ; possibility
-                or      _i13ext_table[bx], 4                    ;
-@@i13c_gt8gb:
-                cmp     dl, _dd_bootdisk                        ;
-                jnz     @@i13c_testend                          ; boot disk?
-                dec     ecx                                     ; skip test then
-                jecxz   @@i13c_testend                          ;
-                dec     ecx                                     ;
-                jecxz   @@i13c_testend                          ;
-                push    si                                      ;
-                mov     si, offset ext_packet                   ; fill packer
-                and     cl, not 7
-                mov     dword ptr [si].ER_StartSect, ecx        ; sector number
-                xor     ecx, ecx                                ;
-                mov     dword ptr [si+4].ER_StartSect, ecx      ; hi part - 0
-                mov     [si].ER_PktSize, 10h                    ;
-                mov     [si].ER_Reserved, cl                    ;
-                mov     [si].ER_SectorCount, 1                  ;
-                mov     ax, readbuf_ptr                         ;
-                mov     word ptr [si].ER_BufferAddr, ax         ; buffer addr
-                mov     word ptr [si+2].ER_BufferAddr, ds       ;
-                ;dbg16print <"int13ext: %x %lx %x:%x",10>,<bx,di,edx,ax>
-                mov     ah, 42h                                 ; read it
-                call    int13                                   ;
-                pop     si                                      ;
-                jnc     @@i13c_testend                          ; error?
+                jmp     @@i13c_testend                          ;
 @@i13c_noext:
                 xor     eax, eax                                ; clear extended info
                 mov     cx, size EDDParmTable shr 2             ;
@@ -458,7 +425,9 @@ sector_io       proc    near
 ; calculate head/sector
 @@rsec_loop:
                 mov     eax,@@SectorBase                        ; sector number
-                ;dbg16print <"int13: s:%lx",10>,<eax>
+if disk_debug GT 0
+                dbg16print <"int13: s:%lx",10>,<eax>
+endif
                 add     eax,_BootBPB.BPB_HiddenSec              ;
                 xor     edx,edx                                 ;
                 movzx   ecx,_BootBPB.BPB_SecPerTrack            ;
@@ -706,6 +675,7 @@ int13_rwext     proc    near
 @@Readed        = word ptr  [bp-2]                              ;
 @@RetryCount    = word ptr  [bp-4]                              ;
 @@Action        = word ptr  [bp-6]                              ;
+@@OpSize        = word ptr  [bp-8]                              ; max # of sector in one step
                 push    edx                                     ;
                 push    ecx                                     ;
                 push    bp                                      ;
@@ -713,31 +683,35 @@ int13_rwext     proc    near
                 push    eax                                     ; @@Readed + @@RetryCount
                 cbw                                             ; @@Action
                 push    ax                                      ;
-                movzx   ecx, cx                                 ; zero-extend sector count
-                add     edx, _BootBPB.BPB_HiddenSec             ; adjust with partition's base sector
-                mov     di, es                                  ;
+                movzx   ecx,cx                                  ; zero-extend sector count
+                add     edx,_BootBPB.BPB_HiddenSec              ; adjust with partition's base sector
+                mov     di,es                                   ;
 ; Advanced Format aligning
                 test    _useAFio, 0FFh                          ;
-                jz      @@i13rw_mainloop                        ;
-                lea     eax, [edx + AF_ALIGN_SECT - 1]          ;
-                and     eax, not (AF_ALIGN_SECT - 1)            ;
-                sub     eax, edx                                ;
+                jz      @@i13rw_noAF                            ;
+                push    SEC_EXTREAD                             ; 120 sectors (4k aliged)
+
+                lea     eax,[edx + AF_ALIGN_SECT - 1]           ;
+                and     eax,not (AF_ALIGN_SECT - 1)             ;
+                sub     eax,edx                                 ;
                 jz      @@i13rw_mainloop                        ; split op for AF only if
-                lea     esi, [eax + AF_ALIGN_SECT - 1]          ; another part is full-size
-                cmp     cx, si                                  ; with 8 sectors
+                lea     esi,[eax + AF_ALIGN_SECT - 1]           ; another part is full-size
+                cmp     cx,si                                   ; with 8 sectors
                 jbe     @@i13rw_mainloop                        ;
-                sub     cx, ax                                  ; read/write up to 4k
+                sub     cx,ax                                   ; read/write up to 4k
                 push    cx                                      ; boundary first
-                mov     cx, ax                                  ;
+                mov     cx,ax                                   ;
                 ;dbg16print <"int13ext: align %d",10>,<cx>       ;
                 jmp     @@i13rw_read                            ;
+@@i13rw_noAF:
+                push    SEC_EXTREAD_MAX                         ; 127 sectors (max. recomended)
 ;----------------------------------------------------------------
 @@i13rw_mainloop:
-                cmp     cx, SECT_PER_READ                       ; no more 64k in one read
+                cmp     cx,@@OpSize                             ; no more 64k in one read
                 jbe     @@i13rw_less64k                         ;
-                sub     cx, SECT_PER_READ                       ;
+                sub     cx,@@OpSize                             ;
                 push    cx                                      ; save sector counter
-                mov     cx, SECT_PER_READ                       ;
+                mov     cx,@@OpSize                             ;
                 jmp     @@i13rw_read                            ;
 @@i13rw_less64k:
                 push    0                                       ; < 64ª - no more to read
@@ -749,6 +723,7 @@ int13_rwext     proc    near
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 @@i13rw_loop:                                                   ;
                 push    edx                                     ;
+                xor     esi,esi                                 ; just to be safe (ds:esi)
                 xor     eax,eax                                 ;
                 mov     si, offset ext_packet                   ;
                 mov     [si].ER_PktSize, 10h                    ; size = 10h
@@ -761,8 +736,10 @@ int13_rwext     proc    near
                 mov     ax,@@Action                             ;
                 xchg    al,ah                                   ;
                 add     ah,42h                                  ;
-                ;dbg16print <"int13ext: %x %lx %x %x:%x",10>,<bx,di,cx,edx,ax>
-                mov     dl,_dd_bootdisk                         ;
+if disk_debug GT 0
+                dbg16print <"int13ext: %x %lx %x %x:%x",10>,<bx,di,cx,edx,ax>
+endif
+                movzx   edx,_dd_bootdisk                        ;
                 push    bx                                      ; save registers
                 push    ecx                                     ; to prevent bios damage
                 call    int13                                   ; make it!
@@ -787,9 +764,8 @@ int13_rwext     proc    near
                 mov     bx, ext_packet.ER_SectorCount           ;
                 xchg    ah,al                                   ; error code ah->ax
                 cbw                                             ;
-ifdef INITDEBUG
+if disk_debug GT 0
                 dbg16print <"int13ext: %d err=%x %d sec from %lx",10>,<edx,bx,ax,@@Action>
-                save_dword <"int13err">,<eax>
 endif
                 stc                                             ; signal error
 @@i13rw_end:
@@ -812,11 +788,15 @@ DHReadSectors   proc    far                                     ;
                 pushf                                           ;
                 push    cs                                      ;
                 pop     ds                                      ; set dgroup
-                ;dbg16print <"DHReadSectors es:di=%x:%x, dx:ax=%x:%x cx=%x bx=%x",10>,<bx,cx,ax,dx,di,es>
+if disk_debug GT 0
+                dbg16print <"DHReadSectors es:di=%x:%x, dx:ax=%x:%x cx=%x bx=%x",10>,<bx,cx,ax,dx,di,es>
+endif
                 call    int13read                               ; read
                 setc    al                                      ;
                 cbw                                             ;
-                ;dbg16print <"DHReadSectors done %x : %b16",10>,<es,di,ax>
+if disk_debug GT 0
+                dbg16print <"DHReadSectors done %x %x:%x: %b16",10>,<es,di,di,es,ax>
+endif
                 popf                                            ;
                 rcr     al,1                                    ; save all flags except OF ;)
                 pop     ax                                      ;

@@ -37,12 +37,12 @@ typedef struct {
 
 /// replace fiber regs by supplied one.
 void mt_setregs(mt_fibdata *fd, struct tss_s *regs) {
-   struct tss_s *rd = &fd->fiRegisters;
+   struct tss_s *rd = &fd->fiRegs;
    memcpy(rd, regs, sizeof(struct tss_s));
 }
 
 void mt_seteax(mt_fibdata *fd, u32t eaxvalue) {
-   fd->fiRegisters.tss_eax = eaxvalue;
+   fd->fiRegs.tss_eax = eaxvalue;
 }
 
 mt_thrdata* get_by_tid(mt_prcdata *pd, u32t tid) {
@@ -126,8 +126,7 @@ void* alloc_thread_memory(u32t pid, u32t tid, u32t size) {
 /** function just _throw_ trap screen on error.
     This is version for pre-MTLIB structs, it checks, what structures,
     was allocated by QSINIT`s process.c still is in the same totalitary
-    state (single thread, single fiber, ... ;)
-    Then it also allocates initial TLS */
+    state (single thread, single fiber, ... ;) */
 static void check_prcdata_early(process_context *pq, mt_prcdata *pd) {
    mt_thrdata *td = pd && pd->piList?pd->piList[0]:0;
    mt_fibdata *fd = td?td->tiList:0;
@@ -138,10 +137,10 @@ static void check_prcdata_early(process_context *pq, mt_prcdata *pd) {
          (pd->piMiscFlags&PFLM_EMBLIST)==0 || pd->piListAlloc!=PREALLOC_THLIST ||
             td->tiTID!=1 || td->tiSign!=THREADINFO_SIGN || td->tiPID!=pd->piPID ||
                td->tiFibers!=1 || td->tiFirstMutex || td->tiFiberIndex ||
-                  td->tiMiscFlags!=(TFLM_MAIN|TFLM_EMBLIST) ||
-                     fd->fiSign!=FIBERSTATE_SIGN || fd->fiStack ||
-                        fd->fiStackSize || fd->fiType!=FIBT_MAIN)
-                           THROW_ERR_PQ(pq);
+                  td->tiMiscFlags!=(TFLM_MAIN|TFLM_EMBLIST) || fd->fiStack ||
+                     fd->fiSign!=FIBERSTATE_SIGN || fd->fiStackSize ||
+                        fd->fiType!=FIBT_MAIN || fd->fiFPUMode!=FIBF_EMPTY &&
+                           fd->fiFPUMode!=FIBF_OK) THROW_ERR_PQ(pq);
 }
 
 /** complex check of process data.
@@ -199,12 +198,18 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
          for (fii=0; !err && fii<tl->tiListAlloc; fii++) {
             mt_fibdata *fd = tl->tiList + fii;
             if (fd->fiSign!=FIBERSTATE_SIGN) err = 9;
+            // FPU state buffer should be aligned to 64
+            if (fd->fiFPURegs)
+               if ((ptrdiff_t)fd->fiFPURegs&0x3F) err = 11;
          }
          thcnt++;
       }
    }
    // check number of threads match
-   if (thcnt!=pd->piThreads) err = 10;
+   if (thcnt!=pd->piThreads) {
+      log_it(0, "%u<>%u\n", thcnt, pd->piThreads);
+      err = 10;
+   }
 
    if (err) {
       log_it(0, "prcdata err %u (%08X,%u,%s)\n", err, pd, pq->pid, pq->self->name);
@@ -214,17 +219,43 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
    return 1;
 }
 
-mt_prcdata* _std mt_new(process_context *pq) {
-   struct tss_s  rd;
-   mt_prcdata   *pd = org_mtnew(pq), *cpd,
-               *ppd = pt_current->tiParent;
-   mt_thrdata   *td = pd->piList[0];
-   mt_fibdata   *fd = td->tiList;
+mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
+   struct tss_s   rd;
+   mt_prcdata    *pd = org_mtnew(pq,0), *cpd,
+                *ppd = pt_current->tiParent;
+   mt_thrdata    *td = pd->piList[0];
+   mt_fibdata    *fd = td->tiList;
+   se_start_data *sd = (se_start_data*)mtdata;
 
-   pd->piNext       = 0;
-   pd->piFirstChild = 0;
-   pd->piParent     = ppd;
-   pd->piParentTID  = pt_current->tiTID; //? for switch_context()
+   pd->piNext        = 0;
+   pd->piFirstChild  = 0;
+   pd->piParent      = ppd;
+
+   if (sd && sd->sign!=SEDAT_SIGN) sd = 0;
+   if (sd) {
+      pd->piParentTID = 0;
+      pd->piMiscFlags|= PFLM_NOPWAIT;
+      if (sd->flags&QEXS_DETACH) td->tiSession = SESN_DETACHED; else {
+         // !!
+         td->tiSession = pt_current->tiSession;
+      }
+      sd->pid = pd->piPID;
+      sd->sno = td->tiSession;
+      // change parent data to QSINIT
+      if (sd->flags&QEXS_NOTACHILD) {
+         pd->piParentPID = 1;
+         pd->piParent    = pd_qsinit;
+         pq->parent      = pq_qsinit->self;
+         pq->pctx        = pq_qsinit;
+         ppd             = pd_qsinit;
+      }
+      /* process must be suspended until launcher`s
+         mt_waitobject() for it */
+      if (sd->flags&QEXS_WAITFOR) pd->piMiscFlags|=PFLM_LWAIT;
+   } else {
+      pd->piParentTID  = pt_current->tiTID;
+      td->tiSession    = pt_current->tiSession;
+   }
    td->tiState      = THRD_SUSPENDED;
    td->tiTime       = 0;
    td->tiLastTime   = 0;
@@ -260,11 +291,24 @@ u32t _std mt_exec(process_context *pq) {
    /* it should have one thread, one fiber, valid signs and so on, else
       we just _throw_ immediately */
    check_prcdata_early(pq, (mt_prcdata*)pd);
-   /* exec module (this thread will be stopped until exit, new thread
-      context data was filled by mt_new() above */
-   switch_context(pd->piList[0], SWITCH_EXEC);
-   // return exit code
-   return pd->piExitCode;
+
+   if (pd->piMiscFlags&PFLM_NOPWAIT) {
+      mt_thrdata *th0 = pd->piList[0];
+
+      if (pd->piMiscFlags&PFLM_LWAIT) {
+         th0->tiState      = THRD_WAITING;
+         th0->tiWaitReason = THWR_WAITLNCH;
+         th0->tiWaitHandle = mod_getpid();
+      } else
+         th0->tiState      = THRD_RUNNING; 
+      return 0;
+   } else {
+      /* exec module (this thread will be stopped until exit, new thread
+         context data was filled by mt_new() above */
+      switch_context(pd->piList[0], SWITCH_EXEC);
+      // return exit code
+      return pd->piExitCode;
+   }
 }
 
 u32t _std mt_exit(process_context *pq) {
@@ -387,15 +431,6 @@ void init_process_data(void) {
    // mt_dumptree();
 }
 
-qserr _std mod_loaddetach(const char *path, u32t flags, const char *env, 
-                          const char *params)
-{
-   if (!mt_on) return E_MT_DISABLED;
-   if (!path) return E_SYS_INVNAME;
-
-   return E_SYS_UNSUPPORTED;
-}
-
 void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue) {
    u32t ii;
    // enum threads
@@ -407,6 +442,27 @@ void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue) {
    }
 }
 
+static void lwait_off(mt_prcdata *pd, u32t parent) {
+   if (pd->piThreads==1 && (pd->piMiscFlags&PFLM_LWAIT)) {
+      mt_thrdata *tm = pd->piList[0];
+      if (tm->tiState==THRD_WAITING && tm->tiWaitReason==THWR_WAITLNCH &&
+         tm->tiWaitHandle==parent) tm->tiState = THRD_RUNNING;
+   }
+}
+
+/** Release childs, who waits for mt_waitobject() from specified pid.
+    Must be called inside lock only! */
+void update_lwait(u32t parent, u32t child) {
+   if (child) {
+      mt_prcdata *pd = get_by_pid(child);
+      if (pd) lwait_off(pd, parent);
+   } else {
+      u32t ii;
+      for (ii=0; ii<pid_alloc; ii++)
+         if (pid_list[ii]) lwait_off(pid_ptrs[ii], parent);
+   }
+}
+
 mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata, void *arg) {
    mt_prcdata  *where = 0;
    u32t     stacksize = _64KB;
@@ -415,7 +471,7 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
    // ...
    if (!mt_on || !thread) return 0;
    // the only valid flags value now
-   if (flags && flags!=MTCT_SUSPENDED) return 0;
+   if (flags&~(MTCT_NOFPU|MTCT_NOTRACE|MTCT_SUSPENDED)) return 0;
 
    if (optdata) {
       u32t maxsize;
@@ -437,11 +493,11 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
    if (!th) rc = 0; else {
       u32t *stackptr;
       // ready stack esp setup
-      if (rstack) th->tiList[0].fiRegisters.tss_esp = rstack + stacksize;
+      if (rstack) th->tiList[0].fiRegs.tss_esp = rstack + stacksize;
       // sub space for argument & ret addr
-      th->tiList[0].fiRegisters.tss_esp -= 8;
+      th->tiList[0].fiRegs.tss_esp -= 8;
       // create stack
-      stackptr = (u32t*)th->tiList[0].fiRegisters.tss_esp;
+      stackptr = (u32t*)th->tiList[0].fiRegs.tss_esp;
       stackptr[0] = (u32t)&mt_exitthreada;
       stackptr[1] = (u32t)arg;
 
@@ -450,6 +506,8 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
          th->tiCbExit  = optdata->onexit;
          th->tiCbTerm  = optdata->onterm;
       }
+      if (flags&MTCT_NOFPU) th->tiMiscFlags |= TFLM_NOFPU;
+      if (flags&MTCT_NOTRACE) th->tiMiscFlags |= TFLM_NOTRACE;
       if ((flags&MTCT_SUSPENDED)==0) th->tiState = THRD_RUNNING;
       rc = th->tiTID;
    }
@@ -490,16 +548,20 @@ u32t _std mt_termthread(mt_tid tid, u32t result) {
    pd  = th->tiParent;
    dth = get_by_tid(pd, tid);
    // no tid
-   if (!dth) rc = E_MT_BADTID; else
-   // thread is gone or this is main, waiting for secondaries
-   if (dth->tiState==THRD_FINISHED || dth->tiState==THRD_WAITING &&
-      dth->tiWaitReason==THWR_TIDMAIN) rc = E_MT_GONE; else
-   // main or system?
-   if ((dth->tiMiscFlags&(TFLM_SYSTEM|TFLM_MAIN))) rc = E_MT_ACCESS; else
-   /* waiting for something? but still possible to stop mt_waitobject &
-      another one mt_termthread (THWR_TIDEXIT state) */
-   if (dth->tiState==THRD_WAITING && dth->tiWaitReason!=THWR_TIDEXIT &&
-      dth->tiWaitReason!=THWR_WAITOBJ) rc = E_MT_BUSY;
+   if (!dth) rc = E_MT_BADTID; else {
+      u32t st = dth->tiState,
+           wr = dth->tiWaitReason;
+      // thread is gone or this is main, waiting for secondaries
+      if (st==THRD_FINISHED || st==THRD_WAITING && wr==THWR_TIDMAIN) rc = E_MT_GONE;
+         else
+      // main or system?
+      if ((dth->tiMiscFlags&(TFLM_SYSTEM|TFLM_MAIN))) rc = E_MT_ACCESS;
+         else
+      /* waiting for something? still able to stop mt_waitobject, another
+         one mt_termthread (THWR_TIDEXIT state) & THWR_WAITLNCH. */
+      if (st==THRD_WAITING && wr!=THWR_TIDEXIT && wr!=THWR_WAITOBJ &&
+         wr!=THWR_WAITLNCH) rc = E_MT_BUSY;
+   }
 
    if (rc || th->tiTID==tid) {
       mt_swunlock();
@@ -549,7 +611,6 @@ void _std mt_exitthread_int(u32t result) {
    update_wait_state(pd, THWR_TIDEXIT, th->tiTID);
 
    if (th->tiMiscFlags&TFLM_MAIN) {
-      mt_thrdata *pth;
       th->tiParent->piExitCode = result;
 #if 0
       log_it(0, "exit main (%d) %X %d\n", pd->piThreads, th, th->tiTID);
@@ -566,17 +627,23 @@ void _std mt_exitthread_int(u32t result) {
       log_it(0, "exit main p2 (%d) %X %d %d\n", pd->piThreads, th, th->tiTID,
          th->tiState);
 #endif
-      pth = get_by_tid(pd->piParent, pd->piParentTID);
-      // unable to find exec caller?
-      if (!pth || pth->tiState!=THRD_WAITING) THROW_ERR_PD(pd);
-      // set result in waiting thread
-      mt_seteax(pth->tiList + pth->tiFiberIndex, result);
       // set own state
       th->tiState  = THRD_FINISHED;
-      // unlock thread in parent
-      pth->tiState = THRD_RUNNING;
-      // exit process
-      switch_context(pth, SWITCH_PROCEXIT);
+      // release childs, who waits for mt_waitobject() from us
+      update_lwait(pd->piPID, 0);
+      // we have a parent?
+      if (pd->piParentTID) {
+         mt_thrdata *pth = get_by_tid(pd->piParent, pd->piParentTID);
+         // unable to find exec caller?
+         if (!pth || pth->tiState!=THRD_WAITING) THROW_ERR_PD(pd);
+         // set result in waiting thread
+         mt_seteax(pth->tiList + pth->tiFiberIndex, result);
+         // unlock thread in parent
+         pth->tiState = THRD_RUNNING;
+         // exit process
+         switch_context(pth, SWITCH_PROCEXIT);
+      } else
+         switch_context(0, SWITCH_PROCEXIT);
    } else {
       // check for possible main thread waiting for us
       if (pd->piThreads==2 && (th->tiMiscFlags&TFLM_MAIN)==0)
@@ -603,10 +670,11 @@ static u32t _std sleeper(void *arg) {
    u32t    cnt = 0;
    // mark self (this naming occurs in first idle time slice)
    mt_threadname("system idle");
-   /* if we called too often duaring last 10 seconds - check for ctrl-alt
+   /* if we called too often during last 10 seconds - check for ctrl-alt
       pressed and then tries to get hotkey. This cause keypress loss */
    while (1) {
       __asm { hlt }
+#if 0
       if (sys_clock()-lct > 10000000) {
          lct = sys_clock();
          cnt = 0;
@@ -618,6 +686,7 @@ static u32t _std sleeper(void *arg) {
             if (key) log_hotkey(key);
          }
       }
+#endif
    }
    return 0;
 }
@@ -628,7 +697,7 @@ void start_idle_thread(void) {
 
    memset(&ctd, 0, sizeof(mt_ctdata));
    ctd.size      = sizeof(mt_ctdata);
-   ctd.stacksize = 4096;
+   ctd.stacksize = 16384;
    ctd.pid       = 1;
 
    tid = mt_createthread(sleeper, 0, &ctd, 0);
@@ -638,6 +707,6 @@ void start_idle_thread(void) {
       THROW_ERR_PD(pd_qsinit);
    } else {
       // eternal life! :)
-      pt_sysidle->tiMiscFlags |= TFLM_SYSTEM|TFLM_NOSCHED;
+      pt_sysidle->tiMiscFlags |= TFLM_SYSTEM|TFLM_NOSCHED|TFLM_NOFPU|TFLM_NOTRACE;
    }
 }

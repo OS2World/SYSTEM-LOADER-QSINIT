@@ -149,8 +149,8 @@ dlg->insert(myInputLine);
 #endif
 
 #if defined (TV2)
-#   include <tvision\tv.h>
-#   include <tvision\tkeys.h>
+#   include <tv.h>
+#   include <tkeys.h>
 #elif defined (TV1)
 #   include <tv.h>
 #   include <tkeys.h>

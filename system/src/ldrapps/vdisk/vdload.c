@@ -40,10 +40,10 @@ static qserr img_getsize(const char *path, read_callback cbprint) {
       if (!res) {
          if (disk_size&511) res = E_SYS_BADFMT; else
          if (disk_size < MIN_FILE_SIZE) res = E_SYS_TOOSMALL; else
-         if (io_read(disk_fh, sector, 512) != 512) res = E_DSK_IO; else
+         if (io_read(disk_fh, sector, 512) != 512) res = E_DSK_ERRREAD; else
          if (IS_VHD_HEADER(sector)) res = E_SYS_BADFMT; else // header at start
-         if (io_seek(disk_fh,-512,IO_SEEK_END)==FFFF64) res = E_DSK_IO; else
-         if (io_read(disk_fh, sector, 512) != 512) res = E_DSK_IO; else {
+         if (io_seek(disk_fh,-512,IO_SEEK_END)==FFFF64) res = E_DSK_ERRREAD; else
+         if (io_read(disk_fh, sector, 512) != 512) res = E_DSK_ERRREAD; else {
             isVHD  = IS_VHD_HEADER(sector);
             isMfsd = 0;
          }
@@ -69,9 +69,9 @@ static qserr img_getsize(const char *path, read_callback cbprint) {
          if (disk_size!=FFFF && disk_size>0) {
             if (disk_size&511) res = E_SYS_BADFMT; else
             if (disk_size < MIN_FILE_SIZE) res = E_SYS_TOOSMALL; else
-            if (hlp_fread(0, sector, 512) != 512) res = E_DSK_IO; else
+            if (hlp_fread(0, sector, 512) != 512) res = E_DSK_ERRREAD; else
             if (IS_VHD_HEADER(sector)) res = E_SYS_BADFMT; else // header at start
-            if (hlp_fread(disk_size-512, sector, 512) != 512) res = E_DSK_IO; else {
+            if (hlp_fread(disk_size-512, sector, 512) != 512) res = E_DSK_ERRREAD; else {
                isVHD  = IS_VHD_HEADER(sector);
                isMfsd = 1;
                res    = FFFF;
@@ -117,16 +117,16 @@ qserr _exicc vdisk_load(EXI_DATA, const char *path, u32t flags, u32t *disk,
       u32t scount = disk_size>>9;
       // this is PXE, file already in memory
       if (disk_data) {
-         if (hlp_diskwrite(dsk, 0, scount, disk_data) != scount) res = E_DSK_IO;
+         if (hlp_diskwrite(dsk, 0, scount, disk_data) != scount) res = E_DSK_ERRWRITE;
       } else {
          u8t  *buf = malloc(COPY_BUF_SIZE);
          u32t  spb = COPY_BUF_SIZE>>9;           // sectors per buffer
          // opening...
          if (isMfsd) {
-            if (hlp_fopen(path) != disk_size+(isVHD?512:0)) res = E_DSK_IO;
+            if (hlp_fopen(path) != disk_size+(isVHD?512:0)) res = E_DSK_ERRREAD;
          } else {
-            if (!disk_fh) res = E_DSK_IO; else
-               if (io_seek(disk_fh,0,IO_SEEK_SET)) res = E_DSK_IO;
+            if (!disk_fh) res = E_DSK_ERRREAD; else
+               if (io_seek(disk_fh,0,IO_SEEK_SET)) res = E_DSK_ERRREAD;
          }
          if (!res) {
             u32t spos = 0, sprc = FFFF;
@@ -134,13 +134,15 @@ qserr _exicc vdisk_load(EXI_DATA, const char *path, u32t flags, u32t *disk,
                u32t scnt = scount-spos>spb ? spb : scount-spos;
                // read sectors
                if (disk_fh) {
-                  if (io_read(disk_fh,buf,scnt<<9) != scnt<<9) { res = E_DSK_IO; break; }
+                  if (io_read(disk_fh,buf,scnt<<9) != scnt<<9)
+                     { res = E_DSK_ERRREAD; break; }
                } else {
-                  if (hlp_fread(spos<<9,buf,scnt<<9) != scnt<<9) { res = E_DSK_IO; break; }
+                  if (hlp_fread(spos<<9,buf,scnt<<9) != scnt<<9)
+                     { res = E_DSK_ERRREAD; break; }
                }
                // write sectors
                if (hlp_diskwrite(dsk|QDSK_DIRECT,spos,scnt,buf) != scnt) 
-                  { res = E_DSK_IO; break; }
+                  { res = E_DSK_ERRWRITE; break; }
                spos += scnt;
                // print pos
                if (cbprint) {

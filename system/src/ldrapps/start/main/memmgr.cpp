@@ -227,7 +227,7 @@ static int NewSmallPool(u32t Size16,u32t Caller) {
          usedSize = _64KB - usedSize;
          // too small block
          if (usedSize<_4KB) continue;
-#if 1
+#if 0
          log_printf("* %08X %d\n",info[cnt].memPtr,info[cnt].usedSize);
 #endif
          qsmcc Block=(QSMCC*)blockPtr;

@@ -2,18 +2,10 @@
 // QSINIT
 // process initial setup
 //
-#include "clib.h"
-#include "qsint.h"
-#include "qsmodint.h"
-#include "qsutil.h"
-#include "qspdata.h"
+#include "qslocal.h"
 #include "seldesc.h"
 
-extern mt_proc_cb    mt_exechooks;
-extern u16t         state_rec_len;
-extern mod_addfunc *mod_secondary;
-
-mt_prcdata* _std mt_new(process_context *pq) {
+mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    u32t   alloc_len = sizeof(mt_prcdata) + sizeof(mt_thrdata) + sizeof(mt_fibdata)
                       + sizeof(mt_thrdata*) * PREALLOC_THLIST;
    mt_prcdata   *pc = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR,
@@ -50,6 +42,7 @@ mt_prcdata* _std mt_new(process_context *pq) {
    td->tiSign       = THREADINFO_SIGN;
    td->tiPID        = pc->piPID;
    td->tiTID        = 1;
+   td->tiSession    = 1;
    td->tiParent     = pc;
    td->tiFibers     = 1;
    td->tiExitCode   = FFFF;
@@ -62,26 +55,48 @@ mt_prcdata* _std mt_new(process_context *pq) {
 
    fd->fiSign       = FIBERSTATE_SIGN;
    fd->fiType       = FIBT_MAIN;
+   fd->fiFPUMode    = FIBF_EMPTY;
    return pc;
+}
+
+mt_thrdata* _std mt_curthread(void) {
+   process_context *pq = mt_exechooks.mtcb_ctxmem;
+   mt_prcdata      *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
+   if (!pd) return 0;
+   if (pd->piSign!=PROCINFO_SIGN) return 0;
+   if (mt_exechooks.mtcb_ctid>pd->piThreads) return 0;
+   return pd->piList[mt_exechooks.mtcb_ctid-1];
 }
 
 u32t _std mt_exit(process_context *pq) {
    mt_prcdata *pc = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
-   char       ltr;
+   char       ltr, *envorg;
    // trap in any way ;)
    if (!pc || pc->piSign!=PROCINFO_SIGN)
       mod_secondary->sys_throw(0xFFFA, pq->self->name, pq->pid);
    // just return on system
    if (pc->piMiscFlags&MOD_SYSTEM) return 0;
+   // check for FPU owner
+   if (pc->piList[0]==mt_exechooks.mtcb_cfpt) mt_exechooks.mtcb_cfpt = 0;
    // free current dir buffers if was allocated
    for (ltr='A'; ltr<='Z'; ltr++)
       if (pc->piCurDir[ltr-'A']) mod_secondary->mem_free(pc->piCurDir[ltr-'A']);
    // free process & main thread memory
    mod_secondary->mem_freepool(QSMEMOWNER_COPROCESS, (u32t)pc);
    mod_secondary->mem_freepool(QSMEMOWNER_COTHREAD, pq->pid);
+   // free global blocks, owned by this process
+   mem_procexit(pq);
    // it will panic on bad pointer too ;)
    mod_secondary->mem_free((void*)pc);
 
+   envorg = (char*)pq->rtbuf[RTBUF_ENVORG];
    pq->rtbuf[RTBUF_PROCDAT] = 0;
+   pq->rtbuf[RTBUF_ENVORG ] = 0;
+   // free original env. segment
+   mod_secondary->mem_free(envorg);
+   // free reallocated env. data
+   if ((pq->flags&PCTX_ENVCHANGED) && pq->envptr!=envorg)
+      if (pq->flags&PCTX_BIGMEM) hlp_memfree(pq->envptr); else
+         mod_secondary->mem_free(pq->envptr);
    return 1;
 }

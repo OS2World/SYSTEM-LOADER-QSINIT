@@ -20,6 +20,7 @@ DATA16          segment                                         ;
                 extrn   _DiskBufRM_Seg:word                     ;
                 extrn   _syslapic:dword                         ;
                 extrn   _apic_tmr_vnum:byte                     ;
+                extrn   org_int16h:dword                        ;
                 public  _ComPortAddr, _BaudRate                 ;
                 public  _logrmbuf, _logrmpos, _page0_fptr       ;
                 public  rm_timer_ofs, rm_spur_ofs               ;
@@ -247,9 +248,22 @@ _biostest       proc    far
                 xor     ax,ax                                   ;
                 xor     dx,dx                                   ;
                 ret                                             ;
+@@bt_keyread:
+                mov     ah,11h                                  ;
+                int     16h                                     ;
+                jz      @@bt_pci_fail                           ;
+                mov     ah,10h                                  ;
+                int     16h                                     ;
+                ret                                             ;
+@@bt_int11h:
+                int     11h                                     ;
+                xor     dx,dx                                   ;
+                ret                                             ;
 @@bt_offsets:
-                dw      offset  @@bt_apm
-                dw      offset  @@bt_pci
+                dw      offset @@bt_apm                         ;
+                dw      offset @@bt_pci                         ;
+                dw      offset @@bt_keyread                     ;
+                dw      offset @@bt_int11h                      ;
 @@bt_tabend:
 biostestsize    equ     (offset @@bt_tabend - offset @@bt_offsets) shr 1
 _biostest       endp
@@ -380,9 +394,9 @@ _memmove16      proc    near                                    ;
 _memmove16      endp
 
 ;
-; char appending to last line in realmode log buffer
+; new char appends to the last line in realmode log buffer.
 ; zero assumed at _logbufseg pos (end of string char)
-; if char prior to zero is \n - new log line will be started
+; if char prior to zero is \n - then new log line will be started
 ;
                 public  _seroutchar_w
 _seroutchar_w   proc    near                                    ;
@@ -645,9 +659,29 @@ rm_timer        proc    near                                    ;
                 iret                                            ;
 rm_timer        endp                                            ;
 
-rm_spurious     proc   near
-                iret
-rm_spurious     endp
+rm_spurious     proc   near                                     ;
+                iret                                            ;
+rm_spurious     endp                                            ;
+
+                public int10h_stub                              ;
+int10h_stub     proc   near                                     ;
+                iret                                            ;
+int10h_stub     endp                                            ;
+
+                public int16h_stub                              ;
+int16h_stub     proc   near                                     ;
+                cmp    ah,1                                     ;
+                jz     @@i16s_ret                               ;
+                cmp    ah,11h                                   ;
+                jz     @@i16s_ret                               ;
+                jmp    dword ptr cs:org_int16h                  ;
+@@i16s_ret:
+                push   bp                                       ; set ZF flag: no
+                mov    bp,sp                                    ; keystrokes available
+                or     word ptr [bp+6],CPU_EFLAGS_ZF            ;
+                pop    bp                                       ;
+                iret                                            ;
+int16h_stub     endp                                            ;
 
 TEXT16          ends
                 end

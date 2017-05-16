@@ -2,10 +2,10 @@
 // QSINIT "start" module
 // CPU low level functions (msr, mtrr, etc)
 //
-#include "stdlib.h"
 #include "qsbase.h"
 #include "cpudef.h"
-#include "internal.h"
+#include "syslocal.h"
+#include "seldesc.h"
 #include "qsint.h"
 #include "qsinit.h"
 #include "efnlist.h"
@@ -26,18 +26,24 @@ void _std hlp_mtrrmstart(volatile u32t *state);
                             clear it on exit to prevent second call */
 void _std hlp_mtrrmend  (volatile u32t *state);
 
+void _std fpu_nmhandler (void);
+
 static u32t       mtrr_regs = 0,
                  mtrr_flags = 0,
               cpu_phys_bits = 0,
-                cpu_lim8000 = 0;        // supported 8000xxxx cpuid limit
+                cpu_lim8000 = 0,        // supported 8000xxxx cpuid limit
+                   xcr0bits = 0,
+               fpu_savesize = 0;        // save of XSAVE buffer
 static u64t  PHYS_ADDR_MASK = 0,        // supported addr mask for this CPU
                   apic_phys = 0;
 static u32t      *apic_data = 0;
 qshandle             mhimux = 0;        // mutex for sys_memhicopy()
+u8t            fpu_savetype = 0;
 
-extern char            _std  aboutstr[];
-extern boot_data       _std boot_info;
-extern struct Disk_BPB _std   BootBPB;
+extern char            _std   aboutstr[];
+extern boot_data       _std    boot_info;
+extern struct Disk_BPB _std      BootBPB;
+extern mt_proc_cb      _std mt_exechooks;
 
 // fixed range MTRR registers
 static u16t fixedmtrregs[FIXED_RANGE_REGS] = { MSR_IA32_MTRR_FIX64K_00000,
@@ -120,7 +126,55 @@ static void init_baseinfo(void) {
          }
       }
    }
+   log_it(3, "cr0=%X cr4=%X\n", getcr0(), getcr4());
+   // does not use XSAVE in safe mode
+   if (sys_isavail(SFEA_XSAVE) && !hlp_insafemode()) {
+      _try_ {
+         sys_setcr3(FFFF, getcr4()|CPU_CR4_OSXSAVE);
+         //set_xcr0(CPU_XCR0_FPU|CPU_XCR0_SSE);
+         // no way to zero ecx for hlp_getcpuid, so call it here
+         __asm {
+            xor     ecx,ecx
+            mov     eax,0Dh
+            cpuid
+            mov     xcr0bits,eax
+            mov     fpu_savesize,ecx
+         }
+      }
+      _catch_(xcpt_all) {
+         xcr0bits     = 0;
+         fpu_savesize = 0;
+      }
+      _endcatch_
+      if (fpu_savesize) fpu_savetype = 2;
+   }
+   if (!fpu_savetype) {
+      fpu_savetype = sys_isavail(SFEA_FXSAVE)?1:0;
+      fpu_savesize = fpu_savetype?512:108;
+   }
+   // turn on SSE support!
+   if (sys_isavail(SFEA_FXSAVE)) {
+      // actually, it is on EFI already
+      _try_ {
+         sys_setcr3(FFFF, getcr4()|CPU_CR4_OSFXSR|CPU_CR4_OSXMMEXCPT);
+      }
+      _catch_(xcpt_all) {
+         log_it(0, "SSE on - exception %d\n", _currentexception_());
+      }
+      _endcatch_
+   }
+   log_it(3, "fxsave %u %04X %u, cr4=%08X\n", fpu_savetype, xcr0bits, fpu_savesize, getcr4());
+
+   if (hlp_hosttype()==QSHT_EFI) {
+      // xcpt64 has special handling for us
+   } else {
+      u64t addr = (u64t)get_flatcs()<<32 | (u32t)&fpu_nmhandler;
+      if (!sys_setint(7,&addr,SINT_INTGATE)) log_it(0, "unable to setup #NM!\n");
+   }
+   mt_exechooks.mtcb_rmcall = fpu_rmcallcb;
 }
+
+u32t _std fpu_statesize(void) { return fpu_savesize; }
 
 void* _std sys_getlapic(void) {
    // it must be mapped by init_baseinfo() above
@@ -258,7 +312,7 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state) {
 
       // log_it(2,"%u: %012LX %012LX\n", reg, base, len);
       if (rc) {
-         if (state) *state = (u32t)base & MTRRF_TYPEMASK | 
+         if (state) *state = (u32t)base & MTRRF_TYPEMASK |
                              ((u32t)(len)&0x800?MTRRF_ENABLED:0);
          base = base & ~0xFFFLL & PHYS_ADDR_MASK;
          if (start) *start = base;
@@ -268,7 +322,7 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state) {
             // make mask without holes
             left  = bsr64(mask);
             right = bsf64(mask);
-         
+
             if (left>0) {
                ebase = (u64t)1<<right;
                mask = 0;
@@ -345,7 +399,7 @@ u32t _std START_EXPORT(hlp_mtrrstate)(u32t state) {
          return MTRRERR_STATE;
    // save original state
    if (!check_save(1)) return MTRRERR_HARDW;
-   
+
    _try_ {
       u32t low, high = 0;
       volatile u32t sysstate = 0;
@@ -672,14 +726,14 @@ u32t _std hlp_mtrrbatch(void *buffer) {
 
 /** memcpy with SS segment as source & destination.
     I.e., function have access to 1st page in non-paging mode.
-    Actually this memmove, not memcpy. */
+    Actually this is memmove, not memcpy. */
 void* _std memcpy0(void *dst, const void *src, u32t length);
 // 48-bit ptr to page 0, but we use only offset here
 extern u32t _std page0_fptr;
 
 static u32t hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
    _try_ {
-      /* page0 flag here affects SOURCE access in paging mode and
+      /* page0 flag affects SOURCE access in paging mode and
          SOURCE+DST access in non-paging */
       if (page0) memcpy0(dst,src,length); else memmove(dst,src,length);
       _ret_in_try_(1);
@@ -691,55 +745,71 @@ static u32t hlp_memcpy_int(void *dst, const void *src, u32t length, int page0) {
    return 0;
 }
 
-u32t _std hlp_memcpy(void *dst, const void *src, u32t length, int page0) {
-   if (page0 && in_pagemode) {
-      u32t  dstv = (u32t)dst;
-      char *srcv = (char*)src;
-      // wrap around 0?
-      if (dstv+length < dstv) {
-         u32t upto0 = FFFF-dstv+1;
-         if (!hlp_memcpy_int(dst, srcv, upto0, 1)) return 0;
-         dst = 0; dstv = 0;
-         srcv   += upto0;
-         length -= upto0;
-      }
-      if (!length) return 1;
-      // 1st page copying
-      if (dstv < PAGESIZE) {
-         u32t upto4 = dstv+length > PAGESIZE ? PAGESIZE-dstv : length;
+u32t _std hlp_memcpy(void *dst, const void *src, u32t length, u32t flags) {
+   u32t svint = 0, rc = 0;
+   if ((flags&MEMCPY_DI)) svint = sys_intstate(0);
 
-         if (!hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1))
-            return 0;
-         dstv   += upto4; dst = (void*)dstv;
-         srcv   += upto4;
-         length -= upto4;
-      }
-      if (!length) return 1;
-      // above 1st page - normal copying
-      return hlp_memcpy_int(dst, srcv, length, 1);
+   if ((flags&MEMCPY_PG0) && in_pagemode) {
+      do {
+         u32t  dstv = (u32t)dst;
+         char *srcv = (char*)src;
+         // wrap around 0?
+         if (dstv+length < dstv) {
+            u32t upto0 = FFFF-dstv+1;
+            if (!hlp_memcpy_int(dst, srcv, upto0, 1)) break;
+            dst = 0; dstv = 0;
+            srcv   += upto0;
+            length -= upto0;
+         }
+         if (!length) { rc = 1; break; }
+         /* 1st page copying.
+            this madness here because page is r/o in paging mode */
+         if (dstv < PAGESIZE) {
+            u32t upto4 = dstv+length > PAGESIZE ? PAGESIZE-dstv : length;
+
+            if (!hlp_memcpy_int((void*)(page0_fptr+dstv), srcv, upto4, 1))
+               break;
+            dstv   += upto4; dst = (void*)dstv;
+            srcv   += upto4;
+            length -= upto4;
+         }
+         if (!length) { rc = 1; break; }
+         // above 1st page - normal copying
+         rc = hlp_memcpy_int(dst, srcv, length, 1);
+      } while (0);
    } else
-   return hlp_memcpy_int(dst, src, length, page0);
+      rc = hlp_memcpy_int(dst, src, length, flags&MEMCPY_PG0);
+
+   if (svint) sys_intstate(svint);
+   return rc;
 }
 
-/** query some CPU features in fiendly way.
+/** query some CPU features in friendly way.
     @param  flags   SFEA_* flags combination
     @return actually supported subset of flags parameter */
 u32t _std sys_isavail(u32t flags) {
    static u32t sflags = FFFF;
-
+   // first time call is too early to think about safeness ;)
    if (sflags==FFFF) {
       u32t   idbuf[4];
       char  idstr[16];
+      u8t      family, model, stepping;
       hlp_getcpuid(1,idbuf);
       sflags = 0;
-      if ((idbuf[3]&CPUID_FI2_PAE))  sflags|=SFEA_PAE;
-      if ((idbuf[3]&CPUID_FI2_PGE))  sflags|=SFEA_PGE;
-      if ((idbuf[3]&CPUID_FI2_PAT))  sflags|=SFEA_PAT;
-      if ((idbuf[3]&CPUID_FI2_CMOV)) sflags|=SFEA_CMOV;
-      if ((idbuf[3]&CPUID_FI2_MTRR)) sflags|=SFEA_MTRR;
-      if ((idbuf[3]&CPUID_FI2_MSR))  sflags|=SFEA_MSR;
-      if ((idbuf[3]&CPUID_FI2_ACPI)) sflags|=SFEA_CMODT;
-      if ((idbuf[3]&CPUID_FI2_APIC)) sflags|=SFEA_LAPIC;
+      if (idbuf[3]&CPUID_FI2_PAE)   sflags|=SFEA_PAE;
+      if (idbuf[3]&CPUID_FI2_PGE)   sflags|=SFEA_PGE;
+      if (idbuf[3]&CPUID_FI2_PAT)   sflags|=SFEA_PAT;
+      if (idbuf[3]&CPUID_FI2_CMOV)  sflags|=SFEA_CMOV;
+      if (idbuf[3]&CPUID_FI2_MTRR)  sflags|=SFEA_MTRR;
+      if (idbuf[3]&CPUID_FI2_MSR)   sflags|=SFEA_MSR;
+      if (idbuf[3]&CPUID_FI2_ACPI)  sflags|=SFEA_CMODT;
+      if (idbuf[3]&CPUID_FI2_APIC)  sflags|=SFEA_LAPIC;
+      if (idbuf[3]&CPUID_FI2_FXSR)  sflags|=SFEA_FXSAVE;
+      if (idbuf[2]&CPUID_FI1_XSAVE) sflags|=SFEA_XSAVE;
+
+      family   = idbuf[0]>>8&0xF;
+      model    = idbuf[0]>>4&0xF;
+      stepping = idbuf[0]&0xF;
 
       hlp_getcpuid(0x80000000,idbuf);
       cpu_lim8000 = idbuf[0];
@@ -768,7 +838,11 @@ u32t _std sys_isavail(u32t flags) {
          hlp_getcpuid(0x80000001,idbuf);
          if ((idbuf[3]&CPUID_FI4_IA64)) sflags|=SFEA_X64;
       }
-      log_it(3, "SFEA_* = %08X\n", sflags);
+      // fix for Banias Pentium M bug (missing PAE bit in CPUID)
+      if ((sflags&SFEA_INTEL) && family==6 && model==9 && (sflags&SFEA_PAE)==0)
+         sflags|=SFEA_PAE;
+
+      log_it(3, "SFEA_* = %08X (%u.%u.%u)\n", sflags, family, model, stepping);
    }
    return flags&sflags;
 }
@@ -875,6 +949,54 @@ u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
    return 1;
 }
 
+/* a bit crazy code, trying to be safe here, because it called
+   from trap screen */
+u32t  _std hlp_copytoflat(void* dst, u32t offs, u32t sel, u32t len) {
+   struct desctab_s sd;
+   // query selector and check it
+   if (!sys_selquery(sel,&sd)) return 0;
+   if ((sd.d_access & D_PRES)==0) return 0;
+   if (sd.d_attr & D_LONG) {
+      if (sd.d_attr & D_DBIG) return 0;
+      // loop over 4G?
+      if (offs+len<offs) len = 0-offs;
+   } else
+   if ((sd.d_access & D_SEG)==0) return 0; else {
+      int code = sd.d_access & D_CODE,
+           edn = !code && (sd.d_access&D_EXPDN),
+          base = sd.d_loaddr | (u32t)sd.d_hiaddr<<16 | (u32t)sd.d_extaddr<<24,
+          rlim = _lsl_(sel), rbase;
+      if (edn) {
+         rbase = rlim+1+base;
+         rlim  = (sd.d_attr&D_DBIG? FFFF : 0xFFFF) - (rlim+1);
+      } else
+         rbase = base;
+      if (offs>rlim) return 0;
+      if (offs+len>rlim) len = rlim+1 - offs;
+      // flat offset
+      offs += rbase;
+   }
+   // have something to copy: then copy page by page, with checking page tables
+   if (len) {
+      u32t cblen = len;
+      u8t  *sptr = (u8t*)offs,
+           *dptr = (u8t*)dst;
+      while (len) {
+         u32t cpsize = PAGEROUND(offs) - offs;
+         if (!cpsize) cpsize = PAGESIZE;
+         if (cpsize>len) cpsize = len;
+
+         if (pag_query(sptr)<=PGEA_NOTPRESENT) break;
+         memcpy0(dptr, sptr, cpsize);
+         dptr += cpsize;
+         sptr += cpsize; offs = (u32t)sptr;
+         len  -= cpsize;
+      }
+      return cblen - len;
+   }
+   return 0;
+}
+
 static int      clockmod_aerr =  0;
 static int       clockmod_ext  = -1;
 extern u16t __stdcall IODelay;
@@ -946,10 +1068,15 @@ u32t _std START_EXPORT(hlp_cmsetstate)(u32t state) {
 }
 
 static void _std cm_restore(sys_eventinfo *info) {
-   if (!sto_dword(STOKEY_CMMODE)) {
+   if (sys_isavail(SFEA_CMODT) && !sto_dword(STOKEY_CMMODE)) {
       u32t state = hlp_cmgetstate();
       if (state>0 && state<CPUCLK_MAXFREQ) hlp_cmsetstate(CPUCLK_MAXFREQ);
    }
+#if 0
+   // reset xcr0
+   if (sys_isavail(SFEA_XSAVE))
+      if (get_xcr0()&CPU_XCR0_SSE) set_xcr0(CPU_XCR0_FPU);
+#endif
 }
 
 void* malloc_local(u32t size) {
@@ -969,6 +1096,8 @@ u32t _std sys_queryinfo(u32t index, void *outptr) {
          if ((boot_info.boot_flags&BF_NEWBPB)) return 0;
          return BootBPB.BPB_BootLetter&0x80 ? (BootBPB.BPB_BootLetter&0x7F)+'C' : 0;
       }
+      case QSQI_OS2BOOTFLAGS:
+         return boot_info.boot_flags;
       case QSQI_TLSPREALLOC:
          return QTLS_MAXSYS+1;
    }
@@ -983,8 +1112,9 @@ void setup_hardware(void) {
             cmv = 10000/CPUCLK_MAXFREQ*cmv;
             log_it(0, "CPU at %u.%2.2u%%!!!\n", cmv/100, cmv%100);
          }
-         sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, cm_restore);
       }
    }
    if (!cpu_phys_bits) init_baseinfo();
+   // restore some CPU modes to safe values on exit
+   sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, cm_restore);
 }

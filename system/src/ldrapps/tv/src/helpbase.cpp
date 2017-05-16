@@ -11,16 +11,13 @@
 /*                      THelpIndex                            */
 /*                      THelpFile                             */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TStreamableClass
 #define Uses_TPoint
@@ -45,8 +42,10 @@
 
 TCrossRefHandler crossRefHandler = notAssigned;
 
-// THelpTopic
 #ifndef NO_TV_STREAMS
+
+// THelpTopic
+
 const char *const THelpTopic::name = "THelpTopic";
 
 TStreamable *THelpTopic::build() {
@@ -747,12 +746,11 @@ void notAssigned(FILE * , int) {
 THelpTopic *THelpFile::invalidTopic() {
    THelpTopic *topic;
    TParagraph *para;
-   char invalidText[] = "\n No help available in this context.";
 
    topic =  new THelpTopic;
    para =  new TParagraph;
-   para->text = newStr(invalidText);
-   para->size = strlen(invalidText);
+   para->text = newStr(invalidContext);
+   para->size = strlen(invalidContext);
    para->wrap = False;
    para->next = 0;
    topic->addParagraph(para);

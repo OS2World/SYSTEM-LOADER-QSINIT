@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TScrollBar member functions               */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TScrollBar
@@ -36,7 +33,8 @@ TScrollBar::TScrollBar(const TRect &bounds) :
    minVal(0),
    maxVal(0),
    pgStep(1),
-   arStep(1) {
+   arStep(1) 
+{
    if (size.x == 1) {
       growMode = gfGrowLoX | gfGrowHiX | gfGrowHiY;
       memcpy(chars, vChars, sizeof(vChars));
@@ -50,15 +48,15 @@ void TScrollBar::draw() {
    drawPos(getPos());
 }
 
-void TScrollBar::drawPos(short pos) {
+void TScrollBar::drawPos(int pos) {
    TDrawBuffer b;
 
-   short s = getSize() - 1;
+   int s = getSize() - 1;
    b.moveChar(0, chars[0], getColor(2), 1);
    if (maxVal == minVal)
-      b.moveChar(1, chars[4], getColor(1), s-1);
+      b.moveChar(1, chars[4], getColor(1), s - 1);
    else {
-      b.moveChar(1, chars[2], getColor(1), s-1);
+      b.moveChar(1, chars[2], getColor(1), s - 1);
       b.moveChar(pos, chars[3], getColor(3), 1);
    }
 
@@ -67,52 +65,62 @@ void TScrollBar::drawPos(short pos) {
 }
 
 TPalette &TScrollBar::getPalette() const {
-   static TPalette palette(cpScrollBar, sizeof(cpScrollBar)-1);
+   static TPalette palette(cpScrollBar, sizeof(cpScrollBar) - 1);
    return palette;
 }
 
-short TScrollBar::getPos() {
-   short r = maxVal - minVal;
+int TScrollBar::getPos() {
+   int r = maxVal - minVal;
    if (r == 0)
       return 1;
    else
-      return  short((((long(value - minVal) * (getSize() - 3)) + (r >> 1)) / r) + 1);
+      return  int((((long(value - minVal) * (getSize() - 3)) + (r >> 1)) / r) + 1);
 }
 
-short TScrollBar::getSize() {
-   short s;
+int TScrollBar::getSize() {
+   int s;
 
    if (size.x == 1)
       s = size.y;
    else
       s = size.x;
 
-   return max(3, s);
+   return max(2, s);
 }
 
 static TPoint mouse;
-static short p, s;
+static int p, s;
 static TRect extent;
 
-short TScrollBar::getPartCode() {
-   short part= - 1;
+int TScrollBar::getPartCode() {
+   int part = - 1;
    if (extent.contains(mouse)) {
-      short mark = (size.x == 1) ? mouse.y : mouse.x;
+      int mark = (size.x == 1) ? mouse.y : mouse.x;
 
-      if (mark == p)
-         part= sbIndicator;
-      else {
+      // Check for vertical or horizontal size of 2
+      if ((size.x == 1 && size.y == 2) || (size.x == 2 && size.y == 1)) {
+         // Set 'part' to left or right arrow only
          if (mark < 1)
             part = sbLeftArrow;
-         else if (mark < p)
-            part= sbPageLeft;
-         else if (mark < s)
-            part= sbPageRight;
          else
-            part= sbRightArrow;
+            if (mark == p)
+               part = sbRightArrow;
+      } else {
+         if (mark == p)
+            part = sbIndicator;
+         else {
+            if (mark < 1)
+               part = sbLeftArrow;
+            else if (mark < p)
+               part = sbPageLeft;
+            else if (mark < s)
+               part = sbPageRight;
+            else
+               part = sbRightArrow;
 
-         if (size.x == 1)
-            part += 4;
+            if (size.x == 1)
+               part += 4;
+         }
       }
    }
    return part;
@@ -120,113 +128,113 @@ short TScrollBar::getPartCode() {
 
 void TScrollBar::handleEvent(TEvent &event) {
    Boolean Tracking;
-   short i, clickPart;
+   int i, clickPart;
 
    TView::handleEvent(event);
    switch (event.what) {
-      case evMouseDown:
-         message(owner, evBroadcast, cmScrollBarClicked,this); // Clicked()
-         mouse = makeLocal(event.mouse.where);
-         extent = getExtent();
-         extent.grow(1, 1);
-         p = getPos();
-         s = getSize() - 1;
-         clickPart= getPartCode();
-         if (clickPart != sbIndicator) {
-            do  {
-               mouse = makeLocal(event.mouse.where);
-               if (getPartCode() == clickPart)
-                  setValue(value + scrollStep(clickPart));
-            } while (mouseEvent(event, evMouseAuto));
-         } else {
-            do  {
-               mouse = makeLocal(event.mouse.where);
-               Tracking = extent.contains(mouse);
-               if (Tracking) {
-                  if (size.x == 1)
-                     i = mouse.y;
-                  else
-                     i = mouse.x;
-                  i = max(i, 1);
-                  i = min(i, s-1);
-               } else
-                  i = getPos();
-               if (i != p) {
-                  drawPos(i);
-                  p = i;
-               }
-            } while (mouseEvent(event,evMouseMove));
-            if (Tracking && s > 2) {
-               s -= 2;
-               setValue(short(((long(p - 1) * (maxVal - minVal) + (s >> 1)) / s) + minVal));
+   case evMouseDown:
+      message(owner, evBroadcast, cmScrollBarClicked, this); // Clicked()
+      mouse = makeLocal(event.mouse.where);
+      extent = getExtent();
+      extent.grow(1, 1);
+      p = getPos();
+      s = getSize() - 1;
+      clickPart = getPartCode();
+      if (clickPart != sbIndicator) {
+         do  {
+            mouse = makeLocal(event.mouse.where);
+            if (getPartCode() == clickPart)
+               setValue(value + scrollStep(clickPart));
+         } while (mouseEvent(event, evMouseAuto));
+      } else {
+         do  {
+            mouse = makeLocal(event.mouse.where);
+            Tracking = extent.contains(mouse);
+            if (Tracking) {
+               if (size.x == 1)
+                  i = mouse.y;
+               else
+                  i = mouse.x;
+               i = max(i, 1);
+               i = min(i, s - 1);
+            } else
+               i = getPos();
+            if (i != p) {
+               drawPos(i);
+               p = i;
             }
+         } while (mouseEvent(event, evMouseMove));
+         if (Tracking && s > 2) {
+            s -= 2;
+            setValue(int(((long(p - 1) * (maxVal - minVal) + (s >> 1)) / s) + minVal));
          }
+      }
+      clearEvent(event);
+      break;
+   case  evKeyDown:
+      if ((state & sfVisible) != 0) {
+         clickPart = sbIndicator;
+         if (size.y == 1)
+            switch (ctrlToArrow(event.keyDown.keyCode)) {
+            case kbLeft:
+               clickPart = sbLeftArrow;
+               break;
+            case kbRight:
+               clickPart = sbRightArrow;
+               break;
+            case kbCtrlLeft:
+               clickPart = sbPageLeft;
+               break;
+            case kbCtrlRight:
+               clickPart = sbPageRight;
+               break;
+            case kbHome:
+               i = minVal;
+               break;
+            case kbEnd:
+               i = maxVal;
+               break;
+            default:
+               return;
+            }
+         else
+            switch (ctrlToArrow(event.keyDown.keyCode)) {
+            case kbUp:
+               clickPart = sbUpArrow;
+               break;
+            case kbDown:
+               clickPart = sbDownArrow;
+               break;
+            case kbPgUp:
+               clickPart = sbPageUp;
+               break;
+            case kbPgDn:
+               clickPart = sbPageDown;
+               break;
+            case kbCtrlPgUp:
+               i = minVal;
+               break;
+            case kbCtrlPgDn:
+               i = maxVal;
+               break;
+            default:
+               return;
+            }
+         message(owner, evBroadcast, cmScrollBarClicked, this); // Clicked
+         if (clickPart != sbIndicator)
+            i = value + scrollStep(clickPart);
+         setValue(i);
          clearEvent(event);
-         break;
-      case  evKeyDown:
-         if ((state & sfVisible) != 0) {
-            clickPart = sbIndicator;
-            if (size.y == 1)
-               switch (ctrlToArrow(event.keyDown.keyCode)) {
-                  case kbLeft:
-                     clickPart = sbLeftArrow;
-                     break;
-                  case kbRight:
-                     clickPart = sbRightArrow;
-                     break;
-                  case kbCtrlLeft:
-                     clickPart = sbPageLeft;
-                     break;
-                  case kbCtrlRight:
-                     clickPart = sbPageRight;
-                     break;
-                  case kbHome:
-                     i = minVal;
-                     break;
-                  case kbEnd:
-                     i = maxVal;
-                     break;
-                  default:
-                     return;
-               }
-            else
-               switch (ctrlToArrow(event.keyDown.keyCode)) {
-                  case kbUp:
-                     clickPart = sbUpArrow;
-                     break;
-                  case kbDown:
-                     clickPart = sbDownArrow;
-                     break;
-                  case kbPgUp:
-                     clickPart = sbPageUp;
-                     break;
-                  case kbPgDn:
-                     clickPart = sbPageDown;
-                     break;
-                  case kbCtrlPgUp:
-                     i = minVal;
-                     break;
-                  case kbCtrlPgDn:
-                     i = maxVal;
-                     break;
-                  default:
-                     return;
-               }
-            message(owner,evBroadcast,cmScrollBarClicked,this); // Clicked
-            if (clickPart != sbIndicator)
-               i = value + scrollStep(clickPart);
-            setValue(i);
-            clearEvent(event);
-         }
+      }
    }
 }
 
 void TScrollBar::scrollDraw() {
-   message(owner, evBroadcast, cmScrollBarChanged,this);
+   message(owner, evBroadcast, cmScrollBarChanged, this);
 }
 
-short TScrollBar::scrollStep(short part) {
-   short  step;
+int TScrollBar::scrollStep(int part) {
+   int  step;
 
    if (!(part & 2))
       step = arStep;
@@ -238,13 +246,8 @@ short TScrollBar::scrollStep(short part) {
       return step;
 }
 
-void TScrollBar::setParams(short aValue,
-                           short aMin,
-                           short aMax,
-                           short aPgStep,
-                           short aArStep
-                          ) {
-   short  sValue;
+void TScrollBar::setParams(int aValue, int aMin, int aMax, int aPgStep, int aArStep) {
+   int  sValue;
 
    aMax = max(aMax, aMin);
    aValue = max(aMin, aValue);
@@ -262,15 +265,15 @@ void TScrollBar::setParams(short aValue,
    arStep = aArStep;
 }
 
-void TScrollBar::setRange(short aMin, short aMax) {
+void TScrollBar::setRange(int aMin, int aMax) {
    setParams(value, aMin, aMax, pgStep, arStep);
 }
 
-void TScrollBar::setStep(short aPgStep, short aArStep) {
+void TScrollBar::setStep(int aPgStep, int aArStep) {
    setParams(value, minVal, maxVal, aPgStep, aArStep);
 }
 
-void TScrollBar::setValue(short aValue) {
+void TScrollBar::setValue(int aValue) {
    setParams(aValue, minVal, maxVal, pgStep, arStep);
 }
 
@@ -294,5 +297,5 @@ TStreamable *TScrollBar::build() {
 
 TScrollBar::TScrollBar(StreamableInit) : TView(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
 
+#endif  // ifndef NO_TV_STREAMS

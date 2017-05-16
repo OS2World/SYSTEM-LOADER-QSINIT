@@ -11,20 +11,21 @@
 #define NULL   (0)
 #endif
 
-typedef unsigned __int64   u64t;
-typedef __int64            s64t;
-typedef unsigned long      u32t;
-typedef long               s32t;
-typedef unsigned short     u16t;
-typedef short              s16t;
-typedef unsigned char       u8t;
-typedef signed char         s8t;
-typedef void             *pvoid;
-typedef unsigned long     qserr;
-typedef unsigned long  qshandle;
+typedef unsigned __int64    u64t;
+typedef __int64             s64t;
+typedef unsigned long       u32t;
+typedef long                s32t;
+typedef unsigned short      u16t;
+typedef short               s16t;
+typedef unsigned char        u8t;
+typedef signed char          s8t;
+typedef void              *pvoid;
+typedef unsigned long      qserr;
+typedef unsigned long   qshandle;
+typedef unsigned __int64 qsclock;
 
 #ifndef _STDDEF_H_INCLUDED
-typedef unsigned long ptrdiff_t;
+typedef unsigned long  ptrdiff_t;
 #endif
 
 #define PAGESHIFT    (12)

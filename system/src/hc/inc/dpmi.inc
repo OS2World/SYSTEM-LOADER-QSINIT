@@ -29,8 +29,12 @@ rmcallregs_s    ends
 ;cc typedef struct rmcallregs_s     rmcallregs_t;
 
 ;/ bh bit for restore IRQs in DPMI 0x301/0x302 functions
-FN30X_PICRESET  = 2
+FN30X_PICRESET  =  2
 ;/ bh bit for removing RM timer INT in DPMI 0x301/0x302 functions
-FN30X_TIMEROFF  = 4
+FN30X_TIMEROFF  =  4
+;/ lock int 10h RM calls
+FN30X_LOCKI10H  =  8
+;/ lock int 16h RM calls
+FN30X_LOCKI16H  = 10h
 
 ;cc #endif // QS_BASE_DPMIDATA

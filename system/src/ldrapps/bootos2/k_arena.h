@@ -39,6 +39,7 @@ typedef struct {
 #define ARENACOUNT  (PAGESIZE/sizeof(k_arena)) // max. number of arenas
 
 // some arena owner codes (used only, not a full list)
+#define DBCSDATAOWNER   0xFF21     // OS2DBCS files
 #define OS2ROMDATA      0xFF37     // ROM data
 #define ALLOCPHYSOWNER  0xFF41     // mark block as allocated via DevHlp AllocPhys
 #define DOSHLPOWNER     0xFF6D     // doshelp segment

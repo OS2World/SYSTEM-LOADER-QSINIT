@@ -75,7 +75,20 @@ e@EDDTabOfs     dw      offset _eddparmtable                    ;
 e@DFTabOfs      dw      offset _i13ext_table                    ;
 e@PSwcode       dw      offset _swcode                          ;
 e@Ppaeppd       dw      offset _paeppd                          ;
+e@ClockMod      dw      0                                       ;
+e@PushKey       dw      0                                       ;
+e@DBCSSeg       dw      0                                       ;
+e@DBCSFontSeg   dw      0                                       ;
+e@DBCSFontSize  dd      0                                       ;
+e@MemPagesLo    dd      0                                       ;
+e@MemPagesHi    dd      0                                       ;
+e@SavedInt10h   dd      0                                       ;
+ExtFini         label   near                                    ;
 PUBLIC_INFO     ends
+
+if size ExportFixupData NE ExtFini - External                   ; check is this rec equal
+                .err                                            ; to original struct?
+endif                                                           ;
 
 _DATA           segment
                 public  _swcode, _paeppd

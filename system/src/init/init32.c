@@ -2,15 +2,10 @@
 // QSINIT
 // start 32bit code
 //
-#include "clib.h"
-#include "qsutil.h"
-#include "qsint.h"
-#include "qsinit.h"
-#include "qsmodint.h"
-#include "qsstor.h"
+#include "stdlib.h"             // only for hlp_memcpy() flags
+#include "qslocal.h"
 #include "qsconst.h"
 #include "qsbinfmt.h"
-#include "qserr.h"
 #include "vio.h"
 
 #ifndef EFI_BUILD
@@ -22,7 +17,6 @@ extern
 MKBIN_HEADER        bin_header;
 extern u16t      DiskBufRM_Seg; // and segment (exported)
 extern struct Disk_BPB BootBPB; // boot disk BPB
-extern u8t        dd_bootflags; // boot flags
 extern void       *minifsd_ptr; // buffer with mini-fsd or 0
 extern u16t          pmdataseg, // dpmi service data (GDT, callbacks, etc)
                      logbufseg; // real mode 4k log buffer
@@ -40,25 +34,23 @@ extern u32t        qd_bootdisk;
 #endif // EFI_BUILD
 u8t               bootio_avail; // boot partition disk i/o is available
 extern
-MKBIN_HEADER      *pbin_header;  // use pointer to be compat. with EFI build
+MKBIN_HEADER      *pbin_header;  // use pointer to be compatible with EFI build
 extern u8t           *memtable;
-extern u8t           pminitres, // result of PM init
-                      safeMode; // safe mode flag
+extern u8t           pminitres; // result of PM init
 extern u16t       puff_bufsize; // memory size need by puff.c
 extern void          *puff_buf; // and pointer for it
 extern u16t    physmem_entries; // number of entries in physmem
 extern physmem_block   physmem[PHYSMEM_TABLE_SIZE];
 extern
-mod_addfunc     *mod_secondary; // secondary function table, from "start" module
-extern
 cache_extptr      *cache_eproc; // cache module callbacks
-extern u8t*              ExCvt; // FatFs OEM case conversion
+u8t*                     ExCvt; // OEM case table (was used for FatFs, now for stricmp only)
 
 #define CRC32_SIZE     (1024)
 #define OEMTAB_SIZE     (128)
 
 int  start_it(void);
 void make_disk1(void);
+void check_disks(void);
 void get_ini_parm(void);
 void make_crc_table(void *table);
 void memmgr_init(void);
@@ -77,12 +69,19 @@ void _std init_common(void) {
    puff_buf    = crc_table + CRC32_SIZE;
    ExCvt       = (u8t*)puff_buf + puff_bufsize;
    make_crc_table(crc_table);
+#ifndef EFI_BUILD
+   // saves mini-FSD crc32
+   if (minifsd_ptr) {
+      u32t crc = crc32(0, minifsd_ptr, filetable.ft_mfsdlen);
+      sto_save(STOKEY_MFSDCRC, &crc, 4, 1);
+   }
+#endif
    memset(ExCvt, '.', OEMTAB_SIZE);
-   // save some storage keys for start module
-   sto_save(STOKEY_BASEMEM,&memtable,4,1);
+   // save some storage keys for START module
+   sto_save(STOKEY_BASEMEM, &memtable, 4, 1);
    if (safeMode) {
       u32t value = safeMode;
-      sto_save(STOKEY_SAFEMODE,&value,4,1);
+      sto_save(STOKEY_SAFEMODE, &value, 4, 1);
    }
 }
 
@@ -107,10 +106,12 @@ int _std init32(u32t rmstack) {
 #endif // EFI_BUILD
    // init file i/o
    hlp_finit();
-   // read some data from .ini
+   // get some critical keys from .ini
    get_ini_parm();
    // read and unpack QSINIT.LDI (zip with common code)
    make_disk1();
+   // minor check to see error in log
+   check_disks();
 #ifndef EFI_BUILD
    // just log it
    log_printf("stack for rm calls: %d bytes\n", rmstack);
@@ -127,7 +128,7 @@ int _std init32(u32t rmstack) {
             char msg[64];
             snprintf(msg,64,"start error %X...\n", rc);
             vio_strout(msg);
-         } else // no required ordunal - so just report about wrong file
+         } else // no required ordinal - just say about wrong file
             vio_strout("QSINIT.LDI version mismatch!\n");
    }
    return 0;
@@ -148,7 +149,7 @@ void exit_restart(char *loader) {
    // copying mini-fsd back to original location
    if (minifsd_ptr)
       rc = mod_secondary->memcpysafe((void*)hlp_segtoflat(filetable.ft_mfsdseg),
-         minifsd_ptr, filetable.ft_mfsdlen, 1);
+         minifsd_ptr, filetable.ft_mfsdlen, MEMCPY_PG0);
    else {
       u32t bootfs = mod_secondary->hlp_volinfo(DISK_BOOT, 0),
           rootlen = BootBPB.BPB_RootEntries * 32;
@@ -170,7 +171,7 @@ void exit_restart(char *loader) {
             if (hlp_diskread(QDSK_VOLUME|DISK_BOOT, bpb->BPB_ResSectors +
                bpb->BPB_FATCopies*bpb->BPB_SecPerFAT, nsec, btr+1)==nsec)
                   rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_rootseg)+
-                     dd_rootofs, btr+1, rootlen, 1);
+                     dd_rootofs, btr+1, rootlen, MEMCPY_PG0);
          }
          hlp_memfree(btr);
       } else // flag success on no copy action
@@ -179,7 +180,7 @@ void exit_restart(char *loader) {
    // copy BPB back to initial location (if available)
    if (rc && (dd_bootflags&BF_NOMFSHVOLIO)==0)
       rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs, &BootBPB,
-         dd_bootflags&BF_NEWBPB?sizeof(struct Disk_NewPB):sizeof(BootBPB), 1);
+         dd_bootflags&BF_NEWBPB?sizeof(struct Disk_NewPB):sizeof(BootBPB), MEMCPY_PG0);
    // copy new loader to the right place
    if (rc) memcpy((void*)hlp_segtoflat(LdrRstCS),ldrdata,ldrsize);
    hlp_memfree(ldrdata);

@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*            TEditor member functions                        */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TEditor
@@ -30,11 +27,12 @@
 #include <ctype.h>
 
 inline int isWordChar(int ch) {
-   return isalnum(ch) || ch == '_';
+   return isalnum((uchar)ch) || ch == '_';
+   //                  ^^^^^- correction for extended ASCII.
 }
 
 static const ushort firstKeys[] = {
-   37,
+   38,
    kbCtrlA, cmWordLeft,
    kbCtrlC, cmPageDown,
    kbCtrlD, cmCharRight,
@@ -71,7 +69,8 @@ static const ushort firstKeys[] = {
    kbShiftIns, cmPaste,
    kbShiftDel, cmCut,
    kbCtrlIns, cmCopy,
-   kbCtrlDel, cmClear
+   kbCtrlDel, cmClear,
+   kbCtrlBack, cmDelWordLeft    // dixie! Ctrl-Backspace added to del previous word
 };
 
 static const ushort quickKeys[] = {
@@ -158,7 +157,8 @@ TEditor::TEditor(const TRect &bounds,
    overwrite(False),
    autoIndent(False) ,
    lockCount(0),
-   keyState(0) {
+   keyState(0)
+{
    growMode = gfGrowHiX | gfGrowHiY;
    options |= ofSelectable;
    eventMask = evMouseDown | evKeyDown | evCommand | evBroadcast;
@@ -235,11 +235,10 @@ void TEditor::clipPaste() {
 
 void TEditor::convertEvent(TEvent &event) {
    if (event.what == evKeyDown) {
-      if ((getShiftState() & 0x03) != 0 &&
-          event.keyDown.charScan.scanCode >= 0x47 &&
-          event.keyDown.charScan.scanCode <= 0x51
-         )
-         event.keyDown.charScan.charCode = 0;
+      if ((event.keyDown.controlKeyState & kbShift) != 0 &&
+         event.keyDown.charScan.scanCode >= 0x47 &&
+            event.keyDown.charScan.scanCode <= 0x51)
+               event.keyDown.charScan.charCode = 0;
 
       ushort key = event.keyDown.keyCode;
       if (keyState != 0) {
@@ -295,7 +294,8 @@ void TEditor::doSearchReplace() {
          if ((editorFlags & (efReplaceAll | efDoReplace)) !=
              (efReplaceAll | efDoReplace))
             editorDialog(edSearchFailed);
-      } else if ((editorFlags & efDoReplace) != 0) {
+      } else
+      if ((editorFlags & efDoReplace) != 0) {
          i = cmYes;
          if ((editorFlags & efPromptOnReplace) != 0) {
             TPoint c = makeGlobal(cursor);
@@ -316,7 +316,8 @@ void TEditor::doUpdate() {
       setCursor(curPos.x - delta.x, curPos.y - delta.y);
       if ((updateFlags & ufView) != 0)
          drawView();
-      else if ((updateFlags & ufLine) != 0)
+      else
+      if ((updateFlags & ufLine) != 0)
          drawLines(curPos.y-delta.y, 1, lineStart(curPtr));
       if (hScrollBar != 0)
          hScrollBar->setParams(delta.x, 0, limit.x - size.x, size.x / 2, 1);
@@ -392,17 +393,21 @@ void TEditor::checkScrollBar(const TEvent &event,
 
 void TEditor::handleEvent(TEvent &event) {
    TView::handleEvent(event);
-   convertEvent(event);
+
    Boolean centerCursor = Boolean(!cursorVisible());
    uchar selectMode = 0;
 
-   if (selecting == True || (getShiftState() & 0x03) != 0)
-      selectMode = smExtend;
+   if (selecting == True ||
+      (event.what & evMouse && (event.mouse.controlKeyState & kbShift) != 0) ||
+         (event.what & evKeyboard && (event.keyDown.controlKeyState & kbShift) != 0))
+            selectMode = smExtend;
+
+   convertEvent(event);
 
    switch (event.what) {
 
       case evMouseDown:
-         if (event.mouse.doubleClick == True)
+         if( event.mouse.eventFlags & meDoubleClick )
             selectMode |= smDouble;
 
          do  {
@@ -459,7 +464,6 @@ void TEditor::handleEvent(TEvent &event) {
                      break;
                   case cmCopy:
                      clipCopy();
-                     // hideSelect(); // JS 12.4.94
                      break;
                   case cmPaste:
                      clipPaste();
@@ -539,6 +543,12 @@ void TEditor::handleEvent(TEvent &event) {
                   case cmIndentMode:
                      autoIndent = Boolean(!autoIndent);
                      break;
+                  case cmDelWordLeft:
+                     if (curPtr) {
+                        setCurPtr(prevChar(curPtr), selectMode);
+                        deleteRange(prevWord(curPtr), nextChar(curPtr), False);
+                     }
+                     break;
                   default:
                      unlock();
                      return;
@@ -547,12 +557,18 @@ void TEditor::handleEvent(TEvent &event) {
                unlock();
                break;
          }
+         break;
 
       case evBroadcast:
          switch (event.message.command) {
             case cmScrollBarChanged:
-               checkScrollBar(event, hScrollBar, delta.x);
-               checkScrollBar(event, vScrollBar, delta.y);
+               if ((event.message.infoPtr == hScrollBar) ||
+                  (event.message.infoPtr == vScrollBar)) 
+               {
+                  checkScrollBar(event, hScrollBar, delta.x);
+                  checkScrollBar(event, vScrollBar, delta.y);
+               } else
+                  return;
                break;
             default:
                return;

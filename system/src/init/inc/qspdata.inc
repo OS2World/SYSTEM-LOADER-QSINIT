@@ -27,7 +27,7 @@ mt_procinfo     struc
 piSign          dd      ?          ;/< header signature
 piPID           dd      ?          ;/< pid
 piParentPID     dd      ?          ;/< parent pid
-piParentTID     dd      ?          ;/< tid, who waits for this process
+piParentTID     dd      ?          ;/< parent tid (or 0 for detached)
 piThreads       dd      ?          ;/< number of active threads
 piExitCode      dd      ?          ;/< process exit code
 ;ct process_context*
@@ -59,6 +59,8 @@ mt_procinfo     ends
 
 PFLM_SYSTEM     equ     1          ;/< system process, should never free it
 PFLM_EMBLIST    equ     2          ;/< list embedded into process info block
+PFLM_NOPWAIT    equ     4          ;/< this is session start, no parent waiting
+PFLM_LWAIT      equ     8          ;/< wait for launcher`s mt_waitobject() call
 
 THRD_RUNNING    equ     0          ;/< thread is active
 THRD_SUSPENDED  equ     1          ;/< suspended thread
@@ -70,6 +72,7 @@ THWR_CHILDEXEC  equ     0          ;/< child process exit
 THWR_TIDMAIN    equ     1          ;/< main thread waits for other active threads
 THWR_TIDEXIT    equ     2          ;/< thread waits other to exit
 THWR_WAITOBJ    equ     3          ;/< thread waits in mt_waitobject() func
+THWR_WAITLNCH   equ     4          ;/< child waits for mt_waitobject() call by launcher
 
 ;cc // thread info
 mt_threadinfo   struc
@@ -115,24 +118,34 @@ TFLM_MAIN       equ     1          ;/< main thread (exit will cause process term
 TFLM_EMBLIST    equ     2          ;/< list embedded into thread info memoryblock
 TFLM_SYSTEM     equ     4          ;/< system thread (kill disabled)
 TFLM_NOSCHED    equ     8          ;/< skip it in scheduler enumeration
+TFLM_TLP        equ    10h         ;/< scheduler internal hint bit
+TFLM_NOFPU      equ    20h         ;/< ignore FPU context saving
+TFLM_NOTRACE    equ    40h         ;/< trace output disabled for this thread
 
 mt_fiberstate   struc
 fiSign          dd      ?          ;/< header signature
-fiType          dd      ?          ;/< fiber flags
+fiType          dw      ?          ;/< fiber type
+fiFPUMode       dw      ?          ;/< FPU usage mode
 ;ct void*
 fiUserData      dd      ?          ;/< fiber data ptr
 ;ct void*
 fiStack         dd      ?          ;/< stack pointer to free it
 fiStackSize     dd      ?          ;/< size of custom stack
 fiXcptTop       dd      ?          ;/< exception stack top
-fiRegisters     tss_s  <?>
+;ct void*
+fiFPURegs       dd      ?          ;/< FPU state buffer (can be 0)
+fiRegs          tss_s  <?>
 mt_fiberstate   ends
 
-FIBT_MAIN       equ     0          ;/< fiber is common exectuin stream
+FIBT_MAIN       equ     0          ;/< fiber is common executing stream
 FIBT_APC        equ     1          ;/< fiber is async procedure
 FIBT_AVAIL      equ     2          ;/< empty slot
 
-;cc typedef mt_prcdata* (_std *pmt_new  )(process_context *pq);
+FIBF_EMPTY      equ     0          ;/< FPU state buffer is empty or unallocated
+FIBF_FIB0       equ     1          ;/< use fiber 0 buffer
+FIBF_OK         equ     2          ;/< FPU state buffer is in use
+
+;cc typedef mt_prcdata* (_std *pmt_new  )(process_context *pq, void *mtdata);
 ;cc typedef u32t        (_std *pmt_exec )(process_context *pq);
 ;cc typedef u32t        (_std *pmt_exit )(process_context *pq);
 ;cc typedef void        (_std *pmt_yield)(void);
@@ -147,6 +160,10 @@ mtcb_exec       dd      ?
 mtcb_fini       dd      ?
 ;ct pmt_yield
 mtcb_yield      dd      ?
+;* callback from switcher code when TS bit it set.
+;  does not called duaring interrupt.
+;ct pmt_yield
+mtcb_rmcall     dd      ?
 ;/ !!!
 mtcb_glock      dd      ?
 mtcb_llcaller   dd      ?          ;/< last mt_swlock() caller addr
@@ -155,6 +172,12 @@ mtcb_pxcpttop   dd      ?
 ;ct process_context*
 mtcb_ctxmem     dd      ?
 mtcb_ctid       dd      ?          ;/< current thread (pid in mtcb_ctxmem)
+;ct void*
+mtcb_cvh        dd      ?          ;/< current vio handler
+mtcb_sesno      dd      ?          ;/< current session no
+;ct mt_thrdata*
+mtcb_cfpt       dd      ?          ;/< current FPU owner thread
+mtcb_cfpf       dd      ?          ;/< current FPU thread`s fiber index
 mt_proc_cb_s    ends
 
 ;cc typedef struct mt_proc_cb_s  mt_proc_cb;

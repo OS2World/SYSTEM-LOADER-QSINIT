@@ -15,6 +15,7 @@
 #include "diskedit.h"
 #include "direct.h"
 #include <stdlib.h>
+#include <errno.h>
 
 #ifndef __QSINIT__
 void TSysApp::LoadFromZIPRevArchive(TInputLine *ln) {
@@ -27,7 +28,7 @@ extern "C" {
 }
 #include "qsutil.h"
 
-static const char *kdisk1_name = "1:/OS2KRNL!";
+static const char *kdisk1_name = "B:\\OS2KRNL!";
 #define KERNELSIZE_CHECK (_1MB+_512KB)
 
 static TListBox *k_ziplist;
@@ -64,7 +65,7 @@ void TSysApp::LoadFromZIPRevArchive(TInputLine *ln) {
    // remove previously unpacked kernel
    unlink(kdisk1_name);
    // get disk free space
-   if (_dos_getdiskfree(kdisk1_name[0]-'0'+1,&dspc)) {
+   if (_dos_getdiskfree(kdisk1_name[0]-'A'+1,&dspc)) {
       messageBox("\x03""Internal error...",mfError+mfOKButton);
       return;
    }
@@ -95,12 +96,12 @@ void TSysApp::LoadFromZIPRevArchive(TInputLine *ln) {
          messageBox(emsg,mfError+mfOKButton);
          break;
       }
-      if (!zip_open(&zz, zip, zipsize)) {
+      if (zip_open(&zz, zip, zipsize)) {
          messageBox("\x03""This is not a zip archive!",mfError+mfOKButton);
          break;
       }
   
-      while (zip_nextfile(&zz,&filename,&filesize)) { 
+      while (zip_nextfile(&zz,&filename,&filesize)==0) { 
          char *str = new char[strlen(filename)+1];
          strcpy(str,filename);
          zl->insert(str);
@@ -115,38 +116,28 @@ void TSysApp::LoadFromZIPRevArchive(TInputLine *ln) {
          char *nm = (char*)zl->at(k_ziplist->focused);
 
          zip_open(&zz, zip, zipsize);
-         while (zip_nextfile(&zz,&filename,&filesize)) { 
+         while (zip_nextfile(&zz,&filename,&filesize)==0) { 
             if (strcmp(nm,filename)==0) {
                FILE   *ff;
-               void *mem = zip_readfile(&zz);
+               void  *mem = 0;
+               qserr  err = zip_readfile(&zz,&mem);
          
-               if (!mem) {
-                  messageBox("\x03""Zip unpack error!",mfError+mfOKButton);
+               if (err) {
+                  char *msg = GetPTErr(err), buf[128];
+                  snprintf(buf, 128, "\3""Zip unpack error: %s", msg);
+                  free(msg);
+                  messageBox(buf, mfError+mfOKButton);
                   break;
                }
-               ff = fopen(kdisk1_name, "wb");
-               if (ff) {
-                  int err = fwrite(mem,1,filesize,ff)!=filesize;
-                  fclose(ff);
-                  if (err) ff=0;
-               }
-               if (mem) {
-                  memset(mem,0,filesize);
-                  hlp_memfree(mem);
-               }
-               if (!ff)  {
-                  messageBox("\x03""There is no space for kernel on virtual "
-                     "disk! Increase DISKSIZE parameter in OS2LDR.INI.",
-                     mfError+mfOKButton);
-                  break;
-               }
-               // done
-               setstr(ln,kdisk1_name);
+               int errv = fwritefull(kdisk1_name, mem, filesize);
+               hlp_memfree(mem);
+
+               if (!errv) setstr(ln,kdisk1_name); else
+                  PrintPTErr(errv, MSGTYPE_CLIB);
                break;
             }
          }
          zip_close(&zz);
-
       }
       destroy(ci);
 

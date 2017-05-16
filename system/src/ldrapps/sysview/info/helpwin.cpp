@@ -4,7 +4,7 @@
 #include "helpwin.h"
 
 TAppHlpWindow::TAppHlpWindow(THelpFile *hFile, ushort context) :
-   TAppWindow (SysApp.deskTop->getExtent(), "Help", TWin_Help),
+   TAppWindow (SysApp.deskTop->getExtent(), "Help", AppW_Help),
    TWindowInit(initFrame)
 {
    TRect r(SysApp.deskTop->getExtent());

@@ -2,14 +2,18 @@
 /*                                                                         */
 /*   STDDLG.H                                                              */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TFileInputLine, TFileCollection, TSortedListBox,  */
 /*   TFileList, TFileInfoPane, TFileDialog, TDirCollection, TDirListBox,   */
 /*   and TChDirDialog                                                      */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #ifdef __BORLANDC__
 #pragma warn -hid
@@ -27,6 +31,8 @@
 #define cmFileInit         (1004)  // Used by TFileDialog internally
 #define cmChangeDir        (1005)  // Used by TChDirDialog internally
 #define cmRevert           (1006)  // Used by TChDirDialog internally
+#define cmDirSelection     (1007)  /* New event - Used by TChDirDialog internally
+                                      and TDirListbox externally */
 
 //  Messages
 #define cmFileFocused       (102)  // A new file was focused in the TFileList
@@ -215,6 +221,7 @@ protected:
    TSortedListBox(StreamableInit) : TListBox(streamableInit) {}
 
 public:
+   void *read(ipstream &is);
 
    static const char *const name;
    static TStreamable *build();
@@ -257,8 +264,8 @@ public:
    ~TFileList();
 
    virtual void focusItem(int item);
+   virtual void selectItem(int item);
    virtual void getText(char *dest, int item, int maxLen);
-   virtual void handleEvent(TEvent &event);
    virtual void newList(TFileCollection *aList);
    void readDirectory(const char *dir, const char *wildCard);
    void readDirectory(const char *wildCard);
@@ -587,8 +594,8 @@ public:
    ~TDirListBox();
 
    virtual void getText(char *, int, int);
-   virtual void handleEvent(TEvent &);
    virtual Boolean isSelected(int);
+   virtual void selectItem(short item);
    void newDirectory(const char *);
    virtual void setState(ushort aState, Boolean enable);
 

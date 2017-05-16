@@ -1,25 +1,13 @@
-#include "qstypes.h"
-#include "qsmodint.h"
-#include "qsutil.h"
-#include "qsint.h"
-#include "clib.h"
-#include "vio.h"
+#include "qslocal.h"
 #include "qssys.h"
+#include "vio.h"
 
 #define TEXTMEM_SEG  0xB800
 extern u64t          countsIn55ms,
                         rdtscprev;
 extern u8t          rtdsc_present;
-extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 
-int  _std tolower(int cc);
-void _std usleep(u32t usec);
-void _std mt_yield(void);
-u64t _std hlp_tscread(void);
-int  _std sys_intstate(int on);
-// ******************************************************************
-
-// real mode far functions, do not call it directly!
+// real mode far functions, do not call them directly!
 u16t getkeyflags(void);
 void settextmode(u32t lines);
 void checkresetmode(u32t clear);
@@ -29,7 +17,7 @@ void calibrate_delay(void);
 void vio_updateinfo(void);
 
 // get system keys status
-u32t key_status(void) {
+u32t ckey_status(void) {
    static u16t translate[16]={KEY_SHIFTRIGHT|KEY_SHIFT, KEY_SHIFTLEFT|KEY_SHIFT,
       KEY_CTRL, KEY_ALT, KEY_SCROLLLOCK, KEY_NUMLOCK, KEY_CAPSLOCK, KEY_INSERT,
       KEY_CTRLLEFT|KEY_CTRL, KEY_ALTLEFT|KEY_ALT, KEY_CTRLRIGHT|KEY_CTRL, 
@@ -42,7 +30,7 @@ u32t key_status(void) {
    return rc;
 }
 
-void vio_setmode(u32t lines) {
+void cvio_setmode(u32t lines) {
    u32t mode=lines==43?1:(lines==50?2:0x202);
    rmcall(settextmode,2,mode);
    // reset internal cursor pos & vio data
@@ -51,7 +39,7 @@ void vio_setmode(u32t lines) {
    vio_defshape(VIO_SHAPE_LINE);
 }
 
-void _std vio_resetmode(void) {
+void _std cvio_resetmode(void) {
    rmcall(checkresetmode,2,1);
    vio_updateinfo();
    vio_defshape(VIO_SHAPE_LINE);
@@ -59,7 +47,7 @@ void _std vio_resetmode(void) {
 
 /* this is stub, it will be replaced by CONSOLE.DLL on loading to allow
    virtual console modes */
-int _std vio_setmodeex(u32t cols, u32t lines) {
+int _std cvio_setmodeex(u32t cols, u32t lines) {
    if (cols!=80) return 0;
    if (lines!=25 && lines!=43 && lines!=50) return 0;
    vio_setmode(lines);
@@ -91,24 +79,24 @@ void _std key_getspeed(u8t *rate, u8t *delay) {
    mt_swunlock();
 }
 
-void _std vio_getmodefast(u32t *cols, u32t *lines) {
+void _std cvio_getmodefast(u32t *cols, u32t *lines) {
    vio_updateinfo();
    if (lines) *lines=max_y;
    if (cols) *cols=max_x;
 }
 
-u8t  _std vio_getmode(u32t *cols, u32t *lines) {
+u8t  _std cvio_getmode(u32t *cols, u32t *lines) {
    u8t rc=rmcall(istextmode,0);
-   vio_getmodefast(cols,lines);
+   cvio_getmodefast(cols,lines);
    return rc;
 }
 
 // jumped here from vio_writebuf/vio_readbuf, so order of args is constant!
-void _std vio_bufcommon(int toscr, u32t col, u32t line, u32t width,
+void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
    u32t height, void *buf, u32t pitch)
 {
    u32t cols, lines;
-   vio_getmodefast(&cols,&lines);
+   cvio_getmodefast(&cols,&lines);
    if (line>=lines||col>=cols) return;
    if (!pitch) pitch = width*2;
    if (col+width  > cols ) width  = cols - col;
@@ -150,7 +138,6 @@ u64t _std hlp_tscin55ms(void) {
 }
 
 u64t _std clockint(process_context *pq) {
-//   process_context *pq = mod_context();
    // init everything
    if (hlp_tscin55ms()) {
       int    state = sys_intstate(0);
@@ -169,11 +156,15 @@ u64t _std clockint(process_context *pq) {
 
 #pragma aux key_filter "_*" parm [eax] value [eax];
 
-// try to fix some of EFI wrong key codes
+// try to fix some of wrong key codes (occurs on my PC with EFI BIOS)
 u32t key_filter(u32t key) {
    register u16t kc = key;
    // zero char code in all Fx keys (single F1..F12 and with Alt/Ctrl/Shift)
    if (kc>=0x3B00 && kc<=0x44FF || kc>=0x5400 && kc<=0x71FF ||
       kc>=0x8500 && kc<=0x8CFF) kc&=0xFF00;
    return kc;
+}
+
+u16t _std key_read_nw(void) {
+   return key_filter(hlp_querybios(QBIO_KEYREADNW));
 }

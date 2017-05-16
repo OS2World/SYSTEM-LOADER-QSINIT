@@ -201,7 +201,7 @@ void read_object(MKBIN_HEADER &bh, int obj, u32t offset, int savebss, u8t *desta
                   relo_info rel;
                   rel.ro_offset  = dofs;
                   rel.ro_target  = fofs;
-                  rel.ro_tgt16   = 0;
+                  rel.ro_flags   = 0;
                   relo->Add(rel);
                   rels_info rls;
                   rls.rs_offset  = dofs + 4;
@@ -209,12 +209,12 @@ void read_object(MKBIN_HEADER &bh, int obj, u32t offset, int savebss, u8t *desta
                   rels->Add(rls);
                   break;
                }
-               case NROFF32 : if (is16) FIXUP_ERR("32-bit offset in RM object!"); else
-               {
+               case NROFF32 : {
                   relo_info rel;
                   rel.ro_offset  = dofs;
                   rel.ro_target  = fofs;
-                  rel.ro_tgt16   = fsel==FXSEL16 ? 1 : 0;
+                  rel.ro_flags   = (fsel==FXSEL16 ? FXRELO_T16 : 0) |
+                                   (is16 ? FXRELO_S16 : 0);
                   relo->Add(rel);
                   /* actually this is NOT an error, but can be used to check
                      assembler/linker results */
@@ -253,8 +253,8 @@ static int rels_compare(const void *b1, const void *b2) {
 static int relo_compare(const void *b1, const void *b2) {
    relo_info *rp1 = (relo_info*)b1,
              *rp2 = (relo_info*)b2;
-   if (rp1->ro_tgt16 > rp2->ro_tgt16) return 1;
-   if (rp1->ro_tgt16 < rp2->ro_tgt16) return -1;
+   if (rp1->ro_flags > rp2->ro_flags) return 1;
+   if (rp1->ro_flags < rp2->ro_flags) return -1;
    if (rp1->ro_target == rp2->ro_target) return 0;
    if (rp1->ro_target > rp2->ro_target) return 1;
    return -1;

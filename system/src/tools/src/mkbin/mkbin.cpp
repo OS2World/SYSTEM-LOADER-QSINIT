@@ -22,7 +22,7 @@ static void about(void) {
           " 1-2 32-bit objects with PM code.\n\n"
           " Module must be a DLL, 32-bit entry point stored in binary for user tasks.\n"
           " User code responsible for unpacking and fixuping 32-bit part of binary.\n\n"
-          " 16-bit object cannot use any fixups except void 16-bit offset to self.\n",
+          " 16-bit object can use only offset fixups both to self and 32-bit objects.\n",
           APPVER>>8, APPVER&0xFF);
    exit(1);
 }

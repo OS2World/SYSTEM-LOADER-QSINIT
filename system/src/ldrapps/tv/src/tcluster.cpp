@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TCluster member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TKeys
 #define Uses_TCluster
@@ -30,17 +27,17 @@
 #include <ctype.h>
 #include <string.h>
 
-#define cpCluster "\x10\x11\x12\x12"
+#define cpCluster "\x10\x11\x12\x12\x1F"
 
 TCluster::TCluster(const TRect &bounds, TSItem *aStrings) :
    TView(bounds),
    value(0),
-   sel(0) {
+   sel(0) 
+{
    options |= ofSelectable | ofFirstClick | ofPreProcess | ofPostProcess;
    short i = 0;
    TSItem *p;
-   for (p = aStrings; p != 0; p = p->next)
-      i++;
+   for (p = aStrings; p != 0; p = p->next) i++;
 
    strings = new TStringCollection(i, 0);
 
@@ -53,80 +50,69 @@ TCluster::TCluster(const TRect &bounds, TSItem *aStrings) :
 
    setCursor(2, 0);
    showCursor();
+   enableMask = 0xFFFFFFFFL;
 }
 
 TCluster::~TCluster() {
    destroy((TCollection *)strings);
 }
 
-size_t TCluster::dataSize() {
-   return sizeof(value);
+size_t  TCluster::dataSize() {
+   // value is now a long, but for compatibility with earlier TV,
+   // return size of short; TMultiCheckBoxes returns sizeof(long).
+   //return sizeof(ushort);
+   return sizeof(unsigned long);
 }
 
-/*
-                        Hедоработка в TCluster.
-        (Michael Reztsov, 2:5069/2.45, Sun 11 May 97 20:53)
-
-Если в любом экземпляре класса количество строк превышает размер
-видимого элемента по вертикали, создается вторая и т.д. колонки для
-отображения всех строк. Когда горизонтальный размер недостаточен для
-отображения хотя бы первого символа из следующей колонки, то в методе
-drawBox вылезает такая ошибка: после расчета позиции по горизонтали
-следующей колонки (переменная col) вызывается метод moveChar буфера с
-параметром Count равным (size.x - col). Т.к. col больше size.x, то
-передается отрицательное число, которое в машинном виде выглядит как
-большое положительное. В итоге - выход за границы буфера и сегмента
-стека. В DOS'е машина может повиснуть. Конечно, при заранее правильном
-задании горизонтального размера элемента ошибка не возникает, но при
-случайности...
-
-    Строка с ошибкой вызывает moveChar для очистки буфера с
-определенной позиции. Можно заменить выражение, вызывающее ошибку на
-abs(size.x - col), а можно закомментировать всю строку и поставить в
-начале внешнего цикла очистку буфера на size.x видимого элемента.
-Второй вариант может пригодиться в случае, когда для элемента задан
-вертикальный размер, превышающий количество выводимых строк (иначе
-выводится то, что было в буфере, а именно предыдущая строка).
-Присутствие сразу обоих строк не нужно.
-
-*/
-
 void TCluster::drawBox(const char *icon, char marker) {
+   char s[3];
+   s[0] = ' '; s[1] = marker; s[2] = 0;
+   drawMultiBox(icon, s);
+}
+
+void TCluster::drawMultiBox(const char *icon, const char *marker) {
    TDrawBuffer b;
    ushort color;
+   int i, j, cur;
 
    ushort cNorm = getColor(0x0301);
    ushort cSel = getColor(0x0402);
-   for (int i = 0; i <= size.y; i++) {
-      // добавлена строка (fix by Michael Reztsov, 2:5069/2.45)
-      b.moveChar(0, ' ', cNorm, size.x);
-      //
-      for (int j = 0; j <= (strings->getCount()-1)/size.y + 1; j++) {
-         int cur = j * size.y + i;
+   ushort cDis = getColor(0x0505);
+   for (i = 0; i <= size.y; i++) {
+      b.moveChar(0, ' ', (uchar)cNorm, size.x);
+      for (j = 0; j <= (strings->getCount() - 1) / size.y + 1; j++) {
+         cur = j * size.y + i;
          if (cur < strings->getCount()) {
             int col = column(cur);
-            if ((cur == sel) && (state & sfSelected) != 0)
-               color = cSel;
-            else
-               color = cNorm;
-            //                b.moveChar( col, ' ', color, abs(size.x - col) );
-            b.moveCStr(col, icon, color);
-            if (mark(cur))
-               b.putChar(col+2, marker);
-            b.moveCStr(col+5, (char *)(strings->at(cur)), color);
-            if (showMarkers && (state & sfSelected) != 0 && cur == sel) {
-               b.putChar(col, specialChars[0]);
-               b.putChar(column(cur+size.y)-1, specialChars[1]);
+
+            if (((col + strlen((const char *)strings->at(cur)) + 5) <
+                  (sizeof(b) / sizeof(ushort))) && (col < size.x)) {
+               if (!buttonState(cur))
+                  color = cDis;
+               else if ((cur == sel) && (state & sfSelected) != 0)
+                  color = cSel;
+               else
+                  color = cNorm;
+               b.moveChar(col, ' ', color, size.x - col);
+               b.moveCStr(col, icon, color);
+
+               b.putChar(col + 2, marker[multiMark(cur)]);
+               b.moveCStr(col + 5, (char *)(strings->at(cur)), color);
+               if (showMarkers && ((state & sfSelected) != 0) && cur == sel) {
+                  b.putChar(col, specialChars[0]);
+                  b.putChar(column(cur + size.y) - 1, specialChars[1]);
+               }
+
             }
          }
       }
       writeBuf(0, i, size.x, 1, b);
    }
-   setCursor(column(sel)+2, row(sel));
+   setCursor(column(sel) + 2, row(sel));
 }
 
 void TCluster::getData(void *rec) {
-   *(ushort *)rec = value;
+   *(unsigned long *)rec = value;
    drawView();
 }
 
@@ -138,26 +124,35 @@ ushort TCluster::getHelpCtx() {
 }
 
 TPalette &TCluster::getPalette() const {
-   static TPalette palette(cpCluster, sizeof(cpCluster)-1);
+   static TPalette palette(cpCluster, sizeof(cpCluster) - 1);
    return palette;
+}
+
+void TCluster::moveSel(int i, int s) {
+   if (i <= strings->getCount()) {
+      sel = s;
+      movedTo(sel);
+      drawView();
+   }
 }
 
 void TCluster::handleEvent(TEvent &event) {
    TView::handleEvent(event);
-   if (!(options & ofSelectable)) return;
+   if (!(options & ofSelectable))
+      return;
    if (event.what == evMouseDown) {
       TPoint mouse = makeLocal(event.mouse.where);
       int i = findSel(mouse);
-      if (i != -1)
+      if ((i != -1) && buttonState(i))
          sel = i;
       drawView();
       do  {
          mouse = makeLocal(event.mouse.where);
-         if (findSel(mouse) == sel)
+         if ((findSel(mouse) == sel) && buttonState(sel))
             showCursor();
          else
             hideCursor();
-      } while (mouseEvent(event,evMouseMove));
+      } while (mouseEvent(event, evMouseMove));
       showCursor();
       mouse = makeLocal(event.mouse.where);
       if (findSel(mouse) == sel) {
@@ -165,85 +160,124 @@ void TCluster::handleEvent(TEvent &event) {
          drawView();
       }
       clearEvent(event);
-   } else if (event.what == evKeyDown)
+   } else if (event.what == evKeyDown) {
+      int s = sel;
       switch (ctrlToArrow(event.keyDown.keyCode)) {
-         case kbUp:
-            if ((state & sfFocused) != 0) {
-               if (--sel < 0)
-                  sel = strings->getCount()-1;
-               movedTo(sel);
-               drawView();
-               clearEvent(event);
-            }
-            break;
+      case kbUp:
+         if ((state & sfFocused) != 0) {
+            int i = 0;
+            do {
+               i++; s--;
+               if (s < 0)
+                  s = strings->getCount() - 1;
+            } while (!(buttonState(s) || (i > strings->getCount())));
+            moveSel(i, s);
+            clearEvent(event);
+         }
+         break;
 
-         case kbDown:
-            if ((state & sfFocused) != 0) {
-               if (++sel >= strings->getCount())
-                  sel = 0;
-               movedTo(sel);
-               drawView();
-               clearEvent(event);
-            }
-            break;
-         case kbRight:
-            if ((state & sfFocused) != 0) {
-               sel += size.y;
-               if (sel >= strings->getCount()) {
-                  sel = (sel +  1) % size.y;
-                  if (sel >= strings->getCount())
-                     sel =  0;
+      case kbDown:
+         if ((state & sfFocused) != 0) {
+            int i = 0;
+            do {
+               i++; s++;
+               if (s >= strings->getCount())
+                  s = 0;
+            } while (!(buttonState(s) || (i > strings->getCount())));
+            moveSel(i, s);
+            clearEvent(event);
+         }
+         break;
+      case kbRight:
+         if ((state & sfFocused) != 0) {
+            int i = 0;
+            do {
+               i++; s += size.y;
+               if (s >= strings->getCount()) {   // BUG FIX - EFW - 10/25/94
+                  s = (s +  1) % size.y;
+                  if (s >= strings->getCount())
+                     s =  0;
                }
-               movedTo(sel);
-               drawView();
-               clearEvent(event);
-            }
-            break;
-         case kbLeft:
-            if ((state & sfFocused) != 0) {
-               if (sel > 0) {
-                  sel -= size.y;
-                  if (sel < 0) {
-                     sel = ((strings->getCount()+size.y-1) /size.y)*size.y + sel - 1;
-                     if (sel >= strings->getCount())
-                        sel = strings->getCount()-1;
+            } while (!(buttonState(s) || (i > strings->getCount())));
+
+            moveSel(i, s);    // BUG FIX - EFW - 10/25/94
+
+            clearEvent(event);
+         }
+         break;
+      case kbLeft:
+         if ((state & sfFocused) != 0) {
+            int i = 0;
+            do {
+               i++;
+               if (s > 0) {
+                  s -= size.y;
+                  if (s < 0) {
+                     s = ((strings->getCount() + size.y - 1) /
+                          size.y) * size.y + s - 1;
+                     if (s >= strings->getCount())
+                        s = strings->getCount() - 1;
                   }
                } else
-                  sel = strings->getCount()-1;
-               movedTo(sel);
-               drawView();
-               clearEvent(event);
-            }
-            break;
-         default:
-            for (int i = 0; i < strings->getCount(); i++) {
-               char c = hotKey((char *)(strings->at(i)));
-               if (getAltCode(c) == event.keyDown.keyCode ||
-                   ((owner->phase == phPostProcess ||
-                     (state & sfFocused) != 0
-                    ) &&
-                    c != 0 &&
-                    toupper(event.keyDown.charScan.charCode) == c
-                   )
-                  ) {
-                  select();
-                  sel =  i;
-                  movedTo(sel);
-                  press(sel);
-                  drawView();
-                  clearEvent(event);
-                  return;
-               }
-            }
-            if (event.keyDown.charScan.charCode == ' ' &&
-                (state & sfFocused) != 0
+                  s = strings->getCount() - 1;
+
+            } while (!(buttonState(s) || (i > strings->getCount())));
+
+            moveSel(i, s);    // BUG FIX - EFW - 10/25/94
+            clearEvent(event);
+         }
+         break;
+      default:
+         for (int i = 0; i < strings->getCount(); i++) {
+            char c = hotKey((char *)(strings->at(i)));
+            if (getAltCode(c) == event.keyDown.keyCode ||
+                  ((owner->phase == phPostProcess ||
+                    (state & sfFocused) != 0
+                   ) &&
+                   c != 0 &&
+                   toupper(event.keyDown.charScan.charCode) == c
+                  )
                ) {
-               press(sel);
-               drawView();
-               clearEvent(event);
+               if (buttonState(i)) {
+                  if (focus()) {
+                     sel = i;
+                     movedTo(sel);
+                     press(sel);
+                     drawView();
+                  }
+                  clearEvent(event);
+               }
+               return;
             }
+         }
+         if (event.keyDown.charScan.charCode == ' ' &&
+               (state & sfFocused) != 0
+            ) {
+            press(sel);
+            drawView();
+            clearEvent(event);
+         }
       }
+   }
 }
+
+
+void TCluster::setButtonState(unsigned long aMask, Boolean enable) {
+   if (!enable)
+      enableMask &= ~aMask;
+   else
+      enableMask |= aMask;
+
+   int n = strings->getCount();
+   if (n < 32) {
+      unsigned long testMask = (1 << n) - 1;
+      if ((enableMask & testMask) != 0)
+         options |= ofSelectable;
+      else
+         options &= ~ofSelectable;
+   }
+}
+
 
 void TCluster::setData(void *rec) {
    value =  *(ushort *)rec;
@@ -252,12 +286,27 @@ void TCluster::setData(void *rec) {
 
 void TCluster::setState(ushort aState, Boolean enable) {
    TView::setState(aState, enable);
-   if (aState == sfSelected)
-      drawView();
+   if (aState == sfSelected) {
+      int i = 0, s = sel - 1;
+      do {
+         i++;
+         s++;
+         if (s >= strings->getCount())
+            s = 0;
+      } while (!(buttonState(s) || i > strings->getCount()));
+
+      moveSel(i, s);
+   }
+
+   drawView();
 }
 
 Boolean TCluster::mark(int) {
    return False;
+}
+
+uchar TCluster::multiMark(int item) {
+   return (uchar)(mark(item) == True);
 }
 
 void TCluster::movedTo(int) {
@@ -308,17 +357,25 @@ int TCluster::row(int item) {
    return item % size.y;
 }
 
+Boolean TCluster::buttonState(int item) {
+   if (item>=32) return False;
+   return enableMask & 1<<item ? True : False;
+}
+
 #ifndef NO_TV_STREAMS
+
 void TCluster::write(opstream &os) {
    TView::write(os);
-   os << value << sel << strings;
+   os << value << sel << enableMask << strings;
 }
 
 void *TCluster::read(ipstream &is) {
    TView::read(is);
-   is >> value >> sel >> strings;
+   is >> value >> sel >> enableMask >> strings;
+
    setCursor(2, 0);
    showCursor();
+   setButtonState(0, True);
    return this;
 }
 
@@ -328,6 +385,5 @@ TStreamable *TCluster::build() {
 
 TCluster::TCluster(StreamableInit) : TView(streamableInit) {
 }
-#endif  // ifndef NO_TV_STREAMS
 
-
+#endif // ifndef NO_TV_STREAMS

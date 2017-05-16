@@ -2,12 +2,11 @@
 // QSINIT "start" module
 // time C library functions
 //
-#include "stdlib.h"
 #include "time.h"
 #include "qstime.h"
 #include "qslog.h"
 #include "qsmod.h"
-#include "internal.h"
+#include "syslocal.h"
 
 static struct tm lct_res;
 static char  timestr[32];

@@ -2,12 +2,18 @@
 /*                                                                         */
 /*   TEXTVIEW.H                                                            */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TTextDevice and TTerminal                         */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ * ------------------------------------------------------------------------*
+ * this is again a combination of altered 1.0 code & 2.0 changes
+ */
 
 #include <tvvo.h>
 
@@ -42,10 +48,8 @@ public:
    virtual int do_sputn(const char *s, int count) = 0;
 #if defined(__OS2__) && defined(__BORLANDC__)
    virtual int _RTLENTRY overflow(int = EOF); // flush buffer and make more room
-#elif defined(__IBMCPP__)
-   virtual int overflow(int = EOF);
 #else
-   virtual int TV_CDECL overflow(int = EOF);
+   virtual int overflow(int = EOF);
 #endif
 #if defined(__WATCOMC__)
    virtual int underflow(void) { return 0; }
@@ -80,9 +84,10 @@ public:
 
    void bufInc(size_t &val);
    Boolean canInsert(size_t amount);
+   short calcWidth();
    virtual void draw();
    size_t nextLine(size_t pos);
-   size_t TV_CDECL prevLines(size_t pos, int lines);
+   size_t prevLines(size_t pos, int lines);
    Boolean queEmpty();
 protected:
 
@@ -90,6 +95,7 @@ protected:
    char *buffer;
    size_t queFront, queBack;
    void bufDec(size_t &val);
+   ushort curLineWidth;   // Added horizontal cursor tracking
 };
 
 #endif  // Uses_TTerminal

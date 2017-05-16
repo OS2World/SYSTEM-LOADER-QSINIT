@@ -1,15 +1,9 @@
 //
 // QSINIT
-// process/thread handling support
+// mutexes & attime handling
 // ------------------------------------------------------------
-// most of code here should not use any API.
-// exceptions are:
-//  * memcpy/memset (imported by direct pointer)
-//  * 64-bit mul/div (exported by direct pointer in QSINIT)
 //
 #include "mtlib.h"
-
-#define MUTEX_SIGN       0x4458554D   ///< MUTEX string
 
 #define instance_ret(src,inst,err)       \
    mutex_data *inst = (mutex_data*)src;  \
@@ -22,10 +16,12 @@
 static u32t     mux_classid = 0;
 qs_sysmutex     mux_hlpinst = 0;
 qs_muxcvtfunc    hlp_cvtmux = 0;
+qe_availfunc     hlp_qavail = 0;
 
 /// common init call.
-static void _exicc mutex_init(EXI_DATA, qs_muxcvtfunc sfunc) {
-   hlp_cvtmux = sfunc;
+static void _exicc mutex_init(EXI_DATA, qs_muxcvtfunc sf1, qe_availfunc sf2) {
+   hlp_cvtmux = sf1;
+   hlp_qavail = sf2;
 }
 
 /// create mutex.
@@ -159,10 +155,47 @@ int _exicc mutex_state(EXI_DATA, mux_handle_int muxh, qs_sysmutex_state *info) {
    return !mx->owner?0:mx->lockcnt;
 }
 
+
+static qserr _exicc callat(EXI_DATA, qsclock at, qs_croncbfunc cb, void *usrdata) {
+   int ci, eidx = -1;
+   qserr    res = 0;
+
+   mt_swlock();
+   // search for empty slot or self
+   for (ci=0; ci<ATTIMECB_ENTRIES; ci++) {
+      attime_entry *ate = attcb+ci;
+      if (!ate->cbf && eidx<0) eidx = ci; else
+         if (ate->cbf==cb) { eidx = ci; break; }
+   }
+   if (eidx<0) res = E_SYS_SOFTFAULT; else
+   if (!at) attcb[eidx].cbf = 0; else {
+      attime_entry *ate = attcb+eidx;
+      qsclock     now_t = sys_clock();
+      u64t        now_c = hlp_tscread();
+
+      ate->start_tsc = now_c;
+      ate->cbf       = cb;
+      ate->usrdata   = usrdata;
+
+      if (at<now_t) at = 0; else {
+         at = (at - now_t + 50) / 100;
+         // > 80 days
+         if (at > _4GBLL*16) { ate->cbf = 0; res = E_SYS_TOOLARGE; }
+            else at *= tsc_100mks;
+      }
+      ate->diff_tsc  = at;
+
+      // log_printf("callat %u %LX %LX\n", eidx, ate->start_tsc, ate->diff_tsc);
+   }
+   mt_swunlock();
+   return res;
+}
+
 static void *m_list[] = { mutex_init, mutex_create, mutex_release, mutex_free,
-                          mutex_state};
+                          mutex_state, callat};
 
 void register_mutex_class(void) {
+   memset(&attcb, 0, sizeof(attcb));
    // something forgotten! interface part is not match to implementation
    if (sizeof(_qs_sysmutex)!=sizeof(m_list)) {
       log_printf("Function list mismatch\n");

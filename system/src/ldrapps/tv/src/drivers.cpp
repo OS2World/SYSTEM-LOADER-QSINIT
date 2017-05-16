@@ -7,16 +7,13 @@
 /*        moveCStr --   moves a char array into a buffer & adds an        */
 /*                      attribute to each char                            */
 /*------------------------------------------------------------------------*/
-
-/*------------------------------------------------------------------------*/
-/*                                                                        */
-/*    Turbo Vision -  Version 1.0                                         */
-/*                                                                        */
-/*                                                                        */
-/*    Copyright (c) 1991 by Borland International                         */
-/*    All Rights Reserved.                                                */
-/*                                                                        */
-/*------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TDrawBuffer
 #include <tv.h>

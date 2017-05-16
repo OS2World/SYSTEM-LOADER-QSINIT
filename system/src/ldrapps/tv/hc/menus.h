@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   MENUS.H                                                               */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TMenuItem, TMenu, TMenuView, TSubMenu,            */
 /*   TMenuBar, TMenuBox, TStatusItem, TStatusDef, and TStatusLine          */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 #include <views.h>
@@ -129,7 +133,7 @@ class TMenuView : public TView {
 
 public:
 
-   TMenuView(const TRect &bounds, TMenu *aMenu, TMenuView *aParent);
+   TMenuView(const TRect &bounds, TMenu *aMenu, TMenuView *aParent = 0);
    TMenuView(const TRect &bounds);
 
    void setBounds(const TRect &bounds);
@@ -158,7 +162,7 @@ private:
    void trackKey(Boolean findNext);
    Boolean mouseInOwner(TEvent &e);
    Boolean mouseInMenus(TEvent &e);
-   void trackMouse(TEvent &e);
+   void trackMouse(TEvent &e, Boolean &mouseActive);
    TMenuView *topMenu();
    uchar updateMenu(TMenu *menu);
    void do_a_select(TEvent &);
@@ -340,6 +344,28 @@ inline opstream &operator << (opstream &os, TMenuBox *cl)
 #endif  // Uses_TMenuBox
 
 
+#if defined( Uses_TMenuPopup ) && !defined( __TMenuPopup )
+#define __TMenuPopup
+
+/* ---------------------------------------------------------------------- */
+/*      class TMenuPopup                                                  */
+/*                                                                        */
+/*      Palette layout                                                    */
+/*        1 = Normal text                                                 */
+/*        2 = Disabled text                                               */
+/*        3 = Shortcut text                                               */
+/*        4 = Normal selection                                            */
+/*        5 = Disabled selection                                          */
+/*        6 = Shortcut selection                                          */
+/* ---------------------------------------------------------------------- */
+
+class TMenuPopup : public TMenuBox {
+   TMenuPopup(TRect &, TMenu *);
+   virtual void handleEvent(TEvent &);
+};
+
+#endif  // Uses_TMenuPopup
+
 #if defined( Uses_TStatusItem ) && !defined( __TStatusItem )
 #define __TStatusItem
 
@@ -352,9 +378,10 @@ public:
                ushort cmd,
                TStatusItem *aNext = 0
               );
+   ~TStatusItem();
 
    TStatusItem *next;
-   const char *text;
+   char *text;
    ushort keyCode;
    ushort command;
 
@@ -365,7 +392,12 @@ inline TStatusItem::TStatusItem(const char *aText,
                                 ushort cmd,
                                 TStatusItem *aNext
                                ) :
-   text(aText), keyCode(key), command(cmd), next(aNext) {
+   text(newStr(aText)), keyCode(key), command(cmd), next(aNext) 
+{
+}
+
+inline TStatusItem::~TStatusItem() {
+   delete text;
 }
 
 #endif  // Uses_TStatusItem
@@ -394,7 +426,8 @@ inline TStatusDef::TStatusDef(ushort aMin,
                               TStatusItem *someItems,
                               TStatusDef *aNext
                              ) :
-   lmin(aMin), lmax(aMax), items(someItems), next(aNext) {
+   lmin(aMin), lmax(aMax), items(someItems), next(aNext)
+{
 }
 
 #endif  // Uses_TStatusDef

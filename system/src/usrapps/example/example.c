@@ -198,6 +198,31 @@ int main(int argc,char *argv[]) {
             //log_mdtdump();
          }
       } else
+      if (stricmp(argv[1],"f")==0 && (argc==2 || argc==4)) {
+         u8t *savebuf = malloc(fpu_statesize()+48),
+               *alptr = savebuf;
+         double    aa = 1.5,
+                   bb = 123.456;
+         /* heap ptr is always aligned to 16 bytes, but we needs 64-byte
+            alignment here */
+         if ((ptrdiff_t)alptr&0x3F) alptr = (u8t*)Round64((ptrdiff_t)alptr);
+         mem_zero(savebuf);
+
+         printf("saving state... ");
+         fpu_statesave(alptr);
+         printf("ok\nrestoing... ");
+         fpu_staterest(alptr);
+         printf("done\nand still alive!\n");
+
+         printf("%f %f\n", aa, bb);
+         printf("%g %g\n", aa/2, bb-123);
+         if (argc==4) {
+            printf("atof(%s) = %f\n", argv[2], atof(argv[2]));
+            printf("atof(%s) = %g\n", argv[3], atof(argv[3]));
+         }
+
+         free(savebuf);
+      } else
       if (stricmp(argv[1],"g")==0 && argc==3) {
          // create 40Gb GPT partition directly on 2TB border
          u32t disk = dsk_strtodisk(argv[2]);
@@ -218,12 +243,37 @@ int main(int argc,char *argv[]) {
             }
          }
       } else
+      if (stricmp(argv[1],"p")==0 && argc==3) {
+         // query page access
+         static const char* pastr[4] = {"unknown", "not present", 
+                                        "read only", "writeable"};
+         u32t addr = strtoul(argv[2],0,16),
+              mode = pag_query((void*)addr);
+         printf("page at %08X is %s\n", addr&~PAGEMASK, pastr[mode]);
+      } else
       if (stricmp(argv[1],"s")==0 && argc==3) {
          // query GDT selector data
          u8t sd[8];
          u16t  sel = strtoul(argv[2],0,16);
          if (sys_selquery(sel,&sd)) printf("%04X: %8b\n", sel, &sd);
             else printf("no sel %04X\n", sel);
+      } else
+      if (stricmp(argv[1],"scanf")==0 && argc==2) {
+         int aa, rc;
+         char s1[24], s2[10], s3[10];
+         double fv;
+
+         printf("str str float int hex hex_chars: ");
+         rc = scanf("%23s %9s %lf %*d %x %9[0123456789ABCDEFabcdef]",
+            s1, s2, &fv, &aa, s3);
+
+         if (rc==EOF) {
+            printf("\nerror in string!");
+         } else {
+            printf("\n%i values: \"%s\" \"%s\" %g %X \"%s\"\n", rc, s1, s2,
+               fv, aa, s3);
+            printf("gcvt: %s\n", _gcvt(fv, 3, s1));
+         }
       } else
       if (stricmp(argv[1],"d")==0 && argc==3) {
          // delay x ms

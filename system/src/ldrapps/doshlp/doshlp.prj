@@ -91,6 +91,7 @@ sort global
 op mixed1632
 op nod
 op noext
+op statics
 op quiet
 op start=DHReboot
 OUTPUT RAW OFF=0x10000

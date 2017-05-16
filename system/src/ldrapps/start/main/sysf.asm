@@ -2,7 +2,8 @@
 ; QSINIT "start" module
 ; low level system support functions
 ;
-                .586p
+                .686p
+                .xmm3
 
                 include inc/cpudef.inc
                 include inc/pci.inc
@@ -10,8 +11,15 @@
                 MSR_IA32_MTRR_DEF_TYPE = 02FFh
                 MTRRS_MTRRON           = 0800h
 
+_DATA           segment dword public USE32 'DATA'
+                extrn   fpu_savetype:byte                       ;
+_DATA           ends
+
 CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
+
+                extrn   _fpu_xcpt_nm :near
+                extrn   _fpu_rmcallcb:near
 
 ;----------------------------------------------------------------
 ;void _std hlp_mtrrmstart(u32t *state);
@@ -219,7 +227,10 @@ _hlp_pciread    proc    near
                 mov     dx,PCI_ADDR_PORT                        ;
                 pushfd                                          ; to make safe out/in pair
                 cli                                             ;
+                push    eax                                     ;
+                and     al,not 3                                ;
                 out     dx,eax                                  ;
+                pop     eax                                     ;
                 add     dl,4                                    ; 0xCFC
                 mov     ah,[esp+@@pcir_size+4]                  ;
                 shr     ah,1                                    ;
@@ -266,9 +277,10 @@ _hlp_pciwrite   proc    near
                 mov     dx,PCI_ADDR_PORT                        ;
                 pushfd                                          ; to make safe out/in pair
                 cli                                             ;
+                mov     cl,al                                   ;
+                and     al,not 3                                ;
                 out     dx,eax                                  ;
                 add     dl,4                                    ; 0xCFC
-                mov     cl,al                                   ;
                 mov     ch,[esp+@@pcir_size+4]                  ;
                 mov     eax,[esp+@@pcir_value+4]                ;
                 shr     ch,1                                    ;
@@ -291,6 +303,84 @@ _hlp_pciwrite   proc    near
                 popfd                                           ;
                 ret     24                                      ;
 _hlp_pciwrite   endp
+
+;----------------------------------------------------------------
+;void _std fpu_statesave(void *buffer);
+                public  _fpu_statesave                          ;
+_fpu_statesave  proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                movzx   ecx,fpu_savetype                        ;
+                jecxz   @@svfp_fsave                            ;
+                loop    @@svfp_xsave                            ;
+                fxsave  [eax]                                   ;
+                ret     4                                       ;
+@@svfp_xsave:
+                db      0Fh,0AEh,020h                           ; xsave   [eax]
+                ret     4                                       ;
+@@svfp_fsave:
+                fsave   [eax]                                   ;
+                ret     4                                       ;
+_fpu_statesave  endp                                            ;
+
+;----------------------------------------------------------------
+;void _std fpu_staterest(void *buffer);
+                public  _fpu_staterest                          ;
+_fpu_staterest  proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                movzx   ecx,fpu_savetype                        ;
+                jecxz   @@srfp_frest                            ;
+                loop    @@srfp_xrest                            ;
+                fxrstor [eax]                                   ;
+                ret     4                                       ;
+@@srfp_xrest:
+                db      0Fh,0AEh,028h                           ; xrstor  [eax]
+                ret     4                                       ;
+@@srfp_frest:
+                frstor  [eax]                                   ;
+                ret     4                                       ;
+_fpu_staterest  endp                                            ;
+
+;----------------------------------------------------------------
+                public  _fpu_nmhandler                          ;
+_fpu_nmhandler  proc    near                                    ;
+                cli                                             ;
+                pushad                                          ;
+                clts                                            ;
+                call    _fpu_xcpt_nm                            ;
+                popad                                           ;
+                iretd                                           ;
+_fpu_nmhandler  endp                                            ;
+
+;----------------------------------------------------------------
+                public  _get_xcr0                               ;
+_get_xcr0       proc    near                                    ;
+                xor     ecx,ecx                                 ;
+                db      0Fh,01h,0D0h                            ; xgetbv
+                ret
+_get_xcr0       endp                                            ;
+
+;----------------------------------------------------------------
+                public  _set_xcr0                               ;
+_set_xcr0       proc    near                                    ;
+                xor     ecx,ecx                                 ;
+                xor     edx,[esp+8]                             ;
+                mov     eax,[esp+4]                             ;
+                db      0Fh,01h,0D1h                            ; xsetbv
+                ret     8                                       ;
+_set_xcr0       endp                                            ;
+
+;----------------------------------------------------------------
+                public  _fpu_reinit
+_fpu_reinit     proc    near
+                fninit
+                mov     eax,cr4
+                test    eax,CPU_CR4_OSFXSR
+                jz      @@fpri_exit
+                ldmxcsr @@fpri_ssecw
+@@fpri_exit:
+                ret
+@@fpri_ssecw:   dd      01F80h 
+_fpu_reinit     endp
 
 CODE32          ends
 

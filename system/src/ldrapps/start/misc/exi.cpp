@@ -5,7 +5,7 @@
 #include "qsclass.h"
 #include "classes.hpp"
 #include "qslog.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qsmodext.h"
 #include "qsxcpt.h"
 
@@ -641,8 +641,9 @@ void exi_registerstd(void) {
    register_lists();
    register_bitmaps();
    register_inif();
-
+#if 0
    spstr prereg = refs->GetTextToStr(",");
    if (prereg.lastchar()==',') prereg.dellast();
    log_printf("lists inited: %s\n",prereg());
+#endif
 }

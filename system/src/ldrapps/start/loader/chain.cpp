@@ -1,11 +1,9 @@
 #include "qsmodint.h"
 #include "seldesc.h"
 #include "qschain.h"
-#include "qsmodext.h"
 #include "qcl/qslist.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qslog.h"
-#include "stdlib.h"
 
 static ptr_list chlist = 0;
 // asm router
@@ -82,15 +80,17 @@ static void add_handler(ordinal_data *od, u32t chaintype, void *handler) {
    switch (chaintype&~APICN_FIRSTPOS) {
       case APICN_ONENTRY:
          if (!od->od_entry) od->od_entry = NEW_G(ptr_list);
-         if (f1stpos) od->od_entry->insert(0,handler,1); 
+         if (f1stpos) od->od_entry->insert(0,handler,1);
             else od->od_entry->add(handler);
          break;
       case APICN_ONEXIT :
          if (!od->od_exit)  od->od_exit  = NEW_G(ptr_list);
-         if (f1stpos) od->od_exit->insert(0,handler,1); 
+         if (f1stpos) od->od_exit->insert(0,handler,1);
             else od->od_exit->add(handler);
          break;
       case APICN_REPLACE:
+         if (!od->od_replist) od->od_replist = NEW_G(ptr_list);
+         od->od_replist->add(handler);
          od->od_replace = handler;
          break;
    }
@@ -112,8 +112,9 @@ static u32t del_handler(ordinal_data *od, u32t chaintype, void *handler) {
          od->od_exit->clear();
       }
       if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace) {
+         rc+=od->od_replist->count();
+         od->od_replist->clear();
          od->od_replace = 0;
-         rc++;
       }
    } else {
       if ((!chaintype || chaintype==APICN_ONENTRY) && od->od_entry) {
@@ -126,15 +127,18 @@ static u32t del_handler(ordinal_data *od, u32t chaintype, void *handler) {
          od->od_exit->delvalue(handler);
          rc-=od->od_exit->count();
       }
-      if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replace==handler) {
-         od->od_replace = 0;
-         rc++;
+      if ((!chaintype || chaintype==APICN_REPLACE) && od->od_replist) {
+         ptr_list rpl = od->od_replist;
+         rc+=rpl->count(); rpl->delvalue(handler); rc-=rpl->count();
+         // update current handler if removed one
+         if (od->od_replace==handler)
+            od->od_replace = rpl->count()?rpl->value(rpl->max()):0;
       }
    }
-   if (od->od_entry && od->od_entry->count()==0)
-      { DELETE(od->od_entry); od->od_entry = 0; }
-   if (od->od_exit  && od->od_exit->count()==0 )
-      { DELETE(od->od_exit);  od->od_exit  = 0; }
+   if (od->od_entry && od->od_entry->count()==0) { DELETE(od->od_entry); od->od_entry = 0; }
+   if (od->od_exit  && od->od_exit->count()==0) { DELETE(od->od_exit); od->od_exit = 0; }
+   if (od->od_replist && od->od_replist->count()==0)
+      { DELETE(od->od_replist); od->od_replist = 0; }
    build_thunk(od);
 
    return rc;
@@ -238,9 +242,9 @@ void *mod_buildthunk(u32t mh, void *function) {
       od->od_address = (u32t)function;
       // build thunk to direct forwarding
       build_thunk(od,1);
-      
+
       chlist->add(od);
-   }	
+   }
    return od->od_thunk;
 }
 

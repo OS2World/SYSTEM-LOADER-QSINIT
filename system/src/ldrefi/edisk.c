@@ -41,12 +41,19 @@ u16t _std strm_open(void) {
    return 1;
 }
 
-u16t __cdecl strm_read(u32t buf, u16t readsize) {
-   return 0;
+u16t __cdecl strm_read(u32t buf, u16t readsize) { return 0; }
+
+u16t _std fat_open (void) {
+   mfsd_fsize = FFFF;
+   return 1;
 }
 
+u32t __cdecl fat_read (u32t offset, void *buf, u32t readsize) { return 0; }
+void __cdecl fat_close(void) {}
+void __cdecl fat_term (void) {}
+
 // setup boot partition i/o
-void bootdisk_setup() {
+void init_vol0() {
    if (qd_bootdisk<qd_hdds) {
       vol_data *vdta   = extvol;
       vdta->length     = qs_bootlen;

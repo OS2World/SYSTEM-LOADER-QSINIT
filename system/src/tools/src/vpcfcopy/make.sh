@@ -2,7 +2,7 @@
 
 . ../../../setup.sh
 
-wcl386 -zq -I../../../init/fat vpcfcopy.c
+wcl386 -zq -I../../../ldrapps/start/fs vpcfcopy.c
 
 if (($? == 0))
 then

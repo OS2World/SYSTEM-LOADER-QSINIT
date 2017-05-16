@@ -19,16 +19,13 @@
 /*                     ofpstream                              */
 /*                     fpstream                               */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TStreamable
 #define Uses_TStreamableClass
@@ -316,12 +313,12 @@ ipstream &_Cdecl operator >> (ipstream &ps, unsigned short &sh) {
 }
 
 ipstream &_Cdecl operator >> (ipstream &ps, signed int &i) {
-   i = ps.readWord();
+   ps.readBytes(&i, sizeof(int));
    return ps;
 }
 
 ipstream &_Cdecl operator >> (ipstream &ps, unsigned int &i) {
-   i = ps.readWord();
+   ps.readBytes(&i, sizeof(int));
    return ps;
 }
 
@@ -342,6 +339,11 @@ ipstream &_Cdecl operator >> (ipstream &ps, float &f) {
 
 ipstream &_Cdecl operator >> (ipstream &ps, double &d) {
    ps.readBytes(&d, sizeof(d));
+   return ps;
+}
+
+ipstream &operator >> (ipstream &ps, long double &ld) {
+   ps.readBytes(&ld, sizeof(ld));
    return ps;
 }
 
@@ -440,12 +442,14 @@ _Cdecl opstream::~opstream() {
 }
 
 opstream &_Cdecl opstream::seekp(streampos pos) {
+   objs->freeAll();   // CMF 07.11.92 --- delete the TPWObj's
    objs->removeAll();
    bp->seekoff(pos, ios::beg);
    return *this;
 }
 
 opstream &_Cdecl opstream::seekp(streamoff pos, ios::seek_dir dir) {
+   objs->freeAll();   // CMF 07.11.92 ... s.a.
    objs->removeAll();
    bp->seekoff(pos, dir);
    return *this;
@@ -503,12 +507,12 @@ opstream &_Cdecl operator << (opstream &ps, unsigned short sh) {
 }
 
 opstream &_Cdecl operator << (opstream &ps, signed int i) {
-   ps.writeWord(i);
+   ps.writeBytes(&i, sizeof(int));
    return ps;
 }
 
 opstream &_Cdecl operator << (opstream &ps, unsigned int i) {
-   ps.writeWord(i);
+   ps.writeBytes(&i, sizeof(int));
    return ps;
 }
 opstream &_Cdecl operator << (opstream &ps, signed long l) {
@@ -528,6 +532,11 @@ opstream &_Cdecl operator << (opstream &ps, float f) {
 
 opstream &_Cdecl operator << (opstream &ps, double d) {
    ps.writeBytes(&d, sizeof(d));
+   return ps;
+}
+
+opstream &operator << (opstream &ps, long double ld) {
+   ps.writeBytes(&ld, sizeof(ld));
    return ps;
 }
 

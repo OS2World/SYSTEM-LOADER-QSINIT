@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0017
+version=0x0020
 
 [config]
 0=Common
@@ -29,8 +29,8 @@ ld=@wlink
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -i=%(QS_APPINC) -i=%(QS_BASE)\init \
        -i=$(outdir) -fo=
 
-cflags=-4s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) \
-       -i=$(outdir) -i=. -i=..\hc\rt -i=%(QS_BASE)\init \
+cflags=-5s %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) -fi=%(QS_MHDR) \
+       -i=$(outdir) -i=. -i=..\hc\rt -i=%(QS_BASE)\init -i=fs \
        -i=%(QS_BASE)\ldrefi\hc -fo=
 
 ;-ecd 
@@ -43,7 +43,7 @@ bld_dir=bld
 outdir=$(bld_dir)\$(config)
 outname=$(name)
 &lnk=$(outdir)\$(name).lnk
-&bldlevel=$(outdir)\bldlevel.lnk
+&bldlevel=$(msgdir)\bldlevel.lnk
 &vercheck=$(outdir)\vercheck.inc
 ; if no svn - use "svnrev" env. variable
 revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
@@ -58,7 +58,7 @@ revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 ..\..\hc\inc\parttab.inc ..\..\hc\inc\ioint13.inc
 ..\..\hc\inc\filetab.inc
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
-loader\lxmisc.c loader\unpsix.asm loader\mdtdump.c
+loader\lxmisc.cpp loader\unpsix.asm loader\mdtdump.c
 main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
 misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c
 cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
@@ -66,6 +66,7 @@ misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c main\sysmt.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
 main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp main\notify.c
 pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiofat.c
+main\sysque.cpp misc\clibm.c misc\scanf.c fs\ff.c
 
 [make_footer]
 $(outdir) : .DIRECTORY
@@ -84,7 +85,11 @@ clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
 cmd\extcmd.cpp = cmd\zz.cpp cmd\shpci.cpp
 cmd\ldrini.cpp = cmd\pubini.cpp
 
+; bldlevel.exe makes search in first 500k only, so adding this string as a
+; comment for ZIP archive do nothing since archive size >500k. It just stored
+; as a common file now.
 [&bldlevel]
+; bldlevel support
 @#QS:$(vershort).$(revnum)#@  QSinit loader
 
 [&vercheck]
@@ -111,7 +116,6 @@ op togglerelocs
 op noextension
 op nod
 op statics
-op st=32768
 op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc
@@ -121,7 +125,7 @@ anonymousexport=$(outdir)\$(name).lbc
      echo Linking ... | \
      ref2lbc lbc ..\runtime\$(name).ref $(outdir)\$(name).lbc | \
      $(ld) @$(&lnk) | lxlite $(outname) >%(DEVNUL) | \
+     zip -q -0 -X -D %(QS_BIN)\%(QS_ARCH) $(&bldlevel) | \
      zip -q -9 -X -j %(QS_BIN)\%(QS_ARCH) sc\*.cmd | \
      zip -q -9 -X -j %(QS_BIN)\%(QS_ARCH) $(name) | \
-     zip -q -z %(QS_BIN)\%(QS_ARCH) <$(&bldlevel) | \
-     zip -q -9 -X -D %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*
+     zip -q -9 -X -D -n lnk %(QS_BIN)\%(QS_ARCH) $(msgdir)\*.*

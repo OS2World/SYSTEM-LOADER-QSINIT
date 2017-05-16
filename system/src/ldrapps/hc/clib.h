@@ -32,6 +32,8 @@ int   __cdecl   printf  (const char *fmt, ...);
 
 void* __stdcall memset  (void *dst, int c, u32t length);
 
+int   __stdcall memcmp (const void *s1, const void *s2, u32t length);
+
 int   __stdcall strncmp (const char *s1, const char *s2, u32t n);
 
 /** strnicmp function.

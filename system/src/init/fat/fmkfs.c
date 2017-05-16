@@ -1,143 +1,96 @@
 //
 // QSINIT
-// own f_mkfs - smaller, less checks, FAT12/16 only - for virtual disk
+// FAT12/16 format - for virtual disk
 //
+#include "qslocal.h"
+#include "qstime.h"
+#include "parttab.h"
 
-#include "qsint.h"
+#define N_ROOTDIR         128      ///< # of root dir entries for FAT12/16
+#define N_FATS              1      ///< # of FAT copies
+#define N_RES               1      ///< # of reserved sectors
+#define MAX_FAT12       0xFF5      ///< max # of FAT12 clusters
+#define	MAX_FAT16      0xFFF5      ///< max # of FAT16 clusters
 
-// ram-disk memory is zero-filled, so some init ops skipped to save code size
-#define MEM_ZEROED
+qserr format_vol1() {
+   static const u16t cst[] = {1, 4, 16, 64, 256, 512, 0};  // cluster size boundary for FAT12/16 volume (4k unit)
+   vol_data          *vdta = extvol+DISK_LDR;
+   u8t       bs[LDR_SSIZE];  // 1k
+   struct Boot_Record  *br = (struct Boot_Record*)&bs;
+   u32t             unitsz;  ///< sectors per cluster
+   u32t    ii, fmt, n_clst, nn;
+   u32t              fatsz,  ///< sectors per FAT
+                    fatpos;  ///< 1st sector of FAT
+   u8t               media = 0xF0;
 
-#define N_ROOTDIR	128		/* Number of root dir entries for FAT12/16 */
-#define N_FATS		1		/* Number of FAT copies (1 or 2) */
+   memset(br, 0, LDR_SSIZE);
+   // volume size in 4k units
+   nn = vdta->length >> 12;
+   for (ii=0, unitsz=1; cst[ii] && cst[ii]<=nn; ii++, unitsz<<=1) ;
+   do {
+      u32t  dirsz;
+      // pre-compute number of clusters and FAT sub-type
+      n_clst = vdta->length / unitsz;
+      fmt = FST_FAT12;
+      if (n_clst > MAX_FAT12) fmt = FST_FAT16;
+      if (n_clst > MAX_FAT16) return E_DSK_VLARGE;
 
-#define	LD_WORD(ptr)		(WORD)(*(WORD*)(BYTE*)(ptr))
-#define	LD_DWORD(ptr)		(DWORD)(*(DWORD*)(BYTE*)(ptr))
-#define	ST_WORD(ptr,val)	*(WORD*)(BYTE*)(ptr)=(WORD)(val)
-#define	ST_DWORD(ptr,val)	*(DWORD*)(BYTE*)(ptr)=(DWORD)(val)
+      /* Determine offset and size of FAT structure */
+      fatsz = fmt==FST_FAT12 ? (n_clst*3 + 1) / 2 + 3 : (n_clst*2) + 4;
+      fatsz = (fatsz + LDR_SSIZE - 1) / LDR_SSIZE;
+      dirsz = N_ROOTDIR * 32 / LDR_SSIZE;
 
-FRESULT f_mkfs2(void) {
-	static const WORD vst[] = { 1024,   512,  256,  128,   64,    32,   16,    8,    4,    2,   0};
-	static const WORD cst[] = {32768, 16384, 8192, 4096, 2048, 16384, 8192, 4096, 2048, 1024, 512};
-	BYTE fmt, md, sys, *tbl, pdrv, part, vol = DISK_LDR;
-	DWORD n_clst, vs, n, wsect;
-	UINT i, au;
-	DWORD b_vol, b_fat, b_dir, b_data;        /* LBA */
-	DWORD n_vol, n_rsv, n_fat, n_dir, *lpdt;  /* Size */
-	FATFS *fs;
-	DSTATUS stat;
-	/* Check mounted drive and clear work area */
-	//if (vol >= _VOLUMES) return FR_INVALID_DRIVE;
-	fs = FatFs[vol];
-	if (!fs) return FR_NOT_ENABLED;
-	fs->fs_type = 0;
-	pdrv = LD2PD(vol);	/* Physical drive */
-	part = LD2PT(vol);	/* Partition (0:auto detect, 1-4:get from partition table)*/
+      fatpos = vdta->start + N_RES;
+      // too small volume
+      if (vdta->length < fatpos + fatsz*N_FATS + dirsz + unitsz - vdta->start)
+         return E_DSK_VSMALL;
 
-	/* Get disk statics */
-	stat = disk_initialize(pdrv);
-	if (stat & STA_NOINIT) return FR_NOT_READY;
-	if (stat & STA_PROTECT) return FR_WRITE_PROTECTED;
-#if _MAX_SS != _MIN_SS		/* Get disk sector size */
-	if (disk_ioctl(pdrv, GET_SECTOR_SIZE, &SS(fs)) != RES_OK || SS(fs) > _MAX_SS)
-		return FR_DISK_ERR;
-#endif
-	/* Create a partition in this function */
-	if (disk_ioctl(pdrv, GET_SECTOR_COUNT, &n_vol) != RES_OK || n_vol < 128)
-		return FR_DISK_ERR;
-	b_vol = 0;					/* Volume start sector */
-	n_vol -= b_vol;				/* Volume size */
+      // final check of the FAT sub-type
+      n_clst = (vdta->length - N_RES - fatsz*N_FATS - dirsz) / unitsz;
+      if (fmt==FST_FAT16 && n_clst<=MAX_FAT12) {
+         if (unitsz<128) unitsz<<=1; else unitsz>>=1;
+         continue;
+      }
+      break;
+   } while (1);
 
-	/* AU auto selection */
-	vs = n_vol / (2000 / (SS(fs) / 512));
-	for (i = 0; vs < vst[i]; i++) ;
-	au = cst[i];
+   memcpy(br, "\xEB\xFE\x90" "MSDOS5.0", 11);
+   br->BR_BPB.BPB_BytePerSect = LDR_SSIZE;
+   br->BR_BPB.BPB_SecPerClus  = unitsz;
+   br->BR_BPB.BPB_ResSectors  = N_RES;
+   br->BR_BPB.BPB_FATCopies   = N_FATS;
+   br->BR_BPB.BPB_RootEntries = N_ROOTDIR;
+   br->BR_BPB.BPB_MediaByte   = media;
+   br->BR_BPB.BPB_SecPerFAT   = fatsz;
+   br->BR_BPB.BPB_SecPerTrack = 63;
+   br->BR_BPB.BPB_Heads       = 255;
+   br->BR_BPB.BPB_HiddenSec   = vdta->start;
 
-	au /= SS(fs);				/* Number of sectors per cluster */
-	if (au == 0) au = 1;
-	if (au > 128) au = 128;
+   if (vdta->length<0x10000) br->BR_BPB.BPB_TotalSec = vdta->length; else
+      br->BR_BPB.BPB_TotalSecBig = vdta->length;
 
-	/* Pre-compute number of clusters and FAT sub-type */
-	n_clst = n_vol / au;
-	fmt = FS_FAT12;
-	if (n_clst > MAX_FAT12) fmt = FS_FAT16;
-	if (n_clst > MAX_FAT16) return FR_MKFS_ABORTED;
+   br->BR_EBPB.EBPB_PhysDisk  = 0x80;
+   br->BR_EBPB.EBPB_Sign      = 0x29;
+   br->BR_EBPB.EBPB_VolSerial = tm_getdate();
 
-	/* Determine offset and size of FAT structure */
-	n_fat = (fmt == FS_FAT12) ? (n_clst * 3 + 1) / 2 + 3 : (n_clst * 2) + 4;
-	n_fat = (n_fat + SS(fs) - 1) / SS(fs);
-	n_rsv = 1;
-	n_dir = (DWORD)N_ROOTDIR * SZDIRE / SS(fs);
+   memcpy(&br->BR_EBPB.EBPB_FSType, "FAT1    ", 8);
+   br->BR_EBPB.EBPB_FSType[4] = fmt==FST_FAT16?'6':'2';
+   bs[510] = 0x55;
+   bs[511] = 0xAA;
+   // write boot sector
+   if (!hlp_diskwrite(QDSK_VOLUME|DISK_LDR, vdta->start, 1, br)) return E_DSK_ERRWRITE;
 
-	b_fat = b_vol + n_rsv;				/* FAT area start sector */
-	b_dir = b_fat + n_fat * N_FATS;		/* Directory area start sector */
-	b_data = b_dir + n_dir;				/* Data area start sector */
-	if (n_vol < b_data + au - b_vol) return FR_MKFS_ABORTED;	/* Too small volume */
+   /* we have zero-filled disk space on enter, this cause skipping of
+      some normal actions, like cleaning of FAT/root dir areas */
 
-	/* Determine number of clusters and final check of validity of the FAT sub-type */
-	n_clst = (n_vol - n_rsv - n_fat * N_FATS - n_dir) / au;
-	if (fmt == FS_FAT16 && n_clst <= MAX_FAT12) return FR_MKFS_ABORTED;
+   // write 1st sector of FAT (single non-zero)
+   for (ii=0; ii<N_FATS; ii++) {
+      memset(br, 0, LDR_SSIZE);
+      *(u32t*)br = (fmt==FST_FAT12?0x00FFFF00:0xFFFFFF00) | media;
 
-	md = 0xF8;
-
-	/* Create BPB in the VBR */
-	tbl = fs->win;							/* Clear sector */
-	mem_set(tbl, 0, SS(fs));
-
-	mem_cpy(tbl, "\xEB\xFE\x90" "MSDOS5.0", 11);/* Boot jump code, OEM name */
-	i = SS(fs);								/* Sector size */
-	ST_WORD(tbl+BPB_BytsPerSec, i);
-	tbl[BPB_SecPerClus] = (BYTE)au;			/* Sectors per cluster */
-	ST_WORD(tbl+BPB_RsvdSecCnt, n_rsv);		/* Reserved sectors */
-	tbl[BPB_NumFATs] = N_FATS;				/* Number of FATs */
-	ST_WORD(tbl+BPB_RootEntCnt, N_ROOTDIR);	/* Number of rootdir entries */
-	if (n_vol < 0x10000) {					/* Number of total sectors */
-		ST_WORD(tbl+BPB_TotSec16, n_vol);
-	} else {
-		ST_DWORD(tbl+BPB_TotSec32, n_vol);
-	}
-	tbl[BPB_Media] = md;					/* Media descriptor */
-	ST_WORD(tbl+BPB_SecPerTrk, 63);			/* Number of sectors per track */
-	ST_WORD(tbl+BPB_NumHeads, 255);			/* Number of heads */
-	ST_DWORD(tbl+BPB_HiddSec, b_vol);		/* Hidden sectors */
-	n = get_fattime();						/* Use current time as VSN */
-	ST_DWORD(tbl+BS_VolID, n);				/* VSN */
-	ST_WORD(tbl+BPB_FATSz16, n_fat);		/* Number of sectors per FAT */
-	tbl[BS_DrvNum] = 0x80;					/* Drive number */
-	tbl[BS_BootSig] = 0x29;					/* Extended boot signature */
-
-	lpdt = (DWORD*)(tbl+BS_FilSysType);
-	*lpdt++ = 0x20544146;                   /* Volume label, FAT signature */
-	*lpdt   = 0x20202020;
-
-	ST_WORD(tbl+BS_55AA, 0xAA55);			/* Signature (Offset is fixed here regardless of sector size) */
-	if (disk_write(pdrv, tbl, b_vol, 1) != RES_OK)	/* Write it to the VBR sector */
-		return FR_DISK_ERR;
-	// Initialize FAT area
-	wsect = b_fat;
-	for (i = 0; i < N_FATS; i++) {		/* Initialize each FAT copy */
-		mem_set(tbl, 0, SS(fs));			/* 1st sector of the FAT  */
-		n = md;								/* Media descriptor byte */
-		n |= (fmt == FS_FAT12) ? 0x00FFFF00 : 0xFFFFFF00;
-		ST_DWORD(tbl+0, n);					/* Reserve cluster #0-1 (FAT12/16) */
-
-		if (disk_write(pdrv, tbl, wsect++, 1) != RES_OK)
-			return FR_DISK_ERR;
-#ifndef MEM_ZEROED
-		mem_set(tbl, 0, SS(fs));			/* Fill following FAT entries with zero */
-		for (n = 1; n < n_fat; n++) {
-			if (disk_write(pdrv, tbl, wsect++, 1) != RES_OK)
-				return FR_DISK_ERR;
-		}
-#endif
-	}
-#ifndef MEM_ZEROED
-	/* Initialize root directory */
-	i = n_dir;
-	do {
-		if (disk_write(pdrv, tbl, wsect++, 1) != RES_OK)
-			return FR_DISK_ERR;
-	} while (--i);
-#endif
-	return FR_OK;
+      if (!hlp_diskwrite(QDSK_VOLUME|DISK_LDR, fatpos + ii*fatsz, 1, br))
+         return E_DSK_ERRWRITE;
+   }
+   return 0;
 }
+

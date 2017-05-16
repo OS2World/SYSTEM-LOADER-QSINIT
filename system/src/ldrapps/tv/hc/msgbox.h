@@ -2,14 +2,17 @@
 /*                                                                         */
 /*   MSGBOX.H                                                              */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the functions messageBox(), messageBoxRect(),                 */
 /*   inputBox(), and inputBoxRect()                                        */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
-
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #if defined( Uses_MsgBox ) && !defined( __MsgBox )
 #define __MsgBox

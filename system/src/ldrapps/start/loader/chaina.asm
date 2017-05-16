@@ -118,6 +118,7 @@ _chain_entry    label   near
                 pushfd                                          ;
                 cmp     [ebp].es_sign,EXIT_SIGN                 ;
                 jnz     @@chain_realpanic                       ;
+                call    _mt_swlock                              ;
                 pushad                                          ;
                 mov     edi,esp                                 ;
                 sub     esp,size mod_chaininfo_s                ;
@@ -134,7 +135,6 @@ _chain_entry    label   near
                 mov     eax,[ebp].es_retpoint                   ; ret eip
                 mov     [edi+size pushad_s+4],eax               ;
                 mov     [ebp].es_sign,0                         ;
-                call    _mt_swlock                              ;
                 push    esp                                     ;
                 call    _thunk_call                             ;
                 mov     esp,edi                                 ;

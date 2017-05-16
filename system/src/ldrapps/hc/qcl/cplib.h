@@ -48,7 +48,9 @@ typedef struct qs_cpconvert_s {
        @param  cp       codepage number to query, 0 for current
        @return pointer or zero on error */
    u8t*    _exicc (*uprtab  )(u16t cp);
-   /// unicode tolower
+   /** unicode tolower.
+       Note, that now towlower can fail on some rare chars, which was
+       uppercased by towupper. Ugly thing, I know :) */
    wchar_t _exicc (*towlower)(wchar_t chr);
    /// unicode toupper
    wchar_t _exicc (*towupper)(wchar_t chr);

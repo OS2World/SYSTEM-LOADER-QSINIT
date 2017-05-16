@@ -2,17 +2,15 @@
 // QSINIT "start" module
 // trap screen implementation
 //
-#include "stdlib.h"
 #include "seldesc.h"
 #include "vio.h"
-#include "qsmodext.h"
 #include "qsint.h"
 #include "qsxcpt.h"
 #include "qslog.h"
 #include "qsinit.h"
 #include "qsutil.h"
 #include "qsinit_ord.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qssys.h"
 #include "efnlist.h"
 #include "cpudef.h"
@@ -47,20 +45,21 @@ static char *trapinfo1="EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfoD="R11=%016LX  R12=%016LX  R13=%016LX",
             *trapinfoE="R14=%016LX  R15=%016LX  RBP=%016LX",
             *trapinfoF="DR6=%08X DR7=%08X ",
-            *trapinfoG="CR3=%016LX  GS.=%016LX  FS.=%016LX",
+            *trapinfoG="CR0=%016LX  CR2=%016LX  CR3=%016LX",
             *trapinfoH="RIP=%016LX  RSP=%016LX     PID=%04d  TID=%04d",
-            *trapinfoI="Check failure for module \"%s\", PID %d";
+            *trapinfoI="Check failure for module \"%s\", PID %d",
+            *trapinfoJ="CR4=%016LX  GS.=%016LX  FS.=%016LX";
 
-static char *trapname[19]={"Divide Error Fault", "Step Fault", "",
+static char *trapname[20] = {"Divide Error Fault", "Step Fault", "",
    "Breakpoint Trap", "Overflow Trap", "BOUND Range Exceeded Fault",
    "Invalid Opcode", "", "Double Fault Abort", "", "Invalid TSS Fault",
    "Segment Not Present Fault", "Stack-Segment Fault",
    "General Protection Fault", "Page Fault", "", "FPU Floating-Point Error",
-   "Alignment Check Fault", "Machine Check Abort"};
+   "Alignment Check Fault", "Machine Check Abort", "SIMD Floating-Point Error"};
 
-static char *softname[5]={"Exception stack broken", "Exit hook failed",
+static char *softname[6] = {"Exception stack broken", "Exit hook failed",
    "Unsupported exit() in dll module", "Shared class list damaged",
-   "Process data structures damaged"};
+   "Process data structures damaged", "Internal data is broken" };
 
 void draw_border(u32t x,u32t y,u32t dx,u32t dy,u32t color) {
    u32t ii,jj;
@@ -96,7 +95,7 @@ module *_std mod_by_eip(u32t eip,u32t *object,u32t *offset,u16t cs) {
             u16t  sel = rc->obj[obj].sel;
             // sel must be equal to SEL32CODE for all FLAT objects,
             if ((big && cs==get_flatcs() || cs==sel) && eip>=base &&
-               eip-base<rc->obj[obj].size) 
+               eip-base<rc->obj[obj].size)
             {
                if (object) *object=obj;
                if (offset) *offset=eip-base;
@@ -128,6 +127,8 @@ static void reset_video(void) {
       // trap screen tracing was funny without this call ;)
       mod_resetchunk(qsinit, ORD_QSINIT_snprintf);
    }
+   // reset handler to common vio
+   mt_exechooks.mtcb_cvh = 0;
    // processing screen
    vio_resetmode();
    vio_clearscr();
@@ -139,8 +140,8 @@ static void stop_timer(void) {
 }
 
 static const char *get_trap_name(struct tss_s *ti) {
-   if (ti->tss_reservdbl<19) return trapname[ti->tss_reservdbl]; else
-   if (ti->tss_reservdbl>=xcpt_prcerr)
+   if (ti->tss_reservdbl<20) return trapname[ti->tss_reservdbl]; else
+   if (ti->tss_reservdbl>=xcpt_intbrk)
       return softname[xcpt_invalid-ti->tss_reservdbl];
    return "";
 }
@@ -207,8 +208,8 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
       u32t object,offset;
       module *mi = mod_by_eip(ti->tss_eip, &object, &offset, ti->tss_cs);
       if (mi) {
-         snprintf(buffer, PRNBUF_SIZE, mi->obj[object].flags&OBJBIGDEF ? 
-            "Module \"%s\": %d:%08X\n" : "Module \"%s\": %d:%04X\n", 
+         snprintf(buffer, PRNBUF_SIZE, mi->obj[object].flags&OBJBIGDEF ?
+            "Module \"%s\": %d:%08X\n" : "Module \"%s\": %d:%04X\n",
                mi->name, object+1, offset);
 
          vio_setpos(11,3);
@@ -223,11 +224,19 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    if (hlp_seroutinfo(0)) {
       u32t   pass;
       hlp_seroutstr(combuf);
-      for (pass=0; pass<2; pass++) {
+      // FPU usage
+      if (mt_exechooks.mtcb_cfpt) {
+         mt_thrdata *owner = mt_exechooks.mtcb_cfpt;
+         snprintf(combuf, COMBUF_SIZE, "FPU owner pid %u tid %u, fib %u (%u)\n",
+            owner->tiPID, owner->tiTID, mt_exechooks.mtcb_cfpf, owner->tiState);
+         hlp_seroutstr(combuf);
+      }
+      // stack printing removed to separate code below
+      for (pass=0; pass<1 /*2*/; pass++) {
          u8t  buffer[28];
          char    fmt[20];
-         u32t   blen = 28, 
-                 len = hlp_copytoflat(buffer, pass?ti->tss_esp:ti->tss_eip, 
+         u32t   blen = 28,
+                 len = hlp_copytoflat(buffer, pass?ti->tss_esp:ti->tss_eip,
                                       pass?ti->tss_ss:ti->tss_cs, blen);
          if (pass) { len>>=2; blen>>=2; }
          snprintf(combuf, COMBUF_SIZE, pass?"SS:ESP ":"CS:EIP ");
@@ -236,6 +245,26 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
             snprintf(combuf+7, COMBUF_SIZE-7, fmt, buffer);
          }
          while (len++<blen) strncat(combuf, "?? ", COMBUF_SIZE);
+         strncat(combuf, "\n", COMBUF_SIZE);
+         hlp_seroutstr(combuf);
+      }
+      if (ti->tss_esp) {
+         u32t  buffer[8];
+         u32t   blen = 8, ii, pos,
+                 len = hlp_copytoflat(buffer, ti->tss_esp, ti->tss_ss, blen<<2);
+         len>>=2;
+         pos = snprintf(combuf, COMBUF_SIZE, "SS:ESP");
+         for (ii=0; ii<len; ii++) {
+            pos += snprintf(combuf+pos, COMBUF_SIZE-pos, " %08X", buffer[ii]);
+            if (buffer[ii]) {
+               u32t object, offset;
+               module  *mi = mod_by_eip(buffer[ii], &object, &offset, ti->tss_cs);
+               if (mi)
+                  pos += snprintf(combuf+pos, COMBUF_SIZE-pos, "(\"%s\": %d:%08X)",
+                     mi->name, object+1, offset);
+            }
+         }
+         while (len++<blen) strncat(combuf, " ??", COMBUF_SIZE);
          strncat(combuf, "\n", COMBUF_SIZE);
          hlp_seroutstr(combuf);
       }
@@ -263,9 +292,9 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    }
 }
 
-/** system trap screen. */
+/** system trap screen (trap in EFI/64 bit code). */
 void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
-   u32t   height = 14, b_gs[2], b_fs[2];
+   u32t   height = 16, b_gs[2], b_fs[2];
    char *exctext = "";
 
    stop_timer();
@@ -296,30 +325,33 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
    snprintf(buffer, PRNBUF_SIZE, trapinfoE, xd->x64_r14, xd->x64_r15, xd->x64_rbp);
    vio_setpos(9,3);
    trap_out(buffer);
+   snprintf(buffer, PRNBUF_SIZE, trapinfoG, xd->x64_cr0, xd->x64_cr2, xd->x64_cr3);
+   vio_setpos(10,3);
+   trap_out(buffer);
 
    hlp_readmsr(MSR_IA32_FS_BASE, b_fs+0, b_fs+1);
    hlp_readmsr(MSR_IA32_GS_BASE, b_gs+0, b_gs+1);
 
-   snprintf(buffer, PRNBUF_SIZE, trapinfoG, xd->x64_cr3, b_gs[0], b_gs[1], b_fs[0], b_fs[1]);
-   vio_setpos(10,3);
+   snprintf(buffer, PRNBUF_SIZE, trapinfoJ, xd->x64_cr4, b_gs[0], b_gs[1], b_fs[0], b_fs[1]);
+   vio_setpos(11,3);
    trap_out(buffer);
    snprintf(buffer, PRNBUF_SIZE, trapinfo3, ti->tss_ds, ti->tss_es, ti->tss_ss,
       ti->tss_gs, ti->tss_fs, ti->tss_ss2, ti->tss_cr3);
-   vio_setpos(11,3);
+   vio_setpos(13,3);
    trap_out(buffer);
    snprintf(buffer, PRNBUF_SIZE, trapinfoF, ti->tss_esp1, ti->tss_esp2);
    get_flags_str(buffer+strlen(buffer), ti->tss_eflags);
-   vio_setpos(12,3);
+   vio_setpos(14,3);
    trap_out(buffer);
    snprintf(buffer, PRNBUF_SIZE, trapinfoH, xd->x64_rip, xd->x64_rsp,
       mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid);
-   vio_setpos(14,3);
+   vio_setpos(16,3);
    trap_out(buffer);
 
    vio_setshape(0x20,0);
 
    if (xcpt_broken) {
-      vio_setpos(15,3);
+      vio_setpos(17,3);
       trap_out("Exception stack is broken.");
    }
    // copy dump to serial port

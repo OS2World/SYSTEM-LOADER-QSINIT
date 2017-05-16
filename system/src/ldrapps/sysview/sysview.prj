@@ -31,7 +31,7 @@ ld=@wlink
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
 cflags_common=-5s -zri -fp5 -fpi87 -s -mf -DNO_TV_STREAMS \
-              -DTV1 -i=..\tv\hc -i=$(outdir) -os -fo=
+              -DTV2 -i=..\tv\hc -i=$(outdir) -os -fo=
 cflags_tv=-DMAXSTR=1024 -DNT_CDECL= -zld -j -zq -zm -bm -w2 -u__QSINIT__
 
 cppflags=-i=%(QS_APPINC)\rt -i=bootopt -i=tvext -i=info -zv $(cflags)
@@ -74,6 +74,7 @@ outdir=$(bld_dir)\$(config).$(build_osc)
 
 [files]
 ..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc ..\..\hc\inc\parttab.inc
+..\..\hc\inc\filetab.inc
 tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
 tvext\tcolortx.cpp tvext\tinplong.cpp tvext\tcombo.cpp tvext\tnocstr.cpp
 tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp
@@ -92,6 +93,9 @@ info\lvmdlat.cpp info\setgpt.cpp
 ##..\tv\tvfiles.lst
 ..\tv\src\qs_main.c
 ..\runtime\rt\sp_defs.cpp ..\runtime\rt\sp_str.cpp
+
+[deps]
+diskedit.cpp = diskedit.h helpstr.h kdlghelp.h kdlghist.h edbinary.cpp
 
 [make_footer]
 $(outdir) : .DIRECTORY

@@ -1,6 +1,3 @@
-#define Uses_TEventQueue
-#define Uses_TScreen
-#define Uses_TThreaded
 #define Uses_TKeys
 #include <tv.h>
 #include <tvdir.h>

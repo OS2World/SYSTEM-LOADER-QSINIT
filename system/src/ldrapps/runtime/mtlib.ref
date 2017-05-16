@@ -2,19 +2,21 @@ type = dll
 name = "MTLIB"
 
 exports = {
-   _mt_createthread     = { index = 10  group="mt"     format="up@upp"  }
-   _mt_exitthread       = { index = 11  group="mt"     format="Vu"      }
-   _mt_termthread       = { index = 12  group="mt"     format="Vuu"     }
-   _mt_getfiber         = { index = 14  group="mt"     format="uv"      }
-   _mt_setfiber         = { index = 15  group="mt"     format="uuu"     }
-   _mt_resumethread     = { index = 16  group="mt"     format="@uuu"    }
-   _mt_threadname       = { index = 17  group="mt"     format="@us"     }
+   _shl_detach          = { index = 1   group = "shell" format="usp"     }
 
-   _mt_dumptree         = { index = 30  group="misc"   format="vv"      }
+   _mt_createthread     = { index = 10  group="mt"      format="up@upp"  }
+   _mt_exitthread       = { index = 11  group="mt"      format="Vu"      }
+   _mt_termthread       = { index = 12  group="mt"      format="Vuu"     }
+   _mt_getfiber         = { index = 14  group="mt"      format="uv"      }
+   _mt_setfiber         = { index = 15  group="mt"      format="uuu"     }
+   _mt_resumethread     = { index = 16  group="mt"      format="@uuu"    }
+   _mt_threadname       = { index = 17  group="mt"      format="@us"     }
 
-   _mt_waitobject       = { index = 40  group="sync"   format="@upu@u&*u" }
+   _mt_dumptree         = { index = 30  group="misc"    format="vv"      }
 
-   _mod_loaddetach      = { index = 50  group="exec"   format="@us@uss" }
+   _mt_waitobject       = { index = 40  group="sync"    format="@upu@u&*u" }
+
+   _mod_execse          = { index = 50  group="exec"    format="@u@uss@u&*u" }
 }
 
 class = {
@@ -27,5 +29,6 @@ class = {
       createthread = "uppp@upp"
       resumethread = "@uppuu"
       threadname   = "@upps"
+      execse       = "@upp@uss@u&*u"
    }
 }

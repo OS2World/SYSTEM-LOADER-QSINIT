@@ -11,7 +11,8 @@
 ;    * no fixups in code
 ;
 ; 2. boot sector: _bsect16
-;    * can load and run IBM os2ldr directly, without os2boot.
+;    * can load and run IBM OS2LDR directly, without OS2BOOT, Windows XP NTLDR
+;      can be loaded too ;)
 ;    * supports both fdd & hdd boot
 ;    * load FAT12/16 by FAT chains, not contigous files only.
 ;    * load file to 2000:0, use 0:7E00 for directory and 1000:0 for FAT cache
@@ -76,8 +77,8 @@
 PARTMGR_CODE    segment byte public USE16 'CODE'
                 assume  cs:PARTMGR_CODE,ds:PARTMGR_CODE,es:nothing,ss:nothing
 
-                public  _psect
-_psect:
+                public  psect
+psect:
                 and     ax,5351h                                ; %QS% string,
                 and     ax,2420h                                ; but zero ax too :)
                 mov     si,LOC_7C00h                            ;
@@ -89,7 +90,7 @@ _psect:
                 mov     di,LOC_0600h                            ;
                 mov     cx,100h                                 ;
             rep movsw                                           ;
-                JmpF16a 0,LOC_0600h + (@@pt_m_moved - _psect)   ;
+                JmpF16a 0,LOC_0600h + (@@pt_m_moved - psect)   ;
 @@pt_m_moved:
                 sti                                             ; walk through 4
                 mov     cl,4                                    ; pt entries and
@@ -167,7 +168,7 @@ _psect:
                 jz      @@pt_m_bootmgr                          ;
                 jmp     @@pt_m_set_I13X                         ;
 @@pt_m_bootmgr:
-                mov     ax,[di + LOC_0600h + (@@pt_m_sign - _psect)] ; use [di] to avoid wasm wrong op type
+                mov     ax,[di + LOC_0600h + (@@pt_m_sign - psect)] ; use [di] to avoid wasm wrong op type
                 mov     [bp+512+offset MBR_Reserved],ax         ; BootMGR check it here!
 @@pt_m_set_I13X:
                 mov     eax,edi                                 ;
@@ -189,13 +190,13 @@ _psect:
                 pop     di                                      ;
                 ret                                             ;
 @@pt_m_errread:
-                mov     si,LOC_0600h + (@@pt_m_msg_io - _psect) ;
+                mov     si,LOC_0600h + (@@pt_m_msg_io - psect)  ;
                 jmp     @@pt_m_haltmsg                          ;
 @@pt_m_missing:
-                mov     si,LOC_0600h + (@@pt_m_msg_os - _psect) ;
+                mov     si,LOC_0600h + (@@pt_m_msg_os - psect)  ;
                 jmp     @@pt_m_haltmsg                          ;
 @@pt_m_badrec:
-                mov     si,LOC_0600h + (@@pt_m_msg_pt - _psect) ;
+                mov     si,LOC_0600h + (@@pt_m_msg_pt - psect)  ;
 @@pt_m_haltmsg:
                 lodsb                                           ;
                 or      al,al                                   ;
@@ -211,9 +212,9 @@ _psect:
 @@pt_m_msg_pt:  db      '<error in partition table>',0          ;
 @@pt_m_msg_os:  db      '<no operating system>',0               ;
 @@pt_m_msg_io:  db      '<error loading operating system>',0    ;
-_psect_end:
+psect_end:
 
-pt_m_reserved   equ     size MBR_Code - (_psect_end - _psect)   ;
+pt_m_reserved   equ     size MBR_Code - (psect_end - psect)     ;
                 db      pt_m_reserved dup (0)                   ;
 
                 dd      0                                       ;
@@ -225,8 +226,8 @@ pt_m_reserved   equ     size MBR_Code - (_psect_end - _psect)   ;
 ; FAT12/16 boot sector
 ;================================================================
 
-                public  _bsect16
-                public  _bsect16_name
+                public  bsect16
+                public  bsect16_name
 @@bt_w_clshift  = byte ptr [bp-18]                              ; sect->cluster shift
 @@bt_w_fat12    = byte ptr [bp-17]                              ;
 @@bt_w_datapos  =          [bp-16]                              ;
@@ -240,7 +241,7 @@ pt_m_reserved   equ     size MBR_Code - (_psect_end - _psect)   ;
 @@bt_w_physdisk = byte ptr [bp + BOOT_OEM_LEN + size Common_BPB]
 @@bt_w_bootname = [bp + BOOT_OEM_LEN + size Common_BPB + size Extended_BPB + 3]
 
-_bsect16:
+bsect16:
                 jmp     @@bt_w_start                            ;
                 nop                                             ; os2dasd get DOS version
                 db      'QSBT 5.0'                              ; from OEM field and fail
@@ -263,7 +264,7 @@ _bsect16:
                 db      'NO LABEL   '                           ;
                 db      'FAT     '                              ;
 @@bt_w_err1:    db      'No '
-_bsect16_name:
+bsect16_name:
                 db      'QSINIT     ',0                         ;
 @@bt_w_err2:    db      'Read error!',0                         ;
 @@bt_w_start:
@@ -380,7 +381,7 @@ _bsect16_name:
                 call    @@bt_w_read                             ;
 @@bt_w_nic_ready:
                 pop     bx                                      ;
-                mov     edx,es:[bx]                             ;
+                mov     edx,es:[bx]                             ;  dx??
                 mov     cl,@@bt_w_fat12                         ;
                 and     cl,1                                    ;
                 jnz     @@bt_w_nic_parse12                      ;
@@ -480,7 +481,7 @@ _bsect16_name:
                 jnz     @@bt_w_rloop                            ;
                 jmp     @@bt_w_readerr                          ;
 @@bt_w_end:
-bt_w_reserved   equ     510 - (@@bt_w_end - _bsect16)           ;
+bt_w_reserved   equ     510 - (@@bt_w_end - bsect16)            ;
 if bt_w_reserved GT 0
                 db      bt_w_reserved dup (0)                   ;
 endif
@@ -491,8 +492,8 @@ endif
 ; FAT32 boot sector
 ;================================================================
 
-                public  _bsect32
-                public  _bsect32_name
+                public  bsect32
+                public  bsect32_name
 @@bt_d_clshift  = byte ptr [bp-16]                              ; sect->cluster shift
 @@bt_d_i13x     = byte ptr [bp-15]                              ; i13x present?
 @@bt_d_datapos  =          [bp-14]                              ; cluster data
@@ -505,7 +506,7 @@ endif
 @@bt_d_physdisk = @@bt_d_disknum
 @@bt_d_bootname = [bp + BOOT_F32INFO + size ExtF32_BPB + size Extended_BPB + 3]
 
-_bsect32:
+bsect32:
                 jmp     @@bt_d_start                            ;
                 nop                                             ; os2dasd get DOS version
                 db      'QSBT 5.0'                              ; from OEM field and fail
@@ -535,7 +536,7 @@ _bsect32:
                 db      'NO LABEL   '                           ;
                 db      'FAT32   '                              ;
 @@bt_d_err1:    db      'No '
-_bsect32_name:
+bsect32_name:
                 db      'QSINIT     ',0                         ;
 @@bt_d_err2:    db      'Read error!',0                         ;
 @@bt_d_start:
@@ -736,7 +737,7 @@ _bsect32_name:
                 jnz     @@bt_d_rloop                            ;
                 jmp     @@bt_d_readerr                          ;
 @@bt_d_end:
-bt_d_reserved   equ     510 - (@@bt_d_end - _bsect32)           ;
+bt_d_reserved   equ     510 - (@@bt_d_end - bsect32)            ;
 if bt_d_reserved GT 0
                 db      bt_d_reserved dup (0)                   ;
 endif
@@ -746,9 +747,9 @@ endif
 ; exFAT boot sector
 ;================================================================
 
-                public  _bsectexf
-                public  _bsectexf_name
-                public  _exf_bsacount
+                public  bsectexf
+                public  bsectexf_name
+                public  exf_bsacount
 @@bt_e_numret   = byte ptr [bp-34]                              ; # of retries
 @@bt_e_wofat    = byte ptr [bp-33]                              ; w/o fat mode (1/0)
 @@bt_e_fatpos   =          [bp-32]                              ;
@@ -765,7 +766,7 @@ endif
 @@bt_e_clussz   =          [bp- 8]                              ; cluster size in sectors
 @@bt_e_curclus  = dword ptr [bp- 4]                             ; file cluster
 
-_bsectexf:
+bsectexf:
                 jmp     @@bt_e_start                            ;
                 nop                                             ;
                 db      'EXFAT   '                              ;
@@ -786,7 +787,7 @@ _bsectexf:
                 db      80h                                     ;
                 db      0                                       ; percentage of allocated space
                 db      6 dup (0)                               ; reseved? (to get EB 76 90 in _bsectexf)
-_exf_bsacount:
+exf_bsacount:
                 db      1                                       ; # of additional sectors to read
 @@bt_e_start:
                 mov     bp,LOC_7C00h                            ;
@@ -839,7 +840,7 @@ _exf_bsacount:
                 mov     di,LOC_7C00h SHR PARASHIFT              ;
                 xor     eax,eax                                 ;
                 inc     al                                      ;
-                movzx   si,byte ptr [bp+(_exf_bsacount - _bsectexf)] ;
+                movzx   si,byte ptr [bp+(exf_bsacount - bsectexf)] ;
 @@bt_e_loadmore:
                 add     di,512 shr PARASHIFT                    ; read sector by sector
                 mov     cx,1                                    ; with 512b offset
@@ -850,13 +851,13 @@ _exf_bsacount:
                 dec     si                                      ;
                 jnz     @@bt_e_loadmore                         ; until end of exf_bsacount
 
-                jmp     _bsectexf_2nd_sector                    ;
+                jmp     bsectexf_2nd_sector                     ;
 
 @@bt_e_readerr:
-                lea     si,[bp+(@@bt_e_str1 - _bsectexf)]       ;
+                lea     si,[bp+(@@bt_e_str1 - bsectexf)]        ;
                 jmp     @@bt_e_msg                              ;
 @@bt_e_exiterr:
-                lea     si,[bp+(@@bt_e_str2 - _bsectexf)]       ;
+                lea     si,[bp+(@@bt_e_str2 - bsectexf)]        ;
 @@bt_e_msg:
                 lodsb                                           ;
                 or      al,al                                   ;
@@ -939,7 +940,7 @@ _exf_bsacount:
                 jmp     @@bt_e_readerr                          ;
 
 @@bt_e_end:
-bt_e_reserved   equ     510 - (@@bt_e_end - _bsectexf)          ;
+bt_e_reserved   equ     510 - (@@bt_e_end - bsectexf)           ;
 if bt_e_reserved GT 0
                 db      bt_e_reserved dup (0)                   ;
 endif
@@ -947,10 +948,10 @@ endif
 ;
 ; second sector of exFAT boot code
 ;
-_bsectexf_2nd_sector:
+bsectexf_2nd_sector:
                 push    ds                                      ;
                 pop     es                                      ; calc source
-                lea     di,[bp+(_bsectexf_name - _bsectexf)]    ; file name len
+                lea     di,[bp+(bsectexf_name - bsectexf)]      ; file name len
                 mov     cx,-1                                   ;
                 xor     al, al                                  ;
           repne scasb                                           ;
@@ -1012,7 +1013,7 @@ _bsectexf_2nd_sector:
                 cmp     al,0C1h                                 ;
                 jnz     @@bt_e_dirnext                          ;
                 movzx   cx,@@bt_e_fnlen                         ;
-                lea     si,[bp+(_bsectexf_name - _bsectexf)]    ; file name len
+                lea     si,[bp+(bsectexf_name - bsectexf)]      ; file name len
                 xor     di,di                                   ;
 @@bt_e_direnum_nameloop:
                 inc     di                                      ; compare name
@@ -1156,10 +1157,10 @@ _bsectexf_2nd_sector:
                 jc      @@bt_e_clread_done                      ; cx = unreaded # of sectors
                 jmp     @@bt_e_clread                           ;
 
-_bsectexf_name:
+bsectexf_name:
                 db      'QSINIT',0,0,0,0,0,0,0,0,0,0            ; 15 chars + 0
 @@bt_e2_end:
-bt_e2_reserved  equ     510 - (@@bt_e2_end - _bsectexf_2nd_sector) ;
+bt_e2_reserved  equ     510 - (@@bt_e2_end - bsectexf_2nd_sector) ;
 if bt_e2_reserved GT 0
                 db      bt_e2_reserved dup (0)                  ;
 endif
@@ -1169,15 +1170,15 @@ endif
 ; debug boot sector (for printing only)
 ;================================================================
 
-                public  _bsectdb
+                public  bsectdb
 @@bt_p_disknum  = byte ptr [bp- 2]                              ; disk number from DL
 @@bt_p_fat32    = byte ptr [bp- 1]                              ;
 
 ;@@bt_p_physdisk = byte ptr [bp + BOOT_F32INFO + size ExtF32_BPB]
 @@bt_p_physdisk = @@bt_p_disknum
-@@bt_p_msgbase  = [bp + @@bt_p_msg - _bsectdb]
+@@bt_p_msgbase  = [bp + @@bt_p_msg - bsectdb]
 
-_bsectdb:
+bsectdb:
                 jmp     @@bt_p_start                            ;
                 nop                                             ; os2dasd get DOS version
                 db      'QSBT 5.0'                              ; from OEM field and fail
@@ -1304,7 +1305,7 @@ _bsectdb:
                 db      ' heads=',0,0                           ;
                 db      13,10,'press any key to reboot',0       ;
 @@bt_p_end:
-bt_p_reserved   equ     510 - (@@bt_p_end - _bsectdb)           ;
+bt_p_reserved   equ     510 - (@@bt_p_end - bsectdb)            ;
 if bt_p_reserved GT 0
                 db      bt_p_reserved dup (0)                   ;
 endif
@@ -1313,12 +1314,12 @@ endif
 ;================================================================
 ; partition table code for GPT disks
 ;================================================================
-                public  _gptsect
+                public  gptsect
 
 @@pt_g_disknum  = byte ptr [bp- 2]                              ; disk number from DL
 @@pt_g_rps      = word ptr [bp- 4]                              ; # gpt recs per sector
 
-_gptsect:
+gptsect:
                 and     ax,5351h                                ; %QS% string,
                 and     ax,2420h                                ; but zero ax too :)
                 mov     si,LOC_7C00h                            ;
@@ -1331,7 +1332,7 @@ _gptsect:
                 mov     di,LOC_0600h                            ;
                 mov     cx,100h                                 ;
             rep movsw                                           ;
-                JmpF16a 0,LOC_0600h + (@@pt_g_moved - _gptsect) ;
+                JmpF16a 0,LOC_0600h + (@@pt_g_moved - gptsect)  ;
 @@pt_g_moved:
                 sti                                             ; walk through 4
                 mov     cl,4                                    ; pt entries and
@@ -1454,16 +1455,16 @@ _gptsect:
                 loop    @@pt_g_rloop                            ; # retries
                 ; no ret here
 @@pt_g_errread:
-                mov     si,LOC_0600h + (@@pt_g_msg_io - _gptsect) ;
+                mov     si,LOC_0600h + (@@pt_g_msg_io - gptsect) ;
                 jmp     @@pt_g_haltmsg                          ;
 @@pt_g_missing:
-                mov     si,LOC_0600h + (@@pt_g_msg_os - _gptsect) ;
+                mov     si,LOC_0600h + (@@pt_g_msg_os - gptsect) ;
                 jmp     @@pt_g_haltmsg                          ;
 @@pt_m_badpt:
-                mov     si,LOC_0600h + (@@pt_g_msg_pt - _gptsect) ;
+                mov     si,LOC_0600h + (@@pt_g_msg_pt - gptsect) ;
                 jmp     @@pt_g_haltmsg                          ;
 @@pt_g_noi13x:
-                mov     si,LOC_0600h + (@@pt_g_msg_xr - _gptsect) ;
+                mov     si,LOC_0600h + (@@pt_g_msg_xr - gptsect) ;
 @@pt_g_haltmsg:
                 lodsb                                           ;
                 or      al,al                                   ;
@@ -1480,9 +1481,9 @@ _gptsect:
 @@pt_g_msg_os:  db      '<no operating system>',0               ;
 @@pt_g_msg_io:  db      '<disk read error>',0                   ;
 @@pt_g_msg_pt:  db      '<error in partition table>',0          ;
-_gptsect_end:
+gptsect_end:
 
-pt_g_reserved   equ     size MBR_Code - (_gptsect_end - _gptsect)
+pt_g_reserved   equ     size MBR_Code - (gptsect_end - gptsect) ;
                 db      pt_g_reserved dup (0)                   ;
 
                 dd      0                                       ;

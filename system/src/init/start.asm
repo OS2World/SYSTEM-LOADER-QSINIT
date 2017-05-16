@@ -187,7 +187,7 @@ _aboutstr       label   near                                    ;
                 mov     ax,0CCCCh                               ;
             rep stosw                                           ;
 ;
-; here we are have cleared bss & own stack
+; here we have cleared bss & own stack
 ;
                 mov     ax,1003h                                ; blink off
                 xor     bl,bl                                   ;
@@ -216,7 +216,7 @@ ifdef INITDEBUG
 endif
                 mov     dx,ax                                   ; check for sufficient
                 mov     ax,3                                    ; place to to put self
-                cmp     dx,512                                  ; in the top of low memory
+                cmp     dx,480 ;512                             ; in the top of low memory
                 jc      panic_initpm                            ; <512kb -> error
                 shl     dx,10-PARASHIFT                         ; kb->paragraphs
                 mov     ax,_rmpart_size                         ;
@@ -386,7 +386,7 @@ endif
                 mov     _DiskBufRM_Seg,cx                       ; must be BELOW 9100
                 movzx   ecx,cx                                  ; else kernel start
                 shl     ecx,PARASHIFT                           ; will be confused
-                mov     _DiskBufPM,ecx                          ; (he uses it as temp storage)
+                mov     _DiskBufPM,ecx                          ; (he uses it as a temp storage)
 
                 test    ah,BF_NOMFSHVOLIO                       ; BPB available?
                 jnz     @@init_noBPB                            ;

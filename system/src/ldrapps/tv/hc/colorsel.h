@@ -2,23 +2,29 @@
 /*                                                                         */
 /*   COLORSEL.H                                                            */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the class TColorDialog, used to set application palettes      */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
 #if !defined( __COLOR_COMMAND_CODES )
 #define __COLOR_COMMAND_CODES
 
-#define cmColorForegroundChanged (71)
-#define cmColorBackgroundChanged (72)
-#define cmColorSet               (73)
-#define cmNewColorItem           (74)
-#define cmNewColorIndex          (75)
+const int
+  cmColorForegroundChanged = 71,
+  cmColorBackgroundChanged = 72,
+  cmColorSet               = 73,
+  cmNewColorItem           = 74,
+  cmNewColorIndex          = 75,
+  cmSaveColorIndex         = 76;
 
 #endif  // __COLOR_COMMAND_CODES
 
@@ -62,12 +68,21 @@ public:
    TColorGroup(const char *nm, TColorItem *itm = 0, TColorGroup *nxt = 0);
    virtual ~TColorGroup();
    const char *name;
+   uchar index;
    TColorItem *items;
    TColorGroup *next;
    friend TColorGroup &operator + (TColorGroup &, TColorItem &);
    friend TColorGroup &operator + (TColorGroup &g1, TColorGroup &g2);
 
 
+};
+
+class TColorIndex {
+
+public:
+    uchar groupIndex;
+    uchar colorSize;
+    uchar colorIndex[256];
 };
 
 #endif  // Uses_TColorGroup
@@ -264,6 +279,12 @@ public:
    virtual void focusItem(int item);
    virtual void getText(char *dest, int item, int maxLen);
 
+   virtual void handleEvent(TEvent&);
+
+   void setGroupIndex(uchar groupNum, uchar itemNum);
+   TColorGroup* getGroup(uchar groupNum);
+   uchar getGroupIndex(uchar groupNum);
+   uchar getNumGroups();
 protected:
 
    TColorGroup *groups;
@@ -381,7 +402,7 @@ class TColorDialog : public TDialog {
 public:
 
    TColorDialog(TPalette *aPalette, TColorGroup *aGroups);
-   ~TColorDialog() {}
+   ~TColorDialog();
    virtual size_t dataSize();
    virtual void getData(void *rec);
    virtual void handleEvent(TEvent &event);
@@ -389,6 +410,8 @@ public:
 
    TPalette *pal;
 
+   void getIndexes(TColorIndex*&);
+   void setIndexes(TColorIndex*&);
 protected:
 
    TColorDisplay *display;
@@ -399,6 +422,7 @@ protected:
    TColorSelector *bakSel;
    TLabel *monoLabel;
    TMonoSelector *monoSel;
+   uchar groupIndex;
 
 private:
 

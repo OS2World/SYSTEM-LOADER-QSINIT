@@ -18,6 +18,7 @@ enum Boolean { False, True };
 
 typedef unsigned short ushort;
 typedef unsigned char uchar;
+typedef unsigned long ulong;
 
 const char EOS = '\0';
 

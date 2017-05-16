@@ -1,17 +1,19 @@
-#ifndef NO_TV_STREAMS
 /*------------------------------------------------------------*/
-/* define the streamable names                                */
+/* filename -       nmdirbox.cpp                              */
+/*                                                            */
+/* defines the streamable names                               */
 /*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+// some TV 2.0 class names are missing here because I`m too lazy
+
+#ifndef NO_TV_STREAMS
 
 #define Uses_TBackground
 #define Uses_TButton

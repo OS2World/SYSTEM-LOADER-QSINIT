@@ -5,22 +5,19 @@
 /*          mapColor -- maps a color into a pointer into the current */
 /*                      palette.                                     */
 /*-------------------------------------------------------------------*/
-
-/*-------------------------------------------------------------------*/
-/*                                                                   */
-/*    Turbo Vision -  Version 1.0                                    */
-/*                                                                   */
-/*                                                                   */
-/*    Copyright (c) 1991 by Borland International                    */
-/*    All Rights Reserved.                                           */
-/*                                                                   */
-/*-------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TView
 #define Uses_TGroup
 #include <tv.h>
 
-uchar TV_CDECL TView::mapColor(uchar color) {
+uchar TView::mapColor(uchar color) {
    if (color == 0)
       return errorAttr;
    TView *cur = this;

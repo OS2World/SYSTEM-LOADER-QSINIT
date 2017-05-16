@@ -2,111 +2,30 @@
 // QSINIT
 // virtual disk init code
 //
-#include "clib.h"
-#include "qsutil.h"
-#include "qsint.h"
-#include "unzip.h"
-#include "fat/ff.h"
+#include "qslocal.h"
 #include "qsconst.h"
-#include "qsstor.h"
+#include "unzip.h"
 
-void                 *Disk1Data;               ///< virtual disk
-u32t                  Disk1Size = 0;           ///< virtual disk`s size
-extern FATFS*            extdrv[_VOLUMES];
-extern DWORD   FileCreationTime;
-extern u8t            mod_delay;
+void      *Disk1Data;               ///< virtual disk
+u32t       Disk1Size = 0;           ///< virtual disk`s size
+void       *sec_data;
+u32t        sec_size = 0;
 
-void    init_vol1data(void);
-FRESULT f_mkfs2(void);
+void init_vol1(void);
 
-static int unpack_zip(ZIP *zz, u32t totalsize) {
-   FIL        fh;   // we have at least 16k stack, so 4k fits good.
+static int unpack_start(ZIP *zz) {
    char  *zfpath;
    u32t   zfsize = 0;
-   int    errors = 0, errprev;
-   u32t    ready = 0;
 
-   if (!zz) return 1;
-
-   while (zip_nextfile(zz, &zfpath, &zfsize)) {
-      // allocate at least MAXPATH bytes ;)))
-      void *filemem = 0;
-      int      skip = 0;
-      // print process
-#if 0
-      log_printf("Extracting... %d%%",(ready>>10)*100/(totalsize>>10));
-#endif
-      ready+=zfsize;
-      // ignore directories and/or empty files here
-      if (!zfsize) continue;
-
-      if (mod_delay) {
-         char *ep = strchr(zfpath,'.');
-         // delayed unpack
-         if (ep && (!strnicmp(ep,".EXE",4) || !strnicmp(ep,".DLL",4))) {
-            filemem = hlp_memalloc(zfsize,0);
-            // mark it
-            *(u32t*)filemem = UNPDELAY_SIGN;
-            // save delayed cound, will stop on 256 overflow ;)
-            sto_save(STOKEY_DELAYCNT,&mod_delay,4,1);
-            mod_delay++;
-            skip = 1;
-         }
-      }
-      // unpack & save
-      if (!filemem) filemem = zip_readfile(zz);
-
-      if (!filemem) errors++; else {
-         FRESULT  rc;
-         char   path[QS_MAXPATH+1];
-         // create full path (x:\name)
-         snprintf(path, QS_MAXPATH, "%u:\\%s", DISK_LDR, zfpath);
-         // report zip file time to FAT engine
-         FileCreationTime = zz->dostime;
-         // create file
-         rc = f_open(&fh, path, FA_WRITE|FA_CREATE_ALWAYS);
-         // no such path? trying to create it
-         if (rc==FR_NO_PATH) {
-            char *cc=path;
-            do {
-               cc=strchr(cc,'/');
-               if (cc) *cc='\\';
-            } while (cc);
-            cc=path+3;
-
-            do {
-               cc=strchr(cc,'\\');
-               if (cc) {
-                  *cc=0;
-                  rc = f_mkdir(path);
-                  *cc++='\\';
-                  if (rc!=FR_EXIST && rc!=FR_OK) break;
-               }
-            } while (cc);
-            // open file again
-            rc = f_open(&fh, path, FA_WRITE|FA_CREATE_ALWAYS);
-         }
-         // these messages scroll up from screen actual info in verbose build
-#ifndef INITDEBUG
-         log_printf("%s %s, %d bytes\n", skip?"skip ":"unzip", path, zfsize);
-#endif
-         errprev = errors;
-         if (rc==FR_OK) {
-            UINT rsize;
-            if (zfsize)
-               if (f_write(&fh, filemem, zfsize, &rsize)!=FR_OK) errors++;
-            if (f_close(&fh)!=FR_OK) errors++;
-         } else errors++;
-         if (errprev!=errors) log_printf("error %d\n",rc);
-      }
-      if (filemem) hlp_memfree(filemem);
-   }
-   // reset FAT engine to use current time
-   FileCreationTime=0;
-#if 0
-   log_printf("Extracting... done\n");
-#endif
-   return errors;
+   if (zz)
+      while (zip_nextfile(zz, &zfpath, &zfsize)==0)
+         // ignore directories and/or empty files here
+         if (zfsize && strnicmp(zfpath, MODNAME_START, strlen(zfpath))==0)
+            if (zip_readfile(zz, &sec_data)==0) {
+               sec_size = zfsize;
+               return 1;
+            }
+   return 0;
 }
 
 static void *try_alloc_disk(u32t size)  {
@@ -121,20 +40,18 @@ static void *try_alloc_disk(u32t size)  {
 }
 
 void make_disk1(void) {
-   static const char  vp[3] = { DISK_LDR+'0', ':', 0 };
    u32t   size, unpsize, files;
-   FRESULT  rc;
    void   *zip, *disk = 0;
    ZIP      zz; // 300 bytes!!
 
    zip     = hlp_freadfull("QSINIT.LDI",&size,0);
    if (!zip) exit_pm32(QERR_NOEXTDATA);
-   if (!zip_open(&zz, zip, size)) exit_pm32(QERR_NOEXTDATA);
+   if (zip_open(&zz, zip, size)) exit_pm32(QERR_NOEXTDATA);
    unpsize = zip_unpacked(&zz,&files);
    if (!unpsize) exit_pm32(QERR_NOEXTDATA);
    // +4k for every file + reserved 384k
-   files   = unpsize + (files<<12) + _256KB + _128KB;
-   if (files<_1MB+_256KB) files = _1MB+_256KB;
+   files   = unpsize + (files<<12) + _512KB + _128KB;
+   if (files < _1MB+_512KB) files = _1MB+_512KB;
    // trying to allocate size from ini first
    if (Disk1Size) disk = try_alloc_disk(Disk1Size + files);
    // and required size if requested was failed
@@ -142,27 +59,14 @@ void make_disk1(void) {
    // panic
    if (!disk) exit_pm32(QERR_NODISKMEM);
    Disk1Data = disk;
-   // re-open zip
+   // re-open zip (our`s ugly code can`t rewind the stream)
    zip_close(&zz);
    zip_open(&zz, zip, size);
-   // mount & make internal disk with common loader code
-   rc = f_mount(extdrv[DISK_LDR], vp, 0);
-   if (!rc) rc = f_mkfs2();
-   if (rc) {
-#ifdef INITDEBUG
-      log_printf("mkfs: %d\n",rc);
-#endif
-      exit_pm32(QERR_RUNEXTDATA);
-   }
-   // unpack QSINIT.LDI here
-   rc = unpack_zip(&zz, unpsize);
-   if (rc) exit_pm32(QERR_RUNEXTDATA);
-   // free memory
+   // unpack START module from QSINIT.LDI to memory block
+   if (!unpack_start(&zz)) exit_pm32(QERR_RUNEXTDATA);
    zip_close(&zz);
-   // free zip if delay was turned off, else save it for future unpacks
-   if (!mod_delay) hlp_memfree(zip); else 
-      sto_save(STOKEY_ZIPDATA,zip,size,0);
-   // hlp_chdisk(DISK_LDR);
-   // for mount list command
-   init_vol1data();
+
+   sto_save(STOKEY_ZIPDATA, zip, size, 0);
+   // mount/format volume
+   init_vol1();
 }

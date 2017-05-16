@@ -7,13 +7,13 @@
 #include "errno.h"
 #include "qcl/qslist.h"
 #include "direct.h"
+#include "qstask.h"
 
 extern 
-char    *_CmdArgs;
-u32t         echo = CMDR_ECHOOFF;
-ptr_list  history = 0;
-
-#define HISTORY_KEY  "cmd_hist_list"
+char      *_CmdArgs;                   ///< full command line (runtime variable)
+u32t           echo = CMDR_ECHOOFF;
+qshandle    history = 0;               ///< shared queue, which works as history list
+#define HISTORY_KEY  "cmd_hist_list"   ///< queue name
 
 void set_errorlevel(int elvl) {
    char  errlvl[12];
@@ -117,13 +117,12 @@ u32t execute_command(char *cmd) {
 }
 
 static void read_history(void) {
-   history = (ptr_list)sto_data(HISTORY_KEY);
-   if (!history) {
-      // we are the first shell instance - creating global history ...
-      history = NEW_G(ptr_list);
-      // save pointer with 1 byte len (size ignored)
-      sto_save(HISTORY_KEY,history,1,0);
-   }
+   qserr err = qe_open(HISTORY_KEY, &history);
+   /* we are the first shell instance - init global history and detach
+      its handle - it will stay forever (until reboot) */
+   if (err)
+      if (qe_create(HISTORY_KEY, &history)==0)
+         io_setstate (history, IOFS_DETACHED, 1);
 }
 
 // trim command and save it in history, return 0 if command was empty.
@@ -145,36 +144,44 @@ static char* push_history(char *cmd) {
       if (cmd!=cn) memmove(cmd,cn,ii+1);
       cmd = realloc(cmd,ii+1);
 
-      for (ii=0; ii<history->count(); ii++)
-         if (!strcmp((char*)history->value(ii),cmd)) {
+      for (ii=0; ii<qe_available(history); ii++) {
+         qe_event *ev = qe_peekevent(history, ii);
+         char    *str = (char*)ev->code;
+         if (strcmp(str,cmd)==0) {
+            // dangerous place, but while we have no two keyboards - it should work :)
+            ev = qe_takeevent(history, ii);
             // duplicate entry? move it to the top of history:
-            history->exchange(ii,history->max());
+            qe_postevent(history, (u32t)str, 0, 0, 0);
             free(cmd);
-            return (char*)history->value(history->max());
+            free(ev);
+            return str;
          }
+      }
       // share it in this way to prevent garbage in file name in memmgr dump
       __set_shared_block_info(cmd, "cmd history", 0);
-      history->add(cmd);
+      qe_postevent(history, (u32t)cmd, 0, 0, 0);
       return cmd;
    }
    free(cmd);
    return 0;
 }
 
+// up/down processing in edit line
 static int _std editline_cb(u16t key, key_strcbinfo *dta) {
    if (history) {
       u8t  keyh=key>>8;
       if (keyh==0x48 || keyh==0x50) {
          long up = keyh==0x48?-1:1;
          dta->userdata+=up;
-         if ((long)dta->userdata<0) dta->userdata = history->count(); else
-         if (dta->userdata>history->count()) dta->userdata = 0;
+         if ((long)dta->userdata<0) dta->userdata = qe_available(history); else
+         if (dta->userdata>qe_available(history)) dta->userdata = 0;
          // 0 - empty string, 1...count = history
          if (!dta->userdata) {
             dta->pos=0; dta->scroll=0; dta->clen=0; *dta->rcstr=0;
          } else {
-            char *str = (char*)history->value(dta->userdata-1);
-            u32t  len = strlen(str);
+            qe_event *ev = qe_peekevent(history, dta->userdata-1);
+            char    *str = (char*)ev->code;
+            u32t     len = strlen(str);
 
             if (dta->bsize<len) dta->rcstr = (char*)realloc(dta->rcstr, 
                dta->bsize = Round32(len+2));
@@ -213,6 +220,21 @@ int cmdloop(const char *init) {
    return 0;
 }
 
+int io_replacement(const char *fname, const char *mode, FILE *stdf) {
+   char  *fn = _fullpath(0, fname, 0);
+   int errNo = 0;
+   if (!freopen(fn, mode, stdf)) {
+      char *emsg = cmd_shellerrmsg(EMSG_CLIB, errNo=errno);
+      printf("%s stream \"%s\" error: %s\n", *mode=='r'?"Input":"Output", fn, emsg);
+      free(emsg);
+   }
+   free(fn);
+   return errNo;
+}
+
+static char *in_stream = 0,
+           *out_stream = 0;
+
 int main(int argc,char *argv[]) {
    int argnext = 1, leave = 1, editcmd = 0;
    char last = 0, *init = 0;
@@ -228,11 +250,12 @@ int main(int argc,char *argv[]) {
          if (stricmp(argv[argnext]+1,"E")==0) {
             last = 'E'; editcmd = 1; argnext++;
          } else 
+         if (strnicmp(argv[argnext]+1,"I:",2)==0) in_stream = argv[argnext++] + 3;
+            else 
+         if (strnicmp(argv[argnext]+1,"O:",2)==0) out_stream = argv[argnext++] + 3;
+            else 
          if (stricmp(argv[argnext]+1,"?")==0) {
-            printf("Command processor:\n\nCMD [options] [commands]\n"
-                   "  /c      execute the specified command and then terminates\n"
-                   "  /k      execute the specified command but remains\n"
-                   "  /e      put command to edit line, but not run it\n");
+            cmd_shellhelp("CMD",CLR_HELP);
             set_errorlevel(0);
             return 0;
          }
@@ -250,8 +273,19 @@ int main(int argc,char *argv[]) {
       if (pos) {
          pos = strchr(pos, ' ');
          if (pos)
-            if (editcmd) { leave = 1; init  = pos+1; }
-               else execute_command(pos+1);
+            if (editcmd) { leave = 1; init  = pos+1; } else {
+               if (last=='C') {
+                  if (in_stream) {
+                     int res = io_replacement(in_stream, "r", stdin);
+                     if (res) return res;
+                  }
+                  if (out_stream) {
+                     int res = io_replacement(out_stream, "w", stdout);
+                     if (res) return res;
+                  }
+               }
+               execute_command(pos+1);
+            }
       }
    }
 

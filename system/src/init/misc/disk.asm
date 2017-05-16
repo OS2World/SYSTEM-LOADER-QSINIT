@@ -42,8 +42,6 @@ _qd_bootidx     dd      -1                                      ;
 DATA16          ends
 
 
-MAX_QS_FLOPPY
-
 TEXT16          segment                                         ;
                 assume  cs:G16, ds:G16, es:nothing, ss:nothing  ;
 
@@ -66,8 +64,8 @@ int13check      proc    near
                 mov     ah,15h                                  ;
                 call    int13                                   ; Read DASD type
                 pop     dx                                      ;
-                jc      @@i13c_nodrv                            ;
-                or      ah,ah                                   ;
+                jc      @@i13c_nodrv                            ; cx:dx here is incorrect,
+                or      ah,ah                                   ; at least on Gigabyte MBs
                 jz      @@i13c_nodrv                            ;
 @@i13c_force_boot_fdd:
                 mov     [si].qd_biosdisk,dl                     ; BIOS disk number
@@ -132,7 +130,9 @@ int13check      proc    near
                 jz      @@i13c_hddinfo                          ;
                 cmp     al, 2                                   ; and modern fdd type
                 jz      @@i13c_hddinfo                          ; (thanks to Gigabyte!)
-                jmp     @@i13c_fddinfo                          ;
+                cmp     dl,80h                                  ;
+                jnc     @@i13c_hddinfo                          ; and any HDD
+                jmp     @@i13c_fddinfo                          ; (thanks to QEMU!)
 @@i13c_hddinfo:
                 push    dx
                 mov     ah, 41h                                 ; check for int 13 ext.
@@ -153,11 +153,13 @@ int13check      proc    near
 
                 mov     cx,size EDParmTable                     ;
                 mov     di,si                                   ;
+                xor     ax,ax                                   ;
                 cld                                             ;
             rep stosb                                           ;
                 mov     [si].ED_BufferSize, size EDParmTable    ;
                 mov     ah, 48h                                 ;
                 call    int13                                   ;
+;stc
                 mov     di,si                                   ;
                 pop     dx                                      ;
                 pop     si                                      ;
@@ -179,14 +181,19 @@ int13check      proc    near
                 mov     [si].qd_sectorsize,ax                   ;
                 mov     eax,dword ptr [di].ED_Sectors           ;
                 mov     ecx,dword ptr [di].ED_Sectors + 4       ;
+                cmp     ecx,-1                                  ; FFFF:FFFF
+                jz      @@i13c_eddcheck                         ;
                 mov     dword ptr [si].qd_sectors,eax           ;
                 mov     dword ptr [si].qd_sectors + 4,ecx       ;
-                dbg16print <"%x [+] %lx%lx",10>,<eax,ecx,dx>    ;
 @@i13c_eddcheck:
-                xor     eax,eax                                 ;
-                cmp     [si].qd_cyls,eax                        ; check fields
-                jnz     @@i13c_chsok                            ; and save default
-                mov     [si].qd_cyls,16383                      ; if empty
+                dbg16print <"%x [+] %lx%lx",10>,<eax,ecx,dx>    ;
+                mov     eax,[si].qd_cyls                        ;
+                or      eax,eax                                 ;
+                jz      @@i13c_chsbad                           ; check for 0 & -1
+                inc     eax                                     ; and save default 
+                jnz     @@i13c_chsok                            ; in this case
+@@i13c_chsbad:
+                mov     [si].qd_cyls,16383                      ;
                 mov     [si].qd_heads,16                        ;
                 mov     [si].qd_spt,63                          ;
                 dbg16print <"empty EDD for disk %x",10>,<dx>
@@ -200,7 +207,7 @@ int13check      proc    near
                 cmp     dl,_dd_bootdisk                         ; presence with CHS
                 mov     ah,1                                    ; from BPB
                 jz      @@i13c_force_boot_fdd                   ;
-                jmp     @@i13c_nodrv_hdd                        ;
+                jmp     @@i13c_nodrv_force                      ; force floppy entry presence
 @@i13c_fddinfo:
                 mov     ecx,[si].qd_cyls                        ;
                 mov     ax,[si].qd_chsheads                     ;
@@ -227,12 +234,15 @@ int13check      proc    near
 @@i13c_sszok:
                 bsf     ax,[si].qd_sectorsize                   ; sector shift
                 mov     [si].qd_sectorshift,al                  ;
-@@i13c_nodrv_hdd:
+@@i13c_nodrv_force:
                 add     si,size qs_diskinfo                     ;
                 inc     @@i13c_index                            ;
                 cmp     @@i13c_index,MAX_QS_DISK                ;
                 jnc     @@i13c_done                             ;
+@@i13c_nodrv_hdd:
                 inc     dl                                      ;
+                cmp     dl,0F1h                                 ; for boot cd-rom
+                jz      @@i13c_done                             ;
                 cmp     dl,MAX_QS_FLOPPY                        ;
                 jnz     @@i13c_loop                             ;
                 mov     dl,80h                                  ;

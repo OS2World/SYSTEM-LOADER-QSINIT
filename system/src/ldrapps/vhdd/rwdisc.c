@@ -8,6 +8,7 @@
 #include "stdlib.h"
 #include "qslog.h"
 #include "qsio.h"
+#include "qsint.h"
 #include "qserr.h"
 #include "dskinfo.h"
 #include "qcl/qsvdimg.h"
@@ -70,14 +71,14 @@ qs_emudisk mounted[QDSK_DISKMASK+1];
    if (inst->sign!=VHDD_SIGN) return;
 
 u32t _std diskio_read (u32t disk, u64t sector, u32t count, void *data) {
-   disk &= ~QDSK_DIRECT;
+   disk &= ~(QDSK_DIRECT|QDSK_IAMCACHE|QDSK_IGNACCESS);
    if (disk>QDSK_DISKMASK) return 0;
    if (!mounted[disk]) return 0;
    return mounted[disk]->read(sector, count, data);
 }
 
 u32t _std diskio_write(u32t disk, u64t sector, u32t count, void *data) {
-   disk &= ~QDSK_DIRECT;
+   disk &= ~(QDSK_DIRECT|QDSK_IAMCACHE|QDSK_IGNACCESS);
    if (disk>QDSK_DISKMASK) return 0;
    if (!mounted[disk]) return 0;
    return mounted[disk]->write(sector, count, data);
@@ -265,7 +266,7 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
          }
          io_setstate(di->df, IOFS_DELONCLOSE, 0);
          // commit 1st slice index
-         return flush_slices(di)?0:E_DSK_IO;
+         return flush_slices(di)?0:E_DSK_ERRWRITE;
       }
    }
 }
@@ -288,16 +289,16 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
       rc = io_size(di->df, &sz);
       if (!rc) {
          io_read(di->df, &mhdr, 8);
-         if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = E_DSK_UNCKFS; else
+         if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = E_DSK_UNKFS; else
             if (io_read(di->df, &di->info, sizeof(disk_geo_data))!=sizeof(disk_geo_data))
-               rc = E_DSK_IO;
+               rc = E_DSK_ERRREAD;
       }
       if (!rc) {
          di->freehint = 0;
          di->lshift   = bsf64(di->info.SectorSize);
          di->idxshift = mhdr.flags&VHDD_OFSDD ? 2 : 3;
          rsize        = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
-         if (sz<HEADER_SPACE+rsize) rc = E_DSK_IO;
+         if (sz<HEADER_SPACE+rsize) rc = E_DSK_ERRREAD;
       }
       if (!rc) {
          u64t  slices = sz - HEADER_SPACE;
@@ -314,10 +315,10 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
          for (ii=0; ii<di->slices; ii++) {
             if (io_seek(di->df, HEADER_SPACE + (u64t)rsize*(ii+1) -
                (SLICE_SECTORS<<di->idxshift), IO_SEEK_SET)==FFFF64)
-                  { rc = E_DSK_IO; break; }
+                  { rc = E_DSK_ERRREAD; break; }
             if (io_read(di->df, (u8t*)di->index + (SLICE_SECTORS*ii<<di->idxshift),
                SLICE_SECTORS<<di->idxshift) != SLICE_SECTORS<<di->idxshift)
-                  { rc = E_DSK_IO; break; }
+                  { rc = E_DSK_ERRREAD; break; }
          }
       }
       // detach it to make process-independent
@@ -591,7 +592,7 @@ static s32t _exicc dsk_mount(EXI_DATA) {
       }
    }
    // install new "hdd"
-   di->qsdisk = hlp_diskadd(&dp);
+   di->qsdisk = hlp_diskadd(&dp, 0);
    if (di->qsdisk<0 || di->qsdisk>QDSK_DISKMASK) log_printf("hlp_diskadd error!\n");
       else mounted[di->qsdisk] = di->selfptr;
 
@@ -736,10 +737,10 @@ static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
       geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
          geo->Heads * geo->SectOnTrack > geo->TotalSectors) return E_SYS_INVPARM;
 
-   if (io_seek(di->df, 8, IO_SEEK_SET)==FFFF64) return E_DSK_IO;
+   if (io_seek(di->df, 8, IO_SEEK_SET)==FFFF64) return E_DSK_ERRWRITE;
    // write it first, then replace currently used
    if (io_write(di->df, geo, sizeof(disk_geo_data)) != sizeof(disk_geo_data))
-       return E_DSK_IO;
+       return E_DSK_ERRWRITE;
    memcpy(&di->info, geo, sizeof(disk_geo_data));
    // if disk is mounted - update CHS value in system info
    if (di->qsdisk>=0) {

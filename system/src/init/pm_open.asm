@@ -7,22 +7,38 @@
                 include inc/segdef.inc
                 include inc/basemac.inc
                 include inc/qsinit.inc
+                include inc/qstypes.inc
                 include inc/cpudef.inc
-                include inc/seldesc.inc
+                include inc/qspdata.inc
                 include inc/iopic.inc
                 include inc/dpmi.inc
 
                 public  _pm_info, _pm_init
                 public  _syscr3, _syscr4, _systr, _gdt_lowest, _restirq, _syslapic
                 public  _apic_tmr_vnum, _apic_tmr_vorg, _apic_spr_org, _apic_spr_vorg
-                public  _apic_spr_vnum
+                public  _apic_spr_vnum, org_int16h
 
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DATA
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 SYSSELECTORS    = 7                                             ; number of system selectors in GDT
+CLEAR_CR4       = CPU_CR4_PAE or CPU_CR4_PGE or CPU_CR4_OSXSAVE or CPU_CR4_OSFXSR or CPU_CR4_OSXMMEXCPT
 
 off             equ     offset
+; ----------------------------------------------------------------------------
+; warning! this is dangerous part, import from 32-bit part.
+; wlink should generate fixup to 32-bit object, mkbin should save it properly
+; and unpack.asm should fixup it - then it will work as we wants :)
+;
+; segment assumes in PMODE_TEXT below can broke this (redirect offset to 16-bit object)
+_DATA           segment                                         ;
+                extrn   _mt_exechooks:mt_proc_cb_s              ;
+_DATA           ends                                            ;
+
+_TEXT           segment                                         ;
+                extrn   fp_rmcallcbf :far                       ;
+_TEXT           ends                                            ;
+
 ; ----------------------------------------------------------------------------
 _BSS16          segment
                 align 4
@@ -89,6 +105,9 @@ _syslapic       dd      0                                       ; local APIC add
 
 pmtormswrout    dd      off xr_pmtormsw                         ; addx of protected to real routine
 
+org_int10h      dd      0                                       ;
+org_int16h      dd      0                                       ;
+
 _pm_selectors   dw      96                                      ; max selectors
 _pm_rmstacklen  dw      40h                                     ; real mode stack length, in para
 _pm_pmstacklen  dw      80h                                     ; protected mode stack length, in para
@@ -98,6 +117,10 @@ _pm_callbacks   db      16                                      ; number of real
 
 _restirq        db      1                                       ; rest IRQ on rm call with bh=2
 restirq_now     db      0                                       ;
+call_state      db      0                                       ; current pm->rm is IRQ
+
+CST_IRQ         = 1                                             ;
+CST_TS_STATE    = CPU_CR0_TS                                    ; 08h
 
 _pm_initerr     dw      0                                       ; pm_init error code
 _systr          dw      0                                       ; task register value
@@ -110,16 +133,16 @@ picmaster       db      PIC1_IRQ_NEW                            ; PIC master bas
 int31functbl    dw      0900h, 0901h, 0902h, 0000h, 0001h, 0002h
                 dw      0003h, 0006h, 0007h, 0008h, 0009h
                 dw      000Ah, 000Bh, 000Ch, 000Eh, 000Fh
-                dw      0200h, 0201h, 0204h, 0205h
-                dw      0300h, 0301h, 0302h, 0303h, 0304h, 0305h, 0306h
+                dw      0204h, 0205h
+                dw      0300h, 0301h, 0302h, 0303h, 0304h, 0306h
                 dw      0400h
 INT31FUNCNUM    = ($ - int31functbl) / 2                        ;
 
 int31routtbl    dw      int310900, int310901, int310902, int310000, int310001, int310002
                 dw      int310003, int310006, int310007, int310008, int310009
                 dw      int31000a, int31000b, int31000c, int31000e, int31000f
-                dw      int310200, int310201, int310204, int310205
-                dw      int310300, int310301, int310302, int310303, int310304, int310305, int310306
+                dw      int310204, int310205
+                dw      int310300, int310301, int310302, int310303, int310304, int310306
                 dw      int310400                               ;
 flatdsmode      dw      0D096h, 0DF92h                          ;
 
@@ -128,11 +151,13 @@ DATA16          ends                                            ;
 
 TEXT16          segment                                         ;
                 extrn   rest_pic:near                           ;
+                extrn   int10h_stub:near                        ;
+                extrn   int16h_stub:near                        ;
 TEXT16          ends                                            ;
 
 ; ----------------------------------------------------------------------------
 PMODE_TEXT      segment
-                assume  cs:G16, ds:G16
+                assume  cs:nothing, ds:nothing, es:nothing, ss:nothing
 
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DETECT/INIT CODE
@@ -588,21 +613,26 @@ xr_rmtopmsw:                                                    ; XMS/raw real t
                 cli
                 push    cx                                      ; store CX (protected mode ES)
                 push    ax                                      ; store AX (protected mode DS)
+
+                mov     eax,cr4                                 ; update cr4 only
+                mov     ecx,cs:_syscr4                          ; when it needs
+                jecxz   @@rmtopmf_p0                            ;
+                or      eax,ecx                                 ;
+                mov     cr4,eax                                 ;
+@@rmtopmf_p0:
                 mov     eax,cs:_syscr3                          ;
                 or      eax,eax                                 ;
                 jz      @@rmtopmf0                              ;
                 mov     cr3,eax                                 ; set cr3 and cr4 flags
-                mov     eax,cr4                                 ;
-                or      eax,cs:_syscr4                          ;
-                mov     cr4,eax                                 ;
                 mov     eax,CPU_CR0_PG or CPU_CR0_WP            ; paging on
 @@rmtopmf0:
                 lidt    fword ptr cs:idtlimit                   ; load protected mode IDT
-                or      al,CPU_CR0_PE                           ;
+                or      al,CPU_CR0_PE or CPU_CR0_MP             ;
                 lgdt    fword ptr cs:gdtlimit                   ; load protected mode GDT
 
                 mov     ecx,cr0                                 ; switch to protected mode
                 or      ecx,eax                                 ;
+                and     ecx,not CPU_CR0_TS                      ; clear TS to be sure
                 mov     cr0,ecx                                 ;
 
                 db      0EAh                                    ; JMP FAR PTR SELCODE:$+4
@@ -637,6 +667,15 @@ xr_rmtopmsw:                                                    ; XMS/raw real t
 @@rmtopmf1a:
                 pop     ebx                                     ;
 @@rmtopmf2:
+                mov     al,cs:call_state                        ; we cleared TS above
+                test    al,CST_TS_STATE                         ; and here only set it
+                jz      @@rmtopmf3                              ;
+                mov     ecx,cs:codebase                         ; drop TS flag in state byte
+                and     ds:call_state[ecx],not CST_TS_STATE     ;
+                mov     ecx,cr0                                 ; and set TS
+                or      cl,CPU_CR0_TS                           ;
+                mov     cr0,ecx                                 ;
+@@rmtopmf3:
                 xor     ax,ax                                   ;
                 mov     fs,ax                                   ; load protected mode FS with NULL
                 pop     eax                                     ;
@@ -651,6 +690,7 @@ xr_rmtopmsw:                                                    ; XMS/raw real t
                 iretd                                           ; go to targed addx in protected mode
 
 ;ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+                public  xr_pmtormsw
 xr_pmtormsw:                                                    ; XMS/raw protected to real switch
                 push    cx                                      ; store CX (real mode ES)
                 pushf                                           ; store FLAGS
@@ -669,17 +709,38 @@ xr_pmtormsw:                                                    ; XMS/raw protec
                 mov     eax,[eax+APIC_LVT_TMR*4]                ;
                 mov     [ecx+_apic_tmr_lvt],eax                 ;
 @@pmtormf0:
-                mov     ecx,cr0                                 ;
-                test    ecx,CPU_CR0_PG                          ; paging enabled?
+                mov     eax,cr0                                 ; load cr0 for modifications
+                push    eax                                     ;
+                and     al,CPU_CR0_TS                           ; save TS flags state
+                xchg    ds:call_state[ecx],al                   ;
+                pop     ecx                                     ; cr0 here
+
+                test    al,CST_IRQ                              ; is this an IRQ?
+                jnz     @@pmtormf1                              ; then skip FPU setup
+
+                test    cl,CPU_CR0_TS                           ;
                 jz      @@pmtormf1                              ;
-                and     ecx,not (CPU_CR0_PG or CPU_CR0_WP)      ; clear PG and WP bits
-                mov     cr0,ecx                                 ;
-                xor     eax,eax                                 ; flush TLB
-                mov     cr3,eax                                 ;
-                mov     eax,cr4                                 ; do it on every call
-                and     ax,not (CPU_CR4_PAE or CPU_CR4_PGE)     ; else we trap NTLDR on partition
-                mov     cr4,eax                                 ; boot ;)))
+                mov     eax,_mt_exechooks.mtcb_cfpt             ;
+                or      eax,eax                                 ; no FPU onwer?
+                jz      @@pmtormf1                              ;
+                pushad                                          ;
+                mov     es,cs:_selzero                          ; callback to START
+                CallF32w SEL32CODE,fp_rmcallcbf                 ;
+                popad                                           ;
+                mov     ecx,cs:codebase                         ; this will be fatal if
+                jmp     @@pmtormf0                              ; rmcallcb leave TS on
 @@pmtormf1:
+                test    ecx,CPU_CR0_PG                          ; paging enabled?
+                jz      @@pmtormf2                              ;
+                and     ecx,not (CPU_CR0_PG or CPU_CR0_WP)      ; clear PG and WP bits
+                xor     eax,eax                                 ;
+                mov     cr0,ecx                                 ;
+                mov     cr3,eax                                 ; flush TLB
+@@pmtormf2:
+                mov     eax,cr4                                 ;
+                and     eax,not CLEAR_CR4                       ; drop bits, else we
+                mov     cr4,eax                                 ; trap NTLDR, at least ;)
+
                 mov     ax,SELREAL                              ; load descriptors with real mode seg
                 mov     ds,ax                                   ;  attributes
                 mov     es,ax
@@ -688,7 +749,7 @@ xr_pmtormsw:                                                    ; XMS/raw protec
                 mov     ss,ax                                   ; load descriptor with real mode attr
                 movzx   esp,bx                                  ; load real mode SP, high word 0
                 lidt    fword ptr cs:rmidtlimit                 ; load real mode IDT
-                and     cl,0FEh                                 ; switch to real mode
+                and     cl,not (CPU_CR0_TS or CPU_CR0_PE)       ; switch to real mode
                 mov     cr0,ecx
                 db      0EAh                                    ; JMP FAR PTR PMODE_TEXT:$+4
                 dw      $+4                                     ;  (clear prefetch que)
@@ -704,14 +765,6 @@ xr_pmtormsw_cs  label   near
                 push    si                                      ; store real mode target CS
                 push    di                                      ; store real mode target IP
                 iret                                            ; go to target addx in real mode
-
-;ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
-vxr_saverestorerm:                                              ; VCPI/XMS/raw save/restore status
-                retf                                            ; no save/restore needed, 16bit RETF
-
-;ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
-vxr_saverestorepm:                                              ; VCPI/XMS/raw save/restore status
-                db      66h,0CBh                                ; no save/restore needed, 32bit RETF
 
 ;ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
 critical_error:                                                 ; some unrecoverable error
@@ -893,6 +946,7 @@ intrirq:                                                        ; an IRQ redirec
                 mov     di,off @@intrirqf0
                 sub     bx,6                                    ; adjust real mode SP for stored vars
 
+                or      ds:call_state[edi],CST_IRQ              ; signal for switch code!
                 db      66h                                     ; JMP DWORD PTR, as in 32bit offset,
                 jmp     word ptr cs:pmtormswrout                ;  not seg:16bit offset
 
@@ -963,7 +1017,7 @@ intrint:                                                        ; an INT redirec
                 mov     si,SELCODE                              ; target CS:EIP in protected mode
                 mov     di,off @@intrintf1                      ; prevent 32-bit fixup
 
-                jmp     xr_rmtopmsw                         ; go back to protected mode
+                jmp     xr_rmtopmsw                             ; go back to protected mode
 
 @@intrintf1:
                 mov     edi,cs:codebase                         ; restore top of real mode stack
@@ -1386,22 +1440,6 @@ int31000f:                                                      ; set multiple d
 ; INTERRUPT FUNCTIONS
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
-int310200:                                                      ; get real mode interrupt vector
-                movzx   ebx,bl                                  ; EBX = BL (interrupt number)
-                mov     dx,ds:[ebx*4]                           ; load real mode vector offset
-                mov     cx,ds:[ebx*4+2]                         ; load real mode vector segment
-
-                jmp     int31okdx                               ; return ok, with AX, CX, DX
-
-;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
-int310201:                                                      ; set real mode interrupt vector
-                movzx   ebx,bl                                  ; EBX = BL (interrupt number)
-                mov     ds:[ebx*4],dx                           ; set real mode vector offset
-                mov     ds:[ebx*4+2],cx                         ; set real mode vector segment
-
-                jmp     int31ok                                 ; return ok
-
-;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
 int310204:                                                      ; get protected mode interrupt vector
                 cmp     bl,3                                    ; INT 3 vector?
                 je      short @@int310204f00                    ; if yes, go to special INT 3 handling
@@ -1505,6 +1543,18 @@ int310300:                                                      ; simulate real 
                 mov     ebp,dword ptr ds:[ebx*4]
 
                 jmp     short int3103                           ; go to common code
+; in : al - vector, ecx - addr
+; out: ecx - old addr
+@@set_rmintvec  label   near                                    ;
+                SaveReg <fs,esi>                                ;
+                movzx   esi,al                                  ;
+                push    ecx                                     ;
+                lfs     ecx,cs:_page0_fptr                      ;
+                lea     esi,[ecx+esi*4]                         ;
+                pop     ecx                                     ;
+                xchg    fs:[esi],ecx                            ;
+                RestReg <esi,fs>                                ;
+                retn                                            ;
 ;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
 int310301:                                                      ; call real mode FAR procedure
                                                                 ; same start as function 0302h
@@ -1532,11 +1582,34 @@ int3103:                                                        ; common to 0300
                 shl     bx,4                                    ; adjust BX from paragraphs to bytes
 
 @@int3103f3:
-                test    byte ptr [esp+1].pa_ebx,FN30X_PICRESET  ; test bh parameter
+                mov     ah,byte ptr [esp+1].pa_ebx              ;
+                test    ah,FN30X_PICRESET                       ; test bh parameter
                 jz      @@int3103f5                             ;
                 mov     ds:restirq_now[esi],1                   ; reset PIC after exit to RM
 @@int3103f5:
-                test    byte ptr [esp+1].pa_ebx,FN30X_TIMEROFF  ; remove all timer things
+                test    ah,FN30X_LOCKI10H                       ;
+                jz      @@int3103f5a                            ; replace int10h to
+                push    ecx                                     ;
+                mov     cx,cs:_rm16code                         ;
+                shl     ecx,16                                  ;
+                mov     cx,offset int10h_stub                   ; iret stub
+                mov     al,10h                                  ;
+                call    @@set_rmintvec                          ;
+                mov     ds:org_int10h[esi],ecx                  ;
+                pop     ecx                                     ;
+@@int3103f5a:
+                test    ah,FN30X_LOCKI16H                       ;
+                jz      @@int3103f5b                            ; replace int16h to
+                push    ecx                                     ;
+                mov     cx,cs:_rm16code                         ;
+                shl     ecx,16                                  ;
+                mov     cx,offset int16h_stub                   ; iret stub
+                mov     al,16h                                  ;
+                call    @@set_rmintvec                          ;
+                mov     ds:org_int16h[esi],ecx                  ;
+                pop     ecx                                     ;
+@@int3103f5b:
+                test    ah,FN30X_TIMEROFF                       ; remove all timer things
                 jz      @@int3103f6                             ;
                 xor     edi,edi                                 ;
                 cmp     cs:_syslapic,edi                        ;
@@ -1677,8 +1750,23 @@ int3103:                                                        ; common to 0300
 
 @@int3103f2:
                 mov     edi,cs:codebase                         ; restore old stack parameter length
-                pop     ds:rmstackparmtop[edi]
+                pop     ds:rmstackparmtop[edi]                  ;
 
+                xor     esi,esi                                 ;
+                mov     ecx,cs:org_int10h                       ; restore int 10h vector
+                cmp     ecx,esi                                 ;
+                jz      @@int3103f2a                            ;
+                mov     al,10h                                  ;
+                call    @@set_rmintvec                          ;
+                mov     ds:org_int10h[edi],esi                  ;
+@@int3103f2a:
+                mov     ecx,cs:org_int16h                       ; restore int 16h vector
+                cmp     ecx,esi                                 ;
+                jz      @@int3103f2b                            ;
+                mov     al,16h                                  ;
+                call    @@set_rmintvec                          ;
+                mov     ds:org_int16h[edi],esi                  ;
+@@int3103f2b:
                 mov     edi,[esp]                               ; get structure offset from stack
                 mov     esi,ebp                                 ; copy return regs from real mode
                 mov     ecx,15h                                 ;  stack to register structure
@@ -1752,19 +1840,6 @@ int310304:                                                      ; free real mode
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; MISC FUNCTIONS
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
-;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
-int310305:                                                      ; get state save/restore addresses
-                add     esp,26h                                 ; adjust stack
-                pop     ds                                      ; restore DS
-
-                xor     ax,ax                                   ; size needed is none
-                mov     bx,_rm16code                            ; real mode seg of same RETF
-                mov     cx,off vxr_saverestorerm                ; same offset of 16bit RETF
-                xor     edi,edi                                 ;
-                mov     si,cs                                   ; selector of routine is this one
-                mov     di,off vxr_saverestorepm                ; offset of simple 32bit RETF
-
-                jmp     int31oknopop                            ; return ok, dont pop registers
 ;ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
 int310306:                                                      ; get raw mode switch addresses
                 add     esp,26h                                 ; adjust stack

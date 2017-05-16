@@ -20,16 +20,22 @@ extern "C" {
 /// @name flags for hlp_memalloc
 //@{
 /** Allocate unresizeable block until the end of work.
-    Block cannot be freed. Available part of it (all blocks is rounded
+    Block cannot be freed. Available part of it (all blocks are rounded
     up to 64k) will be used internally for small block heap */
 #define QSMA_READONLY 0x001
 /// return 0 instead of immediate panic on block alloc failure
 #define QSMA_RETERR   0x002
-/// do not clear block (affects only on first alloc, not further reallocs)
+/// do not clear block (affects only on first alloc, but not further reallocs)
 #define QSMA_NOCLEAR  0x004
+/** allocated block will be released after process exit.
+    This flag is ignored when used with QSMA_READONLY. */
+#define QSMA_LOCAL    0x008
 //@}
 
-/// allocate and zero fill memory.
+/** allocate and zero fill memory.
+    This is "global" allocation, memory block is shared over system by
+    default and always zero filled.
+    Any allocation is rounded up to 64k internally. */
 void* _std hlp_memalloc(u32t size, u32t flags);
 
 /** allocate and zero fill memory with info signature.
@@ -66,7 +72,7 @@ u32t  _std hlp_memgetsize(void *addr);
     Other memory (not belonging to memory manager) can be allocated by
     sys_markmem() call in qssys.h.
 
-    Function return aligned down to 64k address of reserved block (block
+    Function returns aligned down to 64k address of reserved block (block
     is NOT zero filled, unlike hlp_memalloc()). Block can be used as usual
     memory block and released by hlp_memfree().
 
@@ -74,11 +80,20 @@ u32t  _std hlp_memgetsize(void *addr);
     checked by hlp_memgetsize() call. This can occur on reserving memory
     at the end of memory manager space.
 
-    @param physaddr  Physical address.
-    @param length    Length of memory to reserve.
+    @param physaddr       Physical address.
+    @param length         Length of memory to reserve.
+    @param [out] reason   Error reason (QSMR_* value, ptr can be 0).
     @return block address or 0 if address is used or beyond memory manager
-            limits. */
-void* _std hlp_memreserve(u32t physaddr, u32t length);
+            limits. "reason" parameter will return additional information. */
+void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason);
+
+/// @name Error reason for hlp_memreserve
+//@{
+#define QSMR_SUCCESS     0x000    ///< block reserved
+#define QSMR_TRUNCATED   0x001    ///< block reserved, but size was cut by the end of memory.
+#define QSMR_OUTOFRANGE  0x002    ///< start address is out of QSINIT memory range
+#define QSMR_USED        0x003    ///< a part of this block is used!
+//@}
 
 /** query available memory.
     @param maxblock  Maximum size of single block, can be 0
@@ -103,10 +118,13 @@ void  _std hlp_memcprint(void);
     In EFI build function read files from \EFI\BOOT dir of EFI system volume.
 
     In MT mode - this call captures internal mutex and any other thread will
-    be blocked on hlp_fopen(), hlp_fread(), hlp_fclose() and hlp_freadfull()
-    until this thread`s hlp_fclose() call.
+    be blocked on hlp_fopen(), hlp_fread(), hlp_fclose(), hlp_freadfull() and
+    hlp_fexist() until this thread`s hlp_fclose() call.
 
-    Duaring PXE boot this call is unavailable (even more limitations) - and
+    Note, that zip_openfile() from boot volume/TFTP will also grab this mutex
+    until zip_close().
+
+    During PXE boot this call is unavailable (even more limitations) - and
     files from boot source can be readed via hlp_freadfull() only.
 
     @param  name  File name (boot disk root dir only), up to 63 chars.
@@ -123,12 +141,26 @@ u32t  _std hlp_fread(u32t offset, void *buf, u32t bufsize);
 /// close file
 void  _std hlp_fclose();
 
+/** check file presence via micro-FSD.
+    Note, that this is just the open/close pair internally, i.e. all of
+    micro-FSD i/o limitations applied to this function (including global
+    mutex wait).
+    Function supports PXE mode as well.
+
+    @param  name  File name (boot disk root only), up to 63 chars.
+    @return 0 if file is not exist, 0xFFFFFFFF - if size is zero or unknown
+            (always occurs on PXE), else size of this file. */
+u32t  _std hlp_fexist(const char *name);
+
 /** callback for hlp_freadfull.
-    @param [in]  percent  Currently readed percent (always 0 on PXE boot)
-    @param [in]  readed   Currently readed size in bytes */
+    @param [in]  percent  Current position in percents (always 0 on PXE boot
+                          because file size is unknown until the end of read)
+    @param [in]  readed   Current position in bytes */
 typedef void _std (*read_callback)(u32t percent, u32t readed);
 
 /** open, read, close file & return buffer with it.
+    Note, what block allocated with QSMA_LOCAL flag (process owned).
+
     @param [in]  name     File name
     @param [out] bufsize  Size of file
     @param [in]  cbprint  Callback for process indication, can be 0.
@@ -140,7 +172,7 @@ void* _std hlp_freadfull(const char *name, u32t *bufsize, read_callback cbprint)
 //-------------------------------------------------------------------
 
 /** return number of installed hard disks in system.
-    @attention hard disks numeration can have holes at the place of
+    @attention hard disks enumeration can have holes at the place of
                "removed" disks!
     @param  [out]  floppies - ptr to number of floppy disks, can be 0.
     @return maximum hdd used number + 1 */
@@ -169,7 +201,8 @@ typedef struct {
     @param [in]   disk      Disk number.
     @param [out]  sectsize  Size of disk sector, can be 0
     @param [out]  geo       Disk data (optional, can be 0, can return zeroed data)
-    @return number of sectors on disk */
+    @return number of sectors on disk. Actually, geo->TotalSectors must be
+            check to be sure. */
 u32t  _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo);
 
 /** return 64bit disk size.
@@ -187,7 +220,7 @@ u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
 
 /** write to physical disk.
-    Be careful with QSEL_VIRTUAL flag! 0x100 value mean boot partition, 0x101 -
+    Be careful with QDSK_VOLUME flag! 0x100 value mean boot partition, 0x101 -
     virtual disk with QSINIT apps!
 
     @param  disk      Disk number.
@@ -202,6 +235,13 @@ u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data);
     @return -1 if no disk, not a floppy or no changeline on it, 0 - if was not
             changed, 1 - is changed since last call */
 int  _std hlp_fddline(u32t disk);
+
+/** translate BIOS disk number to QSINIT disk number and vise versa.
+    Works on BIOS host only!
+    @param  disk      Source disk number.
+    @param  qs2bios   Direction flag (zero for BIOS->QS, else QS->BIOS)
+    @return FFFF on error or translated disk number */
+u32t _std hlp_diskbios(u32t disk, int qs2bios);
 
 /// @name hlp_diskmode() flags
 //@{
@@ -224,7 +264,7 @@ int  _std hlp_fddline(u32t disk);
     @return (HDM_QUERY|current access mode) or 0 on error */
 u32t _std hlp_diskmode(u32t disk, u32t flags);
 
-/** try to mount a part of disk as FAT/FAT32 partition.
+/** try to mount a part of disk as FAT/FAT32/exFAT partition.
     This is low level mount function, use vol_mount() for partition based
     mounting.
     @param  drive     Drive number: 2..9 only, remounting of 0,1 is not allowed.
@@ -267,6 +307,7 @@ typedef struct {
     on non-mounted volume and mounted non-FAT volume. To check volume
     presence info.TotalSectors can be used, it will always be 0 if volume
     is not mounted.
+    Also, io_volinfo() available in i/o API, with the same functionality.
 
     @param  info      Buffer for data to fill in, can be 0.
     @return FAT_* constant */
@@ -333,12 +374,13 @@ u32t  _std hlp_selfree(u32t selector);
 u32t  _std hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length);
 
 /** convert real mode segment to flat address.
-    QSINIT FLAT space is zero-based since version 0.12 (rev.281).
+    QSINIT FLAT space is zero-based since version 0.12 (rev.281), so this
+    function is void.
 
     BUT! To use any memory above the end of RAM in first 4GBs (call
     sys_endofram() to query it) - pag_physmap() MUST be used. This is the
     only way to preserve access to this memory when QSINIT will be switched
-    to PAE paging mode (can occur at any time by single API call).
+    into PAE paging mode (can occur at any time by single API call).
 
     @param Segment       Real mode segment
     @return flat address */
@@ -353,7 +395,7 @@ u32t  _std hlp_segtoflat(u16t Segment);
                    first 640k
     @param dwcopy  number of words to copy to real mode stack. RMC_* flags can
                    be ORed here (note, that absence of RMC_EXITCALL in final
-                   QSINIT`s exit can cause real troubles for feature code).
+                   QSINIT`s exit can cause REAL troubles for feature code).
     @param ...     arguments. Be careful with 32bit push and 16bit args! ;)
 
     @return real mode dx:ax and OF, SF, ZF, AF, PF, CF flags */
@@ -389,7 +431,7 @@ u32t __cdecl hlp_rmcallreg(int intnum, rmcallregs_t *regs, u32t dwcopy, ...);
 /** execute cpuid instruction.
     @param [in]     index      cpuid command index
     @param [out]    data       4 dwords buffer for eax,ebx,ecx,edx values
-    @return bool - success flag (it is 486 CPU if no cpuid present) */
+    @return bool - success flag (it is 486 CPU if no cpuid) */
 u32t _std hlp_getcpuid(u32t index, u32t *data);
 
 /** read MSR register.
@@ -412,11 +454,11 @@ u32t _std hlp_writemsr(u32t index, u32t ddlo, u32t ddhi);
 
 /// @name result of hlp_boottype()
 //@{
-#define QSBT_NONE        0    ///< no boot source
-#define QSBT_FAT         1    ///< boot partition is FAT and accessed as 0: drive
+#define QSBT_NONE        0    ///< no boot source (not used now)
+#define QSBT_FAT         1    ///< FAT boot (0:/A: drive available)
 #define QSBT_FSD         2    ///< boot partition use micro-FSD i/o
 #define QSBT_PXE         3    ///< PXE boot, only hlp_freadfull() can be used
-#define QSBT_SINGLE      4    ///< FAT boot without OS/2 (no OS2BOOT in the root)
+#define QSBT_SINGLE      4    ///< FAT/FAT32/exFAT boot without OS/2 (no OS2BOOT in the root)
 //@}
 
 /** query type of boot.
@@ -437,6 +479,8 @@ u32t _std hlp_hosttype(void);
 //@{
 #define QBIO_APM         0    ///< query APM presence, return ver or 0x100xx, where xx - error code
 #define QBIO_PCI         1    ///< query PCI BIOS (B101h), return bx<<16|cl<<8| al or 0 if no PCI
+#define QBIO_KEYREADNW   2    ///< keyboard poll without waiting (int 16h, ah=10h)
+#define QBIO_EQLIST      3    ///< BIOS equipment list (int 11h, return ax)
 //@}
 
 u32t _std hlp_querybios(u32t index);
@@ -476,6 +520,7 @@ void _std exit_restart(char *loader);
 //@}
 
 /** boot from specified HDD.
+    exit_bootvbr() should be used to boot from floppy.
     @param  disk      Disk number (QDSK_*)
     @param  ownmbr    Flag 1 to replace disk MBR code to self-provided
     @retval EINVAL    invalid disk handle
@@ -485,9 +530,9 @@ void _std exit_restart(char *loader);
     @retval ENOSYS    this is EFI host and BIOS boot unsupported */
 int  _std exit_bootmbr(u32t disk, u32t flags);
 
-/** boot from specified partition.
-    @param disk       Disk number (QDSK_*)
-    @param index      Partition index (see dmgr ops/qsdm.h)
+/** boot from specified partition (volume).
+    @param disk       Disk number (QDSK_*), floppy accepted too.
+    @param index      Partition index (see dmgr ops/qsdm.h), -1 for floppy
     @param letter     Set drive letter for OS/2 boot (0 to ignore/default)
     @param sector     Alternative boot sector binary data (use 0 here,
                       this data is for booting another/saved boot sector -
@@ -499,7 +544,7 @@ int  _std exit_bootmbr(u32t disk, u32t flags);
     @retval EFBIG     boot sector of partition is beyond of 2TB border
     @retval ENOSYS    this is EFI host and BIOS boot not supported
     @retval EFAULT    bad address in "sector" arg */
-int  _std exit_bootvbr(u32t disk, u32t index, char letter, void *sector);
+int  _std exit_bootvbr(u32t disk, long index, char letter, void *sector);
 
 /** power off the system (APM only).
     Suspend can work too - on some middle aged motherboards ;)
@@ -531,7 +576,7 @@ void _std exit_reboot(int warm);
 
     Any exit API functions make this call internally, i.e. it must be
     called only in custom exit ways, like direct jumping to real mode code
-    (as in in example above).
+    (as in the example above).
 
     @see exit_handler() */
 void _std exit_prepare(void);

@@ -163,11 +163,11 @@ void run() {
             break;
          /*left*/
          case 75:
-            x--; if (!ok()) x++;
+            x--; if (!ok()) { x++; ch=0; }
             break;
          /*rigth*/
          case 77:
-            x++; if (!ok()) x--;
+            x++; if (!ok()) { x--; ch=0; }
             break;
          /*down*/
          case ' ':

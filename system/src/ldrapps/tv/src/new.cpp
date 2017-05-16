@@ -1,16 +1,13 @@
 /*------------------------------------------------------------*/
 /* filename -       new.cpp                                   */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #ifdef __DOS16__
 #include <assert.h>
@@ -113,6 +110,15 @@ void TVMemMgr::freeDiscardable(void *block) {
    delete(TBufListEntry *)((char *)block - sizeof(TBufListEntry));
 }
 
+void TVMemMgr::clearSafetyPool() {
+   resizeSafetyPool( 0 );
+   inited = 0;
+}
+
+void TVMemMgr::suspend() {
+   while(TBufListEntry::freeHead()) ;
+}
+
 #if !defined( NDEBUG )
 const int BLK_SIZE = 16;
 const int BLK_DATA = 0xA6;
@@ -122,57 +128,66 @@ const int BLK_SIZE = 0;
 
 #ifdef __DOS16__
 
-void *TV_CDECL operator new(size_t sz) {
-   assert(heapcheck() >= 0);
+static void * allocBlock( size_t sz ) {
+    assert( heapcheck() >= 0 );
 
-   sz += BLK_SIZE;
-   if (sz == 0)
-      sz = 1;
+    sz += BLK_SIZE;
+    if( sz == 0 )
+        sz = 1;
 
-   void *temp = malloc(sz);
-   while (temp == 0 && TBufListEntry::freeHead() == True)
-      temp = malloc(sz);
-   if (temp == NULL) {
-      if (TVMemMgr::safetyPoolExhausted()) {
-
-
-         abort();
-
-
-
-      } else {
-         TVMemMgr::resizeSafetyPool(0);
-         temp = malloc(sz);
-         if (temp == NULL) {
-
+    void *temp = malloc( sz );
+    while( temp == 0 && TBufListEntry::freeHead() == True )
+        temp = malloc( sz );
+    if( temp == 0 )
+        if( TVMemMgr::safetyPoolExhausted() )
             abort();
-         }
-      }
-   }
+        else
+            {
+            TVMemMgr::resizeSafetyPool( 0 );
+            temp = malloc( sz );
+            if( temp == 0 )
+                abort();
+            }
 #if !defined( NDEBUG )
-   memset(temp, BLK_DATA, BLK_SIZE);
+    memset( temp, BLK_DATA, BLK_SIZE );
 #endif
-   return (char *)temp + BLK_SIZE;
+    return (char *)temp + BLK_SIZE;
+}
+
+void * TV_CDECL operator new[] ( size_t sz ) {
+   return allocBlock(sz);
+}
+
+void * TV_CDECL operator new ( size_t sz ) {
+   return allocBlock(sz);
 }
 
 #if !defined( NDEBUG )
-static void check(void *blk) {
-   for (int i = 0; i < BLK_SIZE; i++)
-      assert(*((unsigned char *)blk + i) == BLK_DATA);
+static void check( void *blk ) {
+    for( int i = 0; i < BLK_SIZE; i++ )
+        assert( *((unsigned char *)blk + i) == BLK_DATA );
 }
 #endif
 
-void TV_CDECL operator delete(void *blk) {
-   assert(heapcheck() >= 0);
-   if (blk == 0)
-      return;
-   void *tmp = (char *)blk - BLK_SIZE;
+static void deleteBlock( void *blk ) {
+    assert( heapcheck() >= 0 );
+    if( blk == 0 )
+        return;
+    void *tmp = (char *)blk - BLK_SIZE;
 #if !defined( NDEBUG )
-   check(tmp);
+    check( tmp );
 #endif
-   free(tmp);
-   if (TVMemMgr::safetyPoolExhausted())
-      TVMemMgr::resizeSafetyPool();
+    free( tmp );
+    if( TVMemMgr::safetyPoolExhausted() )
+        TVMemMgr::resizeSafetyPool();
+}
+
+void TV_CDECL operator delete ( void *blk ) {
+   deleteBlock(blk);
+}
+
+void TV_CDECL operator delete[] ( void *blk ) {
+   deleteBlock(blk);
 }
 
 #endif // __DOS16__

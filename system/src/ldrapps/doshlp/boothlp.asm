@@ -371,7 +371,7 @@ DHGetDriveParms proc    far
                 push    cs                                      ;
                 pop     ds                                      ;
                 test    dl,80h                                  ; hard disk?
-                jz      @@dhdp_copy                             ; 
+                jz      @@dhdp_copy                             ;
                 and     dl,1                                    ;
                 add     dl,2                                    ; drives 0,1,80h,81h
 @@dhdp_copy:
@@ -466,7 +466,7 @@ DHInstallIRET   proc    far                                     ;
                 mov     ax,offset DHIRET                        ; handler pointer
                 xor     bx,bx                                   ;
 @@dhir_loop:
-                movzx   cx,[si].ITCount                         ; 
+                movzx   cx,[si].ITCount                         ;
                 jcxz    @@dhir_exit                             ; last block?
                 movzx   di,[si].ITHVector                       ;
                 shl     di,3                                    ; offset in IDT
@@ -502,15 +502,15 @@ DHRealGetMessage proc far                                       ;
                 cld
 @@dhgmr_loop:
                 lodsw                                           ; msg id
-                or      ax,ax                                   ; 
+                or      ax,ax                                   ;
                 jz      @@dhgmr_loopend                         ; end of list?
                 cmp     ax,cx                                   ;
                 jz      @@dhgmr_done                            ; founded?
-                lodsw                                           ; 
+                lodsw                                           ;
                 add     si,ax                                   ; msg size
                 inc     si                                      ; term. nul
-                jmp     @@dhgmr_loop                            ; 
-@@dhgmr_done:                
+                jmp     @@dhgmr_loop                            ;
+@@dhgmr_done:
                 mov     ax,cx                                   ;
                 pop     cx                                      ;
                 ret                                             ;
@@ -580,7 +580,7 @@ ErrPrt          endp
 ; ---------------------------------------------------------------
 ; This is first initialization call of doshlp.
 ; Doshlp is not splitted at this time and messages is not loaded.
-; Procedure check some hardware parameters and save it into
+; Procedure checks some hardware parameters and saves it into
 ; both parts (doshlp and boothlp).
 ;
                 public  GetSysConfig
@@ -687,7 +687,7 @@ GetSysConfig    proc    far
                 xor     bh,bh                                   ;
                 and     _i13ext_table[bx],0FEh                  ; drop flag
                 test    PublicInfo.BootFlags,BOOTFLAG_CHS       ; CHS?
-                jnz     @@gsc_skipchs                           ; 
+                jnz     @@gsc_skipchs                           ;
                 test    _i13ext_table[bx],4                     ; i13x supported?
                 jz      @@gsc_skipchs                           ;
                 or      _i13ext_table[bx],1                     ; yes, enable
@@ -732,6 +732,22 @@ PrepareOS2DUMP  proc    near                                    ;
                 ret                                             ;
 PrepareOS2DUMP  endp                                            ;
 
+PrepareOS2DBCS  proc    near                                    ;
+                db      9Ah                                     ;
+                dd      0                                       ;
+                ret                                             ;
+PrepareOS2DBCS  endp                                            ;
+
+SetDBCSFont     proc    near                                    ;
+                push    1                                       ;
+                push    External.DbcsFontSeg                    ;
+SetDBCSFontCmd  label   near
+                db      9Ah                                     ;
+                dd      3                                       ;
+                pop     eax                                     ; +4
+                ret                                             ;
+SetDBCSFont     endp                                            ;
+
 ;
 ; init2 routine
 ; ---------------------------------------------------------------
@@ -766,6 +782,18 @@ DHStubInit      proc    far                                     ; assume can`t h
                 mov     word ptr cs:PrepareOS2DUMP+3,ax         ; and dump itself
                 call    PrepareOS2DUMP                          ;
 @@boothlp_no_os2dump:
+                mov     ax,External.DBCSSeg                     ;
+                or      ax,ax                                   ;
+                jz      @@boothlp_no_os2dbcs                    ;
+                mov     word ptr cs:PrepareOS2DBCS+3,ax         ;
+                mov     word ptr cs:SetDBCSFontCmd+3,ax         ;
+                push    ax                                      ;
+                call    PrepareOS2DBCS                          ;
+                call    SetDBCSFont                             ;
+                pop     fs                                      ;
+                mov     eax,fs:[6]                              ;
+                mov     External.SavedInt10h,eax                ;
+@@boothlp_no_os2dbcs:
                 fninit                                          ; init FPU
                 fninit                                          ;
 
@@ -775,13 +803,19 @@ DHStubInit      proc    far                                     ; assume can`t h
                 xor     eax,eax                                 ;
                 mov     cr3,eax                                 ;
 
-                test    External.Flags,EXPF_COMINITED           ; need to 
+                test    External.Flags,EXPF_COMINITED           ; need to
                 jnz     @@boothlp_com_ready                     ; reinit COM port
                 test    PublicInfo.DebugPort,0FFFFh             ; again?
                 jz      @@boothlp_com_ready                     ;
                 CallF16 DOSHLP_CODESEL,DHSerInit                ;
 @@boothlp_com_ready:
-
+                mov     cx,External.PushKey                     ; push key
+                jcxz    @@boothlp_nokeypush                     ;
+                mov     ah,5                                    ;
+                push    ds                                      ;
+                int     16h                                     ;
+                pop     ds                                      ;
+@@boothlp_nokeypush:
                 mov     es,External.DisPartSeg                  ;
                 movzx   ecx,External.DisPartLen                 ;
                 mov     di,cs                                   ; change stack to
@@ -789,7 +823,8 @@ DHStubInit      proc    far                                     ; assume can`t h
                 lea     esp,[ecx-PAGESIZE]                      ;
                 xor     si,si                                   ; replace qsinit to
                 xor     di,di                                   ; boothlp (this code)
-            rep movs    byte ptr es:[di],byte ptr cs:[si]       ; no return is possible from this point!
+                cld                                             ;
+            rep movs    byte ptr es:[di],byte ptr cs:[si]       ; no return possible below this point!
                 push    es                                      ;
                 push    offset @@boothlp_9x00                   ; jump to final
                 retf                                            ; location
@@ -825,7 +860,9 @@ DHStubInit      proc    far                                     ; assume can`t h
                 mov     word ptr ksi.ki_OEMDDStrat,offset OEMHLPStrategy
                 mov     word ptr ksi.ki_OEMDDStrat+2,es         ;
 
-                xor     cx,cx                                   ; anyone still
+                xor     cx,cx                                   ;
+                mov     fs,cx                                   ;
+                mov     gs,cx                                   ; anyone still
                 test    es:External.Flags,EXPF_TWODSKBOOT       ; really need this? ;)
                 setnz   cl                                      ;
                 mov     bx,offset ksi                           ;
@@ -848,7 +885,7 @@ BOOTHLP32_CODE  segment
 ; OUT: AX - IRQ for NPX, BX - number of IRQs in system
 ;
 ; note: this call supports Warp kernel, but does not support Warp Server
-; SMP (it require another one IRQ router and it`s irqi size - 16 as in Aurora)
+; SMP (it requires another one IRQ router and its irqi size == 16 as in Aurora)
 ;
                 public  DHInitInterrupts
 DHInitInterrupts proc   near                                    ;
@@ -1000,14 +1037,14 @@ DHSetIRQVector  proc    near                                    ;
                 mov     eax,5                                   ; error code
                 test    byte ptr gs:[edi].g_access,D_PRES       ;
                 jnz     @@dhsv_exit                             ; selector present?
-                
-                mov     esi,fs:PublicInfo.DosHlpFlatBase        ; 
+
+                mov     esi,fs:PublicInfo.DosHlpFlatBase        ;
                 imul    eax,ecx,IRQR_SIZE                       ;
                 lea     eax,[esi+eax+offset DHIRQ0Router]       ; offset to IRQ handler
 
                 mov     word ptr gs:[edi].g_handler,ax          ;
                 shr     eax,10h                                 ; change IDT entry
-                mov     gs:[edi].g_extoffset,ax                 ; 
+                mov     gs:[edi].g_extoffset,ax                 ;
                 mov     ax,fs:PublicInfo.FlatCS                 ;
                 mov     word ptr gs:[edi].g_handler+2,ax        ;
                 mov     byte ptr gs:[edi].g_access,D_INT032     ;
@@ -1018,10 +1055,10 @@ DHSetIRQVector  proc    near                                    ;
                 ret                                             ;
 DHSetIRQVector  endp
 ;
-; Remove IRQ vector 
+; Remove IRQ vector
 ;----------------------------------------------------------------
 ; IN: ECX = irq, EDX = vector
-;     
+;
                 public  DHUnSetIRQVector
 DHUnSetIRQVector proc   near                                    ;
                 SaveReg <ebx,ecx,esi,edi,fs,gs>                 ;
@@ -1033,7 +1070,7 @@ DHUnSetIRQVector proc   near                                    ;
                 mov     edi,edx                                 ;
                 shl     edi,3                                   ; offset in IDT
                 mov     bl,gs:[edi].g_access                    ;
-                test    bl,D_PRES                               ; 
+                test    bl,D_PRES                               ;
                 jz      @@dhusv_exit                            ; selector present?
                 cmp     bl,D_INT032                             ;
                 jnz     @@dhusv_changed                         ; 32 bit?
@@ -1041,18 +1078,18 @@ DHUnSetIRQVector proc   near                                    ;
                 cmp     bx,fs:PublicInfo.FlatCS                 ; check vector sel
                 jnz     @@dhusv_changed                         ;
 
-                mov     esi,fs:PublicInfo.DosHlpFlatBase        ; 
+                mov     esi,fs:PublicInfo.DosHlpFlatBase        ;
                 imul    eax,ecx,IRQR_SIZE                       ;
                 lea     eax,[esi+eax+offset DHIRQ0Router]       ; offset to IRQ handler
 
-                mov     bx,gs:[edi].g_extoffset                 ; 
+                mov     bx,gs:[edi].g_extoffset                 ;
                 shl     ebx,10h                                 ;
                 mov     bx,word ptr gs:[edi].g_handler          ; check vector ofs
-                cmp     eax,ebx                                 ; 
+                cmp     eax,ebx                                 ;
                 jnz     @@dhusv_changed                         ; the same?
-                xor     eax,eax                                 ; 
+                xor     eax,eax                                 ;
                 mov     gs:[edi],eax                            ; yes, clear IDT entry
-                mov     gs:[edi+4],eax                          ; 
+                mov     gs:[edi+4],eax                          ;
                 jmp     @@dhusv_exit                            ; rc = 0
 @@dhusv_changed:
                 mov     eax,5                                   ; rc = 5
@@ -1157,7 +1194,7 @@ DHFixup         endp
 ; Setup MTRR`s MSR registers on secondary CPUs
 ;----------------------------------------------------------------
 ; IN: ESI = doshlp flat, EDI = boothlp flat
-;     
+;
                 public  DHMsr_Setup
 DHMsr_Setup     proc    near
                 mov     eax,1                                   ;

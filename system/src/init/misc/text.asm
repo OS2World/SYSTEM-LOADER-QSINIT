@@ -13,8 +13,8 @@ _B8000          equ     0B8000h
 
 _DATA           segment
                 public  _text_col, _max_x, _max_y               ;
-                public  _vio_ttylines                           ;
-_vio_ttylines   dd      0                                       ;
+                public  _cvio_ttylines                          ;
+_cvio_ttylines  dd      0                                       ;
 _pagesize       dw      0                                       ;
 _max_x          dw      80                                      ;
 _max_y          dw      25                                      ;
@@ -80,19 +80,12 @@ vio_done        endp
 ; IN : AL = char, text_col = color, cursor_x & cursor_y
 ; OUT: EAX= 1 if eol was done
 
-                public  _vio_charout
-                public  vio_charout
-
-vio_charoutf    label   far                                     ;
-                push    eax                                     ;
-                call    vio_charout                             ;
-                pop     eax                                     ;
-                retf                                            ;
-_vio_charout    label   near                                    ;
+                public  _cvio_charout
+_cvio_charout   proc    near                                    ;
                 mov     eax, [esp]                              ; get return address
                 add     esp, 4                                  ;
                 xchg    eax, [esp]                              ; swap arg <-> ret addr.
-vio_charout     proc    near                                    ;
+vio_charout     label   near                                    ;
                 cmp     al, 9                                   ;
                 jz      @@vcr_tab                               ;
                 push    edx                                     ;
@@ -109,12 +102,8 @@ vio_charout     proc    near                                    ;
                 shl     eax, 1                                  ;
                 add     eax, _B8000                             ;
                 pop     edx                                     ;
-                cmp     _text_col, 100h                         ; colored output?
-                jae     @@vcr_nocolor                           ;
                 mov     dh, byte ptr _text_col                  ;
-                mov     [eax+1], dh                             ;
-@@vcr_nocolor:          
-                mov     [eax], dl                               ;
+                mov     [eax], dx                               ;
                 inc     cursor_x                                ;
                 mov     dx, _max_x                              ;
                 cmp     cursor_x, dx                            ;
@@ -132,7 +121,7 @@ vio_charout     proc    near                                    ;
                 call    setpos                                  ;
                 pop     eax                                     ;
                 pop     edx                                     ;
-                add     _vio_ttylines, eax                      ;
+                add     _cvio_ttylines, eax                     ;
                 ret                                             ;
 @@vcr_tab:
                 mov     eax, offset tabstr                      ; print 4 spaces
@@ -163,19 +152,17 @@ vio_charout     proc    near                                    ;
                 mov     cursor_y, ax                            ;
                 RestReg <edi,esi,ecx>                           ;
                 jmp     @@vcr_exit                              ;
-vio_charout     endp                                            ;
+_cvio_charout   endp                                            ;
 ;
 ; print string
 ;----------------------------------------------------------------
 ; IN: eax = string address (terminated by 0)
-                public  vio_strout                              ;
-                public  _vio_strout                             ;
-
-_vio_strout     label   near                                    ;
+                public  _cvio_strout                            ;
+_cvio_strout    proc    near                                    ;
                 mov     eax, [esp]                              ; get return address
                 add     esp, 4                                  ;
                 xchg    eax, [esp]                              ; swap arg <-> ret addr.
-vio_strout      proc    near                                    ;
+vio_strout      label   near                                    ;
                 push    esi                                     ;
                 push    0                                       ; rc
                 cld                                             ;
@@ -191,7 +178,7 @@ vio_strout      proc    near                                    ;
                 pop     eax                                     ;
                 pop     esi                                     ;
                 ret                                             ;
-vio_strout      endp                                            ;
+_cvio_strout    endp                                            ;
 
 
 ; update mode info
@@ -221,61 +208,56 @@ _vio_updateinfo endp
 ; clear screen
 ;----------------------------------------------------------------
 ;
-                public  _vio_setcolor                           ;
-_vio_setcolor   proc    near                                    ;
+                public  _cvio_setcolor                          ;
+_cvio_setcolor  proc    near                                    ;
                 mov     ax, [esp+4]                             ;
                 mov     _text_col, ax                           ;
                 ret     4                                       ;
-_vio_setcolor   endp                                            ;
+_cvio_setcolor  endp                                            ;
 
 ;
 ; clear screen
 ;----------------------------------------------------------------
 ;
-                public  _vio_clearscr                           ;
-_vio_clearscr   proc    near                                    ;
+                public  _cvio_clearscr                          ;
+_cvio_clearscr  proc    near                                    ;
                 SaveReg <eax,ecx,edi>                           ;
-                mov     ax, 0700h                               ;
-                cmp     _text_col, 100h                         ;
-                jae     @@clearscr100                           ;
-                mov     ah, byte ptr _text_col                  ;
-@@clearscr100:                                                  ;
-                mov     cx, ax                                  ;
-                shl     eax, 16                                 ;
-                mov     ax, cx                                  ;
-                                                                ;
-                movzx   ecx, _pagesize                          ;
-                mov     edi, _B8000                             ;
-                shr     ecx, 2                                  ;
+                mov     ch,byte ptr _text_col                   ;
+                xor     cl,cl                                   ;
+                shrd    eax,ecx,16                              ;
+                mov     ax,cx                                   ;
+
+                movzx   ecx,_pagesize                           ;
+                mov     edi,_B8000                              ;
+                shr     ecx,2                                   ;
                 cld                                             ;
-                rep     stosd                                   ;
-                mov     cursor_x, cx                            ;
-                mov     cursor_y, cx                            ;
+            rep stosd                                           ;
+                mov     cursor_x,cx                             ;
+                mov     cursor_y,cx                             ;
                 call    setpos                                  ;
                 RestReg <edi,ecx,eax>                           ;
                 ret                                             ;
-_vio_clearscr   endp                                            ;
+_cvio_clearscr  endp                                            ;
 ;
 ; set cursor position
 ;----------------------------------------------------------------
 ; IN:  AH = Y, AL = X
-                public  _vio_setpos                             ;
-                public  vio_setpos                              ;
-_vio_setpos     label   near                                    ;
+                public  _cvio_setpos                            ;
+_cvio_setpos    proc    near                                    ;
                 mov     eax, [esp]                              ; get return address
                 xchg    eax, [esp+8]                            ; exchange with variable
                 mov     ah, [esp+4]                             ;
                 add     esp, 8                                  ; fix stack ptr
-vio_setpos      proc    near                                    ;
+vio_setpos      label   near                                    ;
                 mov     byte ptr cursor_x, al                   ;
                 mov     al,ah                                   ;
                 xchg    byte ptr cursor_y, ah                   ;
                 sub     al,ah                                   ; update output line
                 movsx   eax,al                                  ; counter
-                add     _vio_ttylines,eax                       ;
+                add     _cvio_ttylines,eax                      ;
                 call    setpos                                  ;
                 ret                                             ;
-vio_setpos      endp                                            ;
+_cvio_setpos    endp                                            ;
 ;
 ; set hardware cursor position
 ;----------------------------------------------------------------
@@ -305,14 +287,13 @@ setpos          endp                                            ;
 ; IN:   AH = start line,  AL = end line
 ;       if bit D5 <AH> = 1 then cursor hidden
 ;       bit D5 D6 <AL> -> cursor disp
-                public  _vio_setshape
-                public  vio_setshape
-_vio_setshape   label   near                                    ;
+                public  _cvio_setshape                          ;
+_cvio_setshape  proc    near                                    ;
                 mov     eax, [esp]                              ; get return address
                 xchg    eax, [esp+8]                            ; exchange with variable
                 mov     ah, [esp+4]                             ;
                 add     esp, 8                                  ; fix stack ptr
-vio_setshape    proc    near                                    ;
+vio_setshape    label   near                                    ;
                 mov     shape, ax                               ; save current shape
                 SaveReg <eax,ebx,edx,gs>                        ;
                 lgs     ebx, _page0_fptr                        ; save in bios data
@@ -326,23 +307,23 @@ vio_setshape    proc    near                                    ;
                 out     dx, ax                                  ;
                 RestReg <gs,edx,ebx,eax>                        ;
                 ret                                             ;
-vio_setshape    endp
+_cvio_setshape  endp
 
 ;
 ; get cursor shape
 ;----------------------------------------------------------------
 ; OUT:  AH = start line,  AL = end line
-                public  _vio_getshape
-_vio_getshape   proc    near                                    ;
+                public  _cvio_getshape                          ;
+_cvio_getshape  proc    near                                    ;
                 movzx   eax, shape                              ; cursor shape
                 ret                                             ;
-_vio_getshape   endp
+_cvio_getshape  endp
 
 ;
 ; set one of default cursor shapes
 ;----------------------------------------------------------------
-                public  _vio_defshape
-_vio_defshape   proc    near                                    ;
+                public  _cvio_defshape                          ;
+_cvio_defshape  proc    near                                    ;
                 mov     dl, [esp+4]                             ;
                 sub     dl, 4                                   ;
                 jz      @@vdshape_hide                          ;
@@ -377,14 +358,14 @@ _vio_defshape   proc    near                                    ;
                 call    vio_setshape                            ;
 @@vdshape_exit:
                 ret     4                                       ;
-_vio_defshape   endp
+_cvio_defshape  endp
 
 ;
 ; get hardware cursor position
 ;----------------------------------------------------------------
 ; IN:  *line, *col
-                public  _vio_getpos
-_vio_getpos     proc    near                                    ;
+                public  _cvio_getpos                            ;
+_cvio_getpos    proc    near                                    ;
                 SaveReg <eax,ecx>                               ;
                 xor     eax, eax                                ;
                 mov     ecx, [esp+16]                           ;
@@ -399,7 +380,7 @@ _vio_getpos     proc    near                                    ;
 @@vgp_noy:
                 RestReg <ecx,eax>                               ;
                 ret     8
-_vio_getpos     endp
+_cvio_getpos    endp
 
 _TEXT           ends
                 end

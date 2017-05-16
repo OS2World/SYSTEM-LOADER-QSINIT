@@ -2,23 +2,17 @@
 // QSINIT
 // critical ini parameters read
 //
-#include "clib.h"
-#include "qsutil.h"
-#include "qsint.h"
-#include "qsstor.h"
+#include "qslocal.h"
 #include "vio.h"
 
 static const char *strList[]={"DBPORT", "DISKSIZE", "BAUDRATE", "RESETMODE",
-   "NOAF", "UNZALL", 0};
+   "NOAF", "MFSPRINT", 0};
 
-extern u32t    BaudRate,
-              Disk1Size;
-extern u16t ComPortAddr;
-extern u8t  useint13ext,
-                useAFio,
-               safeMode,
-              mod_delay;
-extern char  aboutstr[];
+extern u32t     Disk1Size;
+extern u16t   mfs_rmcmode;
+extern u8t    useint13ext,
+                  useAFio;
+extern char    aboutstr[];
 
 #ifdef INITDEBUG
 void earlyserinit(void);
@@ -87,8 +81,8 @@ void get_ini_parm(void) {
                         break;
                      // "NOAF"
                      case 5: useAFio=0; break;
-                     // "UNZALL"
-                     case 6: mod_delay=0; break;
+                     // "MFSPRINT"
+                     case 6: if (rc>0) mfs_rmcmode=0; break;
                   }
                   strln=0; value=0;
                }

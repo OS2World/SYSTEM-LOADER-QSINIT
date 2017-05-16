@@ -16,7 +16,7 @@ void TV_CDECL TEditor::formatLine(void *DrawBuf, size_t LinePtr,
    register int i = 0;       // index in the DrawBuf
    register size_t p = LinePtr; // index in the Buffer
    ushort curColor;
-   while ((p < curPtr) && (buffer[p] != 0x0D) && (i <= Width)) {
+   while (p<curPtr && buffer[p]!=0x0D && buffer[p]!=0x0A && i<=Width) {
       curColor = (p>=selStart && p<selEnd) ? (Color & 0xFF00) : ((Color & 0xFF) << 8);
       if (buffer[p] == 0x9) {
          do {
@@ -33,10 +33,9 @@ void TV_CDECL TEditor::formatLine(void *DrawBuf, size_t LinePtr,
    if (p >= curPtr) {
       p += gapLen;
 
-      while ((p < bufSize) && (buffer[p] != 0x0D) && (i <= Width)) {
+      while (p<bufSize && buffer[p]!=0x0D && buffer[p]!=0x0A && i<=Width) {
          curColor = ((p-gapLen)>=selStart && (p-gapLen)<selEnd)
-                    ? (Color & 0xFF00)
-                    : ((Color & 0xFF) << 8);
+                    ? (Color & 0xFF00) : ((Color & 0xFF) << 8);
          if (buffer[p] == 0x9) {
             do {
                ((ushort *) DrawBuf) [i] = ' ' + curColor;
@@ -59,29 +58,13 @@ void TV_CDECL TEditor::formatLine(void *DrawBuf, size_t LinePtr,
 }
 
 size_t TV_CDECL TEditor::lineEnd(size_t p) {
-   /*
-       while (p < curPtr)
-           if (buffer[p] == 0x0D)
-               return p;
-           else
-               p++;
-
-       if (curPtr == bufLen)
-           return curPtr;
-
-       while (p + gapLen < bufLen)
-           if (buffer[p + gapLen] == 0x0D)
-               return p;
-           else
-               p++;
-
-       return p;
-   */
    if (p < curPtr) {
       while (p < curPtr)
-         if (buffer[p] == 0x0D)
-            return p;
-         else
+         if (buffer[p]==0x0D) return p; else
+         if (buffer[p]==0x0A) {
+            if (p && buffer[p-1]==0x0D) return p-1; 
+               else return p;
+         } else
             p++;
 
       if (curPtr == bufLen)
@@ -94,9 +77,11 @@ size_t TV_CDECL TEditor::lineEnd(size_t p) {
    }
 
    while (p + gapLen < bufSize)
-      if (buffer[p + gapLen] == 0x0D)
-         return p;
-      else
+      if (buffer[p+gapLen]==0x0D) return p; else
+      if (buffer[p+gapLen]==0x0A) {
+         if (p && buffer[p+gapLen-1]==0x0D) return p-1; 
+            else return p;
+      } else
          p++;
 
    return p;
@@ -104,36 +89,25 @@ size_t TV_CDECL TEditor::lineEnd(size_t p) {
 }
 
 size_t TV_CDECL TEditor::lineStart(size_t p) {
-   /*
-       while (p - gapLen > curPtr)
-           if (buffer[--p + gapLen] == 0x0D)
-               return p + 2;
-
-       if (curPtr == 0)
-           return 0;
-
-       while (p > 0)
-           if (buffer[--p] == 0x0D)
-               return p + 2;
-
-       return 0;
-   */
-   while (p > curPtr)
-      if (buffer[--p + gapLen] == 0x0D)
-         if (p+1 == bufLen || buffer[p+gapLen+1] != 0x0A)
-            return p + 1;
-         else
-            return p + 2;
+   while (p > curPtr) {
+      register char *cp = &buffer[--p + gapLen];
+      if (*cp == 0x0A) return p + 1;
+      /* actually, we should not be posed into the middle of 0D0A, but take
+         it in mind anyway */
+      if (*cp == 0x0D)
+         if (p+1==bufLen || cp[1]!=0x0A) return p + 1;
+            else return p + 2;
+   }
 
    if (curPtr == 0)
       return 0;
 
-   while (p > 0)
-      if (buffer[--p] == 0x0D)
-         if (p+1 == bufLen || p+1 == curPtr || buffer[p+1] != 0x0A)
-            return p + 1;
-         else
-            return p + 2;
+   while (p > 0) {
+      if (buffer[--p] == 0x0A) return p + 1;
+      if (buffer[p] == 0x0D)
+         if (p+1==bufLen || p+1==curPtr || buffer[p+1]!=0x0A) return p + 1;
+            else return p + 2;
+   }
 
    return 0;
 }

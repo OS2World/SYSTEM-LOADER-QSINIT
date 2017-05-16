@@ -4,17 +4,15 @@
 /* function(s)                                                */
 /*                  TMouse and THWMouse member functions      */
 /*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
-
+#define Uses_TRect
 #define Uses_TEvent
 #define Uses_TScreen
 #define Uses_TThreaded
@@ -118,7 +116,10 @@ void THWMouse::getEvent(MouseEventType &me) {
    me.buttons = _AL;
    me.where.x = _CX >> 3;
    me.where.y = _DX >> 3;
-   me.doubleClick = False;
+   me.eventFlags = 0;
+   _AX = 2;
+   geninterrupt(0x16);
+   me.controlKeyState = _AL;
 }
 
 void THWMouse::registerHandler(unsigned mask, void (*func)()) {
@@ -225,7 +226,10 @@ void THWMouse::getEvent(MouseEventType &me) {
    me.buttons = r.h.bl;
    me.where.x = r.w.cx >> 3;
    me.where.y = r.w.dx >> 3;
-   me.doubleClick = False;
+   me.eventFlags = 0;
+   r.w.ax = 2;
+   int386(0x16,&r,&r);
+   me.controlKeyState = r.h.al;
 }
 
 void THWMouse::registerHandler(unsigned mask, void (*func)()) {
@@ -277,7 +281,8 @@ void THWMouse::getEvent(MouseEventType &me) {
    me.buttons = 0;
    me.where.x = 0;
    me.where.y = 0;
-   me.doubleClick = False;
+   me.eventFlags = 0;
+   me.controlKeyState = 0;
 }
 
 void THWMouse::registerHandler(unsigned /* mask */, void (* /*func*/)()) {
@@ -384,6 +389,7 @@ void TV_CDECL THWMouse::hide() {
 }
 
 THWMouse::THWMouse() {
+   noMouse = True;
 }
 
 THWMouse::~THWMouse() {
@@ -402,7 +408,8 @@ void THWMouse::getEvent(MouseEventType &me) {
    me.buttons = 0;
    me.where.x = 0;
    me.where.y = 0;
-   me.doubleClick = False;
+   me.eventFlags = 0;
+   me.controlKeyState = 0;
 }
 
 void THWMouse::registerHandler(unsigned /* mask */, void (* /*func*/)()) {

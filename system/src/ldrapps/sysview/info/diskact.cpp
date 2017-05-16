@@ -112,12 +112,14 @@ void TWalkDiskDialog::UpdateAll(Boolean rescan) {
 #endif
 }
 
+#ifdef __QSINIT__
 static dsk_mapblock *getMapBlock(dsk_mapblock *mb, u32t index) {
    do {
       if (mb->Type && mb->Index==index) return mb;
    } while ((mb++->Flags&DMAP_LEND)==0);
    return 0;
 }
+#endif
 
 void TWalkDiskDialog::UpdatePartList() {
 #ifdef __QSINIT__
@@ -186,6 +188,47 @@ void TWalkDiskDialog::UpdatePartList() {
 #endif
 }
 
+void TWalkDiskDialog::getfs(u32t disk, u64t sector, char *fsname, u8t *buf, knowntype &fst) {
+#ifdef __QSINIT__
+   u32t  ssize;
+   hlp_disksize(disk, &ssize, 0);
+   u8t     *bs = buf?buf:new u8t[ssize];
+   u32t     st = dsk_ptqueryfs(disk, sector, fsname, bs);
+   fst = UNKFS;
+   switch (st) {
+      case DSKST_BOOTFAT: {
+         struct Boot_Record *br = (struct Boot_Record *)bs;
+         if (br->BR_BPB.BPB_RootEntries==0) fst = FAT32; else
+         if (br->BR_BPB.BPB_SecPerClus) {
+            u32t len = br->BR_BPB.BPB_TotalSecBig;
+            if (!len) len = br->BR_BPB.BPB_TotalSec;
+            /* any type of garbage can be in fsinfo of FAT partition:
+               FAT, FAT12, FAT16 and so on, so detecting type by # of
+               clusters */
+            len -= br->BR_BPB.BPB_FATCopies * br->BR_BPB.BPB_SecPerFAT;
+            len -= br->BR_BPB.BPB_ResSectors;
+            len -= br->BR_BPB.BPB_RootEntries*32 / ssize;
+            len /= br->BR_BPB.BPB_SecPerClus;
+
+            fst = len<=0xFF5?FAT12:FAT16;
+         }
+         break;
+      }
+      case DSKST_BOOTBPB:
+         if (strcmp(fsname, "HPFS")==0) fst = HPFS; else
+            if (strcmp(fsname, "JFS")==0) fst = JFS;
+         break;
+      case DSKST_BOOTEXF:
+         fst = FAT64;
+         break;
+      case DSKST_CDFSVD:
+         fst = CDFS;
+         break;
+   }
+   if (bs!=buf) delete[] bs;
+#endif
+}
+
 void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
 #ifdef __QSINIT__
    disk_geo_data  geo;
@@ -195,9 +238,13 @@ void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
    diskdata &dd = ddta[disk];
    memset(&dd, 0, sizeof(diskdata));
 
-   dd.scan_rc = dsk_ptrescan(disk,rescan?1:0);
+   dd.scan_rc   = dsk_ptrescan(disk,rescan?1:0);
+   dd.letter    = -1;
+   dd.bf_fstype = UNKFS;
 
-   if (hlp_disksize(disk, &dd.ssize, &geo)) {
+   hlp_disksize(disk, &dd.ssize, &geo);
+
+   if (geo.TotalSectors) {
       dd.dsksize = geo.TotalSectors;
       dd.mb      = dsk_getmap(disk);
       dd.heads   = geo.Heads;
@@ -210,8 +257,19 @@ void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
       dd.lvminfo = lvm_checkinfo(disk);
       dd.is_gpt  = dsk_isgpt(disk,-1);
       dd.ramdisk = hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED?1:0;
-
+      dd.bf_fs[0]= 0;
       long   cnt = dsk_partcnt(disk), ii;
+
+      if (dsk_sectortype(disk,0,0)!=DSKST_PTABLE) {
+         u32t vol = dsk_ismounted(disk,-1);
+         /* this is a mounted big floppy!
+            Also fix LVM error for later code */
+         if (vol&QDSK_VOLUME) {
+            dd.letter  = vol&~QDSK_VOLUME;
+            dd.lvminfo = E_PTE_FLOPPY;
+            getfs(disk, 0, dd.bf_fs, 0, dd.bf_fstype);
+         }
+      }
 
       if (cnt>0) {
          dd.fsname = (char*)malloc(32*cnt);
@@ -227,38 +285,8 @@ void TWalkDiskDialog::UpdateDiskInfo(u32t disk, Boolean rescan) {
             dd.fstype[ii] = UNKFS;
 
             if (cmb) {
-               u32t  st = dsk_ptqueryfs(disk, cmb->StartSector, fsn, bs = new u8t[dd.ssize]);
-               switch (st) {
-                  case DSKST_BOOTFAT: {
-                     struct Boot_Record *br = (struct Boot_Record *)bs;
-                     if (br->BR_BPB.BPB_RootEntries==0) dd.fstype[ii] = FAT32; else
-                     if (br->BR_BPB.BPB_SecPerClus) {
-                        u32t len = br->BR_BPB.BPB_TotalSecBig;
-                        if (!len) len = br->BR_BPB.BPB_TotalSec;
-                        /* any type of garbage can be in fsinfo of FAT partition:
-                           FAT, FAT12, FAT16 and so on, so detecting type by # of
-                           clusters */
-                        len -= br->BR_BPB.BPB_FATCopies * br->BR_BPB.BPB_SecPerFAT;
-                        len -= br->BR_BPB.BPB_ResSectors;
-                        len -= br->BR_BPB.BPB_RootEntries*32 / dd.ssize;
-                        len /= br->BR_BPB.BPB_SecPerClus;
-
-                        dd.fstype[ii] = len<=0xFF5?FAT12:FAT16;
-                     }
-                     break;
-                  }
-                  case DSKST_BOOTBPB:
-                     if (strcmp(fsn, "HPFS")==0) dd.fstype[ii] = HPFS; else
-                        if (strcmp(fsn, "JFS")==0) dd.fstype[ii] = JFS;
-                     break;
-                  case DSKST_BOOTEXF:
-                     dd.fstype[ii] = FAT64;
-                     break;
-                  case DSKST_ERROR:
-                     delete[] bs;
-                     bs = 0;
-                     break;
-               }
+               getfs(disk, cmb->StartSector, fsn, bs = new u8t[dd.ssize], dd.fstype[ii]);
+               if (dd.fstype[ii] == UNKFS) { delete[] bs; bs = 0; }
             }
             // save boot sectors for possible use by commands
             dd.bsdata->insert(bs);
@@ -356,6 +384,8 @@ TDMgrDialog::TDMgrDialog() : TWalkDiskDialog(TRect(4, 2, 76, 21), "Disk Manageme
    TView *control;
    options |= ofCenterX | ofCenterY;
    helpCtx = hcDmgrDlg;
+   // force help to show control`s helpCtx, not dialog itself
+   userValue[0] = TVOF_CONTEXTHELP;
 
    control = new TScrollBar(TRect(26, 2, 27, 8+a_y1));
    insert(control);
@@ -464,13 +494,15 @@ void TDMgrDialog::handleEvent( TEvent& event) {
 
 void TDMgrDialog::AddAction(TCollection *list, u8t action) {
    static const char *text[] = {"Boot", "Clone", "Init disk", "Init disk (GPT)",
-      "Replace MBR code", "Restore MBR backup", "Update LVM info", "Backup MBR",
-      "Wipe disk", "Write LVM info",
+      "Format (big floppy)", "Mount (big floppy)", "Replace MBR code",
+      "Restore MBR backup", "Unmount (big floppy)", "Update bootstrap code",
+      "Update LVM info", "Backup MBR", "Wipe disk", "Write LVM info",
+      "Install QSINIT (big floppy)", "Dirty state", "Detect size",
       0,
       "Boot", "Delete", "Format", "Make active", "Mount", "Unmount",
-      "LVM drive letter", "LVM rename", "Clone", "Create logical",
-      "Create primary", "Set type GUID", "Sector view", "Sector goto",
-      "Update bootstrap code", "Install QSINIT", "Dirty state" };
+      "LVM drive letter", "LVM options", "Clone", "Create logical",
+      "Create primary", "Set type GUID", "Sector view", "Update bootstrap code",
+      "Install QSINIT", "Dirty state", "Boot OS/2" };
 
    if (action==actp_first) return; else
    if (action<actp_first) {
@@ -491,44 +523,80 @@ void TDMgrDialog::UpdatePartList() {
    // seaching for empty disk of suitable size (to add "Clone" string)
    if (ddta[cur_disk].scan_rc==0 && ddta[cur_disk].usedspace!=FFFF64)
       for (ii=0; ii<disks; ii++)
-         if (ii!=cur_disk && ddta[ii].scan_rc==DPTE_EMPTY)
+         if (ii!=cur_disk && ddta[ii].scan_rc==E_PTE_EMPTY)
             if (ddta[ii].ssize==ddta[cur_disk].ssize &&
                ddta[ii].dsksize>=ddta[cur_disk].usedspace) { clone = 1; break; }
    // update disk action list
    lst_e = new TCollection(0,10);
 
-   u32t lvme = ddta[cur_disk].lvminfo,
-     badcode = lvme==LVME_SERIAL || lvme==LVME_GEOMETRY || lvme==LVME_EMPTY ||
-               lvme==LVME_FLOPPY || lvme==LVME_GPTDISK || lvme==LVME_LOWPART;
+   u32t  lvme = ddta[cur_disk].lvminfo,
+     zerosize = ddta[cur_disk].dsksize==0,
+      badcode = lvme==E_LVM_SERIAL || lvme==E_LVM_GEOMETRY || lvme==E_PTE_EMPTY ||
+                lvme==E_PTE_FLOPPY || lvme==E_PTE_GPTDISK  || lvme==E_LVM_LOWPART,
+       floppy = lvme==E_PTE_FLOPPY;
+
    act_disk_cnt = 0;
    // boot from disk
-   if (lvme!=LVME_EMPTY && !ddta[cur_disk].ramdisk) AddAction(lst_e, actd_mbrboot);
-   if (lvme!=LVME_FLOPPY) {
-      // clone disk to another empty one
-      if (clone) AddAction(lst_e, actd_clone);
-      // init disk/change mbr code
-      AddAction(lst_e, lvme==LVME_EMPTY?actd_init:actd_mbrcode);
-   }
-   if (lvme==LVME_EMPTY) {
-      AddAction(lst_e, actd_initgpt);
-      if (!no_vhdd) AddAction(lst_e, actd_restvhdd);
-   }
-   // LVM info can be fixed
-   if (lvme && !badcode && lvme!=LVME_NOINFO) AddAction(lst_e, actd_updlvm);
-   // disk is not empty
-   if (lvme!=LVME_EMPTY) {
-      if (!no_vhdd) AddAction(lst_e, actd_savevhdd);
-      AddAction(lst_e, actd_wipe);
-   }
-   // no LVM info at all
-   if (lvme==LVME_NOINFO) AddAction(lst_e, actd_writelvm);
+   if (lvme!=E_PTE_EMPTY && !ddta[cur_disk].ramdisk && 
+      ddta[cur_disk].bf_fstype!=CDFS) AddAction(lst_e, actd_mbrboot);
+   // detect size
+   if (zerosize || ddta[cur_disk].scan_rc==E_PTE_INVALID && !ddta[cur_disk].ramdisk)
+      AddAction(lst_e, actd_detect);
 
+   if (!zerosize) {
+      if (!floppy) {
+         // clone disk to another empty one
+         if (clone) AddAction(lst_e, actd_clone);
+         // init disk/change mbr code
+         AddAction(lst_e, lvme==E_PTE_EMPTY?actd_init:actd_mbrcode);
+      }
+      if (lvme==E_PTE_EMPTY) {
+         AddAction(lst_e, actd_initgpt);
+         if (!no_vhdd) AddAction(lst_e, actd_restvhdd);
+      }
+      knowntype fs = ddta[cur_disk].bf_fstype;
+      // format for mounted big floppy 'C:..J:'
+      if (floppy && ddta[cur_disk].letter>1) {
+         if (fs!=CDFS) AddAction(lst_e, actd_bf_format);
+         AddAction(lst_e, actd_bf_unmount);
+         if (fs<=FAT64) AddAction(lst_e, actd_bf_inst);
+      }
+      // actions for any big floppy (including boot)
+      if (floppy && ddta[cur_disk].letter>=0 && (fs<=FAT64 || fs==HPFS)) {
+         AddAction(lst_e, actd_bf_code);
+         AddAction(lst_e, actd_bf_dirty);
+      }
+      // mount as big floppy
+      if (lvme==E_PTE_EMPTY || floppy && ddta[cur_disk].letter<0)
+         AddAction(lst_e, actd_bf_mount);
+      // LVM info can be fixed
+      if (lvme && !badcode && lvme!=E_LVM_NOINFO) AddAction(lst_e, actd_updlvm);
+      // save MBR (non-empty & not a floppy)
+      if (lvme!=E_PTE_EMPTY && !floppy && !no_vhdd) AddAction(lst_e, actd_savevhdd);
+      // disk is not empty
+      if (lvme!=E_PTE_EMPTY && fs!=CDFS) AddAction(lst_e, actd_wipe);
+      // no LVM info at all
+      if (lvme==E_LVM_NOINFO) AddAction(lst_e, actd_writelvm);
+   }
    lbDiskAction->newList(lst_e);
 
    if (ddta[cur_disk].scan_rc) {
-      char* msg = SysApp.GetPTErr(ddta[cur_disk].scan_rc);
-      replace_coltxt(&txInfo, msg?msg:"", 1, TXINFO_RED);
-      free(msg);
+      if (ddta[cur_disk].letter>=0) {
+         char *msg = sprintf_dyn("%s", ddta[cur_disk].bf_fs),
+               mnt[32];
+         if (msg[0]) msg = strcat_dyn(msg, ", ");
+
+         u32t vol = ddta[cur_disk].letter;
+         if (vol==0) strcpy(mnt, "boot partition"); else
+            snprintf(mnt, 32, "mounted as %c:/%c:", vol+'0', vol+'A');
+         msg = strcat_dyn(msg, mnt);
+         replace_coltxt(&txInfo, msg, 1, TXINFO_BLUE);
+         free(msg);
+      } else {
+         char* msg = SysApp.GetPTErr(ddta[cur_disk].scan_rc);
+         replace_coltxt(&txInfo, msg?msg:"", 1, TXINFO_RED);
+         free(msg);
+      }
       UpdateActionList(True);
    } else {
       replace_coltxt(&txInfo,"",1);
@@ -597,16 +665,17 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
          // change type guid on GPT
          if (ddta[cur_disk].is_gpt) AddAction(lst_a, actp_setgptt);
          // deny some actions on EFI boot partition
-         int  efiboot = hlp_hosttype()==QSHT_EFI && drv=='0';
+         int efihost = hlp_hosttype()==QSHT_EFI,
+             efiboot = efihost && drv=='0'||drv=='A';
          // known types
          knowntype fs = ddta[cur_disk].fstype[Index];
 
          if (!efiboot && (fs<=FAT64 || fs==HPFS)) AddAction(lst_a, actp_dirty);
+         if (!efihost && fs==HPFS) AddAction(lst_a, actp_bootos2);
          // not in a single dialog mode
-         if (!SysApp.bootcmd) {
-            AddAction(lst_a, actp_view);
-            AddAction(lst_a, actp_goto);
-         }
+         if (!SysApp.bootcmd) AddAction(lst_a, actp_view);
+         /* writing to EFI boot partition while we share it with EFI BIOS
+            is a bad idea, I think ;) */
          if (!efiboot) {
             if (fs<=FAT64 || fs==HPFS) AddAction(lst_a, actp_bootcode);
             if (fs<=FAT64) AddAction(lst_a, actp_inst);
@@ -622,6 +691,23 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
 #endif
 }
 
+Boolean TDMgrDialog::ActionCall(u8t acode, u32t disk, long index) {
+   void (TSysApp::*hf)(u8t, u32t, long) = 0;
+   if (acode==actp_inst) hf = TSysApp::QSInstDlg; else
+      if (acode==actp_bootcode) hf = TSysApp::BootCodeDlg; else
+         if (acode==actp_format) hf = TSysApp::FormatDlg; else
+            if (acode==actp_dirty) hf = TSysApp::ChangeDirty;
+   if (SysApp.CanChangeDisk(disk)) {
+#ifdef __QSINIT__
+      u32t vol = dsk_ismounted(disk, index);
+
+      (SysApp.*hf)(vol&QDSK_VOLUME?vol&~QDSK_VOLUME:0, disk, index);
+      return acode==actp_format?True:False;
+#endif
+   }
+   return False;
+}
+
 Boolean TDMgrDialog::valid(ushort command) {
    Boolean rslt = TDialog::valid(command);
    if (rslt && (command == cmOK)) {
@@ -630,19 +716,49 @@ Boolean TDMgrDialog::valid(ushort command) {
          SysApp.errDlg(MSGE_SELACTION);
       } else
       if (current==lbDiskAction) {
-         u32t act = lbDiskAction->focused;
+         Boolean rescan = False;
+         u32t       act = lbDiskAction->focused;
+
          if (act<act_disk_cnt) {
             char cmdbuf[32];
 
             if (SysApp.CanChangeDisk(cur_disk))
             switch (action_disk[act]) {
-               case actd_mbrboot : SysApp.BootPartition(cur_disk,-1); break;
-               case actd_clone   :
+               case actd_mbrboot  : SysApp.BootPartition(cur_disk,-1); break;
+               case actd_clone    :
                   if (SysApp.CloneDisk(cur_disk)) UpdateAll(True);
                   return False;
-               case actd_init    : SysApp.DiskInit(cur_disk, 0); break;
-               case actd_initgpt : SysApp.DiskInit(cur_disk, 1); break;
-               case actd_mbrcode : SysApp.DiskMBRCode(cur_disk); break;
+               case actd_init     : SysApp.DiskInit(cur_disk, 0); break;
+               case actd_initgpt  : SysApp.DiskInit(cur_disk, 1); break;
+               case actd_detect   :
+#ifdef __QSINIT__
+                  if (SysApp.CanChangeDisk(cur_disk)) {
+                     qserr rc = dsk_setsize(cur_disk, 0, 0);
+
+                     if (rc) SysApp.PrintPTErr(rc); else
+                        UpdateAll(True);
+                     return False;
+                  }
+#endif
+                  break;
+               case actd_mbrcode  : SysApp.DiskMBRCode(cur_disk); break;
+
+               case actd_bf_format: rescan = ActionCall(actp_format, cur_disk, -1);
+                                    break;
+               case actd_bf_code  : rescan = ActionCall(actp_bootcode, cur_disk, -1);
+                                    break;
+               case actd_bf_inst  : rescan = ActionCall(actp_inst, cur_disk, -1);
+                                    break;
+               case actd_bf_dirty : rescan = ActionCall(actp_dirty, cur_disk, -1);
+                                    break;
+               case actd_bf_mount :
+                  SysApp.MountDlg(True, cur_disk, -1);
+                  break;
+               case actd_bf_unmount:
+#ifdef __QSINIT__
+                  if (ddta[cur_disk].letter>=2) SysApp.Unmount(ddta[cur_disk].letter);
+#endif
+                  break;
                case actd_wipe    :
                   sprintf(cmdbuf, "mbr hd%u wipe", cur_disk);
                   RunCommand(DMGR_CMD, cmdbuf);
@@ -684,24 +800,17 @@ Boolean TDMgrDialog::valid(ushort command) {
                      UpdateAll(True);
                   }
                   break;
+               case actp_bootos2 :
+                  if (SysApp.CanChangeDisk(cur_disk))
+                     SysApp.BootDirect(cur_disk,Index);
+                  break;
                case actp_format  :
                case actp_bootcode:
                case actp_dirty   :
-               case actp_inst    : {
-                  void (TSysApp::*hf)(u8t, u32t, u32t) = 0;
-                  if (acode==actp_inst) hf = TSysApp::QSInstDlg; else
-                     if (acode==actp_bootcode) hf = TSysApp::BootCodeDlg; else
-                        if (acode==actp_format) hf = TSysApp::FormatDlg; else
-                           if (acode==actp_dirty) hf = TSysApp::ChangeDirty;
-                  if (SysApp.CanChangeDisk(cur_disk)) {
-                     char  qsd = ddta[cur_disk].mb[cur_part].DriveQS;
-                     (SysApp.*hf)(qsd?qsd-'0':0, cur_disk, Index);
-                     rescan = acode==actp_format?True:False;
-                  }
+               case actp_inst    :
+                  rescan = ActionCall(acode, cur_disk, Index);
                   break;
-               }
                case actp_active  :
-
                   if (SysApp.CanChangeDisk(cur_disk) && SysApp.askDlg(
                      ddta[cur_disk].is_gpt?MSGA_ACTIVEGPT:MSGA_ACTIVE))
                   {
@@ -740,13 +849,14 @@ Boolean TDMgrDialog::valid(ushort command) {
                   rescan = True;
                   break;
                case actp_view    :
-                  if (SysApp.CanChangeDisk(cur_disk)) {
-                     goToDisk   = cur_disk;
-                     goToSector = ddta[cur_disk].mb[cur_part].StartSector;
-                     return True;
-                  }
-                  break;
-               case actp_goto    :
+                  // free space?
+                  if (ddta[cur_disk].mb[cur_part].Type==0) {
+                     if (SysApp.CanChangeDisk(cur_disk)) {
+                        goToDisk   = cur_disk;
+                        goToSector = ddta[cur_disk].mb[cur_part].StartSector;
+                        return True;
+                     }
+                  } else
                   if (SectorSelGoto())
                      if (SysApp.CanChangeDisk(cur_disk)) return True; else {
                         goToDisk   = FFFF;
@@ -765,6 +875,7 @@ Boolean TDMgrDialog::valid(ushort command) {
 }
 
 int TDMgrDialog::SectorSelGoto(void) {
+#ifdef __QSINIT__
    TDialog   *dlg = new TDialog(TRect(14, 5, 65, 17), "Partition sector to goto");
    if (!dlg) return 0;
    dlg->options |= ofCenterX | ofCenterY;
@@ -827,7 +938,7 @@ int TDMgrDialog::SectorSelGoto(void) {
 
    lbs->newList(poslist);
 
-   if (execView(dlg)==cmOK) {
+   if (SysApp.execView(dlg)==cmOK) {
       int    pos = lbs->focused;
       u64t ptpos = ddta[cur_disk].mb[cur_part].StartSector;
       if (pos==1) {
@@ -850,6 +961,9 @@ int TDMgrDialog::SectorSelGoto(void) {
    poslist->removeAll();
    destroy(poslist);
    return goToSector==FFFF64?0:1;
+#else
+   return 0;
+#endif
 }
 // ------------------------------------------------------------
 

@@ -20,11 +20,6 @@ start:
                 add     esp, 8
                 ret
 ;----------------------------------------------------------------
-                public  _call64l
-                extrn   _call64:near
-_call64l:
-                jmp     _call64
-;----------------------------------------------------------------
 next_random:
                 mov     eax,8088405h
                 mul     __RandSeed

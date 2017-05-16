@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  THistory member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_THistory
 #define Uses_TKeys
@@ -66,11 +63,13 @@ void THistory::handleEvent(TEvent &event) {
    if (event.what == evMouseDown ||
        (event.what == evKeyDown &&
         ctrlToArrow(event.keyDown.keyCode) ==  kbDown &&
-        (link->state & sfFocused) != 0
-       )
-      ) {
-      link->select();
-      historyAdd(historyId, link->data);
+        (link->state & sfFocused) != 0))
+   {
+      if (!link->focus()) {
+         clearEvent(event);
+         return;
+      }
+      recordHistory(link->data);
       r = link->getBounds();
       r.a.x--;
       r.b.x++;
@@ -86,24 +85,29 @@ void THistory::handleEvent(TEvent &event) {
             char rslt[maxViewWidth];
             historyWindow->getSelection(rslt);
             strncpy(link->data, rslt, link->maxLen);
+            link->data[ link->maxLen ] = EOS;  // <<---- BUG FIX
             link->selectAll(True);
             link->drawView();
          }
          destroy(historyWindow);
       }
       clearEvent(event);
-   } else if (event.what == evBroadcast)
+   } else
+   if (event.what == evBroadcast)
       if ((event.message.command == cmReleasedFocus &&
-           event.message.infoPtr ==  link) ||
-          event.message.command ==  cmRecordHistory
-         )
-         historyAdd(historyId, link->data);
+         event.message.infoPtr == link) ||
+            event.message.command ==  cmRecordHistory)
+               recordHistory(link->data);
 }
 
 THistoryWindow *THistory::initHistoryWindow(const TRect &bounds) {
    THistoryWindow *p = new THistoryWindow(bounds, historyId);
    p->helpCtx = link->helpCtx;
    return p;
+}
+
+void THistory::recordHistory(const char *s) {
+   historyAdd(historyId, s);
 }
 
 #ifndef NO_TV_STREAMS

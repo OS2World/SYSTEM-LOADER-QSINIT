@@ -4,17 +4,13 @@
 /* function(s)                                                */
 /*                  messageBox related functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
-
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_MsgBox
 #define Uses_TObject
@@ -29,20 +25,14 @@
 #include <tv.h>
 
 #include <stdio.h>
-
-#ifdef __IDA__
-#define __NOT_ONLY_PRO_FUNCS__
-#include <pro.h>
-#else
 #include <string.h>
-#if !defined(__WATCOMC__)&&!defined(__MSVC__)
+#if !defined(__WATCOMC__) && !defined(__MSVC__)
 // if the target system doesn't have snprintf(), use sprintf()
 inline void vsnprintf(char *buf, size_t bufsize, const char *format, va_list va) {
    vsprintf(buf, format, va);
 }
 #else
 #include <stdarg.h>
-#endif
 #endif
 
 static const char *buttonName[] = {
@@ -110,7 +100,7 @@ ushort messageBoxRect(const TRect &r,
    va_list argptr;
    va_start(argptr, fmt);
 
-   char msg[4096];
+   char msg[2048];
    vsnprintf(msg, sizeof(msg), fmt, argptr);
    va_end(argptr);
 
@@ -132,7 +122,7 @@ ushort messageBox(ushort aOptions, const char *fmt, ...) {
    va_list argptr;
    va_start(argptr, fmt);
 
-   char msg[4096];
+   char msg[2048];
    vsnprintf(msg, sizeof(msg), fmt, argptr);
    va_end(argptr);
 
@@ -153,7 +143,8 @@ ushort inputBoxRect(const TRect &bounds,
                     const char *Title,
                     const char *aLabel,
                     char *s,
-                    int limit) {
+                    int limit)
+{
    TDialog *dialog;
    TView *control;
    TRect r;

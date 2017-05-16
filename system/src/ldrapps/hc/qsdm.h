@@ -41,6 +41,7 @@ int   _std dsk_newmbr(u32t disk, u32t flags);
 #define DSKST_DATA      0x0006    ///< sector not recognized (regular data)
 #define DSKST_GPTHEAD   0x0007    ///< GPT header
 #define DSKST_BOOTEXF   0x0008    ///< sector is exFAT boot sector
+#define DSKST_CDFSVD    0x0009    ///< CDFS volume descriptor sector
 //@}
 
 /** query sector type.
@@ -65,12 +66,13 @@ u32t  _std dsk_sectorsize(u32t disk);
 u32t  _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0);
 
 /** query filesystem name from boot sector.
+    Note, that for CDFS - volume descriptor sector at offset 32k is returned!
+
     @param disk           disk number
     @param sector         sector
     @param [out] filesys  buffer for file system type (at least 9 chars)
     @param [out] optbuf   buffer for sector, 4kb size (can be 0)
-    @return the same as dsk_sectortype() and non-empty filesys if detected
-            one. */
+    @return the same as dsk_sectortype() and non-empty filesys if detected one. */
 u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
 
 /// @name dsk_newvbr() sector type
@@ -84,24 +86,24 @@ u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
 //@}
 
 /** replace boot sector code by QSINIT`s one.
-    @attention function does not perform any checks on location!!!!
-    Function failed in case of file system mismatch between sector data and
-    "type" value.
+    @attention function does not perform any additional checks on location,
+    but just failed in case of file system mismatch between sector data and
+    the "type" value.
 
     @param disk     disk number
     @param sector   sector number
     @param type     sector type (DSKBS_* value).
     @param name     custom boot file name (11 chars on FAT, 15 on HPFS/exFAT), can be 0.
-    @return 0 if success, else DFME_* error code */
-u32t  _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
+    @return 0 if success, else error code */
+qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
 
 /** write debug boot record code.
-    This code does not load anything, but print DL, BPB.PhysDisk and i13x
+    This code does not load anything, but prints DL, BPB.PhysDisk and i13x
     presence. Code can be written to any type of FAT boot sector and to
-    MBR (function preserve partition table space in sector).
+    MBR (function preserves partition table space in sector).
 
-    Function fails if it discover exFAT boot record in this sector (it is
-    incompatible with current debug code).
+    Call fails if it discover exFAT boot record (exFAT BPB too big to fit
+    anything else into this sector).
 
     @param disk     disk number
     @param sector   sector number
@@ -122,8 +124,8 @@ int   _std dsk_wipe55aa(u32t disk, u64t sector);
     @param disk     disk number
     @param sector   first sector
     @param count    number of sectors to clear
-    @return 0 on success or DPTE_* error code */
-u32t  _std dsk_emptysector(u32t disk, u64t sector, u32t count);
+    @return 0 on success or error code */
+qserr _std dsk_emptysector(u32t disk, u64t sector, u32t count);
 
 /// break copying confirmation callback
 typedef int _std (*break_callback)(void *info);
@@ -140,7 +142,7 @@ typedef int _std (*break_callback)(void *info);
     @param [in]  ask       ask confirmation to break copy process, if it non-0,
                            then this function will be called on ESC key press.
                            If function returns 1, dsk_copysector() will stop
-                           copying and set DPTE_UBREAK error code.
+                           copying and set E_SYS_UBREAK error code.
     @param [in]  askptr    info parameter for ask callback, can be 0
     @param [out] error     ptr to error code (can be 0)
     @return number of actually copied sectors. */
@@ -149,51 +151,26 @@ u32t  _std dsk_copysector(u32t dstdisk, u64t dststart,
                           u32t count, read_callback cbprint,
                           break_callback ask, void *askptr, u32t *error);
 
-/// @name dsk_ptrescan(), dsk_setactive(), dsk_ptcreate(), etc result
-//@{
-#define DPTE_ERRREAD  0x0001     ///< error reading disk, pt can be used r/o
-#define DPTE_FLOPPY   0x0002     ///< big floppy, pt is empty
-#define DPTE_EMPTY    0x0003     ///< disk is not partitioned
-#define DPTE_INVALID  0x0004     ///< invalid table, valid part must be used r/o
-#define DPTE_GPTDISK  0x0005     ///< disk have GPT partition table
-#define DPTE_HYBRID   0x0006     ///< disk have hybrid partition table (GPT+MBR)
-#define DPTE_MBRDISK  0x0007     ///< disk have MBR partition table
-#define DPTE_PINDEX   0x0010     ///< unable to find partition index
-#define DPTE_PRIMARY  0x0011     ///< partition is not primary
-#define DPTE_EXTENDED 0x0012     ///< partition is extended and cannot be active
-#define DPTE_ERRWRITE 0x0013     ///< error writing disk
-#define DPTE_RESCAN   0x0014     ///< rescan requred (start sector is not matched to pt index)
-#define DPTE_NOFREE   0x0020     ///< there is no free space on this position
-#define DPTE_SMALL    0x0021     ///< partition too small to create
-#define DPTE_EXTERR   0x0022     ///< extended partition processing error
-#define DPTE_NOPRFREE 0x0023     ///< no free space in primary table
-#define DPTE_FINDEX   0x0024     ///< invalid free space index
-#define DPTE_FSMALL   0x0025     ///< free space is smaller than specified
-#define DPTE_LARGE    0x0026     ///< partition too large (64-bit number of sectors)
-#define DPTE_MOUNTED  0x0030     ///< partition already mounted.
-#define DPTE_NOLETTER 0x0031     ///< there is no free drive letter.
-#define DPTE_GPTHDR   0x0040     ///< GPT header is broken
-#define DPTE_2TBERR   0x0041     ///< Unable to access disk data above 2TB
-#define DPTE_GPTLARGE 0x0042     ///< GPT header too large to process
-#define DPTE_GPTHDR2  0x0043     ///< second GPT header is broken
-#define DPTE_EXTPOP   0x0044     ///< extended partition is not empty and cannot be deleted
-#define DPTE_INCOMPAT 0x0045     ///< incompatible disks (dsk_clonestruct() - sector size or spt mismatch)
-#define DPTE_CSPACE   0x0046     ///< there is no free space on target disk for clone
-#define DPTE_BOOTPT   0x0047     ///< unable to use boot partition as target
-#define DPTE_UMOUNT   0x0048     ///< failed to unmount destination volume
-#define DPTE_UBREAK   0xFFFC     ///< esc was pressed, operation not complete
-#define DPTE_NOMEMORY 0xFFFD     ///< no memory to process this operation
-#define DPTE_INVARGS  0xFFFE     ///< invalid arguments
-#define DPTE_INVDISK  0xFFFF     ///< bad disk number specified
-//@}
-
 /** rescan partition table.
     @param disk     disk number
     @param force    set 1 to force rescan, 0 - to rescan on first use or
                     floppy drive only
-    @return 0 or DPTE_ERRREAD, DPTE_FLOPPY, DPTE_EMPTY, DPTE_INVALID, DPTE_INVDISK.
-       Disk still can be used on errors, but until first broken entry */
-u32t  _std dsk_ptrescan(u32t disk, int force);
+    @return 0 or E_PTE_* error code. Disk still can be used on errors,
+            but until first broken entry */
+qserr _std dsk_ptrescan(u32t disk, int force);
+
+/** force another disk size.
+    This function is dangerous, but usable when BIOS just ignores disk
+    information function and QSINIT reports all physical disks as zero-sized.
+
+    @param disk     disk number
+    @param size     new disk size, in sectors. Use 0 for autodetection attempt.
+    @param secsize  sector size. Even more dangerous option, sector, smaller
+                    than real, will cause memory overwrites. Set 0 to use the
+                    same.
+    @return 0 or error code. Autodetection attempt may fail if no partitions
+            on disk, for example. */
+qserr _std dsk_setsize(u32t disk, u64t size, u32t secsize);
 
 /** query number of indexed partitions on disk.
     @param disk     disk number
@@ -252,23 +229,23 @@ u8t   _std dsk_ptquery64(u32t disk, u32t index,
     @param [out] last     last used sector on disk. Note, that extended partition
                           can have a lot of free space behind this sector, but
                           only existing partitions counted here.
-    @return 0 on success, DPTE_EMPTY if disk is empty, else disk scan error */
-u32t  _std dsk_usedspace(u32t disk, u64t *first, u64t *last);
+    @return 0 on success, E_PTE_EMPTY if disk is empty, else disk scan error */
+qserr _std dsk_usedspace(u32t disk, u64t *first, u64t *last);
 
 /** set active partition (MBR disks).
     Function deny all types of extended partition.
     @param [in]  disk     disk number
     @param [in]  index    partition index
-    @return 0 on success or DPTE_* constant. */
-u32t  _std dsk_setactive(u32t disk, u32t index);
+    @return 0 on success or E_PTE_* constant. */
+qserr _std dsk_setactive(u32t disk, u32t index);
 
 /** set partition type byte.
-    Can return DPTE_EXTENDED in case of extended partition processing error.
+    Can return E_PTE_EXTENDED in case of extended partition processing error.
     @param [in]  disk     disk number
     @param [in]  index    partition index
     @param [in]  type     new partition type
-    @return 0 on success or DPTE_* constant. */
-u32t  _std dsk_setpttype(u32t disk, u32t index, u8t type);
+    @return 0 on success or E_PTE_* error code. */
+qserr _std dsk_setpttype(u32t disk, u32t index, u8t type);
 
 /** is partition mounted?
     @param disk           disk number
@@ -288,33 +265,10 @@ long  _std vol_index(u8t vol, u32t *disk);
     @param [in,out] vol      in: wanted volume (2..9) or 0 to auto, out:
                              really mounted (or already existed) drive letter
     @param [in]     disk     disk number
-    @param [in]     index    partition index
-    @return 0 on success or DPTE_* constant. Vol value filled with current
-            drive letter in case of DPTE_MOUNTED error code */
-u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
-
-/// @name vol_format() result
-//@{
-#define DFME_NOMOUNT  0x0001     ///< volume is not mounted
-#define DFME_VINDEX   0x0002     ///< unable to find partition index
-#define DFME_SSIZE    0x0003     ///< unsupported sector size (>4kb)
-#define DFME_SMALL    0x0004     ///< volume too small to fit filesystem structures
-#define DFME_FTYPE    0x0005     ///< failed to select FAT type (16 or 32)
-#define DFME_UMOUNT   0x0006     ///< failed to unmount destination volume
-#define DFME_MOUNT    0x0007     ///< failed to mount volume after format
-#define DFME_IOERR    0x0008     ///< disk i/o error in system areas
-#define DFME_PTERR    0x0009     ///< disk partition table is invalid
-#define DFME_INTERNAL 0x000A     ///< internal error
-#define DFME_EXTERR   0x000B     ///< extended partition processing error
-#define DFME_UBREAK   0x000C     ///< esc was pressed, format not complete
-#define DFME_NOMEM    0x000D     ///< no free memory to process format
-#define DFME_LARGE    0x000E     ///< volume too large for selected filesystem
-#define DFME_UNKFS    0x000F     ///< unknown file system type
-#define DFME_FSMATCH  0x0010     ///< file system type mismatch (dsk_newvbr())
-#define DFME_CSIZE    0x0011     ///< wrong cluster size parameter
-#define DFME_CPLIB    0x0012     ///< missing codepage support
-#define DFME_CNAMELEN 0x0013     ///< custom boot file name length too long
-//@}
+    @param [in]     index    partition index, -1 to mount disk as a big floppy
+    @return 0 on success or error code. Vol value set to existing
+            drive letter in case of E_DSK_MOUNTED error code */
+qserr _std vol_mount(u8t *vol, u32t disk, long index);
 
 /// @name vol_format() flags
 //@{
@@ -333,8 +287,8 @@ u32t  _std vol_mount(u8t *vol, u32t disk, u32t index);
     @param unitsize  cluster size, use 0 for auto selection
     @param cbprint   process indication callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
-    @return 0 if success, else DFME_* error code */
-u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
+    @return 0 if success, else error code */
+qserr _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
 
 /** format file system.
     @param vol       volume (0..9)
@@ -343,15 +297,15 @@ u32t  _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
     @param unitsize  cluster size for FAT/exFAT, use 0 for auto selection
     @param cbprint   process indication callback (can be 0, not used if
                      no DFMT_WIPE flag or DFMT_QUICK flag is set)
-    @return 0 if success, else DFME_* error code */
-u32t  _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
+    @return 0 if success, else error code */
+qserr _std vol_formatfs(u8t vol, char *fsname, u32t flags, u32t unitsize,
                         read_callback cbprint);
 
 /** is volume marked as dirty?
     Function checks/sets DIRTY state, but only for known filesystems (FAT/HPFS).
     @param vol       volume (0..9)
     @param on        new state (0/1) or -1 for returning current state only
-    @return previous state (0/1) or negative value on error (DFME_*) */
+    @return previous state (0/1) or negative value on error (-errorcode) */
 int   _std vol_dirty(u8t vol, int on);
 
 /** query disk text name.
@@ -385,8 +339,8 @@ char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf);
     @param [in]   disk      Disk number.
     @param [out]  geo       Disk geometry data, can return zeroed data on
                             error.
-    @result 0 on success or DPTE_* constant. */
-u32t  _std dsk_getptgeo(u32t disk, disk_geo_data *geo);
+    @result 0 on success or error code. */
+qserr _std dsk_getptgeo(u32t disk, disk_geo_data *geo);
 
 /** init empty hard disk (write MBR partition table signature).
     @param disk     Disk number.
@@ -396,10 +350,10 @@ u32t  _std dsk_getptgeo(u32t disk, disk_geo_data *geo);
                     be used only as non-bootable secondary disks.
                     Set to 2 the same, but it will force "separate" parameter
                     of lvm_initdisk() function to 1.
-                    Note, if this arg > 2 - DPTE_INVARGS will be returned.
-    @return 0 on success, or DPTE_* error. DPTE_EMPTY is returned if disk is
+                    Note, if this arg > 2 - E_SYS_INVPARM 	will be returned.
+    @return 0 on success, or error code. E_PTE_EMPTY is returned if disk is
             NOT empty here. */
-u32t  _std dsk_ptinit(u32t disk, int lvmmode);
+qserr _std dsk_ptinit(u32t disk, int lvmmode);
 
 /// disk free block info
 typedef struct {
@@ -445,7 +399,10 @@ u32t  _std dsk_ptgetfree(u32t disk, dsk_freeblock *info, u32t size);
 
     Created partition can be shifted from start location and size.
 
-    Use dsk_gptcreate() for GPT disks, this function will return DPTE_GPTDISK.
+    Use dsk_gptcreate() for GPT disks, this function will return E_PTE_GPTDISK.
+
+    Always use dsk_ptalign() before this function to query correct start/size
+    values.
 
     @param disk     Disk number.
     @param start    Start sector of new partition
@@ -455,30 +412,30 @@ u32t  _std dsk_ptgetfree(u32t disk, dsk_freeblock *info, u32t size);
                     must be specified).
     @param type     Partition type byte. Error will be returned on creation
                     logical partition with "extended" type.
-    @return 0 on success, or DPTE_* error. */
-u32t  _std dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type);
+    @return 0 on success, or error code. */
+qserr _std dsk_ptcreate(u32t disk, u32t start, u32t size, u32t flags, u8t type);
 
 /** delete partition.
-    Function return DPTE_RESCAN in case of mismatch pt index to start sector of
+    Function return E_PTE_RESCAN in case of mismatch pt index to start sector of
     it.
     @param disk     Disk number.
     @param index    Partition index
     @param start    Start sector of partition (for additional check)
-    @return 0 on success, or DPTE_* error. */
-u32t  _std dsk_ptdel(u32t disk, u32t index, u64t start);
+    @return 0 on success, or error code. */
+qserr _std dsk_ptdel(u32t disk, u32t index, u64t start);
 
 /** merge neighboring free blocks in extended partition.
     By default, this action is not required, all FDISKs must do it self.
     @param disk     Disk number.
-    @return 0 on success, or DPTE_* error. */
-u32t  _std dsk_extmerge(u32t disk);
+    @return 0 on success, or error code. */
+qserr _std dsk_extmerge(u32t disk);
 
 /** delete empty extended partition.
     By default, this action is not required, all FDISKs must do it self.
     @param disk     Disk number.
-    @return 0 on success, or DPTE_* error (DPTE_EXTPOP if extended partition
+    @return 0 on success, or error code (E_PTE_EXTPOP if extended partition
             is not empty). */
-u32t  _std dsk_extdelete(u32t disk);
+qserr _std dsk_extdelete(u32t disk);
 
 /// @name flags for dsk_ptalign()
 //@{
@@ -487,9 +444,13 @@ u32t  _std dsk_extdelete(u32t disk);
 #define DPAL_CHSEND    0x0004   ///< align end to cylinder
 #define DPAL_AF        0x0008   ///< align start to 4k (advanced format)
 #define DPAL_ESPC      0x0010   ///< allocate at the end of free space
+#define DPAL_LOGICAL   0x0020   ///< logical partition (optional, for AF only)
 //@}
 
 /** Convert free space to aligned start sector/size for new partition creation.
+    DPAL_AF ignored without DPAL_ESPC flag on MBR disks. You must also
+    supply valid DPAL_LOGICAL flag value in this case (flag used only
+    for AF alignment).
 
     @param [in]   disk      Disk number.
     @param [in]   freeidx   Free space index (from dsk_ptgetfree()).
@@ -498,8 +459,8 @@ u32t  _std dsk_extdelete(u32t disk);
     @param [in]   altype    Flags (DPAL_).
     @param [out]  start     Calculated start sector.
     @param [out]  size      Calculated partition size, sectors.
-    @result 0 on success or DPTE_* constant. */
-u32t  _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
+    @result 0 on success or error code. */
+qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
                        u64t *start, u64t *size);
 
 /// is partition byte mean "extended" partition?
@@ -566,12 +527,12 @@ dsk_mapblock* _std dsk_getmap(u32t disk);
     @param dstdisk   Destination disk.
     @param srcdisk   Source disk.
     @param flags     Flags (DCLN_).
-    @return 0 on success, DPTE_CSPACE if target disk is not empty or too
-            small to fit source disk structure, DPTE_ERRWRITE on write error,
-            any of DPTE_* errors if srcdisk scan was unsuccessful, DPTE_HYBRID
-            if source disk has hybrid partition table (GPT+MBR), DPTE_INCOMPAT
+    @return 0 on success, E_PTE_CSPACE if target disk is not empty or too
+            small to fit source disk structure, E_PTE_ERRWRITE on write error,
+            any of E_PTE_* errors if srcdisk scan was unsuccessful, E_PTE_HYBRID
+            if source disk has hybrid partition table (GPT+MBR), E_PTE_INCOMPAT
             on sector size or sectors per track value mismatch. */
-u32t  _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags);
+qserr _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags);
 
 /// @name flags for dsk_clonedata()
 //@{
@@ -591,8 +552,8 @@ u32t  _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags);
     @param srcindex  Partition index on source disk.
     @param cbprint   process indication callback (can be 0)
     @param flags     Flags (DCLD_).
-    @return 0 on success or DPTE_* error code */
-u32t  _std dsk_clonedata(u32t dstdisk, u32t dstindex,
+    @return 0 on success or error code */
+qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex,
                          u32t srcdisk, u32t srcindex,
                          read_callback cbprint, u32t flags);
 
@@ -626,10 +587,11 @@ typedef struct {
    u32t      PartSerial;        ///< serial number of partition
    u32t           Start;        ///< partition start sector
    u32t            Size;        ///< partition length, in sectors
-   u8t         BootMenu;        ///< partition is in Boot Manager menu
+   u8t         BootMenu;        ///< partition is in the Boot Manager menu
    char          Letter;        ///< drive letter assigned to the partition (0 if none)
    char     VolName[20];        ///< printable volume name (empty for Boot Manager partition)
    char    PartName[20];        ///< printable partition name
+   u8t      Installable;        ///< Installable flag value
 } lvm_partition_data;
 
 /** query LVM info for selected partition
@@ -638,6 +600,27 @@ typedef struct {
     @param [out] info     partition info, can be 0 to check LVM signature presence.
     @return boolean (success flag) */
 int   _std lvm_partinfo(u32t disk, u32t index, lvm_partition_data *info);
+
+/** set one of minor LVM variables for partition.
+    Note, that LVMN_LETTER option is simular to lvm_assignletter with "force"
+    parameter on.
+    @param [in]  disk     disk number
+    @param [in]  index    partition index (ignored for LVMV_DISKSER & LVMV_BOOTSER)
+    @param [in]  vtype    value type (one of LVMV_*)
+    @param [in]  value    value to set
+    @return 0 on success or error code. */
+qserr _std lvm_setvalue(u32t disk, u32t index, u32t vtype, u32t value);
+
+/// @name value type for lvm_setvalue()
+//@{
+#define LVMV_DISKSER   0x0001     ///< disk serial number (can be or-ed with LVMV_BOOTSER)
+#define LVMV_BOOTSER   0x0002     ///< boot disk serial number
+#define LVMV_VOLSER    0x0004     ///< volume serial number (can be or-ed with LVMN_PARTSER)
+#define LVMV_PARTSER   0x0008     ///< partition serial number
+#define LVMV_INBM      0x0010     ///< "in the boot menu" flag
+#define LVMV_INSTALL   0x0020     ///< "installable" flag
+#define LVMV_LETTER    0x0040     ///< volume letter ('A'..'Z', '*' or 0)
+//@}
 
 /** query IBM Boot Manager bootable partitions.
     Only partitions with index 0..31 on every disk can be quered.
@@ -656,30 +639,10 @@ int   _std lvm_querybm(u32t *active);
        least somewhere. */
 u32t  _std lvm_present(int physonly);
 
-/// @name lvm_checkinfo(), lvm_assignletter() result codes
-//@{
-#define LVME_NOINFO   0x0001     ///< no LVM info on disk
-#define LVME_NOBLOCK  0x0002     ///< no partition table info block
-#define LVME_NOPART   0x0003     ///< no info for one of existing partition
-#define LVME_SERIAL   0x0004     ///< serial number mismatch
-#define LVME_GEOMETRY 0x0005     ///< geometry mismatch
-#define LVME_DISKNUM  0x0006     ///< wrong disk number argument
-#define LVME_INDEX    0x0007     ///< no partition with specified index
-#define LVME_LETTER   0x0008     ///< already used or invalid drive letter
-#define LVME_FLOPPY   0x0009     ///< disk is floppy formatted
-#define LVME_EMPTY    0x000A     ///< disk is empty
-#define LVME_IOERROR  0x000B     ///< disk read/write error
-#define LVME_PTNAME   0x000C     ///< no partition with specified name
-#define LVME_DSKNAME  0x000D     ///< no disk with specified name
-#define LVME_GPTDISK  0x000E     ///< disk is GPT formatted
-#define LVME_LOWPART  0x000F     ///< partition placed in 1st 63 sectors
-#define LVME_INVARGS  0xFFFE     ///< invalid arguments
-//@}
-
 /** check LVM info consistency.
     @param  disk     disk number
-    @return LVME_NOINFO..LVME_DISKNUM or 0 on success. */
-int   _std lvm_checkinfo(u32t disk);
+    @return 0 on success or error code. */
+qserr _std lvm_checkinfo(u32t disk);
 
 /** query used drive letters.
     @return bit mask: bit 0 for A: is used, bit 1 for B: and so on. */
@@ -691,8 +654,8 @@ u32t  _std lvm_usedletters(void);
     @param index    partition index
     @param letter   drive letter to set ('A'..'Z' or 0 for no letter).
     @param force    force duplicate drive letters.
-    @return 0 on success or LVME_* error code. */
-u32t  _std lvm_assignletter(u32t disk, u32t index, char letter, int force);
+    @return 0 on success or error code. */
+qserr _std lvm_assignletter(u32t disk, u32t index, char letter, int force);
 
 /// @name name type for lvm_setname()
 //@{
@@ -708,8 +671,8 @@ u32t  _std lvm_assignletter(u32t disk, u32t index, char letter, int force);
                      can be combined to set the same name for partition and
                      volume name DLAT fields.
     @param name      name to set
-    @return 0 on success or LVME_* error code. */
-u32t  _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
+    @return 0 on success or error code. */
+qserr _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
 
 /** write LVM signatures to disk.
     Better use OS/2 LVM or DFSEE.
@@ -721,16 +684,16 @@ u32t  _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
                      which will be used for master boot, but now connected
                      as secondary. Use 1 for ON, 0 for OFF and -1 for AUTO
                      (previous value will be used if LVM was exist on disk).
-    @return 0 on success or LVME_* error code. */
-u32t  _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate);
+    @return 0 on success or error code. */
+qserr _std lvm_initdisk(u32t disk, disk_geo_data *vgeo, int separate);
 
 /** wipe all LVM info from disk.
     Function clears all DLAT entries for all partitions and checks first 255
     sectors of disk for missing DLATs from previous format.
 
     @param  disk     disk number
-    @return LVME_NOINFO..LVME_DISKNUM or 0 on success. */
-int   _std lvm_wipeall(u32t disk);
+    @return 0 on success or error code (no LVM info or it was partially present). */
+qserr _std lvm_wipeall(u32t disk);
 
 /** search for partition by it`s name.
     @param [in]     name     Partition name.
@@ -741,9 +704,8 @@ int   _std lvm_wipeall(u32t disk);
                              or actual disk number for search. Return disk
                              number.
     @param [out]    index    Partition index, 0 for disk name search.
-    @return 0 on success or LVME_* error code. LVME_NAME returned if
-            no such name. */
-u32t  _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index);
+    @return 0 on success or error code. E_LVM_NAME returned if no such name. */
+qserr _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index);
 
 //===================================================================
 //  GPT specific functions
@@ -789,20 +751,20 @@ typedef struct {
 /** query GPT disk info.
     @param  [in]  disk    Disk number
     @param  [out] dinfo   Buffer for disk info
-    @return 0 on success or DPTE_* constant (DPTE_MBRDISK if disk is MBR). */
-u32t  _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo);
+    @return 0 on success or error code (E_PTE_MBRDISK if disk is MBR). */
+qserr _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo);
 
 /** update GPT disk info.
-    Function set new GUID.
+    Function sets new GUID.
     Function allow to change UserFirst/UserLast positions (!), but only if all
     existing partitions still covered by new UserFirst..UserLast value
-    (else DPTE_NOFREE returned). Set both UserFirst/UserLast to 0 to skip this.
+    (else E_PTE_NOFREE returned). Set both UserFirst/UserLast to 0 to skip this.
     Hdr1Pos and Hdr2Pos values ignored.
 
     @param  disk    Disk number
     @param  dinfo   Buffer with new disk info
-    @return 0 on success or DPTE_* constant (DPTE_MBRDISK if disk is MBR). */
-u32t  _std dsk_gptdset(u32t disk, dsk_gptdiskinfo *dinfo);
+    @return 0 on success or error code (E_PTE_MBRDISK if disk is MBR). */
+qserr _std dsk_gptdset(u32t disk, dsk_gptdiskinfo *dinfo);
 
 typedef struct {
    u8t     TypeGUID[16];        ///< partition type GUID
@@ -817,29 +779,29 @@ typedef struct {
     @param  [in]  disk    Disk number
     @param  [in]  index   Partition index
     @param  [out] pinfo   Buffer for partition info
-    @return 0 on success or DPTE_* constant (DPTE_MBRDISK if disk is MBR). */
-u32t  _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo);
+    @return 0 on success or error code (E_PTE_MBRDISK if disk is MBR). */
+qserr _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo);
 
 /** update GPT partition info.
     StartSector and Length parameters must be equal to actual partition data else
-    DPTE_RESCAN error will be returned.
-    DPTE_INVARGS returned if one of GUIDs or Name is empty (zeroed).
+    E_PTE_RESCAN error will be returned.
+    E_SYS_INVPARM returned if one of GUIDs or Name is empty (zeroed).
 
     @param  disk    Disk number
     @param  index   Partition index
     @param  pinfo   Buffer with new partition info
-    @return 0 on success or DPTE_* constant (DPTE_MBRDISK if disk/partition is MBR). */
-u32t  _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo);
+    @return 0 on success or error code (E_PTE_MBRDISK if disk/partition is MBR). */
+qserr _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo);
 
 /** init empty hard disk (write GPT partition table).
     @param disk     Disk number.
-    @return 0 on success, or DPTE_* error. DPTE_EMPTY is returned
+    @return 0 on success, or error code. E_PTE_EMPTY is returned
             if disk is NOT empty here. */
-u32t  _std dsk_gptinit(u32t disk);
+qserr _std dsk_gptinit(u32t disk);
 
 /** create GPT partition.
-    Use dsk_ptcreate() for MBR disks, this function will return DPTE_NOFREE
-    if disk is MBR and DPTE_HYBRID if partition table is hybrid.
+    Use dsk_ptcreate() for MBR disks, this function will return E_PTE_NOFREE
+    if disk is MBR and E_PTE_HYBRID if partition table is hybrid.
 
     @param disk     Disk number.
     @param start    Start sector of new partition
@@ -847,8 +809,8 @@ u32t  _std dsk_gptinit(u32t disk);
                     block size.
     @param flags    Flags for creation (only DFBA_PRIMARY accepted).
     @param guid     Partition type GUID. Can be 0 ("Windows Data" assumed).
-    @return 0 on success, or DPTE_* error. */
-u32t  _std dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid);
+    @return 0 on success, or error code. */
+qserr _std dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid);
 
 /** set active partition (GPT disks).
     This function enum all partitions and DROP "BIOS Bootable" attribute, then
@@ -858,8 +820,8 @@ u32t  _std dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *gui
 
     @param [in]  disk     disk number
     @param [in]  index    partition index
-    @return 0 on success or DPTE_* constant. */
-u32t  _std dsk_gptactive(u32t disk, u32t index);
+    @return 0 on success or error code. */
+qserr _std dsk_gptactive(u32t disk, u32t index);
 
 /// @name name type for dsk_gptfind()
 //@{
@@ -877,9 +839,9 @@ u32t  _std dsk_gptactive(u32t disk, u32t index);
                              or actual disk number for search. Return disk
                              number.
     @param [out]    index    Partition index, 0 for disk name search.
-    @return 0 on success or DPTE_* constant. DPTE_PINDEX returned if no
+    @return 0 on success or error code. E_PTE_PINDEX returned if no
             such GUID. */
-u32t  _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index);
+qserr _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index);
 
 #ifdef __cplusplus
 }

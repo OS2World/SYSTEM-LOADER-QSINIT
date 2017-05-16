@@ -2,13 +2,11 @@
 // QSINIT "start" module
 // environment C library functions
 //
-#include "stdlib.h"
 #include "qsutil.h"
 #include "errno.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qsconst.h"
 #include "qsshell.h"
-#include "direct.h"
 
 #define envlen(pq) envlen2(pq,0)
 
@@ -34,7 +32,7 @@ static u32t envlen2(process_context *pq, u32t *lines) {
 }
 
 // make copy of process environment (in malloc buffer)
-char *envcopy(process_context *pq, u32t addspace) {
+char* _std envcopy(process_context *pq, u32t addspace) {
    u32t   len;
    char   *rc;
 
@@ -232,6 +230,27 @@ int  __stdcall env_istrue(const char *name) {
    }
    env_unlock();
    return res;
+}
+
+/// set environment variable (integer) value
+void _std env_setvar(const char *name, int value) {
+   char  vstr[12];
+   _utoa(value, vstr, 10);
+   setenv(name, vstr, 1);
+}
+
+/** get environment variable.
+    Unlike getenv() - function is safe in MT mode.
+    @param name     name of env. string 
+    @return string in heap block (must be free()-ed) or 0. */
+char* _std env_getvar(const char *name) {
+   char *rc;
+   if (!name) return 0;
+   env_lock();
+   rc = getenv(name);
+   if (rc) mem_localblock(rc = strdup(rc));
+   env_unlock();
+   return rc;
 }
 
 /// lock environment access mutex for this process (in MT mode)

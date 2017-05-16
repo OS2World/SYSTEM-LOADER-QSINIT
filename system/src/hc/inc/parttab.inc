@@ -158,8 +158,10 @@ EBPB_PhysDisk   db      ?                 ;/< physical drive number
 EBPB_Dirty      db      ?                 ;/< dirty flag (bit 1)
 EBPB_Sign       db      ?                 ;/< 0x29 (can be 0x28)
 EBPB_VolSerial  dd      ?                 ;/< volume serial number
+;ct char
 EBPB_VolLabel   db      11 dup (?)        ;/< volume label
-EBPB_FSType     db      8 dup (?)         ;/< volume label
+;ct char
+EBPB_FSType     db      8 dup (?)         ;/< file system name
 Extended_BPB    ends
 
 ExtF32_BPB      struc
@@ -174,6 +176,7 @@ ExtF32_BPB      ends
 
 Boot_Record     struc
 BR_Jump         db      3 dup (?)         ;/< 
+;ct char
 BR_OEM          db      8 dup (?)         ;
 BR_BPB          Common_BPB    <?>         ;
 BR_EBPB         Extended_BPB  <?>         ;
@@ -181,6 +184,7 @@ Boot_Record     ends
 
 Boot_RecordF32  struc
 BR_Jump         db      3 dup (?)         ;/< 
+;ct char
 BR_OEM          db      8 dup (?)         ;
 BR_BPB          Common_BPB    <?>         ;
 BR_F32_BPB      ExtF32_BPB    <?>         ;
@@ -189,6 +193,7 @@ Boot_RecordF32  ends
 
 Boot_RecordNT   struc
 BR_Jump         db      3 dup (?)         ;/< 
+;ct char
 BR_OEM          db      8 dup (?)         ;
 BR_BPB          Common_BPB    <?>         ;
 BR_NT_Reserved0 dd      ?                 ;
@@ -205,6 +210,7 @@ Boot_RecordNT   ends
 
 Boot_RecExFAT   struc
 BR_Jump         db      3 dup (?)         ;/< 
+;ct char
 BR_OEM          db      8 dup (?)         ;
 BR_ExF_Reserved db     53 dup (?)         ;/< zeroed space
 BR_ExF_VolStart dq      ?                 ;/< first sector of partition
@@ -223,5 +229,61 @@ BR_ExF_FATCnt   db      ?                 ;/< always 1?
 BR_ExF_PhysDisk db      ?                 ;/<
 BR_ExF_UsedSpc  db      ?                 ;/< percentage of allocated space
 Boot_RecExFAT   ends
+
+Dir_FAT         struc
+Dir_F_Name      db      11 dup (?)        ;
+Dir_F_Attr      db      ?                 ;
+Dir_F_Flags     db      ?                 ;
+Dir_F_CrTimeMs  db      ?                 ; 0..199
+Dir_F_CrTime    dw      ?                 ;
+Dir_F_CrDate    dw      ?                 ;
+Dir_F_AccDate   dw      ?                 ;
+Dir_F_ClustHi   dw      ?                 ;/< EA handle on FAT16 / high word of cluser on FAT32
+Dir_F_MTime     dw      ?                 ;
+Dir_F_MDate     dw      ?                 ;
+Dir_F_ClustLo   dw      ?                 ;
+Dir_F_Size      dd      ?                 ;
+Dir_FAT         ends
+
+FAT_D_ATTR_RO   =  1
+FAT_D_ATTR_HID  =  2
+FAT_D_ATTR_SYS  =  4
+FAT_D_ATTR_VOL  =  8
+FAT_D_ATTR_DIR  = 10h
+FAT_D_ATTR_ARCH = 20h
+
+Dir_ExF         struc
+Dir_ExF_Type    db      ?                 ;
+Dir_ExF_SecCnt  db      ?                 ;/< # of secondary entries (2..18)
+Dir_ExF_ChkSum  dw      ?                 ;
+Dir_ExF_Attr    dw      ?                 ;
+Dir_ExF_Resvd   dw      ?                 ;
+Dir_ExF_CTime   dd      ?                 ;
+Dir_ExF_MTime   dd      ?                 ;
+Dir_ExF_ATime   dd      ?                 ;
+Dir_ExF_CTimeMs db      ?                 ;
+Dir_ExF_MTimeMs db      ?                 ;
+Dir_ExF_ATimeMs db      ?                 ;
+Dir_ExF_Pad     db      9 dup (?)         ;
+Dir_ExF         ends
+
+Dir_ExF_Stream  struc
+Dir_ExFsType    db      ?                 ;
+Dir_ExFsFlags   db      ?                 ;
+Dir_ExFsResvd   db      ?                 ;
+Dir_ExFsNameLen db      ?                 ;
+Dir_ExFsHash    dw      ?                 ;
+Dir_ExFsResvd2  dw      ?                 ;
+Dir_ExFsDataLen dq      ?                 ;/< valid data length
+Dir_ExFsPad     dd      ?                 ;
+Dir_ExFsClust   dd      ?                 ;
+Dir_ExFsSize    dq      ?                 ;/< size of the file
+Dir_ExF_Stream  ends
+
+Dir_ExF_Name    struc
+Dir_ExFnType    db      ?                 ;
+Dir_ExFnFlags   db      ?                 ;
+Dir_ExFnName    dw      15 dup (?)        ;
+Dir_ExF_Name    ends
 
 ;cc #endif // QS_BASE_PARTTABLE

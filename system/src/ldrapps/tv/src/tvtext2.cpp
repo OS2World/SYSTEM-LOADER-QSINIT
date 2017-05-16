@@ -2,28 +2,31 @@
 /* filename -       tvtext2.cpp                               */
 /*                                                            */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TEditWindow
 #define Uses_TFileList
 #define Uses_TProgram
+#define Uses_TKeys
 #define Uses_MsgBox
 #define Uses_TChDirDialog
 #define Uses_TFileDialog
 #define Uses_TFileInfoPane
 #define Uses_TSystemError
 #define Uses_TDeskTop
-#define Uses_TKeys
+#define Uses_TPXPictureValidator
+#define Uses_TFilterValidator
+#define Uses_TRangeValidator
+#define Uses_TStringLookupValidator
+#define Uses_TListViewer
 #include <tv.h>
+#include <tvhelp.h>
 
 #include <ctype.h>
 
@@ -68,6 +71,33 @@ ushort getAltCode(char c) {
 
    return 0;
 }
+
+inline uchar lo(ushort w) { return w & 0xff; }
+inline uchar hi(ushort w) { return w >> 8; }
+
+char getCtrlChar(ushort keyCode) {
+   if ( (lo(keyCode)!= 0) && (lo(keyCode) <= ('Z'-'A'+1)))
+      return lo(keyCode) + 'A' - 1;
+   else
+      return 0;
+}
+
+ushort getCtrlCode(uchar ch) {
+   return getAltCode(ch)|(((('a'<=ch)&&(ch<='z'))?(ch&~0x20):ch)-'A'+1);
+}
+
+const char * TPXPictureValidator::errorMsg = "Error in picture format.\n %s";
+const char * TFilterValidator::errorMsg = "Invalid character in input";
+const char * TRangeValidator::errorMsg = "Value not in the range %ld to %ld";
+const char * TStringLookupValidator::errorMsg = "Input is not in list of valid strings";
+
+const char * TRangeValidator::validUnsignedChars = "+0123456789";
+const char * TRangeValidator::validSignedChars = "+-0123456789";
+
+const char * TListViewer::emptyText = "<empty>";
+
+const char * THelpWindow::helpWinTitle = "Help";
+const char * THelpFile::invalidContext = "\n No help available in this context.";
 
 const char *TEditWindow::clipboardTitle = "Clipboard";
 const char *TEditWindow::untitled = "Untitled";

@@ -12,7 +12,7 @@ if "%BUILD_HERE%".=="OS2". goto skipfix
 set os_def=SP_WIN32
 :skipfix
 set defs=-DSRT -DNO_HUGELIST -DNO_RANDOM -DNO_SP_ASSERTS
-set fp=..\..\..\init\fat
+set fp=..\..\..\ldrapps\start\fs
 
 wcl386 -zq -D%os_def% %defs% -I..\tinc2h\rt -I%fp% vpcfcopy.c 
 set TGT_DIR=..\..\t_%BUILD_HERE%

@@ -23,7 +23,7 @@ Build:
    target dir - this (tbin) dir.
 
    Apps in "system\src\usrapps" must be built individually and not included
-   into common qsinit build.
+   into the common build.
 
    QSINIT source code included into this SDK and buildable, but available for
    non-commercial use only.
@@ -39,7 +39,7 @@ Source tree:
    tbin\qsinit_efi.zip           - 64-bit part of QSINIT EFI executable
                                    (requires EFI Toolkit)
 
-   system\src\ldrapps            - QSINIT modules
+   system\src\ldrapps            >> QSINIT modules
    system\src\ldrapps\hc           - QSINIT API headers
    system\src\ldrapps\start        - START module (second part of QSINIT core)
    system\src\ldrapps\runtime      - app/dll startup code and runtime lib files
@@ -59,15 +59,19 @@ Source tree:
    system\src\ldrapps\vhdd         - simple "file disk" (virtual hdd for
                                      PARTMGR testing)
 
-   system\src\usrapps            - additional apps
+   system\src\usrapps            >> additional apps
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
+   system\src\usrapps\fixcfg       - example of CONFIG.SYS modification tool
+                                     for ram disk boot.
+   system\src\usrapps\memsize      - OS/2 application example: get PC memory
+                                     size via new OEMHLP$ ioctl.
    system\src\usrapps\mptable      - mp table dump app (from bsd)
    system\src\usrapps\mttest       - example of multithreading API usage
    system\src\usrapps\rdtest       - OS/2 application example of IOCTL
                                      access to PAE RAM disk (speed test app
                                      and read disk to file example)
 
-   system\src\tools\src          - various build tools source code
+   system\src\tools\src          >> various build tools source code
    system\src\tools\src\bin2h      - binary data to .h simple converter
    system\src\tools\src\bootset    - volume boot sector setup for OS/2 & Windows
    system\src\tools\src\def2lbc    - .ref file converter to various files
@@ -75,14 +79,15 @@ Source tree:
    system\src\tools\src\mkbin      - tool for making QSINIT binary file
    system\src\tools\src\tinc2h     - .inc to .h simple converter
    system\src\tools\src\vpcfcopy   - write files to FAT disk image
+   system\src\tools\src\watsym     - watcom .map to .sym converter
 
 ---------------------------------------------------------------------------
 
-Some helpful key combinations for ones, who not read Doxygen doc:
+Some helpful key combinations:
 ( keys available in cmd shell or while pause message is active, log_hotkey()
   can be used in own code to filter and call all of this )
 
-   Ctrl-Alt-F3 - shared classes dump
+   Ctrl-Alt-F3 - shared classes list
    Ctrl-Alt-F4 - file table dump
    Ctrl-Alt-F5 - process tree dump (+ threads in MT mode)
    Ctrl-Alt-F6 - gdt dump
@@ -94,8 +99,7 @@ Some helpful key combinations for ones, who not read Doxygen doc:
    Ctrl-Alt-F11 - system memory table dump
    Ctrl-Alt-F12 - pool block list (very long)
 
-Also, these keys are available in MT mode, when "system idle" thread gets too
-much time (it shows this by sequential ~ characters in serial log).
+In MT mode these keys are available at any time.
 
 TRACE command can help in strange situations. It supports tracing of all
 described module`s exports and shared classes. Trace info stored in TRC files

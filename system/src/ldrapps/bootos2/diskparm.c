@@ -133,7 +133,7 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
    pbpb->BPB_Heads       = br->BR_BPB.BPB_Heads;
    pbpb->BPB_HiddenSec   = vi.StartSector;
    pbpb->BPB_TotalSecBig = vi.TotalSectors>65535?vi.TotalSectors:0;
-   pbpb->BPB_BootDisk    = vi.Disk^QDSK_FLOPPY;
+   pbpb->BPB_BootDisk    = hlp_diskbios(vi.Disk,1);
    pbpb->BPB_BootLetter  = vi.Disk&QDSK_FLOPPY ? 0 : 0x80;
    // query LVM drive letter
    if (dmgr_load()) {
@@ -179,6 +179,9 @@ int setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart) {
       memcpy(dhc, dh, PAGESIZE);
       pae_setup(efd->HD4Page, paeppd, paeppd+_64KB, pdsel, efd->DisPartSeg);
 
+      /* vdisk module allocates fake BIOS disk number for own virtual HDD.
+         We should get it here and it must fits into the empty slot in
+         EDParmTable table */
       log_printf("disk %02X, hcopy %08X\n", disk, paeppd);
       // creating fake disk info
       if (disk<INT13E_TABLESIZE) {

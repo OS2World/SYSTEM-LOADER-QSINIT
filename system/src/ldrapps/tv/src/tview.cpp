@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TView member functions                    */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TProgram
 #define Uses_TKeys
@@ -58,9 +55,14 @@ TView::TView(const TRect &bounds):
    state = sfVisible; // Because of Watcom 11.0b optimizator bug
    setBounds(bounds);
    cursor.x = cursor.y = 0;
+   userValue[0] = 0;
+   userValue[1] = 0;
 }
 
 TView::~TView() {
+}
+
+void TView::awaken() {
 }
 
 void TView::blockCursor() {
@@ -166,10 +168,10 @@ void TView::moveGrow(TPoint p,
    locate(r);
 }
 
-void TView::change(uchar mode, TPoint delta, TPoint &p, TPoint &s) {
-   if ((mode & dmDragMove) != 0 && (getShiftState() & 3) == 0)
+void TView::change(uchar mode, TPoint delta, TPoint &p, TPoint &s, ulong ctrlState) {
+   if ((mode & dmDragMove) != 0 && (ctrlState & kbShift) == 0)
       p += delta;
-   else if ((mode & dmDragGrow) != 0 && (getShiftState() & 3) != 0)
+   else if ((mode & dmDragGrow) != 0 && (ctrlState & kbShift) != 0)
       s += delta;
 }
 
@@ -226,22 +228,22 @@ void TView::dragView(TEvent &event,
          keyEvent(event);
          switch (event.keyDown.keyCode & 0xFF00) {
             case kbLeft:
-               change(mode,goLeft,p,s);
+               change(mode,goLeft,p,s,event.keyDown.controlKeyState);
                break;
             case kbRight:
-               change(mode,goRight,p,s);
+               change(mode,goRight,p,s,event.keyDown.controlKeyState);
                break;
             case kbUp:
-               change(mode,goUp,p,s);
+               change(mode,goUp,p,s,event.keyDown.controlKeyState);
                break;
             case kbDown:
-               change(mode,goDown,p,s);
+               change(mode,goDown,p,s,event.keyDown.controlKeyState);
                break;
             case kbCtrlLeft:
-               change(mode,goCtrlLeft,p,s);
+               change(mode,goCtrlLeft,p,s,event.keyDown.controlKeyState);
                break;
             case kbCtrlRight:
-               change(mode,goCtrlRight,p,s);
+               change(mode,goCtrlRight,p,s,event.keyDown.controlKeyState);
                break;
             case kbHome:
                p.x = limits.a.x;
@@ -342,6 +344,24 @@ ushort  TView::execute() {
    return cmCancel;
 }
 
+Boolean TView::focus() {
+   Boolean result = True;
+
+   if ((state & (sfSelected | sfModal)) == 0) {
+      if (owner) {
+         result = owner->focus();
+         if (result)
+            if ((owner->current == 0) ||
+               ((owner->current->options & ofValidate) == 0) ||
+                  (owner->current->valid(cmReleasedFocus)))
+                     select();
+            else
+               return False;
+      }
+   }
+   return result;
+}
+
 TRect TView::getClipRect() {
    TRect clip = getBounds();
    if (owner != 0)
@@ -400,11 +420,9 @@ void TView::growTo(short x, short y) {
 
 void TView::handleEvent(TEvent &event) {
    if (event.what == evMouseDown) {
-      if (!(state & (sfSelected | sfDisabled)) && (options & ofSelectable)) {
-         select();
-         if (!(options & ofFirstClick))
+      if (!(state & (sfSelected | sfDisabled)) && (options & ofSelectable))
+         if (!focus() || !(options & ofFirstClick))
             clearEvent(event);
-      }
    }
 }
 
@@ -546,6 +564,8 @@ void TView::putInFrontOf(TView *Target) {
 }
 
 void TView::select() {
+   if (!(options & ofSelectable))
+      return;
    if ((options & ofTopSelect) != 0)
       makeFirst();
    else if (owner != 0)
@@ -557,13 +577,20 @@ void TView::setBounds(const TRect &bounds) {
    size = bounds.b - bounds.a;
 }
 
+void TView::setCmdState(TCommandSet &commands, Boolean enable) {
+   if (enable)
+      enableCommands(commands);
+   else
+      disableCommands(commands);
+}
+
 void TView::setCommands(TCommandSet &commands) {
    set_commandSetChanged(Boolean(commandSetChanged ||
                                  (curCommandSet != commands)));
    curCommandSet = commands;
 }
 
-void TView::setCursor(short x, short y) {
+void TView::setCursor(int x, int y) {
    cursor.x = x;
    cursor.y = y;
    drawCursor();
@@ -621,7 +648,7 @@ void TView::showCursor() {
 
 void TView::sizeLimits(TPoint &min, TPoint &max) {
    min.x = min.y = 0;
-   if (owner != 0)
+   if (!(growMode & gfFixed) && owner != 0)
       max = owner->size;
    else
       max.x = max.y = INT_MAX;
@@ -669,6 +696,8 @@ void *TView::read(ipstream &is) {
    is >> origin >> size >> cursor
       >> growMode >> dragMode >> helpCtx
       >> state >> options >> eventMask;
+   userValue[0] = 0;
+   userValue[1] = 0;
    owner = 0;
    next = 0;
    return this;

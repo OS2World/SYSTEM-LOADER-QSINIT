@@ -1,0 +1,40 @@
+#
+# makefile for ICC
+#
+# use NMAKE /nologo /f makefile.icc CFG=0     for debug version
+#     NMAKE /nologo /f makefile.icc           for release
+#
+
+OUTROOT=out
+
+!IF "$(CFG)" == "0"
+CFLAGS=-Q+ -Ti+ -Gd- -Gm+ -qnoro -O- -c
+LINKFLAGS=/nologo /Debug
+OUTDIR=$(OUTROOT)\Debug.icc
+!ELSE
+CFLAGS=-Q+ -Gl+ -Gd- -Gl+ -Gm+ -qnoro -O+ -c
+LINKFLAGS=/nologo
+OUTDIR=$(OUTROOT)\Release.icc
+!ENDIF
+
+OUT=$(OUTDIR)/
+CC=icc
+CXX=icc
+LINK=ilink
+EXENAME=memesize.exe
+
+result    : $(OUTDIR) $(EXENAME)
+
+clean     :
+            @echo Cleaning ...
+            @if exist $(OUTDIR)\*.obj del $(OUTDIR)\*.obj > nul
+
+$(OUTDIR) :
+            @if not exist $(OUTROOT) mkdir $(OUTROOT)
+            @if not exist $(OUTDIR) mkdir $(OUTDIR)
+
+$(EXENAME): $(OUT)memsize.obj
+            $(LINK) $(LINKFLAGS) /Out:$(EXENAME) $**
+
+$(OUT)memsize.obj: memsize.c oemhlpex.h
+            $(CC) $(CFLAGS) /Fo$* memsize.c

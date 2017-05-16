@@ -11,6 +11,7 @@
 
                 extrn   _mt_swlock:near                         ;
                 extrn   _mt_swunlock:near                       ;
+                extrn   _fpu_updatets:near                      ;
                 extrn   _mt_exechooks:mt_proc_cb_s              ;
 
 xcpt_rec_sign   = 54504358h                                     ;
@@ -84,7 +85,7 @@ _except_init    proc    near                                    ;
                 push    ebx                                     ;
                 push    edi                                     ; setup exception
                 push    esi                                     ; handlers
-                mov     eax,offset xcpt_top                     ; 
+                mov     eax,offset xcpt_top                     ;
                 mov     _mt_exechooks.mtcb_pxcpttop,eax         ; save ptr into mtdata
                 mov     esi,offset trap_table                   ;
                 xor     edi,edi                                 ;
@@ -286,11 +287,12 @@ walk_xcpt       proc    near
                 or      cx,[eax].tss_backlink                   ; was it task gate?
                 jnz     @@walk_xcpt_taskret                     ;
 @@walk_xcpt_longjmp:
-                clts                                            ;
-                call    _mt_swunlock                            ; unlock mt, it calls
-                push    1                                       ; mt_yeild, so we must
-                push    edx                                     ; by safe at this point
-                call    __longjmp                               ;
+                push    1                                       ; args for longjmp
+                push    edx                                     ;
+                ;clts                                            ;
+                call    _fpu_updatets                           ; update TS flag
+                call    _mt_swunlock                            ; unlock mt, it calls yeild
+                call    __longjmp                               ; so we must be safe here!
 @@walk_xcpt_parent:
                 mov     edi,[edi].xcpt_nextrec                  ; next record
 @@walk_xcpt_start:

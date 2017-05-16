@@ -1,10 +1,9 @@
 #include "seldesc.h"
 #include "pagedesc.h"
-#include "stdlib.h"
 #include "cpudef.h"
 #include "qssys.h"
 #include "qshm.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qecall.h"
 
 static const char *pattype[8] = { "UC", "WC", "???", "???", "WT",

@@ -54,6 +54,7 @@ mt_thrdata* mt_allocthread(mt_prcdata *pd, u32t eip, u32t stacksize) {
       rt->tiPID         = pd->piPID;
       rt->tiTID         = tid;
       rt->tiParent      = pd;
+      rt->tiSession     = pt_current->tiSession;
       rt->tiMiscFlags   = 0;
       rt->tiFiberIndex  = 0;
       rt->tiState       = THRD_SUSPENDED;
@@ -130,7 +131,7 @@ u32t mt_allocfiber(mt_thrdata *th, u32t type, u32t stacksize, u32t eip) {
          nl[ii].fiSign = FIBERSTATE_SIGN;
          nl[ii].fiType = FIBT_AVAIL;
          // zero registers data (to be safe a bit)
-         memset(&nl[ii].fiRegisters, 0, sizeof(struct tss_s *));
+         memset(&nl[ii].fiRegs, 0, sizeof(struct tss_s *));
       }
       // this is new list!
       th->tiList = nl;
@@ -153,6 +154,8 @@ u32t mt_allocfiber(mt_thrdata *th, u32t type, u32t stacksize, u32t eip) {
       fd->fiStackSize = stacksize;
       fd->fiStack     = stack;
       fd->fiXcptTop   = 0;
+      fd->fiFPUMode   = FIBF_EMPTY;
+      fd->fiFPURegs   = 0;
 
       memset(&rd, 0, sizeof(rd));
       rd.tss_eip      = eip;
@@ -183,6 +186,9 @@ void mt_freefiber(mt_thrdata *th, u32t index, int fini) {
    if (fd->fiStack)
       if (fd->fiStackSize<_64KB) free(fd->fiStack); else
           hlp_memfree(fd->fiStack);
+   /// zero current FPU context
+   if (mt_exechooks.mtcb_cfpt==th && mt_exechooks.mtcb_cfpf==index)
+      mt_exechooks.mtcb_cfpt = 0;
 
    memset(fd, 0, sizeof(mt_fibdata));
 
@@ -270,6 +276,11 @@ void _std mt_dumptree(void) {
       log_printf("  parent pid %d, tid %d\n", pd->piParentPID, pd->piParentTID);
       log_printf("  threads: %d (alloc %d)\n", pd->piThreads, pd->piListAlloc);
 
+      if (pd->piMiscFlags&~PFLM_EMBLIST)
+         log_printf("    ( %s%s%s)\n", pd->piMiscFlags&PFLM_SYSTEM ?"sys ":"",
+            pd->piMiscFlags&PFLM_NOPWAIT?"ses ":"",
+               pd->piMiscFlags&PFLM_LWAIT?"lwait ":"");
+
       for (ii=0; ii<pd->piListAlloc; ii++) {
          mt_thrdata *th = pd->piList[ii];
          if (th) {
@@ -288,8 +299,8 @@ void _std mt_dumptree(void) {
             } else
                thname[0] = 0;
 
-            log_printf("%stid %d [%10LX] [%08X]: %s   %s\n", th==pt_current?">>":"  ",
-               th->tiTID, th->tiTime, th, thstate[th->tiState], thname);
+            log_printf("%stid %d [%10LX] [%08X] [%3u]: %s   %s\n", th==pt_current?">>":"  ",
+               th->tiTID, th->tiTime, th, th->tiSession, thstate[th->tiState], thname);
 
             if (th->tiState==THRD_WAITING) {
                switch (th->tiWaitReason) {
@@ -302,18 +313,43 @@ void _std mt_dumptree(void) {
                   case THWR_TIDEXIT  :
                      log_printf("    waiting for tid %d\n", th->tiWaitHandle);
                      break;
+                  case THWR_WAITLNCH :
+                     log_printf("    suspended until launcher`s (pid %d) mt_waitobject\n",
+                        th->tiWaitHandle);
+                     break;
                   case THWR_WAITOBJ  : {
                      we_list_entry *we = (we_list_entry*)th->tiWaitHandle;
                      u32t          idx;
                      log_printf("    wait object, %08X, %u entries, lmask %08X\n",
                         we, we->ecnt, we->clogic);
                      for (idx=0; idx<we->ecnt; idx++) {
-                        static const char *wt = "?TPCM";
+                        static const char *wt = "?TPCMKQ";
                         mt_waitentry     *pwe = we->we + idx;
                         u32t            htype = pwe->htype;
-                        log_printf("      %3u. [%u] %08X %c %LX %LX\n", idx+1,
-                           we->sigf[idx], pwe->group, wt[htype], pwe->htype==QWHT_CLOCK?
-                              pwe->tme:pwe->pid, pwe->htype==QWHT_CLOCK?pwe->reserved:0);
+                        char             estr[48];
+
+                        switch (pwe->htype) {
+                           case QWHT_TID  :
+                           case QWHT_PID  :
+                              snprintf(estr, 48, "id %u pRes:%08X", pwe->pid, pwe->resaddr);
+                              break;
+                           case QWHT_MUTEX:
+                           case QWHT_CLOCK:
+                              snprintf(estr, 48, "%LX %LX", pwe->tme, pwe->reserved);
+                              break;
+                           case QWHT_QUEUE: {
+                              u32t sft_no = 0;
+                              // can be called here because we`re in lock
+                              int   evnum = hlp_qavail(pwe->que, 0, &sft_no);
+                              snprintf(estr, 48, "%X sft:%u, %i events",
+                                 pwe->que, sft_no, evnum);
+                              break;
+                           }
+                           default:
+                              estr[0] = 0;
+                        }
+                        log_printf("      %3u. [%u] %08X %c %s\n", idx+1,
+                           we->sigf[idx], pwe->group, wt[htype], estr);
                      }
                      break;
                   }
@@ -325,19 +361,22 @@ void _std mt_dumptree(void) {
                   md, md->lockcnt, md->waitcnt);
                md = md->next;
             }
-            mi = mod_by_eip(cfb->fiRegisters.tss_eip, &object, &offset, cfb->fiRegisters.tss_cs);
+            mi = mod_by_eip(cfb->fiRegs.tss_eip, &object, &offset, cfb->fiRegs.tss_cs);
             if (mi)
                snprintf(modinfo, 64, "(\"%s\" %d:%08X)", mi->name, object+1, offset);
             else
                modinfo[0] = 0;
 
-            if (th->tiMiscFlags)
-               log_printf("    %s%s%s%s\n", th->tiMiscFlags&TFLM_MAIN?"main ":"",
-                  th->tiMiscFlags&TFLM_EMBLIST?"emb ":"", th->tiMiscFlags&TFLM_SYSTEM?"sys ":"",
-                     th->tiMiscFlags&TFLM_NOSCHED?"idle ":"");
-            log_printf("    fibers %d, active %d, th %08X, stack %08X..%08X, eip %08X %s\n",
-               th->tiFibers, th->tiFiberIndex, th, cfb->fiStack,
-                  (u32t)cfb->fiStack+cfb->fiStackSize-1, cfb->fiRegisters.tss_eip, modinfo);
+            if (th->tiMiscFlags) {
+               u32t mf = th->tiMiscFlags;
+               log_printf("    %s%s%s%s%s%s\n", mf&TFLM_MAIN?"main ":"",
+                  mf&TFLM_EMBLIST?"emb ":"", mf&TFLM_SYSTEM?"sys ":"",
+                     mf&TFLM_NOSCHED?"idle ":"", mf&TFLM_NOFPU?"nofpu ":"",
+                        mf&TFLM_NOTRACE?"notrace ":"");
+            }
+            log_printf("    fibers %d, active %d, fpu %u %08X, stack %08X..%08X, eip %08X %s\n",
+               th->tiFibers, th->tiFiberIndex, cfb->fiFPUMode, cfb->fiFPURegs, cfb->fiStack,
+                  (u32t)cfb->fiStack+cfb->fiStackSize-1, cfb->fiRegs.tss_eip, modinfo);
             // modinfo has 144 bytes, this should be enough
             sprintf(modinfo, "    lead tls: ");
             if (!th->tiTLSArray) strcat(modinfo, "unallocated"); else
@@ -358,7 +397,7 @@ void _std mt_dumptree(void) {
    }
    log_it(2,"%u timer interrupts since last dump\n", timer_cnt);
    timer_cnt = 0;
-   // use "set MTLIB = ON, DUMPLEVEL=1" to het access here
+   // use "set MTLIB = ON, DUMPLVL=1" to open access here
    if (dump_lvl>0) {
       u32t  tmrdiv;
       log_it(3, "APIC: %X (%08X %08X %08X %08X %08X %08X)\n", apic[APIC_APICVER]&0xFF,

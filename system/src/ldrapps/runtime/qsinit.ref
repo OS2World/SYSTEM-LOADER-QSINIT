@@ -37,36 +37,18 @@ exports = {
   _hlp_memqconst   = { index=24 }                                 # internal
   _hlp_memprint    = { index=26 }                                 # print tables to log
   _hlp_memgetsize  = { index=27 }                                 # query block size
-  _hlp_memreserve  = { index=28 }                                 # reserve mem at phys addr
+  _hlp_memreserve  = { index=28 group="sysmem" format="ppu&*u" }  # reserve mem at phys addr
   _hlp_memallocsig = { index=29 }                                 # global malloc with signature
 
-  _hlp_fopen       = { index=31 group="mfs"    format="us"  }     # open file
-  _hlp_fread       = { index=32 group="mfs"    format="u@upu" }   # read file
-  _hlp_fclose      = { index=33 group="mfs"    format="vv"  }     # close file
+  _hlp_fopen       = { index=31 group="mfs"    format="us"     }  # open file
+  _hlp_fread       = { index=32 group="mfs"    format="u@upu"  }  # read file
+  _hlp_fclose      = { index=33 group="mfs"    format="vv"     }  # close file
   _hlp_freadfull   = { index=34 group="mfs"    format="ps&*up" }  # open/read/close file
+  _hlp_fexist      = { index=35 group="mfs"    format="us"     }  # is file exists
 
-  _f_mount         = { index=40 group="fatfs"  format="bpsb"  }   # mount virtual disk
-  _f_open          = { index=41 group="fatfs"  format="bps@c" }   # open file
-  _f_read          = { index=42 group="fatfs"  format="bppu&*u" } # read file
-  _f_lseek         = { index=43 group="fatfs"  format="bp@q"  }   # seek file
-  _f_close         = { index=44 group="fatfs"  format="bp"    }   # close file
-  _f_opendir       = { index=45 group="fatfs"  format="bps"   }   # open dir
-  _f_readdir       = { index=46 group="fatfs"  format="bpp"   }   # read dir
-  _f_stat          = { index=47 group="fatfs"  format="bsp"   }   # stat file
-  _f_write         = { index=48 group="fatfs"  format="bppu&*u" } # write file
-  _f_getfree       = { index=49 group="fatfs"  format="bs&*u&*p" } # get free space
-  _f_truncate      = { index=50 group="fatfs"  format="bp"    }   # truncate file
-  _f_sync          = { index=51 group="fatfs"  format="bp"    }   # sync virtual disk
-  _f_unlink        = { index=52 group="fatfs"  format="bs"    }   # delete file
-  _f_mkdir         = { index=53 group="fatfs"  format="bs"    }   # make dir
-  _f_chmod         = { index=54 group="fatfs"  format="bs@c@c" }  # change rights
-  _f_utime         = { index=55 group="fatfs"  format="bsp"   }   #
-  _f_rename        = { index=56 group="fatfs"  format="bss"   }   # rename file
-  _f_closedir      = { index=57 group="fatfs"  format="bp"    }   # close dir
-  # 58..61 removed (FatFs curdir functions)
-  _f_getlabel      = { index=62 group="fatfs"  format="bs&s&*@u" } # get volume label
-  _f_setlabel      = { index=63 group="fatfs"  format="bs"    }   # set volume label
-  _hlp_setcpinfo   = { index=64 group="fatfs"  format="v*h"   }   # oem conversion setup
+  _memcmp          = { index=40  group="clib"   format = "ippu" } #
+  _ff_convert      = { index=41  group="ucvt"   format = "CCu"  } #
+  _ff_wtoupper     = { index=42  group="ucvt"   format = "CC"   } #
 
   _snprintf        = { index=70 group="string"  format="i&sus." } # clib
   _memset          = { index=72 group="clib"    format="pp@cu" }  #
@@ -109,18 +91,19 @@ exports = {
   _vio_getmode     = { index=108 }                                # query current text mode
   _vio_beep        = { index=109 group="vio"    format="vhu"   }  # speaker sound
  
-  _zip_open        = { index=110 group="zip"    format="ippu"  }  # open zip
+  _zip_open        = { index=110 group="zip"    format="@uppu" }  # open zip in memory
   _zip_close       = { index=111 group="zip"    format="vp"    }  # close zip
-  _zip_nextfile    = { index=112 group="zip"    format="ip&*s&*u" } # seek next file
-  _zip_readfile    = { index=113 group="zip"    format="pp"    }  # unpack file from zip
+  _zip_nextfile    = { index=112 group="zip"    format="@up&*s&*u" } # seek next file
+  _zip_readfile    = { index=113 group="zip"    format="@up*&p" } # unpack file from zip
   _crc32           = { index=114 group="zip"    format="@u@upu" } # crc32
-  _zip_isok        = { index=115 group="zip"    format="ip"    }  # check last result
+  _zip_openfile    = { index=115 group="zip"    format="@upsi" }  # open zip file
   _zip_unpacked    = { index=116 group="zip"    format="up&*u" }  # get total zip size
   # 117 removed (_unpack_zip)
 
   _hlp_int15mem    = { index=120 }                                # get full ACPI memory table
   _exit_poweroff   = { index=121 }                                # power off the system
   _exit_restirq    = { index=122 group="system" format="vi"    }  # set IRQ restore flag
+  _se_sesno        = { index=123 }                                # query current session no
   _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
   _hlp_runcache    = { index=125 group="disk"   format="up"    }  # install cache handler
   _exit_reboot     = { index=126 }                                # reboot system
@@ -129,7 +112,7 @@ exports = {
   _IODelay         = { index=129 offset = yes }                   # i/o delay value
   _page0_fptr      = { index=130 offset = yes }                   # 48-bit writable page 0 ptr
   _exit_prepare    = { index=131 }                                # call exit list
-  # 132 removed (_exit_handler)
+  _ExCvt           = { index=132 offset = yes }                   # upper 128 chars table
   _hlp_boottype    = { index=133 }                                # query boot type
   _hlp_getcpuid    = { index=134 }                                # cpuid call
   _hlp_readmsr     = { index=135 }                                # read msr call
@@ -161,7 +144,7 @@ exports = {
   _mod_load        = { index=160 group="module" format="@us@u&*up" } # load module
   _mod_unpackobj   = { index=161 }                                # unpack module object
   _mod_getfuncptr  = { index=162 }                                # get pointer to exp. function
-  _mod_exec        = { index=163 }                                # exec loaded exe module
+  _mod_exec        = { index=163 group="module" format="i@upsp" } # exec loaded exe module
   _mod_free        = { index=164 group="module" format="@u@u" }   # free module
   _mod_secondary   = { index=165 offset = yes }                   # internal variables and
   _mod_list        = { index=166 offset = yes }                   # functions
@@ -197,7 +180,7 @@ exports = {
   _vio_setmodeex   = { index=205 group="vio"    format = "iuu" }  # set text mode
   _vio_writebuf    = { index=206 group="vio" }                    # buffer -> text screen
   _vio_readbuf     = { index=207 group="vio" }                    # text screen -> buffer
-  _vio_ttylines    = { index=208 offset = yes }                   # global count of printed lines
+  _vio_ttylines    = { index=208 }                                # ptr to printed lines count
 
   _hlp_diskcount   = { index=210 group="diskio" format="u&*u"  }  # physical disk access
   _hlp_disksize    = { index=211 group="disk"   format="u@u&*up" } #
@@ -205,8 +188,9 @@ exports = {
   _hlp_diskwrite   = { index=213 group="diskio" format="u@u@qup" } #
   _hlp_diskmode    = { index=214 group="disk"   format="u@u@u" }  #
   _hlp_fddline     = { index=215 group="disk"   format="i@u"   }  #
-  _hlp_diskadd     = { index=216 group="disk"   format="@ip"   }  #
+  _hlp_diskadd     = { index=216 group="disk"   format="@ip@u" }  #
   _hlp_diskremove  = { index=217 group="disk"   format="i@u"   }  #
+  _hlp_diskbios    = { index=218 group="disk"   format="@u@ui" }  #
   _hlp_disksize64  = { index=221 group="disk"   format="q@u&*u" } #
   _hlp_diskstruct  = { index=222 group="disk"   format="p@up"  }  #
 

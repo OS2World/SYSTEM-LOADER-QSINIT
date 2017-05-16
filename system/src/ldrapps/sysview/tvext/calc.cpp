@@ -25,12 +25,7 @@
 #include "sp_defs.h"
 #endif
 
-#define cpCalcPalette   "\x13"
-
-#define cpDialog \
-   "\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2A\x2B\x2C\x2D\x2E\x2F" \
-   "\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3A\x3B\x3C\x3D\x3E\x3F"
-
+#define cpCalcPalette "\x13"
 #define cpLightButton "\x11\x0B\x0C\x0D\x12\x12\x12\x0F"
 
 //
@@ -280,7 +275,7 @@ static char *keyChar[35] = {
 // TCalculator functions
 //
 TCalculatorWindow::TCalculatorWindow() :
-   TAppWindow(TRect(5, 3, 44, 18), "Calculator", TWin_Calc),
+   TAppWindow(TRect(5, 3, 44, 18), "Calculator", AppW_Calc),
    TWindowInit(&TCalculatorWindow::initFrame) 
 {
    TView *tv;

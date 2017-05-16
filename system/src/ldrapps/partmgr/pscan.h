@@ -10,8 +10,15 @@
 #include "qsshell.h"
 #include "parttab.h"
 #include "qsdm.h"
+#include "qslog.h"
+#include "qserr.h"
 #include "lvm.h"
 #include "qsconst.h"
+#include "qcl/sys/qsedinfo.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define shellprc(col,x,...)  cmd_printseq(x,0,col,__VA_ARGS__)
 #define shellprn(x,...)      cmd_printseq(x,0,0,__VA_ARGS__)
@@ -56,42 +63,44 @@ typedef struct {
                    *ghead2; ///< GPT header sector copy (2nd), can be 0 on error
 } hdd_info;
 
+extern long memOwner, memPool;
+
 hdd_info *get_by_disk(u32t disk);
 
 /// "dmgr list" subcommand
-u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos);
+u32t      shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos);
 /// "dmgr pm" subcommand
-u32t shl_pm     (const char *cmd, str_list *args, u32t disk, u32t pos);
+u32t      shl_pm     (const char *cmd, str_list *args, u32t disk, u32t pos);
 /// "dmgr gpt" subcommand
-u32t shl_dm_gpt (const char *cmd, str_list *args, u32t disk, u32t pos);
+u32t      shl_dm_gpt (const char *cmd, str_list *args, u32t disk, u32t pos);
 
 /** "dmgr boot print"  command
     @return errno */
-int  dsk_printbpb(u32t disk, u64t sector);
+int       dsk_printbpb(u32t disk, u64t sector);
 
 /** flush PT sector
     @param disk     disk number
-    @return 0 on success, or DPTE_* error. */
-u32t dsk_flushquad(u32t disk, u32t quadpos);
+    @return 0 on success, or error code. */
+qserr     dsk_flushquad(u32t disk, u32t quadpos);
 
 /** is pt sector contain only empty records?
     @param info     disk info table
     @param quadidx  index (0 for primary, 1..x - extended)
     @param ign_ext  ignore extended partition records
     @return boolean (1/0) */
-u32t dsk_isquadempty(hdd_info *info, u32t quadpos, int ign_ext);
+u32t      dsk_isquadempty(hdd_info *info, u32t quadpos, int ign_ext);
 
 /** find index of extended record in sector`s partition table.
     @param info     disk info table
     @param quadidx  index (0 for primary, 1..x - extended)
     @return 0..3 for index of -1 on error */
-int  dsk_findextrec(hdd_info *info, u32t quadpos);
+int       dsk_findextrec(hdd_info *info, u32t quadpos);
 
 /** find index of logical partition record in sector`s partition table.
     @param info     disk info table
     @param quadidx  index (0 for primary, 1..x - extended)
     @return 0..3 for index of -1 on error */
-int  dsk_findlogrec(hdd_info *info, u32t quadpos);
+int       dsk_findlogrec(hdd_info *info, u32t quadpos);
 
 /// get disk size string
 #define get_sizestr(sectorsize,disksize) \
@@ -102,51 +111,46 @@ int  dsk_findlogrec(hdd_info *info, u32t quadpos);
     @param disk     disk number
     @param sector   sector
     @return boolean (success flag) */
-int dsk_wipevbs(u32t disk, u64t sector);
+int       dsk_wipevbs(u32t disk, u64t sector);
 
 /** wipe pt sector.
     @param disk     disk number
     @param quadidx  index (0 for primary, 1..x - extended)
     @param delsig   delete 0x55AA signature - 1/0.
-    @return 0 on success, or DPTE_* error. */
-u32t dsk_wipequad(u32t disk, u32t quadidx, int delsig);
+    @return 0 on success, or E_PTE_* error. */
+qserr     dsk_wipequad(u32t disk, u32t quadidx, int delsig);
 
 /** write empty partition table sector.
     @param disk     disk number
     @param sector   sector
-    @param table    optional table to copy (can be 0). 
-                    LBA values here must be in disk format, not absolute 
+    @param table    optional table to copy (can be 0).
+                    LBA values here must be in disk format, not absolute
                     offsets from the start of disk as stored in hdd_info!
-    @return 0 on success, or DPTE_* error. */
-u32t dsk_emptypt(u32t disk, u32t sector, struct MBR_Record *table);
+    @return 0 on success, or E_PTE_* error. */
+qserr     dsk_emptypt(u32t disk, u32t sector, struct MBR_Record *table);
 
 /** delete GPT partition.
-    Function return DPTE_RESCAN in case of mismatch pt index to start sector of
+    Function return E_PTE_RESCAN in case of mismatch pt index to start sector of
     it.
     @param disk     Disk number.
     @param index    Partition index
     @param start    Start sector of partition (for additional check)
-    @return 0 on success, or DPTE_* error. */
-u32t dsk_gptdel(u32t disk, u32t index, u64t start);
-
-/** flush GPT data to disk
-    @param info     disk info table
-    @return 0 on success, or DPTE_* error. */
-u32t dsk_flushgpt(hdd_info *hi);
+    @return 0 on success, or E_PTE_* error. */
+qserr     dsk_gptdel(u32t disk, u32t index, u64t start);
 
 /** parse disk number.
     Accept hd0, h0, fd2, f2, 1:, 0:, A:, B:
     @param  str  disk number str.
     @return -errno or disk number */
-long get_disk_number(char *str);
+long      get_disk_number(char *str);
 
 /** check LM_CACHE_ON_MOUNT env key and load CACHE.DLL if asked in it
     key format is:
        set LM_CACHE_ON_MOUNT = on, 5% */
-void cache_envstart(void);
+void      cache_envstart(void);
 
 /// free internally used CACHE instance
-void cache_free(void);
+void      cache_free(void);
 
 #define ACTION_SETACTIVE       0
 #define ACTION_SETTYPE         1   ///< arg is new type
@@ -161,7 +165,7 @@ void cache_free(void);
     @param  disk        disk number
     @param  index       viewable or direct partition index (depends on ACTION_DIRECT)
     @param  arg         argument for call, depends on action
-    @return 0 on success, or DPTE_* error. */
+    @return 0 on success, or E_PTE_* error. */
 u32t _std pt_action(u32t action, u32t disk, u32t index, u32t arg);
 
 /** finalizing format action.
@@ -170,8 +174,8 @@ u32t _std pt_action(u32t action, u32t disk, u32t index, u32t arg);
     @param  ptbyte      partition byte type to set (-1 to ignore)
     @param  volidx      volume index on disk (for ptbyte, -1 to ignore)
     @param  badcnt      number of bad clusters (for format message text)
-    @return 0 on success, or DPTE_* error. */
-u32t format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t badcnt);
+    @return 0 on success, or E_PTE_* error. */
+u32t      format_done(u8t vol, disk_volume_data di, long ptbyte, long volidx, u32t badcnt);
 
 u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint);
 
@@ -188,10 +192,10 @@ u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
     @param  nsec        # of sectors in data
     @param  zerorem     zero remain sectors in boot area (bool flag = 1/0)
     @return boolean (success flag) */
-int  exf_updatevbr(u32t disk, u64t sector, void *data, u32t nsec, u32t zerorem);
+int       exf_updatevbr(u32t disk, u64t sector, void *data, u32t nsec, u32t zerorem);
 
 /// exFAT checksum calc
-u32t exf_sum(u8t src, u32t sum);
+u32t      exf_sum(u8t src, u32t sum);
 
 /// fill sectors by "value" (expanded version of dsk_emptysector()
 u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
@@ -199,17 +203,34 @@ u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
 /** scan sectors for DLAT record.
     @param  disk        disk number
     @param  start       start sector (zero is NOT accepted)
-    @param  count       miber of sectors to scan
+    @param  count       number of sectors to scan
     @return 0 if not found or error occured, else sector number. */
 u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count);
 
+/// VHDD disk?
+int       dsk_vhddmade(u32t disk);
+
 /// confirmation dialog with default NO button
-int  confirm_dlg(const char *text);
+int       confirm_dlg(const char *text);
 
-/** print error to screen.
-    @param  mask        prefix for msg.ini (ex. _DPTE)
-    @param  altmsg      alt. text if message number not present
-    @param  rc          error code to print */
-void common_errmsg(const char *mask, const char *altmsg, u32t rc);
+/** get QS error message.
+    @return string in heap block, for unknown code returns "altmsg"
+            message */
+char*     make_errmsg  (qserr rc, const char *altmsg);
 
+/// lock common shared mutex
+void      scan_lock  (void);
+/// unlock common shared mutex
+void      scan_unlock(void);
+
+#ifdef __cplusplus
+}
+// global mutex
+class FUNC_LOCK {
+public:
+   FUNC_LOCK() { scan_lock(); }
+   ~FUNC_LOCK() { scan_unlock(); }
+};
+
+#endif
 #endif // QSINIT_PSCAN

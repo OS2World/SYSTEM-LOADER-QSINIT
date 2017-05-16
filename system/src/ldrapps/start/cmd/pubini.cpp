@@ -3,11 +3,10 @@
 // ini files access shared class
 //
 #include "qcl/qsinif.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "sp_ini.h"
 #include "qs_rt.h"
 #include "time.h"
-#include "stdlib.h"
 
 #define INIF_SIGN  MAKEID4('I','N','I','F')
 
@@ -38,7 +37,7 @@ static qserr _exicc inif_flush(EXI_DATA, int force) {
    if (fd->ifh) {
       spstr dtext = fd->ifl->GetFileText().GetTextToStr();
 
-      if (io_seek(fd->ifh,0,IO_SEEK_SET)==FFFF64) res = E_DSK_IO; else
+      if (io_seek(fd->ifh,0,IO_SEEK_SET)==FFFF64) res = E_DSK_ERRWRITE; else
       if (io_write(fd->ifh, dtext(), dtext.length())!=dtext.length())
          res = io_lasterror(fd->ifh); 
             else res = io_setsize(fd->ifh, dtext.length());
@@ -115,7 +114,7 @@ static qserr _exicc inif_open(EXI_DATA, const char *fname, u32t mode) {
       if (!src) { res = E_SYS_NOMEM; break; }
       if (io_read(fd->ifh, src, fsz)<fsz) { 
          res = io_lasterror(fd->ifh);
-         if (!res) res = E_DSK_IO;
+         if (!res) res = E_DSK_ERRREAD;
          break; 
       }
       TStrings slst;

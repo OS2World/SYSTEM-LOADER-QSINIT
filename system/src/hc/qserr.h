@@ -11,6 +11,8 @@
 #define E_TYPE_SYS          (0x00000000)         ///< common errors
 #define E_TYPE_MOD          (0x00010000)         ///< module loader errors
 #define E_TYPE_DSK          (0x00020000)         ///< disk i/o errors
+#define E_TYPE_PTE          (0x00030000)         ///< partition management
+#define E_TYPE_LVM          (0x00040000)         ///< LVM errors
 #define E_TYPE_MT           (0x00050000)         ///< MT lib errors
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
@@ -46,18 +48,74 @@
 #define E_SYS_INITED        (E_TYPE_SYS+0x001E)  ///< object already initialized
 #define E_SYS_BADFMT        (E_TYPE_SYS+0x001F)  ///< incompatible file format
 #define E_SYS_SOFTFAULT     (E_TYPE_SYS+0x0020)  ///< software fault occurs
+#define E_SYS_UBREAK        (E_TYPE_SYS+0x0021)  ///< user break, operation not complete
+#define E_SYS_CPLIB         (E_TYPE_SYS+0x0022)  ///< missing codepage support
+#define E_SYS_EFIHOST       (E_TYPE_SYS+0x0023)  ///< not supported on EFI host
+#define E_SYS_INTVAL        (E_TYPE_SYS+0x0024)  ///< invalid integer value
+#define E_SYS_EOF           (E_TYPE_SYS+0x0025)  ///< (unexpected) end of file reached
+#define E_SYS_CRC           (E_TYPE_SYS+0x0026)  ///< CRC error in file
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
-#define E_DSK_IO            (E_TYPE_DSK+0x0001)
-#define E_DSK_NOTREADY      (E_TYPE_DSK+0x0002)
-#define E_DSK_WP            (E_TYPE_DSK+0x0003)  ///< disk is write protected
-#define E_DSK_UNCKFS        (E_TYPE_DSK+0x0004)  ///< filesystem is not determined
-#define E_DSK_NOTMOUNTED    (E_TYPE_DSK+0x0005)  ///< device or filesystem is not mounted
-#define E_DSK_BADVOLNAME    (E_TYPE_DSK+0x0006)  ///< invalid volume name
-#define E_DSK_DISKNUM       (E_TYPE_DSK+0x0007)  ///< invalid disk number value
-#define E_DSK_PT2TB         (E_TYPE_DSK+0x0008)  ///< partition too large
-#define E_DSK_DISKFULL      (E_TYPE_DSK+0x0009)  ///< disk is full
-#define E_DSK_MOUNTERR      (E_TYPE_DSK+0x000A)  ///< device mounting error
+#define E_DSK_ERRREAD       (E_TYPE_DSK+0x0001)  ///< disk read error
+#define E_DSK_ERRWRITE      (E_TYPE_DSK+0x0002)  ///< disk write error
+#define E_DSK_NOTREADY      (E_TYPE_DSK+0x0003)
+#define E_DSK_WP            (E_TYPE_DSK+0x0004)  ///< disk is write protected
+#define E_DSK_UNKFS         (E_TYPE_DSK+0x0005)  ///< filesystem is not determined
+#define E_DSK_NOTMOUNTED    (E_TYPE_DSK+0x0006)  ///< device or filesystem is not mounted
+#define E_DSK_BADVOLNAME    (E_TYPE_DSK+0x0007)  ///< invalid volume name
+#define E_DSK_DISKNUM       (E_TYPE_DSK+0x0008)  ///< invalid disk number value
+#define E_DSK_PT2TB         (E_TYPE_DSK+0x0009)  ///< partition too large
+#define E_DSK_DISKFULL      (E_TYPE_DSK+0x000A)  ///< disk is full
+#define E_DSK_MOUNTERR      (E_TYPE_DSK+0x000B)  ///< device mounting error
+#define E_DSK_UMOUNTERR     (E_TYPE_DSK+0x000C)  ///< failed to unmount destination volume
+#define E_DSK_MOUNTED       (E_TYPE_DSK+0x000D)  ///< partition already mounted
+#define E_DSK_NOLETTER      (E_TYPE_DSK+0x000E)  ///< there is no free drive letter
+#define E_DSK_2TBERR        (E_TYPE_DSK+0x000F)  ///< unable to access disk data above 2TB
+#define E_DSK_SSIZE         (E_TYPE_DSK+0x0010)  ///< unsupported sector size (>4kb)
+#define E_DSK_VLARGE        (E_TYPE_DSK+0x0011)  ///< volume too large for selected filesystem
+#define E_DSK_VSMALL        (E_TYPE_DSK+0x0012)  ///< volume too small to fit filesystem structures
+#define E_DSK_SELTYPE       (E_TYPE_DSK+0x0013)  ///< failed to select FAT type (16 or 32)
+#define E_DSK_CLSIZE        (E_TYPE_DSK+0x0014)  ///< wrong cluster size parameter
+#define E_DSK_CNAMELEN      (E_TYPE_DSK+0x0015)  ///< custom boot file name length too long
+#define E_DSK_FSMISMATCH    (E_TYPE_DSK+0x0016)  ///< file system type mismatch (dsk_newvbr())
+
+/* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
+#define E_PTE_FLOPPY        (E_TYPE_PTE+0x0001)  ///< big floppy, pt is empty
+#define E_PTE_EMPTY         (E_TYPE_PTE+0x0002)  ///< disk is not partitioned
+#define E_PTE_INVALID       (E_TYPE_PTE+0x0003)  ///< invalid table, valid part must be used r/o
+#define E_PTE_GPTDISK       (E_TYPE_PTE+0x0004)  ///< disk have GPT partition table
+#define E_PTE_HYBRID        (E_TYPE_PTE+0x0005)  ///< disk have hybrid partition table (GPT+MBR)
+#define E_PTE_MBRDISK       (E_TYPE_PTE+0x0006)  ///< disk have MBR partition table
+#define E_PTE_PINDEX        (E_TYPE_PTE+0x0007)  ///< unable to find partition index
+#define E_PTE_PRIMARY       (E_TYPE_PTE+0x0008)  ///< partition is not primary
+#define E_PTE_EXTENDED      (E_TYPE_PTE+0x0009)  ///< partition is extended and cannot be active
+#define E_PTE_RESCAN        (E_TYPE_PTE+0x000A)  ///< rescan requred (start sector is not matched to pt index)
+#define E_PTE_NOFREE        (E_TYPE_PTE+0x000B)  ///< there is no free space on this position
+#define E_PTE_SMALL         (E_TYPE_PTE+0x000C)  ///< partition too small to create
+#define E_PTE_EXTERR        (E_TYPE_PTE+0x000D)  ///< extended partition processing error
+#define E_PTE_NOPRFREE      (E_TYPE_PTE+0x000E)  ///< no free space in primary table
+#define E_PTE_FINDEX        (E_TYPE_PTE+0x000F)  ///< invalid free space index
+#define E_PTE_FSMALL        (E_TYPE_PTE+0x0010)  ///< free space is smaller than specified
+#define E_PTE_LARGE         (E_TYPE_PTE+0x0011)  ///< partition too large (64-bit number of sectors)
+#define E_PTE_GPTHDR        (E_TYPE_PTE+0x0012)  ///< GPT header is broken
+#define E_PTE_GPTLARGE      (E_TYPE_PTE+0x0013)  ///< GPT header too large to process
+#define E_PTE_GPTHDR2       (E_TYPE_PTE+0x0014)  ///< second GPT header is broken
+#define E_PTE_EXTPOP        (E_TYPE_PTE+0x0015)  ///< extended partition is not empty and cannot be deleted
+#define E_PTE_INCOMPAT      (E_TYPE_PTE+0x0016)  ///< incompatible disks (dsk_clonestruct() - sector size or spt mismatch)
+#define E_PTE_CSPACE        (E_TYPE_PTE+0x0017)  ///< there is no free space on target disk for clone
+#define E_PTE_BOOTPT        (E_TYPE_PTE+0x0018)  ///< unable to use boot partition as target
+
+/* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
+#define E_LVM_NOINFO        (E_TYPE_LVM+0x0001)  ///< no LVM info on disk
+#define E_LVM_NOBLOCK       (E_TYPE_LVM+0x0002)  ///< no partition table info block
+#define E_LVM_NOPART        (E_TYPE_LVM+0x0003)  ///< no info for one of existing partition
+#define E_LVM_SERIAL        (E_TYPE_LVM+0x0004)  ///< serial number mismatch
+#define E_LVM_GEOMETRY      (E_TYPE_LVM+0x0005)  ///< geometry mismatch
+#define E_LVM_LETTER        (E_TYPE_LVM+0x0006)  ///< already used or invalid drive letter
+#define E_LVM_PTNAME        (E_TYPE_LVM+0x0007)  ///< no partition with specified name
+#define E_LVM_DSKNAME       (E_TYPE_LVM+0x0008)  ///< no disk with specified name
+#define E_LVM_LOWPART       (E_TYPE_LVM+0x0009)  ///< partition placed in 1st 63 sectors
+#define E_LVM_BADSERIAL     (E_TYPE_LVM+0x000A)  ///< invalid serial number
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_MOD_NOT_LX        (E_TYPE_MOD+0x0001)  ///< not LE/LX
@@ -85,6 +143,7 @@
 #define E_MOD_FSYSTEM       (E_TYPE_MOD+0x0032)  ///< trying to free system module
 #define E_MOD_LIBTERM       (E_TYPE_MOD+0x0033)  ///< DLL term function denied unloading
 #define E_MOD_EXECINPROC    (E_TYPE_MOD+0x0034)  ///< mod_exec() in progress
+#define E_MOD_LIBEXEC       (E_TYPE_MOD+0x0035)  ///< unable to execute DLL module
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_MT_DISABLED       (E_TYPE_MT +0x0001)  ///< MT mode does not started or disabled

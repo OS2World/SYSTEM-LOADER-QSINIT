@@ -11,8 +11,11 @@
 #include "direct.h"
 #include "qsxcpt.h"
 #include "diskedit.h"
+#include "qcl/qsmt.h"
+#include <sys/stat.h>
 
 str_list *opl = 0;
+qs_mtlib  mtl = 0;
 
 // is key present? (with argument or not)
 #define key_present(key) key_present_pos(key,0)
@@ -35,10 +38,13 @@ char *key_present_pos(const char *key, u32t *pos) {
 }
 
 void  opts_prepare(char *opts) {
-   if (!opl) opl=str_split(opts,",");
+   if (!opl) {
+      opl = str_split(opts,",");
+      //log_printlist("options:", opl);
+   }
 }
 
-char *opts_get(char *name) {
+char *opts_get(const char *name) {
    return key_present(name);
 }
 
@@ -58,6 +64,25 @@ u32t  opts_port() {
 
 char  opts_bootdrive() {
    return (char)sys_queryinfo(QSQI_OS2LETTER,0);
+}
+
+/* this call should dramatically cool down CPU in MT mode.
+   By default Turbo Vision loops in TApplication::idle all of the time.
+   This is BAD.
+   Here we just sleeps 32 ms or until the first available key press */
+void  opts_yield() {
+   // mt_active() is best, because it never loads MTLIB to check MT mode
+   if (mt_active()) {
+      /* just leave DELETE for QSINIT ;)
+         class was used here to prevent static linking of MTLIB */
+      if (!mtl) mtl = NEW(qs_mtlib);
+      if (mtl) {
+         mt_waitentry we[2] = {{QWHT_KEY,1}, {QWHT_CLOCK,0}};
+         u32t        sig;
+         we[1].tme = sys_clock() + 32*1000;
+         mtl->waitobject(we, 2, 0, &sig);
+      }
+   }
 }
 
 void  opts_bootkernel(char *name, char *opts) {
@@ -163,7 +188,7 @@ static u32t opts_memio(u64t pos, void *data, int write) {
       return sys_memhicopy(write?pos:(u32t)data, write?(u32t)data:pos, 256);
    } else {
       void *addr = (char*)pos + hlp_segtoflat(0);
-      return hlp_memcpy(write?addr:data, write?data:addr, 256, 1);
+      return hlp_memcpy(write?addr:data, write?data:addr, 256, MEMCPY_PG0);
    }
 }
 
@@ -175,23 +200,28 @@ u32t opts_memwrite(u64t pos, void *data) {
    return opts_memio(pos, data, 1);
 }
 
+u32t opts_memend(void) {
+   return sys_endofram();
+}
+
 void* opts_freadfull(const char *name, unsigned long *bufsize, int *reterr) {
    void *rc = freadfull(name, bufsize);
    if (reterr) *reterr = rc?0:errno;
    return rc;
 }
 
-void* opts_sysalloc(unsigned long size) {
-   return hlp_memallocsig(size, "SYSV", QSMA_RETERR|QSMA_NOCLEAR);
+int opts_fsetsize(FILE *ff, u64t newsize) {
+   return _chsizei64(fileno(ff),newsize)?0:1;
 }
 
-void opts_sysfree(void *ptr) {
-   hlp_memfree(ptr);
+int opts_fseek(FILE *ff, long long offset, int where) {
+   return _lseeki64(fileno(ff), offset, where)==-1;
 }
 
 #else
 #include "classes.hpp"
 #include <conio.h>
+#include <io.h>
 #include <sys/stat.h>
 #include <dos.h>
 #define u64t u64
@@ -202,7 +232,7 @@ void  opts_prepare(char *opts) {
    opl.SplitString(opts,",");
 }
 
-char *opts_get(char *name) {
+char *opts_get(const char *name) {
    static char buffer[384];
    l idx=opl.IndexOfName(name);
    if (idx>=0) strcpy(buffer,opl.Value(idx)());
@@ -224,6 +254,9 @@ char  opts_bootdrive() {
 
 d     opts_port() {
    return 0;
+}
+
+void  opts_yield() {
 }
 
 void  opts_bootkernel(char *name, char *opts) {
@@ -322,12 +355,16 @@ unsigned long opts_mtrrquery(unsigned long *flags, unsigned long *state, unsigne
 
 unsigned long opts_memread(u64t pos, void *data) {
    memset(data, 0x11, 256);
-   memcpy((char*)data+1, &pos, 4);
-   return pos>>8 & 1;
+   memcpy((char*)data+1, &pos, 8);
+   return (unsigned long)(pos>>8) & 1;
 }
 
 unsigned long opts_memwrite(u64t pos, void *data) {
    return 1;
+}
+
+unsigned long opts_memend(void) {
+   return 0x80000000;
 }
 
 void* opts_freadfull(const char *name, unsigned long *bufsize, int *reterr) {
@@ -357,28 +394,32 @@ void* opts_freadfull(const char *name, unsigned long *bufsize, int *reterr) {
    }
 }
 
-void* opts_sysalloc(unsigned long size) {
-   return malloc(size);
+
+int opts_fsetsize(FILE *ff, u64t newsize) {
+   if (newsize>=x7FFF) return 0;
+   return chsize(fileno(ff),newsize)?0:1;
 }
 
-void opts_sysfree(void *ptr) {
-   free(ptr);
+int opts_fseek(FILE *ff, long long offset, int where) {
+   if ((long long)(long)offset!=offset) return 1;
+   /* unfortunately _lseeki64() does not share file pointer with FILE* */
+   return fseek(ff, offset, where);
 }
 
 #endif
 
-unsigned long opts_fsize(const char *str) {
-#ifdef __QSINIT__
-   dir_t st;
-   if (_dos_stat(str, &st)) return FFFF;
-   if (st.d_attr & _A_SUBDIR) return FFFF;
-   return st.d_size;
-#else
-   struct stat st;
-   if (stat(str, &st)) return FFFF;
-   if (st.st_mode & S_IFDIR) return FFFF;
+u64t opts_fsize(const char *str) {
+   struct _stati64 st;
+   if (_stati64(str, &st)) return FFFF64;
+   if (st.st_mode & S_IFDIR) return FFFF64;
    return st.st_size;
-#endif
+}
+
+int opts_fileexist(const char *str) {
+   struct _stati64 st;
+   if (_stati64(str, &st)) return 0;
+   if (st.st_mode & S_IFDIR) return 2;
+   return 1;
 }
 
 u64t opts_freespace(unsigned drive) {

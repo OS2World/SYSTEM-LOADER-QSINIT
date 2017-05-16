@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TStatusLine member functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TStatusLine
 #define Uses_TStatusItem
@@ -80,7 +77,8 @@ void TStatusLine::drawSelect(TStatusItem *selected) {
                   color = cSelect;
                else
                   color = cNormal;
-            else if (T == selected)
+            else 
+            if (T == selected)
                color = cSelDisabled;
             else
                color = cNormDisabled;

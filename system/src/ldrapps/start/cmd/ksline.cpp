@@ -14,16 +14,17 @@
 static const char *keys[] = { "ALTE", "ALTF1", "ALTF2", "ALTF3", "ALTF4",
    "ALTF5", "CTRLC", "PRELOAD", "MEMLIMIT", "NODBCS", "LOGSIZE", "NOREV",
    "NOLOGO", "CFGEXT", "SYM", "RESTART", "DBPORT", "CALL", "VALIMIT",
-   "CPUCLOCK" };
+   "CPUCLOCK", "DEFMSG" };
 
 enum _keys { kAltE, kAltFX, kAltFXe=5, kCtrlC, kPreload, kLimit, kDbcs,
    kLogSize, kNoRev, kNoLogo, kCfgExt, kSymName, kRestart, kDbPort, kCall,
-   kVAlimit, kCpuClock, kEnd };
+   kVAlimit, kCpuClock, kDefMsg, kEnd };
 
 // options to remove from result line
 static const char *emptylist[] = { "DEFAULT", "TIMEOUT", "DISKSIZE", "UNZALL",
   "SHOWMEM", "TTYMENU", "MENUPALETTE", "RESETMODE", "DISKSIZE", "USEBEEP", 
-  "HEAPFLAGS", "DEFAULT_PARTITION", "DBFLAGS", "SHAREIRQ", 0 };
+  "HEAPFLAGS", "DEFAULT_PARTITION", "DBFLAGS", "SHAREIRQ", "MFSPRINT",
+  "NOCLOCK", 0 };
 
 extern "C"
 int _stdcall cmd_mergeopts(char *line, char *args, const char *ininame) {

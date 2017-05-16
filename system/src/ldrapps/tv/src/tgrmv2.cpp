@@ -1,20 +1,16 @@
 /*------------------------------------------------------------*/
-/* filename -       tgrmv.cpp                                 */
+/* filename -       tframe.cpp                                */
 /*                                                            */
 /* function(s)                                                */
 /*                  TGroup removeView member function         */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*    This file Copyright (c) 1993 by J”rn Sierwald           */
-/*                                                            */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TGroup
 #include <tv.h>
@@ -36,5 +32,5 @@ void TGroup::removeView(TView *p) {
          if (cur->next==last) break;
          cur=cur->next;
       }
-   } // endif
+   }
 }

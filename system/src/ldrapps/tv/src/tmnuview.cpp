@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TMenuView member functions                */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TProgram
 #define Uses_TMenuItem
@@ -42,7 +39,8 @@ TMenuItem::TMenuItem(const char *aName,
                      ushort aHelpCtx,
                      char *p,
                      TMenuItem *aNext
-                    ) {
+                    )
+{
    name = newStr(aName);
    command = aCommand;
    disabled = Boolean(!TView::commandEnabled(command));
@@ -60,7 +58,8 @@ TMenuItem::TMenuItem(const char *aName,
                      TMenu *aSubMenu,
                      ushort aHelpCtx,
                      TMenuItem *aNext
-                    ) {
+                    )
+{
    name = newStr(aName);
    command = 0;
    disabled = Boolean(!TView::commandEnabled(command));
@@ -86,12 +85,14 @@ TMenu::~TMenu() {
    }
 }
 
-void TMenuView::trackMouse(TEvent &e) {
+void TMenuView::trackMouse(TEvent &e, Boolean &mouseActive) {
    TPoint mouse = makeLocal(e.mouse.where);
    for (current = menu->items; current != 0; current = current->next) {
       TRect r = getItemRect(current);
-      if (r.contains(mouse))
+      if (r.contains(mouse)) {
+         mouseActive = True;
          return;
+      }
    }
 }
 
@@ -160,8 +161,10 @@ ushort TMenuView::execute() {
    TMenuView *target;
    TRect  r;
    TEvent e;
+   Boolean mouseActive;
 
    current = menu->deflt;
+   mouseActive = False;
    TProgram::set_event_delay(0);
    do  {
       action = doNothing;
@@ -169,24 +172,30 @@ ushort TMenuView::execute() {
       switch (e.what) {
          case  evMouseDown:
             if (mouseInView(e.mouse.where) || mouseInOwner(e)) {
-               trackMouse(e);
+               trackMouse(e, mouseActive);
                if (size.y == 1)
                   autoSelect = True;
             } else
                action =  doReturn;
             break;
          case  evMouseUp:
-            trackMouse(e);
+            trackMouse(e, mouseActive);
             if (mouseInOwner(e))
                current = menu->deflt;
             else if (current != 0 && current->name != 0)
                action = doSelect;
-            else
+            else if (mouseActive)
                action = doReturn;
+            else {
+               current = menu->deflt;
+               if (current == 0)
+                  current = menu->items;
+               action = doNothing;
+            }
             break;
          case  evMouseMove:
             if (e.mouse.buttons != 0) {
-               trackMouse(e);
+               trackMouse(e, mouseActive);
                if (!(mouseInView(e.mouse.where) || mouseInOwner(e)) &&
                    mouseInMenus(e))
                   action = doReturn;
@@ -286,7 +295,8 @@ ushort TMenuView::execute() {
       if (result != 0 && commandEnabled(result)) {
          action =  doReturn;
          clearEvent(e);
-      } else result = 0;
+      } else
+         result = 0;
    } while (action != doReturn);
 
    if (e.what != evNothing &&
@@ -339,6 +349,7 @@ TPalette &TMenuView::getPalette() const {
    return palette;
 }
 
+/* function altered by someone (disable menu if all submenus disabled?) */
 uchar TMenuView::updateMenu(TMenu *menu) {
    if (!menu) return False;
    uchar res = 2;
@@ -440,6 +451,9 @@ TMenuView *TMenuView::newSubView(const TRect &bounds,
 #ifndef NO_TV_STREAMS
 void TMenuView::writeMenu(opstream &os, TMenu *menu) {
    uchar tok = 0xFF;
+
+   assert(menu != 0);
+
    for (TMenuItem *item = menu->items; item != 0; item = item->next) {
       os << tok;
       os.writeString(item->name);

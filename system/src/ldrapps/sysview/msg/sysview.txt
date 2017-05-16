@@ -19,27 +19,32 @@ help implementation.
 .topic RunExecute=2029
  System≥Run ‹    (F4)
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-Run specified QSINIT program. Type program and arguments in edit string,
-them press Go!
+Run specified QSINIT program. Type program and arguments and press Go!
+Shell commands can be used directly.
 
-[X] Echo ON - will turn command echo to ON (it off by default).
-
-[X] Pause in Exit - will make pause after program exit.
-
-To run batch file use command processor:
+To run a batch file use command processor:
 
     cmd /c batch_file.cmd
+
+[X] Echo ON - turn command echo ON.
+
+[X] Pause on Exit - will make pause after program exit.
+
+Be careful, shell commands executed in THIS process context. This mean
+some side effects like ability of open and write to a file, which is
+editing in binary file editor. Another example is SET command, which
+affects this process environent, when executed directly (i.e. without
+command processor).
 
 .topic ViewLog=2030
  System≥View log ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 View internal QSINIT log.
 
-Log saved in cycled buffer with 64kb size, and sorted by time. Output
+Log saved in cycled buffer with 64-256kb size, and sorted by time. Output
 can be slightly different in compare with COM port logging.
 
-Also, output can be distorted if you changed the system time by
-"time" command.
+Also, output can be distorted if you changed system time by the "time" command.
 
 .topic PowerOff=2031
  System≥Power off ‹
@@ -54,26 +59,26 @@ ACPI Power OFF is not supported now.
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Window with information about CPU, installed in system.
 
-All information received from CPUID command.
+All information received via CPUID command.
 
-Read Intel/AMD CPU manual for details about every marked feature.
+Read Intel/AMD CPU manuals for details about every marked feature.
 
 .topic SaveLog=2034
  System≥Save log ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Save internal QSINIT log to a file.
 
-Remember - drive B: is QSINIT virtual memory drive.
+Remember - drive B: is a QSINIT virtual memory drive.
 
 To save log on real disk use "mount" command in shell to mount physical
-FAT/FAT32 partition to drive letters C:..J:
+FAT/FAT32/exFAT partition to drive letters C:..J:
+
+During FAT boot drive A: is accessible too - this is boot partition.
 
 .topic MBRCode=2035
  Disk≥MBR code ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-Replace Master boot record boot code to QSINIT one.
-
-This option provided for test reason only.
+Replace Master boot record boot code to the QSINIT one.
 
 You can try it for partitioned flash drives, for example.
 
@@ -192,14 +197,14 @@ Written LVM geometry will be compatible with OS/2 DANIS and AHCI (>=1.27)
 drivers.
 
 .topic SectEdit=2061
- Disk≥Sector editor ‹
+ Binary data editor ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-Physical sector editor window.
+Physical sector/memory/binary file editor window.
 
 Be careful, if you will press "Yes" in confirmation dialog - all changes in
-sector will be written to disk!
+the current block will be written to the destination (disk/memory location)!
 
-All actual changes in sector is marked by red color.
+All actual changes is marked by red color.
 
 Available keys:
 
@@ -211,23 +216,30 @@ Available keys:
 
 * Backspace - undo changes in byte, left to cursor position
 
-* Ctrl-Home - go to first sector
+* Ctrl-Home - go to the first sector/block
 
-* Ctrl-End  - go to last sector
+* Ctrl-End  - go to the last sector/block
 
-* F11 - {go to sector:SectGoto}
+* F11 - {go to sector:SectGoto} or go to memory/file position.
 
 * Ctrl-F/Ctrl-A - {find data:SectFind}/{find next:SectFindNext}
 
+Note, that binary editor operates with constant size blocks. For physical disk
+editing it is equal to disk sector size, memory editor uses fixed 256 bytes as
+a block size and binary file editor uses sector size of a source disk.
+
+Any changes in the current block should be commited before going to the other
+one. Reverse of these changes (by Backspace key) is possible only until commit.
+
 .topic Goto=2062
- Disk≥Go to ‹    (F11)
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-Go to sector on physical disk or physical memory location (depends
-on active window).
+ Binary≥Go to ‹    (F11)
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Go to sector on physical disk / physical memory location or binary file
+position (depends on active window).
 
 .topic SectFind=2063
- Disk≥Find data ‹    (Ctrl-F)
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ Binary≥Find data ‹    (Ctrl-F)
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Start searching on physical disk or in memory.
 
 Use Ins key to switch between insertition/replacement in search string
@@ -237,8 +249,8 @@ editor and Backspace/Del key to delete bytes from the middle of it.
 letters.
 
 .topic SectFindNext=2064
- Disk≥Find next ‹    (Ctrl-A)
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ Binary≥Find next ‹    (Ctrl-A)
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Continue the last searching on physical disk / memory.
 
 .topic Calendar=2065
@@ -295,7 +307,7 @@ Full shell command list available by single "help" command.
 View/Edit current sector in physical {sector editor:SectEdit} as
 boot sector with BIOS Parameter Block.
 
-BPB showed for classic file system types: FAT, FAT32, HPFS and JFS.
+BPB available in classic file systems: FAT, FAT32, HPFS and JFS.
 
 .topic SectExport=2071
  Disk≥Copy sector to file ‹
@@ -355,7 +367,7 @@ You, also, must replace MBR code to provided by QSINIT to create full boot path.
 
 * "LVM drive letter" - set OS/2 LVM drive letter.
 
-* "LVM rename" - set OS/2 LVM volume name.
+* "LVM options" - set OS/2 LVM disk/volume name and minor options.
 
 * "Set type GUID" - set partition type on GPT disks.
 
@@ -369,18 +381,18 @@ check should start on system boot.
 
 * "Create primary" - create primary partition on selected free space
 
-* "Sector view" - go to first sector of this partition or free space in disk
-editor window.
+* "Boot OS/2" - boot OS/2 kernel from this partition without using bootstrap
+code. Option available for HPFS only.
 
-* "Sector goto" - opens disk editor windows on one of known sectors on
-partition filesystem.
+* "Sector view" - opens disk editor window on one of known sectors on
+partition`s filesystem / on first sector of free space.
 
 * "Update bootstrap code" - update boot sector code (all FAT types and HPFS).
 Both FAT16 and HPFS boot code written to be compatible with IBM OS2LDR.
 
-* "Install QSINIT" - install QSINIT binaries and bootstrap code (now only to
-any type of FAT). To boot from this partition you must add it into your
-boot manager, of course.
+* "Install QSINIT" - install QSINIT binaries and bootstrap code. You, also,
+must add this partition into your boot manager, of course. Option available
+for any type of FAT only, because QSINIT unable to write to HPFS/JFS volumes.
 
 .topic DmgrDlg=2077
  Disk management ‹
@@ -399,6 +411,11 @@ This list contain actions on entire disk. Be cafrefully with all of it:
 
 * "Boot" - boot MBR code of this disk
 
+* "Detect size" - try to detect disk size from data on it. Option available
+when disk size is 0 (BIOS returns NO disk information) or partition table
+error occurs (which may be the consequence of wrong disk size, reported by
+BIOS).
+
 * "Clone" - clone disk structure (and data, optionally). Option available
 only if exist empty disk of appropriate size.
 
@@ -414,7 +431,7 @@ compatible with OS/2 boot. Option is available for GPT disks too.
 * "Restore MBR backup" - restore partition structure from backup image file. Option
 available only when disk is empty, i.e. MBR destroyd (sector have no 55 AA signature).
 
-* "Update LVM info" - update LVM info (option available only if LVM tables on disk
+* "Update LVM info" - update LVM info (option available only when LVM tables
 have one or more correctable errors).
 
 * "Save MBR backup" - save partition structure to VHDD image file. This file can
@@ -426,6 +443,27 @@ VHDD shell command as QSINIT common disk.
 * "Write LVM info" - write LVM info to non-LVM disk. Option suitable for disks
 smaller than 500Gb, have been prepared in other operating system. Partitions on
 huge disks should be created in OS/2, DSFEE or QSINIT.
+
+* "Mount (big floppy)" - mount entire disk to QSINIT drive letter (big floppy mode).
+Option available only for empty or big floppy disks.
+
+* "Format", "Unmount", "Install QSINIT", "Update bootstrap code" and "Dirty state"
+are simular to the same actions for {partitions:DmgrAction}, but available only
+for already mounted (in QSINIT) big floppy disks.
+
+.topic DmgrPtCreate=2079
+ Create partition ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Type size in megabytes or percents of free block size here (ex.: 400000 or 50%).
+
+[X] at the end of free space - create partition at the end of free space.
+
+[X] AF aligment - align partition start sector to 4k (Advanced Format alignment).
+Note, that on MBR disks option is avalable only when you create partition at
+the end of free space.
+
+You can check the success in DMGR command listing (F7 in QSINIT application menu),
+the last digit of LBA value should be 0 or 8 for AF aligned partition.
 
 .topic DmgrRescan=2081
  Rescan disks ‹
@@ -456,6 +494,8 @@ This calculator operates only by signed 64-bit integer values.
  Edit memory ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 View/edit PC memory.
+
+Also see {binary edit window:SectEdit} for details.
 
 Memory editor operates with 256 byte blocks. When you leave this block
 editor will ask for update actual memory.
@@ -505,7 +545,7 @@ partition larger, than source - remaining part will be "lost" - because file
 system structures not adjusted to new partition size.
 
 Only one thing updated by copying process - common BPB in boot sector, if it
-available.
+available. This occurs on HPFS, JFS and all types of FAT (including exFAT).
 
 .topic FileDlgCommon=2124
  Open/Save dialog‹
@@ -513,13 +553,13 @@ available.
 To change disk just type A: or B: (and so on) in file name`s edit line.
 This is QSINIT internal drive letter, not OS/2.
 
-* A: - boot partition (FAT or FAT32, file i/o on HPFS/JFS is not supported)
+* A: - boot partition (FAT/FAT32/exFAT, file i/o on HPFS/JFS is not supported)
 
 * B: - small ram disk with QSINIT apps (contents of QSINIT.LDI archive)
 
 * C:..J: - available to mount (use disk management dialog or MOUNT command)
 
-To go directly to directory - type it path in this line too.
+To go directly to the existing directory - type full path in this line too.
 
 .topic SetCodepage=2125
  Select codepage dialog‹
@@ -531,10 +571,57 @@ Code page affects on some things over system:
 * long names with national symbols (chr codes > 127) on FAT volumes. These
 files unaccessible without codepage selected.
 
-* HPFS format. Without code page, HPFS formatted with 850 page number (which
-assumed as common by HPFS design). Because HPFS.IFS codepage support is broken
+* HPFS format. Without code page selection, HPFS format assumes page 850 (which
+is default by HPFS design). Because HPFS.IFS codepage support is broken
 millenium ago, it is better to select native page number before formatting
-new partition.
+a new partition.
 
-Code page selection is NOT mean visibility of national language characters.
+Code page selection does NOT mean visibility of national language characters.
 QSINIT still uses BIOS fonts by default - and these fonts have no such graphic.
+
+But note, that some graphic console modes uses russian (cp866) font.
+
+.topic BinFilePos=2135
+Type file position here as a hex value (i.e., without 0x prefix).
+To use decimal value - you can convert is first in {·alculator:Calculator} window.
+
+See also: {Binary file editor:BinEdit}
+
+.topic BinEdit=2136
+ Binary file editor‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+View/edit file data in binary mode.
+
+Also see {binary edit window:SectEdit} for details.
+
+Binary editor operates with data, splitted to blocks. When you leave this block
+editor will ask you for update actual file data on disk. Block size is equal to
+sector size of physical disk, where file is placed.
+
+All time, while this window is open - file is locked by SYSVIEW and any write
+access to it from another process is prohibited.
+
+.topic LVMOptionsDlg=2139
+ LVM options‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Here you can update some minor LVM options for current partition and entire
+disk.
+
+Options:
+
+* "Disk serial" - the serial number assigned to this disk.
+
+* "Boot serial" - the serial number of the disk used to boot the system. This is
+the IBM`s attempt to resolve drive letter conflicts, not sure is it used at all.
+
+* "Disk name" - the name assigned to the disk
+
+* "Volume serial" - the serial number of the volume.    
+                  
+* "Partition serial" - the serial number of this partition.
+
+* "Installable" - Installable volume (IBM installer checks it).
+
+* "Boot manager" - volume/partition is on the Boot Manager Menu. Note, that
+this option is only a flag in LVM information record, you need to update the
+Boot Manager to include this partition into its list.

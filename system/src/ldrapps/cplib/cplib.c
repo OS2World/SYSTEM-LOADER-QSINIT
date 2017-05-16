@@ -23,12 +23,13 @@
 */
 
 #include "stdlib.h"
-#include "qsint.h"
 #include "qcl/cplib.h"
 #include "qsshell.h"
 #include "errno.h"
 #include "qsutil.h"
 #include "qsmodext.h"
+#include "qssys.h"
+#include "qsint.h"
 #include "vio.h"
 
 #include "cptables.h"
@@ -66,6 +67,8 @@ typedef struct {
    u16t     codepage;
    u32t        index;
 } cpconv_data;
+
+void _std sys_notifyexec(u32t eventtype, void *info);
 
 wchar_t _std towlower(wchar_t chr) {
   if (chr < 0x80) {
@@ -187,12 +190,12 @@ static wchar_t convert(wchar_t *table, wchar_t chr, int dir) {
 }
 
 // note, that this and next functions called under cli!
-static u16t _std ff_convert(u16t src, int to_unicode) {
+static u16t _std _ff_convert(u16t src, int to_unicode) {
    if (!cpcur) return src>=0x80?0:src;
    return convert(ctables[cpidx], src, to_unicode);
 }
 
-static u16t _std ff_wtoupper(u16t src) {
+static u16t _std _ff_wtoupper(u16t src) {
    return towupper(src);
 }
 
@@ -263,10 +266,10 @@ u32t _exicc cpconv_setsyscp(EXI_DATA, u16t cp) {
    cpidx = pos - cpages;
    cpisys.cpnum    = cp;
    cpisys.oemupr   = utables[cpidx];
-   cpisys.convert  = ff_convert;
-   cpisys.wtoupper = ff_wtoupper;
-   // setup page support in FatFs
-   hlp_setcpinfo(&cpisys);
+   cpisys.convert  = _ff_convert;
+   cpisys.wtoupper = _ff_wtoupper;
+   // system notify
+   sys_notifyexec(SECB_CPCHANGE, &cpisys);
    mt_swunlock();
    return 1;
 }
@@ -357,8 +360,8 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       if (classid) return 0;
 
       cmd_shellrmv("CHCP",shl_chcp);
-      // drop code page support in FatFs
-      hlp_setcpinfo(0);
+      // drop code page support
+      sys_notifyexec(SECB_CPCHANGE,0);
    }
    return 1;
 }

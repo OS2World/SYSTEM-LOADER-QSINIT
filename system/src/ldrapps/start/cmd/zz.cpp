@@ -13,20 +13,19 @@ static const char *zipviewline = "--------- --------- -------- ---------------- 
 u32t _std shl_unzip(const char *cmd, str_list *args) {
    int rc=-1;
    if (args->count>0) {
-      int testmode=0, force=0, subdir=1, quiet=0, nopause=-1, frombp=0,
-          fromstor=0, view=0;
-
+      int testmode=0, force=0, quiet=0, nopause=-1, frombp=0,
+          fromstor=0, view=0, beep=0, preload = 0;
       TPtrStrings al;
       str_getstrs(args,al);
       // is help?
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/t|/o|/e|/q|/p|/boot|/key|/test|/view|/np|/list|/v";
-      static short argval[] = { 1, 1, 0, 1, 0,    1,   1,    1,   1,   1,    1, 1};
+      static char *argstr   = "/t|/o|/c|/q|/p|/boot|/key|/test|/view|/np|/list|/v|/beep";
+      static short argval[] = { 1, 1, 1, 1, 0,    1,   1,    1,   1,   1,    1, 1,    1};
       process_args(al, argstr, argval,
-                   &testmode, &force, &subdir, &quiet, &nopause, &frombp,
-                   &fromstor, &testmode, &view, &nopause, &view, &view);
+                   &testmode, &force, &preload, &quiet, &nopause, &frombp,
+                   &fromstor, &testmode, &view, &nopause, &view, &view, &beep);
       al.TrimEmptyLines();
       // by default pause off in "unzip" mode and on in "list"
       if (nopause==-1) nopause = view?0:1;
@@ -64,27 +63,49 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                }
             }
 
-            ZIP   zip;
-            u32t  zsize;
-            void* zdata;
-
-            if (fromstor) {
-               zdata = sto_data(zipname());
-               zsize = sto_size(zipname());
-            } else
-            if (frombp) zdata = hlp_freadfull_progress(zipname(), &zsize);
-               else zdata = freadfull(zipname(),&zsize);
-
-            if (!zdata && frombp) {
-               zipname+=".zip";
-               zdata = hlp_freadfull_progress(zipname(), &zsize);
+            ZIP        zip;
+            u32t     zsize = 0;
+            void*    zdata = 0;
+            qserr  zopnerr = 0;
+#if 0
+            log_it(3, "unzip \"%s\", key:%i, boot %i, cache %i\n", zipname(),
+               fromstor, frombp, preload);
+#endif
+            if (fromstor || preload) {
+               if (fromstor) {
+                  zdata = sto_data(zipname());
+                  zsize = sto_size(zipname());
+               } else {
+                  if (frombp) zdata = hlp_freadfull_progress(zipname(), &zsize);
+                     else zdata = freadfull(zipname(),&zsize);
+                  
+                  if (!zdata && frombp) {
+                     zipname+=".zip";
+                     zdata = hlp_freadfull_progress(zipname(), &zsize);
+                  }
+                  if (!zdata) {
+                     rc = frombp||fromstor?ENOENT:get_errno();
+                     if (!quiet) cmd_shellerr(EMSG_CLIB, rc, errname());
+                     break;
+                  }
+               }
+               zopnerr = zip_open(&zip, zdata, zsize);
+            } else {
+               zopnerr = zip_openfile(&zip, zipname(), frombp);
+               // for common file - .zip was appended above
+               if (frombp && zopnerr==E_SYS_NOFILE) {
+                  zipname+=".zip";
+                  zopnerr = zip_openfile(&zip, zipname(), frombp);
+               }
             }
-            if (!zdata) {
-               rc = frombp||fromstor?ENOENT:get_errno();
-               if (!quiet) cmd_shellerr(EMSG_CLIB, rc, errname());
+            if (zopnerr) {
+               if (!quiet)
+                  if (zopnerr==E_SYS_BADFMT) printf("%snot a zip archive!\n", errname());
+                     else cmd_shellerr(EMSG_QS, zopnerr, errname());
+               // avoid final error print
+               rc = 0;
                break;
             }
-            zip_open(&zip, zdata, zsize);
             // init "paused" output
             if (!quiet) pause_println(0,1);
 
@@ -92,7 +113,6 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
             u32t  getsize = 0,
                    errors = 0,
                    ftotal = 0;
-            int      once = 0;
             u64t total_uc = 0;
             u32t  total_c = 0;
 
@@ -101,13 +121,11 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                pause_println(zipviewline, nopause?-1:0);
             }
 
-            while (zip_nextfile(&zip,&getpath,&getsize)) {
+            while (zip_nextfile(&zip,&getpath,&getsize)==0) {
                spstr cname(getpath);
                cname.replacechar('/','\\');
                int ext_ok = 0,
                    is_dir = getsize==0 && cname.lastchar()=='\\';
-               // flag one zip_nextfile() success
-               once = 1;
 
                if (view) {
                   char  line[312];
@@ -156,7 +174,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                         if (!quiet) printf("\r%sing %-52s ", testmode?"Test":"Extract",
                            cname());
                         // unpack & save
-                        if (!is_dir) filemem = zip_readfile(&zip);
+                        if (!is_dir) zip_readfile(&zip,&filemem);
                         // counter
                         ftotal++;
 
@@ -178,7 +196,8 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                            u32t errprev=errors;
 
                            if (is_dir) {
-                              if (mkdir(cname())) errors++;
+                              if (mkdir(cname()))
+                                 if (!hlp_isdir(cname())) errors++;
                            } else {
                               // create file
                               FILE *out = fopen(cname(),"wb");
@@ -187,7 +206,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                                  int pos = cname.crpos('\\');
                                  if (pos>0) { // ignore leading '\'
                                     spstr cdir(cname,0,pos++);
-                                    if (mkdir(cdir())) break;
+                                    if (!hlp_isdir(cdir())) mkdir(cdir());
                                  }
                                  // open file again
                                  out = fopen(cname(),"wb");
@@ -214,7 +233,6 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                }
             }
             if (!quiet)
-               if (!once) printf("%snot a zip archive!\n", errname()); else
                if (view) {
                   pause_println(zipviewline, nopause?-1:0);
                   cmd_printseq(" %d files, %Lu bytes uncompressed, %u compressed\n",
@@ -222,12 +240,18 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                } else
                   printf("\r%d files extracted with %d error(s)\n", ftotal, errors);
             zip_close(&zip);
-            if (!fromstor) hlp_memfree(zdata);
+            if (!fromstor && zdata) hlp_memfree(zdata);
             if (errors) rc=EIO;
             break;
          }
          //-------------------------
          if (rc<0) rc=0;
+         // beeeeep!
+         if (beep) {
+            vio_beep(rc>0?200:700,40);
+            while (vio_beepactive()) usleep(5000);
+            vio_beep(rc>0?100:600,40);
+         }
          return rc;
       }
    }

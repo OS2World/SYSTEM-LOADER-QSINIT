@@ -23,16 +23,13 @@
 /* function(s)                                                */
 /*                  TNSCollection member functions            */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TNSCollection
 #define Uses_opstream
@@ -56,7 +53,8 @@ TNSCollection::TNSCollection(ccIndex aLimit, ccIndex aDelta) :
    items(0),
    limit(0),
    delta(aDelta),
-   shouldDelete(True) {
+   shouldDelete(True) 
+{
    setLimit(aLimit);
 }
 
@@ -65,7 +63,8 @@ TNSCollection::TNSCollection() :
    items(0),
    limit(0),
    delta(0),
-   shouldDelete(True) {
+   shouldDelete(True) 
+{
    items = 0;
 }
 
@@ -77,7 +76,7 @@ void TNSCollection::shutDown() {
    if (shouldDelete)
       freeAll();
    else
-      count=0;
+      removeAll();
    setLimit(0);
    TObject::shutDown();
 }
@@ -206,8 +205,9 @@ void TNSCollection::setLimit(ccIndex aLimit) {
          aItems = 0;
       else {
          aItems = new void *[aLimit];
+
          if (!aItems) return; // BF:TNSCollection-2
-         if (count !=  0)
+         if (count!=0  && items!=0)
             memcpy(aItems, items, count*sizeof(void *));
       }
       delete items;
@@ -226,7 +226,7 @@ void TCollection::write(opstream &os) {
 void *TCollection::read(ipstream &is) {
    int limit;
    is >> count >> limit >> delta;
-   limit = 0;
+   // limit = 0; ?
    setLimit(limit);
    for (ccIndex idx = 0; idx < count; idx++)
       items[idx] = readItem(is);

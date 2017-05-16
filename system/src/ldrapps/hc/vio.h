@@ -16,7 +16,7 @@ extern "C" {
     @return 1 if new line was started (\n or end of line) */
 u32t _std vio_charout(char ch);
 
-/** print string to current cursor position.
+/** print string to the current cursor position.
     @param   str  string to print.
     @return number of new lines occured (both \n and end of line), i.e. number
     of scrolled lines. */
@@ -89,19 +89,17 @@ void _std vio_defshape(u8t shape);
 #define VIO_COLOR_YELLOW    0x00E
 #define VIO_COLOR_LWHITE    0x00F
 
-#define VIO_COLOR_RESET     0x107       ///< reset color to default
+#define VIO_COLOR_RESET     VIO_COLOR_WHITE   ///< reset color to default
 
-/** set current cursor posistion.
-    Specify 0x1xx in "color" to turn colored output off (but low 8 bits still 
-    will be used to fill new lines color attribute after scroll).
-    @param color   text/bgrd color */
+/** set output color for console mode.
+    @param color   bgrd<<4|text color */
 void _std vio_setcolor(u16t color);
 
 /** call bios to set 80x25, 80x43 or 80x50 mode.
     @param lines   Number of lines (25,43 ot 50). */
 void _std vio_setmode(u32t lines);
 
-/** set text mode.
+/** set console mode.
     Actually, function can set non-80 cols modes only after loading CONSOLE
     module, but it allow to use it transparenly (without static linking).
 
@@ -111,8 +109,8 @@ void _std vio_setmode(u32t lines);
 int  _std vio_setmodeex(u32t cols, u32t lines);
 
 /** check current videomode and reset it to 80x25.
-    Function check current video and if it 80x25 - clear screen, else reset
-    mode to 80x25 */
+    Function checks current video and if it equal to 80x25 - clears screen,
+    else resets mode to 80x25 */
 void _std vio_resetmode(void);
 
 /** get current text mode.
@@ -126,6 +124,9 @@ u8t  _std vio_getmode(u32t *cols, u32t *lines);
 
 /** set intensity or blink for text mode background.
     After mode init INTENSITY is selected (unlike BIOS).
+    Note, that EFI & graphic console modes just ignore intensity changes and
+    have no blink support.
+
     @param value    Use 1 for intensity and 0 for blink */
 void _std vio_intensity(u8t value);
 

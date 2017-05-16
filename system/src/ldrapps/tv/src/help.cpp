@@ -6,16 +6,13 @@
 /*                      THelpViewer                           */
 /*                      THelpWindow                           */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TStreamableClass
 #define Uses_TPoint
@@ -218,7 +215,7 @@ void THelpViewer::handleEvent(TEvent &event) {
                     (mouse.x < keyPoint.x + keyLength)));
          selected = keyCount;
          drawView();
-         if (event.mouse.doubleClick)
+         if (event.mouse.eventFlags & meDoubleClick)
             switchToTopic(keyRef);
          clearEvent(event);
          break;
@@ -235,7 +232,7 @@ void THelpViewer::handleEvent(TEvent &event) {
 // THelpWindow
 
 THelpWindow::THelpWindow(THelpFile *hFile, ushort context):
-   TWindow(TRect(0,0,50,18), "Help", wnNoNumber),
+   TWindow(TRect(0,0,50,18), helpWinTitle, wnNoNumber),
    TWindowInit(THelpWindow::initFrame) {
    TRect r(0, 0, 50, 18);
    options = (options | ofCentered);

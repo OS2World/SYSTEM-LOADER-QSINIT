@@ -7,6 +7,7 @@
 
 #include "qsmod.h"
 #include "qsutil.h"
+#include "qssys.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,9 +15,9 @@ extern "C" {
 
 #include "qslxfmt.h"
 
-#define MOD_SIGN      0x484D5351   // QSMH - module struct check signature
-#define MAX_IMPMOD    32           // max. number of imported modules in LE/LX
-#define MAX_EXPSTART  512          // max. number of exports in "start" module
+#define MOD_SIGN      0x484D5351   /// QSMH - module struct check signature
+#define MAX_IMPMOD            32   /// maximum number of imported modules
+#define MAX_EXPSTART         512   /// maximum number of exports in START
 
 typedef struct {
    void           *address;
@@ -44,15 +45,18 @@ typedef struct {
 /// loaded module internal ref
 typedef struct _module {
    u32t               sign;
-   u32t              flags;    ///< next 2 fields accessed by offset from asm launcher
-   u32t          start_ptr;    ///< 16/32 bit module start pointer
-   u32t          stack_ptr;    ///< 16/32 bit module start pointer
+   u32t              flags;    ///< next 2 fields should be bounded to make asm code happy
+   u32t          start_ptr;    ///< module start pointer
+   u32t          stack_ptr;    ///< module stack pointer
 
    u32t              usage;    ///< usage counter
    u32t            objects;    ///< number of objects
 
    void          *baseaddr;    ///< base address
    char          *mod_path;    ///< module full path
+
+   char          *name_buf;    ///< mod_getname() string (after 1st fn call only)
+   void               *tmp;    ///< temp var, can be used inside loader mutex only!
 
    struct _module    *prev,
                      *next;    ///< module list
@@ -94,6 +98,7 @@ typedef struct _process_context {
 #define RTBUF_PROCDAT          8         ///< process internal data
 #define RTBUF_STDNUL           9         ///< nul file handle
 #define RTBUF_ENVMUX          10         ///< mutex for clib env. funcs
+#define RTBUF_ENVORG          11         ///< original env.data
 //@}
 
 #define PCTX_BIGMEM            0x0001    ///< envptr was hlp_memalloc-ed
@@ -102,6 +107,7 @@ typedef struct _process_context {
 #ifndef QSMEMOWNER_MODLDR
 #define QSMEMOWNER_MODLDR      0x4243444D
 #define QSMEMOWNER_COPROCESS   0x42434F50
+#define QSMEMOWNER_SESTATE     0x42434D53
 #define QSMEMOWNER_COTHREAD    0xFFFFD000
 #endif
 
@@ -119,6 +125,18 @@ process_context* _std mod_context(void);
 #define MOD_NOFIXUPS           0x000100  ///< fixups pre-applied in module
 #define MOD_EXECPROC           0x000200  ///< mod_exec() in process (for exe module)
 #define MOD_SYSTEM             0x000400  ///< "system" module (QSINIT & START only)
+//@}
+
+/** @name mod_load() flags.
+    Some of them defined in mdt.c only, other here, but for internal use too. */
+//@{
+/// delete module file from disk after success load
+#define LDM_UNLINKFILE           0x0001
+/** load module from memory location.
+    Path arg of mod_load() points to memory block and extdta to dword
+    with file size. Block must be the global memory block, it will be released
+    by mod_load(). */
+#define LDM_MEMORY               0x0004
 //@}
 
 /// external functions located in "start" module
@@ -163,10 +181,11 @@ typedef struct {
        called when module was exited, can change result code */
    s32t    _std (*exit_cb)(process_context *pq, s32t rc);
    /// hlp_memprint() call, moved to start due lack of space
-   void    _std (*memprint)(void *,void *,u8t *,u32t *,u32t);
+   void    _std (*memprint)(void *,void *,u8t *,u32t *,u32t, process_context **);
    /** memcpy with catched exceptions.
+       see hlp_memcpy().
        @return 0 if exception occured. */
-   u32t    _std (*memcpysafe)(void *dst, const void *src, u32t length, int page0);
+   u32t    _std (*memcpysafe)(void *dst, const void *src, u32t length, u32t flags);
    /** module loaded callback.
        Called before returning ok to user. But module is not guaranteed to
        be in loaded list at this time, it can be the one of loading imports
@@ -187,6 +206,8 @@ typedef struct {
    u32t    _std (*mem_freepool)(long Owner, long Pool);
    /// notification on system events
    void    _std (*sys_notifyexec)(u32t eventtype, u32t infovalue);
+   /// register notification
+   u32t    _std (*sys_notifyevent)(u32t eventmask, sys_eventcb cbfunc);
    /// QSINIT in MT mode (set by START module)
    int          in_mtmode;
    /// mutex for module loader (valid in MT mode only)
@@ -199,6 +220,45 @@ typedef struct {
    qserr   _std (*muxwait)(qshandle handle, u32t timeout_ms);
    /// mutex release
    qserr   _std (*muxrelease)(qshandle mtx);
+   /// make a copy in heap block, block owner is START
+   char*   _std (*envcopy)(process_context *pq, u32t addspace);
+   /** callback - is it possible to write.
+       Can be 0!
+       @return modified count value */
+   u32t    _std (*dsk_canwrite)(u32t disk, u64t sector, u32t count);
+   /** callback - is it possible to read.
+       Can be 0!
+       @return modified count value */
+   u32t    _std (*dsk_canread) (u32t disk, u64t sector, u32t count);
+   // FP to str convertion (for printf)
+   int     _std (*fptostr)(double value, char *buf, int int_fmt, int prec);
+   /** save/change FPU state before exec.
+       Function used in non-MT mode only, in parent process context */
+   void    _std (*fp_save)(process_context *newpq);
+   /** restore FPU state after exec.
+       Function used in non-MT mode only, in child process context */
+   void    _std (*fp_rest)(void);
+   /// use supplied below MFS functions instead of default ones
+   int        mfs_replace;
+   /// micro-FSD file open
+   u16t    _std (*mfs_open)(const char *name, u32t *filesize);
+   /// micro-FSD file read
+   u32t __cdecl (*mfs_read)(u32t offset, void *buf, u32t readsize);
+   /// micro-FSD file close
+   void __cdecl (*mfs_close)(void);
+
+   qserr   _std (*io_open)(const char *name, u32t mode, qshandle *pfh, u32t *action);
+   u32t    _std (*io_read)(qshandle fh, const void *buffer, u32t size);
+   u32t    _std (*io_write)(qshandle fh, const void *buffer, u32t size);
+   u64t    _std (*io_seek)(qshandle fh, s64t offset, u32t origin);
+   qserr   _std (*io_size)(qshandle fh, u64t *size);
+   qserr   _std (*io_setsize)(qshandle fh, u64t newsize);
+   qserr   _std (*io_close)(qshandle fh);
+   qserr   _std (*io_lasterror)(qshandle fh);
+   /** this call allocates "bit_map" class every time!
+       @return FFFF if no bit found */
+   u32t    _std (*bitfind)(void *data, u32t size, int on, u32t len, u32t hint);
+   void    _std (*setbits)(void *dst, u32t pos, u32t count, u32t flags);
 } mod_addfunc;
 
 /// extreq parameter for mod_unpackobj()
@@ -237,7 +297,24 @@ typedef struct {
     @see modobj_extreq
 */
 int  _std mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
-                  u32t destaddr, void *extreq);
+                        u32t destaddr, void *extreq);
+/// set TS flag in cr0
+void      sys_settsflag(void);
+/// reset TS flag in cr0
+void      sys_clrtsflag(void);
+#if defined(__WATCOMC__)
+#pragma aux sys_settsflag = \
+     "pushfd"               \
+     "cli"                  \
+     "mov     eax,cr0"      \
+     "or      eax,8"        \
+     "mov     cr0,eax"      \
+     "popfd"                \
+     modify exact [eax];
+#pragma aux sys_clrtsflag = \
+     "clts"                 \
+     modify exact [];
+#endif
 
 #ifdef __cplusplus
 }

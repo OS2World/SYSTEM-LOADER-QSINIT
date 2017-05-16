@@ -5,73 +5,79 @@
 #include "vio.h"
 #include "qecall.h"
 
+u16t text_col   = 7;
+u8t  cvio_blink = 0;
+
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
 void _std cache_ctrl(u32t action, u8t vol);
 
-u32t _std vio_charout(char ch) {
+u32t _std cvio_charout(char ch) {
    return call64(EFN_VIOCHAROUT, 0, 1, ch);
 }
 
-u32t _std vio_strout(const char *str) {
+u32t _std cvio_strout(const char *str) {
    return call64(EFN_VIOSTROUT, 0, 1, str);
 }
 
-void _std vio_clearscr(void) {
+void _std cvio_clearscr(void) {
    call64(EFN_VIOCLEARSCR, 0, 0);
 }
 
-void _std vio_setpos(u8t line, u8t col) {
+void _std cvio_setpos(u8t line, u8t col) {
    call64(EFN_VIOSETPOS, 0, 2, line, col);
 }
 
-void _std vio_getpos(u32t *line, u32t *col) {
+void _std cvio_getpos(u32t *line, u32t *col) {
    call64(EFN_VIOGETPOS, 0, 2, line, col);
 }
 
-static u8t cur_start = 7, 
+static u8t cur_start = 7,
              cur_end = 8;
 
-void _std vio_setshape(u8t start, u8t end) {
+void _std cvio_setshape(u8t start, u8t end) {
    call64(EFN_VIOSHOWCURSOR, 0, 1, start&0x20? 0 : 1);
 }
 
-u16t _std vio_getshape(void) {
+u16t _std cvio_getshape(void) {
    return (u16t)cur_start<<8 | cur_end;
 }
 
-void _std vio_defshape(u8t shape) {
+void _std cvio_defshape(u8t shape) {
    if (shape==VIO_SHAPE_NONE) vio_setshape(0x20,0); else
       vio_setshape(7,8);
 }
 
-void _std vio_setcolor(u16t color) {
+void _std cvio_setcolor(u16t color) {
+   text_col = color;
    call64(EFN_VIOSETCOLOR, 0, 1, color);
 }
 
-void _std vio_setmode(u32t lines) {
+void _std cvio_setmode(u32t lines) {
    call64(EFN_VIOSETMODE, 0, 1, lines);
 }
 
-int _std vio_setmodeex(u32t cols, u32t lines) {
+int _std cvio_setmodeex(u32t cols, u32t lines) {
    return call64(EFN_VIOSETMODEEX, 0, 2, cols, lines);
 }
 
-void _std vio_resetmode(void) {
+void _std cvio_resetmode(void) {
    u32t cols, lines;
    if (!vio_getmode(&cols, &lines)) cols = 0;
    if (cols!=80 || lines!=25) vio_setmode(25); else vio_clearscr();
 }
 
-u8t  _std vio_getmode(u32t *cols, u32t *lines) {
+u8t  _std cvio_getmode(u32t *cols, u32t *lines) {
    return call64(EFN_VIOGETMODE, 0, 2, cols, lines);
 }
 
-void _std vio_getmodefast(u32t *cols, u32t *lines) {
+void _std cvio_getmodefast(u32t *cols, u32t *lines) {
    call64(EFN_VIOGETMODE, 0, 2, cols, lines);
 }
 
-void _std vio_intensity(u8t value) {
+void _std cvio_intensity(u8t value) {
+   // just ignore setup because it useless on EFI
+   cvio_blink = value?0:1;
 }
 
 void _std vio_beep(u16t freq, u32t ms) {
@@ -82,11 +88,11 @@ u8t  _std vio_beepactive(void) {
 }
 
 // jumped here from vio_writebuf/vio_readbuf, so order of args is constant!
-void _std vio_bufcommon(int toscr, u32t col, u32t line, u32t width,
+void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
    u32t height, void *buf, u32t pitch)
 {
    u32t cols, lines;
-   vio_getmodefast(&cols,&lines);
+   cvio_getmodefast(&cols,&lines);
    if (line>=lines||col>=cols) return;
    if (!pitch) pitch = width*2;
    if (col+width  > cols ) width  = cols - col;
@@ -147,7 +153,7 @@ void _std vio_bufcommon(int toscr, u32t col, u32t line, u32t width,
 
 // -------------------------------------------------------------------------
 // get system keys status
-u32t _std key_status(void) {
+u32t _std ckey_status(void) {
    return call64(EFN_KEYSTATUS, 0, 0);
 }
 
@@ -155,10 +161,20 @@ u16t _std key_read_int(void) {
    return call64(EFN_KEYREAD, 0, 0);
 }
 
-u8t  _std key_pressed(void) {
-   return call64(EFN_KEYPRESSED, 0, 0);
+u16t _std key_read_nw(void) {
+   return call64(EFN_KEYWAIT, 0, 1, 0);
 }
 
+u8t  _std ckey_pressed(void) {
+   return call64(EFN_KEYPRESSED, 0, 0);
+}
+/*
+u16t _std ckey_wait(u32t seconds) {
+   return call64(EFN_KEYWAIT, 0, 1, seconds);
+}
+
+u16t _std ckey_read() { return key_read_int(); }
+*/
 static u8t _rate = 0, _delay = 0;
 
 void _std key_speed(u8t rate, u8t delay) {
@@ -177,4 +193,4 @@ void _std key_getspeed(u8t *rate, u8t *delay) {
    mt_swunlock();
 }
 
-u8t _std key_push(u16t code) { return 0; }
+u8t _std ckey_push(u16t code) { return 0; }

@@ -4,6 +4,7 @@
 //
 #include "stdlib.h"
 #include "seldesc.h"
+#include "qsmodext.h"
 #include "qsxcpt.h"
 #include "qslog.h"
 #include "qsinit.h"
@@ -107,11 +108,19 @@ void trap_handle(struct tss_s *xd);
 void trap_handle_64(struct tss_s *ts, struct xcpt64_data *xd);
 #pragma aux trap_handle_64 "_*" parm [eax] [edx] aborts;
 #endif
+void _std fpu_xcpt_nm();
 
 static void _std xcpt64(struct xcpt64_data *xd) {
    struct desctab_s sd;
    struct tss_s    t32;
-   int  is64 = 1;
+   int            is64 = 1;
+   // special #NM handling
+   if (xd->x64_number==xcpt_nofpu) {
+      // clts & and reload FPU context
+      sys_clrtsflag();
+      fpu_xcpt_nm();
+      return;
+   }
    /* interrupts disabled here by common 64-bit exception handler -
       until the end of trap screen output, or, at least, until 1st EFI`s
       console call in native console mode */

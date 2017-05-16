@@ -3,7 +3,9 @@
 // multi-tasking implementation module
 // --------------------------------------------------------
 //
-// note, that any system calls in timer inturrupt handlers is prohibited!
+// Note, that any system calls in timer inturrupt handlers is prohibited!
+// At least, any used call MUST be protected from TRACE (not included into it
+// or called directly) - else damage is guaranteed!
 //
 #include "mtlib.h"
 #include "qshm.h"
@@ -23,7 +25,7 @@ static int check_in_service(void) {
 
 /** check for long locks from the same address.
     Serial port printing here is dangerous and mod_by_eip() call may cause
-    trap, because we`re in the timer interrupt now and module tables can be
+    trap, because we`re in the timer interrupt now and module tables are
     in unpredicted state. */
 static void check_lcaller(void) {
    u64t now = hlp_tscread();
@@ -38,7 +40,7 @@ static void check_lcaller(void) {
 
             snprintf(errstr, 128, "Too long lock from %08X", lockcaller);
             hlp_seroutstr(errstr);
-            // this can produce trap, so print it in separate step
+            // this can make trap, so print it in separate step
             mi = mod_by_eip(lockcaller, &object, &offset, get_flatcs());
             if (mi) {
                snprintf(errstr, 128, "(\"%s\": %d:%08X)", mi->name, object+1, offset);
@@ -71,9 +73,11 @@ void _std timer64cb(struct xcpt64_data *user) {
    if (!mt_exechooks.mtcb_glock) lockcaller = 0; else check_lcaller();
    // EOI to APIC
    if (check_in_service()) apic[APIC_EOI] = 0;
-   // next check time for mt_yield()
+   // a good time to switch thread
    if (!wrongmode) {
+      // switch context, check wait objects, call attime and so on ...
       switch_context_timer(user, 1);
+      // next check time for mt_yield()
       next_rdtsc = hlp_tscread() + tick_rdtsc;
    }
 }
@@ -96,10 +100,10 @@ void _std timer32cb(struct tss_s *user) {
    if (!mt_exechooks.mtcb_glock) lockcaller = 0;
    // is it main task?
    if (!wrongmode && main_tss) wrongmode = get_taskreg()!=main_tss;
-
-   // next check time for mt_yield()
+   // a good time to switch thread
    if (!wrongmode) {
       switch_context_timer(user, 0);
+      // next check time for mt_yield()
       next_rdtsc = hlp_tscread() + tick_rdtsc;
    }
 }

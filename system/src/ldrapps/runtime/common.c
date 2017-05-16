@@ -84,6 +84,11 @@ int __stdcall mem_modblock(void *block) {
    return mem_setobjinfo(block, QSMEMOWNER_COLIB, _Module);
 }
 
+// unpublished
+int __stdcall mem_modblockex(void *block, u32t module) {
+   return mem_setobjinfo(block, QSMEMOWNER_COLIB, module);
+}
+
 int __stdcall mem_threadblock(void *block) {
    return mem_setobjinfo(block, QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid());
 }

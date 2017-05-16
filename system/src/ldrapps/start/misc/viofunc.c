@@ -2,15 +2,12 @@
 // QSINIT "start" module
 // keyboard functions
 //
-#include "internal.h"
+#include "syslocal.h"
 #include "vioext.h"
 #include "qsutil.h"
 #include "qslog.h"
 
 #define ANSI_BUF_LEN   32
-
-// function is not published in vio.h
-void _std vio_getmodefast(u32t *cols, u32t *lines);
 
 #if 0
 typedef struct {

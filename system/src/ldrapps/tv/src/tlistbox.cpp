@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TListBox member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TListBox
 #define Uses_TEvent
@@ -24,16 +21,12 @@
 
 #include <string.h>
 
-struct TListBoxRec {
-   TCollection *items;
-   int selection;
-};
-
 TListBox::TListBox(const TRect &bounds,
                    ushort aNumCols,
                    TScrollBar *aScrollBar) :
    TListViewer(bounds, aNumCols, 0, aScrollBar),
-   items(0) {
+   items(0) 
+{
    setRange(0);
 }
 
@@ -96,5 +89,3 @@ TStreamable *TListBox::build() {
 TListBox::TListBox(StreamableInit) : TListViewer(streamableInit) {
 }
 #endif  // ifndef NO_TV_STREAMS
-
-

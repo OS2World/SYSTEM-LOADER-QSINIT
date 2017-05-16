@@ -1,20 +1,17 @@
 /*------------------------------------------------------------*/
-/* filename -       exposed.cpp                               */
+/* filename -       tstrlist.cpp                              */
 /*                                                            */
 /* function(s)                                                */
 /*                  Tview exposed member function             */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*    This file Copyright (c) 1993 by J”rn Sierwald           */
-/*                                                            */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ *      This file Copyright (c) 1993 by J”rn Sierwald
+ */
 
 #define Uses_TView
 #define Uses_TGroup
@@ -84,7 +81,7 @@ int TView::exposedRec2(short x1, short x2, TView *p) {
    return retValue;
 }
 
-Boolean TV_CDECL TView::exposed() {
+Boolean TView::exposed() {
    if (!(state & sfExposed) || size.x <= 0 || size.y <= 0) return Boolean(0);
    for (short y=0; y<size.y; y++) {
       staticVars2.y=y;

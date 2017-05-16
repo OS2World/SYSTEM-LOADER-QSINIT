@@ -68,20 +68,32 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
    lopt_quiet = 0;
 
    if (args->count==1 && (stricmp(args->item[0],"DELETE")==0 ||
-      stricmp(args->item[0],"INFO")==0)) 
+      stricmp(args->item[0],"INFO")==0 || stricmp(args->item[0],"CLEAN")==0)) 
    {
       u32t      dh, sectors = 0;
-      int     info = toupper(args->item[0][0])=='I';
+      char     key = toupper(args->item[0][0]);
       qs_vdisk vdi = exi_createid(classid_vd, 0);
 
+      if (key=='C') {
+         u32t res = vdi->clean();
+         switch (res) {
+            case E_SYS_INITED      : printf("Unable to perform while RAM disk is in use!\n"); break;
+            case E_SYS_UNSUPPORTED : printf("No PAE on this CPU!\n"); break;
+            case E_SYS_NOMEM       : printf("No memory above 4Gb!\n"); break;
+            case E_SYS_NONINITOBJ  : printf("No ram disk found!\n"); break;
+            case 0: break;
+            default:
+               cmd_shellerr(EMSG_QS, res, 0);
+         }
+      } else
       if (vdi->query(0,&dh,&sectors,0,0)) {
          printf("There is no RAM Disk available\n");
       } else {
          vio_setcolor(VIO_COLOR_LWHITE);
-         printf(info?"Disk %s is available - %s\n":"Delete RAM Disk %s - %s?\n",
+         printf(key=='I'?"Disk %s is available - %s\n":"Delete RAM Disk %s - %s?\n",
             dsk_disktostr(dh,0), getsizestr(512,sectors,1));
          // delete action
-         if (!info)
+         if (key=='D')
             if (ask_yes())
                if (!vdi->free()) printf("Unspecified error occured!\n");
       }
@@ -89,16 +101,33 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
       return 0;
    } else {
       u32t  minsize=0, maxsize=0, nolow=0, nohigh=0, nofmt=0, nopt=0, nofat32=0,
-             divpos=0, fat32=0, ii, dh = 0, hpfs=0, load = 0;
+             divpos=0, fat32=0, ii, dh = 0, hpfs=0, load = 0, persist = 0, exact = 0;
       char     ltr1=0, ltr2=0, *vhdname = 0;
       int   divpcnt=0;   // divide pos in percents
 
       if (args->count>0) {
          for (ii=0; ii<args->count; ii++) {
-            if (strnicmp(args->item[ii],"min=",4)==0)
-               minsize = strtoul(args->item[ii]+4,0,10); else
-            if (strnicmp(args->item[ii],"max=",4)==0)
-               maxsize = strtoul(args->item[ii]+4,0,10); else
+            if (strnicmp(args->item[ii],"min=",4)==0 || strnicmp(args->item[ii],"size=",5)==0) {
+               char *vpos = strchr(args->item[ii],'=')+1;
+               exact = toupper(args->item[ii][0])=='S';
+               if (*vpos!='*' || !exact) {
+                  minsize = strtoul(vpos, &vpos, 10);
+                  if (*vpos) {
+                     errmsg("Invalid %s value!\n", exact?"SIZE":"MIN");
+                     break;
+                  }
+               }
+            } else
+            if (strnicmp(args->item[ii],"max=",4)==0 || strnicmp(args->item[ii],"maxhigh=",8)==0) {
+               char *vpos = strchr(args->item[ii],'=')+1;
+               maxsize = strtoul(vpos, &vpos, 10);
+               // assume max=0 as nohigh
+               if (!maxsize && *vpos==0) nohigh = 1; else
+               if (*vpos) {
+                  errmsg("Invalid MAXHIGH value!\n");
+                  break;
+               }
+            } else
             if (stricmp(args->item[ii],"nolow")==0) nolow = 1;
                else
             if (stricmp(args->item[ii],"nohigh")==0) nohigh = 1;
@@ -114,6 +143,8 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             if (stricmp(args->item[ii],"hpfs")==0) hpfs = 1;
                else
             if (stricmp(args->item[ii],"nopt")==0) nopt = 1;
+               else
+            if (stricmp(args->item[ii],"persist")==0) persist = 1;
                else
             if (stricmp(args->item[ii],"load")==0) {
                if (ii==args->count-1) {
@@ -148,13 +179,12 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             if (nolow && nohigh) { errmsg("Both NOLOW and NOHIGH keys used!\n"); break; }
             if (nofat32 && fat32) { errmsg("Both NOFAT32 and FAT32 keys used!\n"); break; }
             if (hpfs && fat32) { errmsg("Both HPFS and FAT32 keys used!\n"); break; }
-            if (maxsize && maxsize<minsize) { errmsg("MAX can`t be smaller than MIN!\n"); break; }
             if (load && (minsize || maxsize || fat32 || hpfs || divpos || ltr1)) {
                errmsg("Image LOAD can be combined with NOLOW/NOHIGH only!\n");
                break;
             }
-            if (divpos && !divpcnt && maxsize && divpos>=maxsize) {
-               errmsg("Invalid values: DIV > MAX!\n");
+            if (divpos && !divpcnt && minsize && divpos>=minsize) {
+               errmsg("Invalid values: DIV > %s!\n", exact?"SIZE":"MIN");
                break;
             }
             // ramdisk max=700 nolow z: q: div=30% nofmt
@@ -164,8 +194,9 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
          if (rc) return rc;
       }
       if (1) {
-         qs_vdisk  vdi = 0;
-         qserr     res = 0;
+         qs_vdisk    vdi = 0;
+         qserr       res = 0;
+         int  persist_ok = 0;
       
          ii = 0;
          if (divpos) { 
@@ -173,7 +204,7 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             if (divpcnt) ii|=VFDF_PERCENT;
          }
          if (nolow) ii|=VFDF_NOLOW; else
-            if (nohigh) ii|=VFDF_NOHIGH;
+            if (nohigh) { ii|=VFDF_NOHIGH; maxsize=0; }
          
          vdi = exi_createid(classid_vd, 0);
          
@@ -182,6 +213,9 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             // empty line
             if (!lopt_quiet) printf("\r                     \r");
          } else {
+            if (minsize && exact) ii|=VFDF_EXACTSIZE;
+            if (persist) ii|=VFDF_PERSIST;
+
             if (nopt )   ii|=VFDF_EMPTY; else
             if (nofmt)   ii|=VFDF_NOFMT; else
             if (hpfs)    ii|=VFDF_HPFS; else
@@ -189,6 +223,7 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
             if (fat32)   ii|=VFDF_FAT32;
             // create disk
             res = vdi->init(minsize, maxsize, ii, divpos, ltr1, ltr2, &dh);
+            if (res==E_SYS_EXIST) { res = 0; persist_ok = 1; }
          }
          
          if (res==0) {
@@ -196,8 +231,8 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
                u32t sectors = 0;
                vdi->query(0,0,&sectors,0,0);
          
-               printf("Disk %s created - %s\n", dsk_disktostr(dh,0),
-                  getsizestr(512,sectors,1));
+               printf("Disk %s %s - %s\n", dsk_disktostr(dh,0),
+                  persist_ok?"found":"created", getsizestr(512,sectors,1));
             }
          } else
          if (!lopt_quiet) {
@@ -210,7 +245,7 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
                case E_SYS_NOFILE      : printf("LOAD image file is not exist!\n"); break;
                case E_SYS_BADFMT      : printf("Disk image is not suitable!\n"); break;
                case E_SYS_TOOSMALL    : printf("Disk image too small!\n"); break;
-               case E_DSK_IO          : printf("I/O error while reading disk image!\n"); break;
+               case E_DSK_ERRREAD     : printf("I/O error while reading disk image!\n"); break;
                default:
                   cmd_shellerr(EMSG_QS, res, 0);
             }

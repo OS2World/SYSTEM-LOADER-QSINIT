@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TDeskTop member functions                 */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TDeskTop
 #define Uses_TRect
@@ -32,11 +29,12 @@ TDeskInit::TDeskInit(TBackground *(*cBackground)(TRect)) :
 
 TDeskTop::TDeskTop(const TRect &bounds) :
    TGroup(bounds),
-   TDeskInit(TDeskTop::initBackground) {
+   TDeskInit(TDeskTop::initBackground)
+{
    growMode = gfGrowHiX | gfGrowHiY;
+   tileColumnsFirst = False;
 
-   if (createBackground != 0 &&
-       (background = createBackground(getExtent())) != 0)
+   if (createBackground != 0 && (background = createBackground(getExtent())) != 0)
       insert(background);
 }
 
@@ -92,10 +90,12 @@ void TDeskTop::handleEvent(TEvent &event) {
    if (event.what == evCommand) {
       switch (event.message.command) {
          case cmNext:
-            selectNext(False);
+         if (valid(cmReleasedFocus))     // <-- Check valid.
+               selectNext(False);
             break;
          case cmPrev:
-            current->putInFrontOf(background);
+            if (valid(cmReleasedFocus))     // <-- Check valid.
+               current->putInFrontOf(background);
             break;
          default:
             return;
@@ -111,25 +111,30 @@ TBackground *TDeskTop::initBackground(TRect r) {
 short iSqr(short i) {
    short res1 = 2;
    short res2 = i/res1;
-   while (abs(res1 - res2) > 1) {
+   while (abs((int)(res1 - res2)) > 1) {
       res1 = (res1 + res2)/2;
       res2 = i/res1;
    }
    return res1 < res2 ? res1 : res2;
 }
 
-void mostEqualDivisors(short n, short &x, short &y) {
+void mostEqualDivisors(short n, short &x, short &y, Boolean favorY) {
    short  i;
 
    i = iSqr(n);
    if (n % i != 0)
-      if (n % (i+1) == 0)
+      if (n % (i + 1) == 0)
          i++;
-   if (i < (n/i))
-      i = n/i;
+   if (i < (n / i))
+      i = n / i;
 
-   x = n/i;
-   y = i;
+   if (favorY) {
+      x = n / i;
+      y = i;
+   } else {
+      y = n / i;
+      x = i;
+   }
 }
 
 static short numCols, numRows, numTileable, leftOver, tileNum;
@@ -179,7 +184,7 @@ void TDeskTop::tile(const TRect &r) {
    numTileable =  0;
    forEach(doCountTileable, 0);
    if (numTileable > 0) {
-      mostEqualDivisors(numTileable, numCols, numRows);
+      mostEqualDivisors(numTileable, numCols, numRows, Boolean(!tileColumnsFirst));
       if (((r.b.x - r.a.x)/numCols ==  0) ||
           ((r.b.y - r.a.y)/numRows ==  0))
          tileError();
@@ -203,7 +208,9 @@ TStreamable *TDeskTop::build() {
 
 TDeskTop::TDeskTop(StreamableInit) :
    TGroup(streamableInit),
-   TDeskInit(0) {
+   TDeskInit(streamableInit)
+{
+   tileColumnsFirst = False;
 }
 #endif  // ifndef NO_TV_STREAMS
 

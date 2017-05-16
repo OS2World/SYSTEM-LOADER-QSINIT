@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  TGroup member functions                   */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TGroup
 #define Uses_TView
@@ -25,10 +22,12 @@
 #include <tv.h>
 
 TView *TheTopView = 0;
+TGroup *ownerGroup = 0;
 
 TGroup::TGroup(const TRect &bounds) :
    TView(bounds), last(0), phase(phFocused), current(0), buffer(0),
-   lockFlag(0), endState(0) {
+   lockFlag(0), endState(0)
+{
    options |= ofSelectable | ofBuffered;
    clip = getExtent();
    eventMask = 0xFFFF;
@@ -38,14 +37,23 @@ TGroup::~TGroup() {
 }
 
 void TGroup::shutDown() {
-   resetCurrent();
+   /* looks like this is a fix from someone!
+      No such string both in TV 1.0 & 2.0. Let it stay here for a while */
+   resetCurrent();  
+
    TView *p = last;
-   if (p != 0)
+   if (p != 0) {
+      do {
+         p->hide();
+         p = p->prev();
+      } while (p != last);
+
       do  {
          TView *T = p->prev();
          destroy(p);
          p = T;
       } while (last != 0);
+   }
    freeBuffer();
    current = 0;
    TView::shutDown();
@@ -55,6 +63,14 @@ void doCalcChange(TView *p, void *d) {
    TRect  r;
    ((TGroup *)p)->calcBounds(r, *(TPoint *)d);
    ((TGroup *)p)->changeBounds(r);
+}
+
+static void doAwaken(TView *v, void *p) {
+   v->awaken();
+}
+
+void TGroup::awaken() {
+   forEach(doAwaken, 0);
 }
 
 void TGroup::changeBounds(const TRect &bounds) {
@@ -86,15 +102,17 @@ size_t TGroup::dataSize() {
    return T;
 }
 
-void TV_CDECL TGroup::remove(TView *p) {
-   ushort saveState;
-   saveState = p->state;
-   p->hide();
-   removeView(p);
-   p->owner = 0;
-   p->next= 0;
-   if ((saveState & sfVisible) != 0)
-      p->show();
+void TGroup::remove(TView *p) {
+   if (p) {
+      ushort saveState;
+      saveState = p->state;
+      p->hide();
+      removeView(p);
+      p->owner = 0;
+      p->next= 0;
+      if ((saveState & sfVisible) != 0)
+         p->show();
+   }
 }
 
 void TGroup::draw() {
@@ -180,6 +198,37 @@ TView *TGroup::first() {
       return 0;
    else
       return last->next;
+}
+
+TView *TGroup::findNext(Boolean forwards) {
+   TView *p, *result;
+
+   result = 0;
+   if (current) {
+      p = current;
+      do {
+         if (forwards)
+            p = p->next;
+         else
+            p = p->prev();
+
+      } while (!((((p->state & (sfVisible | sfDisabled)) == sfVisible) &&
+                  (p->options & ofSelectable)) || (p == current)));
+
+      if (p != current)
+         result = p;
+   }
+   return result;
+}
+
+Boolean TGroup::focusNext(Boolean forwards) {
+   TView *p;
+
+   p = findNext(forwards);
+   if (p)
+      return p->focus();
+   else
+      return True;
 }
 
 TView *TGroup::firstMatch(ushort aState, ushort aOptions) {
@@ -274,7 +323,11 @@ void TGroup::handleEvent(TEvent &event) {
    } else {
       phase = phFocused;
       if ((event.what & positionalEvents) != 0) {
-         doHandleEvent(firstThat(hasMouse, &event), &hs);
+         // get pointer to topmost view holding mouse
+         TView *p = firstThat(hasMouse, &event);
+         if (p)
+            // we have a view; send event to it
+            doHandleEvent(p, &hs);
       } else
          forEach(doHandleEvent, &hs);
    }
@@ -295,6 +348,8 @@ void TGroup::insertBefore(TView *p, TView *Target) {
       insertView(p, Target);
       if ((saveState & sfVisible) != 0)
          p->show();
+      if ((saveState & sfActive) != 0)
+         p->setState(sfActive, True);
    }
 }
 
@@ -324,28 +379,19 @@ void TGroup::redraw() {
    drawSubViews(first(), 0);
 }
 
-void TV_CDECL TGroup::resetCurrent() {
+void TGroup::resetCurrent() {
    setCurrent(firstMatch(sfVisible, ofSelectable), normalSelect);
 }
 
-void TV_CDECL TGroup::resetCursor() {
+void TGroup::resetCursor() {
    if (current != 0)
       current->resetCursor();
 }
 
 void TGroup::selectNext(Boolean forwards) {
    if (current != 0) {
-      TView *p = current;
-      do  {
-         if (forwards)
-            p = p->next;
-         else
-            p = p->prev();
-      } while (!(
-                  (((p->state & (sfVisible + sfDisabled)) == sfVisible) &&
-                   (p->options & ofSelectable)) || (p == current)
-               ));
-      p->select();
+      TView *p = findNext(forwards);
+      if (p) p->select();
    }
 }
 
@@ -365,18 +411,21 @@ void TGroup::setCurrent(TView *p, selectMode mode) {
    if (current!= p) {
       lock();
       focusView(current, False);
+#if 0
       // Test if focus lost was allowed and focus has really been loosed
       if ((mode == normalSelect) && current && (current->state & sfFocused)) {
          unlock();
          return;
       }
+#endif 
       if (mode != enterSelect)
          if (current != 0)
             current->setState(sfSelected, False);
       if (mode != leaveSelect)
          if (p != 0)
             p->setState(sfSelected, True);
-      focusView(p, True);
+      if ((state & sfFocused) != 0 && p != 0)
+         p->setState(sfFocused, True);
       current = p;
       unlock();
    }
@@ -438,13 +487,18 @@ void TGroup::unlock() {
       drawView();
 }
 
-// static ushort cmd; BF TGroup-3
-
-Boolean isInvalid(TView *p, void *cmdP) {
-   return Boolean(!p->valid(*(ushort *)cmdP));
+Boolean isInvalid(TView *p, void *command) {
+   return Boolean(!p->valid(*(ushort *)command));
 }
 
 Boolean TGroup::valid(ushort command) {
+   if (command == cmReleasedFocus) {
+      if (current && (current->options & ofValidate))
+         return current->valid(command);
+      else
+         return True;
+   }
+
    return Boolean(firstThat(isInvalid, &command) == 0);
 }
 
@@ -505,6 +559,8 @@ void *TGroup::read(ipstream &is) {
    is >> index;
    current = at(index);
    setCurrent(current, TView::normalSelect);
+   if (ownerGroup == NULL)
+      awaken();
    return this;
 }
 

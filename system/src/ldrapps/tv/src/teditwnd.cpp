@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*            TEditWindow member functions                    */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TFrame
 #define Uses_TWindow
@@ -36,7 +33,8 @@ TEditWindow::TEditWindow(const TRect &bounds,
                          int aNumber
                         ) :
    TWindow(bounds, 0, aNumber),
-   TWindowInit(TEditWindow::initFrame) {
+   TWindowInit(TEditWindow::initFrame)
+{
    options |= ofTileable;
 
    TScrollBar *hScrollBar =
@@ -109,7 +107,7 @@ TStreamable *TEditWindow::build() {
 
 TEditWindow::TEditWindow(StreamableInit) :
    TWindow(streamableInit),
-   TWindowInit(0) {
+   TWindowInit(streamableInit) {
 }
 #endif  // ifndef NO_TV_STREAMS
 

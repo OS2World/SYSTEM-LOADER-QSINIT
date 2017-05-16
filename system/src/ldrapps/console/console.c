@@ -6,6 +6,7 @@
 #include "qsutil.h"
 #include "qslog.h"
 #include "qsmod.h"
+#include "qsint.h"
 #include "qssys.h"
 #include "vio.h"
 #include "console.h"
@@ -57,7 +58,7 @@ void con_init(void) {
       str_list *lst = str_split(vesakey,",");
       int      vesa = env_istrue("VESA");
       if (vesa<=0) textonly = 1;
-      
+
       ii = 1;
       while (ii<lst->count) {
          char *lp = lst->item[ii];
@@ -117,7 +118,7 @@ int search_mode(u32t x, u32t y, u32t flags) {
    flags  &= 0xF0F;
    for (ii=0,idx=0; ii<mode_cnt; ii++)
       if (modes[ii].width==x && modes[ii].height==y && (modes[ii].flags&
-         ~(CON_EMULATED))==flags) 
+         ~(CON_EMULATED))==flags)
              if (idx++==index) return ii;
    return -1;
 }
@@ -337,7 +338,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
             " ÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄ\n"
             "   ## ³ mode size ³ font size \n"
             " ÄÄÄÄÄÅÄÄÄÄÄÂÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄ\n");
-                
+
          for (ii=0, cnt=0; ii<mode_cnt; ii++) {
             con_modeinfo *mi = modes + ii;
             if ((mi->flags&CON_GRAPHMODE)==0) {
@@ -470,7 +471,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
             if (strnicmp(args->item[ii],"DELAY=",6)==0)
                delay = strtoul(args->item[ii]+6, 0, 0); else
             if (strnicmp(args->item[ii],"INDEX=",6)==0) {
-               index = strtoul(args->item[ii]+6, 0, 0); 
+               index = strtoul(args->item[ii]+6, 0, 0);
             } else
             if (strnicmp(args->item[ii],"ADD=",4)==0) {
                // check add=fx,fy,mx,my parameter
@@ -548,7 +549,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
          }
          if (ii) {
             if (cols || lines) {
-               u32t oldcols, oldlines, 
+               u32t oldcols, oldlines,
                       flags = index<<16&CON_INDEX_MASK;
                con_getmode(&oldcols, &oldlines, 0);
                if (!cols)  cols  = oldcols;
@@ -583,24 +584,22 @@ u32t _std con_handler(const char *cmd, str_list *args) {
 
 void _std on_exit(sys_eventinfo *info) {
    if (!lib_ready) return;
+   mt_swlock();
    /* reset mode if it was changed, installed hook will also make call to
       con_unsetmode() */
-   if (mode_changed) { 
-      vio_resetmode(); 
-      mode_changed = 0; 
+   if (mode_changed) {
+      vio_resetmode();
+      mode_changed = 0;
    }
-   con_removeshot();
-   cmd_shellrmv("MKSHOT",shl_mkshot);
-   cmd_modermv("CON",con_handler);
    evio_shutdown();
    con_freefonts();
    con_removehooks();
    if (modes) { free(modes); modes=0; }
    if (mref)  { free(mref); mref=0; }
    pl_close();
-
    mode_cnt = 0;
    lib_ready = 0;
+   mt_swunlock();
 }
 
 unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
@@ -619,7 +618,7 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       if (host==QSHT_BIOS) {
          if (!plinit_vesa()) return 0;
       } else {
-         log_printf("Unknown host type!\n");
+         log_printf("Wrong host type!\n");
          return 0;
       }
       con_init();
@@ -633,9 +632,14 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       // we are ready! ;)
       log_printf("console.dll is loaded!\n");
    } else {
+      con_removeshot();
+      cmd_modermv("CON",con_handler);
+      cmd_shellrmv("MKSHOT",shl_mkshot);
+
       sys_notifyevent(0, on_exit);
       on_exit(0);
       log_printf("console.dll unloaded!\n");
    }
    return 1;
 }
+

@@ -4,17 +4,13 @@
 /* function(s)                                                */
 /*                  TFrame frameLine member function          */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*    This file Copyright (c) 1993 by J”rn Sierwald           */
-/*                                                            */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TFrame
 #define Uses_TDrawBuffer
@@ -37,7 +33,7 @@ Muster vorhanden ist, nimmt man :
   mask |= 0x06 .
 */
 
-void TV_CDECL TFrame::frameLine(TDrawBuffer &frameBuf, short y, short n, uchar color) {
+void TFrame::frameLine(TDrawBuffer &frameBuf, short y, short n, uchar color) {
    unsigned char frameMask[maxViewWidth];
    short int i;
    frameMask[0]=initFrame[n];
@@ -51,11 +47,11 @@ void TV_CDECL TFrame::frameLine(TDrawBuffer &frameBuf, short y, short n, uchar c
       if (p==this) break;
       if ((p->options & ofFramed) && (p->state & sfVisible)) {
          unsigned char mask1, mask2;
-         if (y+1<p->origin.y) continue;
-         else if (y+1==p->origin.y) { mask1=0x0A; mask2=0x06;}
-         else if (y==p->origin.y+p->size.y) { mask1=0x0A; mask2=0x03;}
-         else if (y<p->origin.y+p->size.y) { mask1=0; mask2=0x05;}
-         else continue;
+         if (y+1<p->origin.y) continue; else
+            if (y+1==p->origin.y) { mask1=0x0A; mask2=0x06; } else 
+               if (y==p->origin.y+p->size.y) { mask1=0x0A; mask2=0x03; } else
+                  if (y<p->origin.y+p->size.y) { mask1=0; mask2=0x05; } 
+                     else continue;
          unsigned short xMin=p->origin.x;
          unsigned short xMax=p->origin.x+p->size.x;
          if (xMin<1) xMin=1;

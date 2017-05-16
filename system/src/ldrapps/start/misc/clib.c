@@ -2,16 +2,15 @@
 // QSINIT "start" module
 // subset of C library functions
 //
-#include "stdlib.h"
 #include "stdarg.h"
 #include "qserr.h"
 #include "qsio.h"
 #include "errno.h"
 #include "qsutil.h"
-#include "direct.h"
 #include "qcl/qslist.h"
+#include "sys/stat.h"
 #include "qsshell.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "limits.h"
 
 int* __stdcall _get_errno(void) { 
@@ -49,14 +48,6 @@ s64t __stdcall atoi64(const char *ptr) {
    while (*ptr>='0'&&*ptr<='9') value=value*10+*ptr++-'0';
    if (sign=='-') value=-value;
    return value;
-}
-
-// ignoring any float ops
-int __cdecl sscanf(const char *in_string, const char *format, ...) {
-   return 0;
-}
-double __stdcall atof(const char *ptr) {
-   return 0.0;
 }
 
 char* __stdcall strdup(const char *str) {
@@ -261,6 +252,21 @@ char *__stdcall strpbrk(const char *str, const char *charset) {
    return 0;
 }
 
+size_t __stdcall strspn(const char *str, const char *charset) {
+   size_t  len = 0, tc;
+   u8t  vector[32];
+   _setbits(vector, charset);
+
+   for (;tc = (u8t)*str; ++str,++len)
+      if ((vector[tc>>3]&bits[tc&0x07])==0) break;
+   return len;
+}
+
+char *__stdcall _strspnp(const char *str, const char *charset) {
+   size_t index = strspn(str, charset);
+   return str[index] ? (char*)str + index : 0;
+}
+
 // do not use START_EXPORT() here (used from trap screen)
 char *__stdcall strncat(char *dst, const char *src, size_t n) {
    int lend = strlen(dst),
@@ -348,7 +354,7 @@ void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
 }
 
 int __stdcall isspace(int cc) {
-   return cc==' '||cc=='\f'||cc=='\n'||cc=='\r'||cc=='\t'||cc=='\v'?1:0;
+   return cc==' '||cc>='\t'&&cc<='\r'?1:0;
 }
 
 int __stdcall isalpha(int cc) {
@@ -361,6 +367,10 @@ int __stdcall isalnum(int cc) {
 
 int __stdcall isdigit(int cc) {
    return cc>='0'&&cc<='9'?1:0;
+}
+
+int __stdcall isxdigit(int cc) {
+   return cc>='0'&&cc<='9'||cc>='a'&&cc<='f'||cc>='A'&&cc<='F'?1:0;
 }
 
 int __stdcall abs(int value) {
@@ -433,10 +443,11 @@ int __stdcall qserr2errno(qserr errv) {
       case E_SYS_READONLY     :return EROFS;
       case E_SYS_TOOLARGE     :
       case E_SYS_TOOSMALL     :return EINVAL;
-      case E_DSK_IO           :return EIO;
+      case E_DSK_ERRREAD      :
+      case E_DSK_ERRWRITE     :return EIO;
       case E_DSK_NOTREADY     :
       case E_DSK_WP           :return EROFS;
-      case E_DSK_UNCKFS       :return ENOMNT;
+      case E_DSK_UNKFS        :return ENOMNT;
       case E_DSK_NOTMOUNTED   :return ENOMNT;
    }
    return ERANGE;
@@ -558,6 +569,28 @@ qserr __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
    return err;
 }
 
+int __stdcall stat(const char *path, struct stat *fi) {
+   io_handle_info  hi;
+   qserr          err;
+   if (!path||!fi) { set_errno(EINVAL); return -1; }
+
+   err = io_pathinfo(path, &hi);
+   if (err) set_errno_qserr(err); else {
+      memset(fi, 0, sizeof(struct stat));
+      fi->st_nlink = 1;
+      fi->st_size  = hi.size;
+      fi->st_atime = io_iototime(&hi.wtime);
+      fi->st_mtime = fi->st_atime;
+      fi->st_ctime = io_iototime(&hi.ctime);
+      fi->st_dev   = hi.vol;
+
+      fi->st_mode  = S_IRUSR|S_IRGRP|S_IROTH;
+      fi->st_mode |= hi.attrs&IOFA_DIR?S_IFDIR:S_IFREG;
+      if ((hi.attrs&IOFA_READONLY)==0) fi->st_mode |= S_IWUSR|S_IWGRP|S_IWOTH;
+   }
+   return err?-1:0;
+}
+
 int __stdcall START_EXPORT(_matchpattern)(const char *pattern, const char *str) {
    static char *all="*.*";
    if (!pattern||!*pattern) pattern = all;
@@ -597,7 +630,7 @@ int __stdcall START_EXPORT(_matchpattern)(const char *pattern, const char *str) 
    }
 }
 
-/* this code must be wrong in many cases, but it`s used as first time
+/* this code should be wrong in many cases, but it is used as a first time
    implementation */
 int __stdcall _replacepattern(const char *frompattern, const char *topattern,
                               const char *from, char *to)

@@ -1,20 +1,17 @@
 /*------------------------------------------------------------*/
-/* filename -       tvcursor.cpp                              */
+/* filename -       tstrlist.cpp                              */
 /*                                                            */
 /* function(s)                                                */
 /*                  Tview resetCursor member function         */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*    This file Copyright (c) 1993 by J”rn Sierwald           */
-/*                                                            */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ *      This file Copyright (c) 1993 by J”rn Sierwald
+ */
 
 #define Uses_TRect
 #define Uses_TPoint
@@ -31,7 +28,7 @@
 #include <vio.h>
 #endif
 
-void TV_CDECL TView::resetCursor() {
+void TView::resetCursor() {
    TView *p,*p2;
    TGroup *g;
    TPoint cur;

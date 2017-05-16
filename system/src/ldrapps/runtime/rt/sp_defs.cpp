@@ -128,7 +128,7 @@ int stricmp(const char*s1,const char*s2) {
   return res;
 }
 #endif
-#if defined(__IBMCPP_RN_ON__)||defined(SP_QSINIT)
+#if defined(__IBMCPP_RN_ON__)
 char *_gcvt(double value,int digits,char*str) {
   char fmt[24]; fmt[0]='%'; fmt[1]='#';
   sprintf(fmt+2,"%d.%dg",digits,digits-1); /* "%#(digits).(digits-1)g" */

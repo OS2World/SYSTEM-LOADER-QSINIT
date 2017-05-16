@@ -1,7 +1,7 @@
 #include "qsmodint.h"
 #include "qschain.h"
 #include "qsmodext.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "stdlib.h"
 #include "qsutil.h"
 #include "wchar.h"
@@ -487,6 +487,10 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
 
    if (in_mtmode) {
       sprintf(buf, "<<%u:%u>> %s : ", mod_getpid(), mt_getthread(), in?"In":"Out");
+      if (in) {
+         buf+=strlen(buf);
+         sprintf(buf, "%08X : ", esp[-1]);
+      }
       strcat(buf, fnname);
    } else {
       strcpy(buf, in?"In : ":"Out: ");
@@ -510,13 +514,17 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
       }
       if (out&&!ptr&&ch!='s'&&ch!='S') out=0;
       if (in&&out&&!inout) ch='p';
+      if (hex) {
+         if (ch=='D') ch='q'; else
+         if (ch=='F') ch='u';
+      }
 
       u64t llvalue = 0;
       u32t   value = 0;
       // stored out parameters in the order of presence in call
       u32t *pvalue = !in&&out ? ehbuf+outpcnt++ : 0;
 
-      if (ch=='q'||ch=='I') {
+      if (ch=='q'||ch=='I'||ch=='D') {
          // must be a ptr for out parameter
          if (pvalue) value = *(u32t*)pvalue; else
          if (in) {
@@ -534,7 +542,7 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
       // pointer to value. print (null) if it NUL
       if (ptr&&arg&&(in&&(!out||inout)||pvalue))
          if (!value) ch='s'; else 
-            if (ch=='q'||ch=='I') llvalue=*(u64t*)value; else value=*(u32t*)value;
+            if (ch=='q'||ch=='I'||ch=='D') llvalue=*(u64t*)value; else value=*(u32t*)value;
 
       *buf = 0;
 
@@ -572,6 +580,12 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
             if (Xor(in,!arg) || pvalue) 
                if (hex) sprintf(buf,"0x%02X",value&0xFF); else 
                   sprintf(buf,"%c",value);
+            break;
+         case 'D':
+            if (Xor(in,!arg) || pvalue) sprintf(buf,"%f",llvalue);
+            break;
+         case 'F':
+            if (Xor(in,!arg) || pvalue) sprintf(buf,"%f",(double)*(float*)(&value));
             break;
          case 'i':
             if (Xor(in,!arg) || pvalue) 
@@ -629,31 +643,42 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
 }
 
 static int _std hookmain(mod_chaininfo *info) {
-   u32t mh = (u32t)info->mc_orddata->od_handle;
+   u32t    mh = (u32t)info->mc_orddata->od_handle;
    // locked, mark for exit and skip
    if (listlock) { info->mc_userdata=1; return 1; }
    listlock++;
 
-   // reset debug check for own alloc/free time
-   u32t opt = mem_getopts();
-   if ((opt&QSMEMMGR_PARANOIDALCHK)!=0)
-      mem_setopts(opt&~QSMEMMGR_PARANOIDALCHK);
+   int enable = 1;
+   u32t   opt = 0;
 
-   // process output
-   u32t *pos = memchrd(activelist, mh, MAX_TRACE_MOD);
-   if (pos) {
-      ordinal_data *od = info->mc_orddata;
-      int          idx = pos-activelist;
-      pos = memchrd(ordlist[idx], od->od_ordinal?od->od_ordinal:(u32t)od->od_thunk,
-                    ordinals[idx]);
+   if (in_mtmode) {
+      mt_thrdata *th;
+      // hook called in MT lock, we`re safe to call mt_getdata here
+      mt_getdata(0, &th);
+      if (th->tiMiscFlags&TFLM_NOTRACE) enable = 0;
+   }
+   if (enable) {
+      // reset debug check for own alloc/free time
+      opt = mem_getopts();
+      if ((opt&QSMEMMGR_PARANOIDALCHK)!=0)
+         mem_setopts(opt&~QSMEMMGR_PARANOIDALCHK);
+
+      // process output
+      u32t *pos = memchrd(activelist, mh, MAX_TRACE_MOD);
       if (pos) {
-         int fidx = pos-ordlist[idx];
-         // do not make any checks of length limit now :((
-         static char buf[512];
-         info->mc_userdata = printarg(idx, fidx, buf, info, !info->mc_userdata);
-         // can`t use printf here
-         log_push(3,buf);
-         hlp_seroutstr(buf);
+         ordinal_data *od = info->mc_orddata;
+         int          idx = pos-activelist;
+         pos = memchrd(ordlist[idx], od->od_ordinal?od->od_ordinal:(u32t)od->od_thunk,
+                       ordinals[idx]);
+         if (pos) {
+            int fidx = pos-ordlist[idx];
+            // do not make any checks of length limit now :((
+            static char buf[512];
+            info->mc_userdata = printarg(idx, fidx, buf, info, !info->mc_userdata);
+            // can`t use printf here
+            log_push(3,buf);
+            hlp_seroutstr(buf);
+         }
       }
    }
    if (!info->mc_userdata) info->mc_userdata=1;

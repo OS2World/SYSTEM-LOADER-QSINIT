@@ -1,7 +1,6 @@
 #include "vioext.h"
 #include "classes.hpp"
-#include "internal.h"
-#include "stdlib.h"
+#include "syslocal.h"
 #include "qslog.h"
 
 #define WDT_WIDE    70

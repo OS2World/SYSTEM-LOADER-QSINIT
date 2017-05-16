@@ -28,6 +28,8 @@ od_entry        dd      ?
 od_exit         dd      ?
 ;ct void*
 od_replace      dd      ?
+;ct ptr_list
+od_replist      dd      ?
 ;ct u8t*
 od_thunk        dd      ?
 od_address      dd      ?

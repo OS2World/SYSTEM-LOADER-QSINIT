@@ -22,23 +22,15 @@ u32t  _std mod_load(const char *path, u32t flags, qserr *error, void *extdta);
 
 /** exec module.
     Low level exec function.
+    See also mod_execse().
 
     @param       module  Module handle.
-    @param       env     Environment data.
+    @param       env     Environment data, use 0 to make a parent`s copy.
     @param       params  Arguments string.
+    @param       mtdata  MTLIB-specific data, must be 0 in common call.
     @return -1 on error or program exit code.
     @see cmd_exec() */
-s32t  _std mod_exec(u32t module, const char *env, const char *params);
-
-/** exec module in detached mode.
-    Function works only in MT mode.
-
-    @param       module  Module handle.
-    @param       env     Environment data.
-    @param       params  Arguments string.
-    @return module load/start error code. Further activity does not
-    depend on caller */
-qserr _std mod_detach(u32t module, const char *env, const char *params);
+s32t  _std mod_exec(u32t module, const char *env, const char *params, void *mtdata);
 
 /** search and load module.
     Function searches in LIBPATH and PATH, DLL extension assumed, EXE if
@@ -49,7 +41,7 @@ qserr _std mod_detach(u32t module, const char *env, const char *params);
     @return module handle or 0 */
 u32t  _std mod_searchload(const char *name, u32t flags, qserr *error);
 
-/// @name mod_query flags
+/// @name mod_query() flags
 //@{
 #define MODQ_ALL             (  0)  ///< all modules (loaded & loading)
 #define MODQ_LOADED          (  1)  ///< loaded modules only

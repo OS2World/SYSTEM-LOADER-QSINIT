@@ -47,6 +47,7 @@ typedef enum {
            xcpt_align   = 17,               ///< alignment exception
            xcpt_machine = 18,               ///< machine check exception
            xcpt_simd    = 19,               ///< SSEx exception
+           xcpt_intbrk  = 0xFFF9,           ///< internal data is broken
            xcpt_prcerr  = 0xFFFA,           ///< process data structs damaged
            xcpt_exierr  = 0xFFFB,           ///< shared class stack damaged
            xcpt_interr  = 0xFFFC,           ///< exit called in dll module

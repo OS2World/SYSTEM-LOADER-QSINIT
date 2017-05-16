@@ -4,16 +4,16 @@
 /* function(s)                                                */
 /*            TFileEditor member functions                    */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ *------------------------------------------------------------*
+ * code rewritten to common file i/o by unknown hero, just leave
+ * it as it is, nothing changed here when moved to 2.0
+ */
 
 #define Uses_TGroup
 #define Uses_TEditor
@@ -52,7 +52,8 @@ TFileEditor::TFileEditor(const TRect &bounds,
                          TIndicator *aIndicator,
                          const char *aFileName
                         ) :
-   TEditor(bounds, aHScrollBar, aVScrollBar, aIndicator, 0) {
+   TEditor(bounds, aHScrollBar, aVScrollBar, aIndicator, 0)
+{
    if (aFileName == 0)
       fileName[0] = EOS;
    else {

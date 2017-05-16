@@ -4,16 +4,13 @@
 /* function(s)                                                */
 /*                  THistoryWindow member functions           */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_THistoryWindow
 #define Uses_THistoryViewer
@@ -30,11 +27,12 @@ THistoryWindow::THistoryWindow(const TRect &bounds,
                                ushort historyId) :
    THistInit(THistoryWindow::initViewer),
    TWindow(bounds, 0, wnNoNumber),
-   TWindowInit(THistoryWindow::initFrame) {
+   TWindowInit(THistoryWindow::initFrame)
+{
    flags = wfClose;
    if (createListViewer != 0 &&
-       (viewer = createListViewer(getExtent(), this, historyId)) != 0)
-      insert(viewer);
+      (viewer = createListViewer(getExtent(), this, historyId)) != 0)
+         insert(viewer);
 }
 
 TPalette &THistoryWindow::getPalette() const {
@@ -49,7 +47,6 @@ void THistoryWindow::getSelection(char *dest) {
 TListViewer *THistoryWindow::initViewer(TRect r, TWindow *win, ushort historyId) {
    r.grow(-1, -1);
    return new THistoryViewer(r,
-                             win->standardScrollBar(sbHorizontal | sbHandleKeyboard),
-                             win->standardScrollBar(sbVertical | sbHandleKeyboard),
-                             historyId);
+      win->standardScrollBar(sbHorizontal | sbHandleKeyboard),
+      win->standardScrollBar(sbVertical | sbHandleKeyboard), historyId);
 }

@@ -410,9 +410,16 @@ _prepare32      proc    near                                    ;
                 shl     ebp,PARASHIFT                           ; offset fixups
 @@p32_loopfx_ofs:
                 lodsd                                           ; tgt
-                lea     edx,[eax+ebx]                           ; 
+                mov     edx,eax                                 ;
                 lodsd                                           ; src
-                cmp     byte ptr [esi],0                        ;
+                test    byte ptr [esi],FXRELO_S16               ;
+                jz      @@p32_loopfx_ofs_s32                    ; fixup location is
+                add     edx,ebp                                 ; 16-bit code?
+                jmp     @@p32_loopfx_ofs_target                 ;
+@@p32_loopfx_ofs_s32:
+                add     edx,ebx                                 ;
+@@p32_loopfx_ofs_target:
+                test    byte ptr [esi],FXRELO_T16               ;
                 jnz     @@p32_loopfx_ofs16                      ;
                 add     eax,ebx                                 ;
                 jmp     @@p32_loopfx_apply                      ;

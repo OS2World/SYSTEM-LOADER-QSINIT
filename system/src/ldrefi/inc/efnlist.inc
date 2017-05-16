@@ -74,7 +74,7 @@
           EFN_XCPTON        = 31                                ;
 ;void hlp_memmove(void *dst, void *src, u64t length, u32t usecli);
           EFN_MEMMOVE       = 32                                ;
-;u32t TimerIrqsOn(u8t tmr_vector, u8t spr_vector);
+;u32t TimerIrqsOn(void *apic, u8t tmr_vector, u8t spr_vector);
           EFN_TIMERIRQON    = 33                                ;
 
           EFN_FUNCCOUNT     = 34                                ;
@@ -109,8 +109,10 @@ EFI_RESETWARM   equ     1                 ;
 EFI_SHUTDOWN    equ     2                 ;
 
 xcpt64_data     struc
+x64_cr0         dq      ?
 x64_cr2         dq      ?
 x64_cr3         dq      ?
+x64_cr4         dq      ?
 x64_ds          dq      ?
 x64_es          dq      ?
 x64_fs          dq      ?

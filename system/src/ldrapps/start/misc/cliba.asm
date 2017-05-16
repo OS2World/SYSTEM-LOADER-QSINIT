@@ -5,39 +5,17 @@
                 .586p
 
 
-_DATA           segment dword public USE32 'DATA'
-                public aboutstr_local
-aboutstr_local  label near
-                include vercheck.inc
-_DATA           ends
+_DATA           segment dword public USE32 'DATA'               ;
+                public aboutstr_local                           ;
+aboutstr_local  label near                                      ;
+                include vercheck.inc                            ;
+_DATA           ends                                            ;
 
 CODE32          segment dword public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
                 extrn   _exi_muxunlock:near                     ;
-
-;----------------------------------------------------------------
-;int  __stdcall memcmp(const void *s1, const void *s2, u32t length);
-                public  _memcmp
-_memcmp         proc    near
-@@s1            =  4                                            ;
-@@s2            =  8                                            ;
-@@length        = 12                                            ;
-                push    edi                                     ;
-                mov     edi,[esp+4+@@s1]                        ;
-                push    esi                                     ;
-                mov     esi,[esp+8+@@s2]                        ;
-                mov     ecx,[esp+8+@@length]                    ;
-                xor     eax,eax                                 ;
-           repe cmpsb                                           ;
-                jz      @@memcmp_ok                             ;
-                sbb     eax, eax                                ;
-                sbb     eax, 0FFFFFFFFh                         ;
-@@memcmp_ok:
-                pop     esi                                     ;
-                pop     edi                                     ;
-                ret     12                                      ;
-_memcmp         endp                                            ;
+                extrn   _unlink:near                            ;
 
 ;----------------------------------------------------------------
 ;u32t __stdcall bcmp(const void *s1, const void *s2, u32t length);
@@ -221,19 +199,6 @@ _patch_binary   proc    near
                 ret     36                                      ;
 _patch_binary   endp                                            ;
 
-
-;----------------------------------------------------------------
-;int  __stdcall bsf32(u32t value);
-                public  _bsf32
-_bsf32          proc    near
-@@bsfd_value    =  4                                            ;
-                bsf     eax,dword ptr [esp+@@bsfd_value]        ;
-                jnz     @@bsfd_done                             ;
-                or      eax,-1                                  ;
-@@bsfd_done:
-                ret     4                                       ;
-_bsf32          endp                                            ;
-
 ;----------------------------------------------------------------
 ;int  __stdcall bsf64(u64t value);
                 public  _bsf64
@@ -252,18 +217,6 @@ _bsf64          proc    near
 _bsf64          endp                                            ;
 
 ;----------------------------------------------------------------
-;int  __stdcall bsr32(u32t value);
-                public  _bsr32
-_bsr32          proc    near
-@@bsrd_value    =  4                                            ;
-                bsr     eax,dword ptr [esp+@@bsrd_value]        ;
-                jnz     @@bsrd_done                             ;
-                or      eax,-1                                  ;
-@@bsrd_done:
-                ret     4                                       ;
-_bsr32          endp                                            ;
-
-;----------------------------------------------------------------
 ;int  __stdcall bsr64(u64t value);
                 public  _bsr64
 _bsr64          proc    near
@@ -277,55 +230,6 @@ _bsr64          proc    near
 @@bsrq_done:
                 ret     8                                       ;
 _bsr64          endp                                            ;
-
-;----------------------------------------------------------------
-;u32t hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length);
-                public  _hlp_copytoflat                         ;
-_hlp_copytoflat proc    near                                    ;
-@@Length        = [ebp+1Ch]                                     ;
-@@Sel           = [ebp+18h]                                     ;
-@@Offset        = [ebp+14h]                                     ;
-@@Destination   = [ebp+10h]                                     ;
-                push    esi                                     ;
-                push    edi                                     ;
-                push    ebp                                     ;
-                mov     ebp,esp                                 ;
-                mov     esi,@@Offset                            ;
-                mov     ax,ds                                   ; is it FLAT?
-                cmp     ax,word ptr @@Sel                       ; skip all checks
-                mov     eax,@@Length                            ; (lsl will lie because
-                jz      @@cpf_lenok                             ; segment can be up-down)
-
-                lsl     ecx,word ptr @@Sel                      ;
-                jnz     @@cpf_exit0                             ;
-                sub     ecx,esi                                 ; offset start behind
-                jc      @@cpf_exit0                             ; seg limit?
-                inc     ecx                                     ;
-                cmp     ecx,eax                                 ; check for too long
-                jnc     @@cpf_lenok                             ; request
-                mov     eax,ecx                                 ;
-@@cpf_lenok:
-                cld                                             ;
-                mov     ecx,eax                                 ;
-                shr     ecx,2                                   ;
-                mov     edi,@@Destination                       ;
-                push    gs                                      ;
-                mov     gs,@@Sel                                ;
-            rep movs    dword ptr es:[edi],dword ptr gs:[esi]   ; copy data
-                mov     ecx,eax                                 ;
-                and     ecx,3                                   ;
-            rep movs    byte ptr es:[edi],byte ptr gs:[esi]     ;
-                pop     gs                                      ;
-                jmp     @@cpf_exit                              ;
-@@cpf_exit0:
-                xor     eax,eax                                 ; 0 bytes copied
-@@cpf_exit:
-                mov     esp,ebp                                 ;
-                pop     ebp                                     ;
-                pop     edi                                     ;
-                pop     esi                                     ;
-                ret     16                                      ;
-_hlp_copytoflat endp                                            ;
 
 ;----------------------------------------------------------------
 ;u8t* __stdcall memrchr(u8t*mem, u8t chr, u32t buflen);
@@ -812,6 +716,13 @@ exi_muxunlocka  proc    near                                    ; save edx:eax
                 pop     eax                                     ;
                 ret                                             ;
 exi_muxunlocka  endp                                            ;
+
+
+;----------------------------------------------------------------
+                public  _remove
+_remove         proc    near
+                jmp     _unlink
+_remove         endp
 
 CODE32          ends
 

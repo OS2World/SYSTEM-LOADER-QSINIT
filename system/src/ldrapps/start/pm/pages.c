@@ -9,13 +9,12 @@
 #include "qsutil.h"
 #include "pagedesc.h"
 #include "qsinit.h"
-#include "stdlib.h"
 #include "meminit.h"
 #include "cpudef.h"
 #include "qssys.h"
 #include "errno.h"
 #include "vio.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qspdata.h"
 
 // used memory size in pdmem block
@@ -57,11 +56,6 @@ extern qshandle              mhimux;
 extern u64t       _std   page0_fptr;   // 48-bit pointer to page 0 in QSINIT
 extern mt_proc_cb _std mt_exechooks;   // MT service hooks
 
-/** set cr3 and cr4 regs.
-    Function also updates internal variables of DPMI code.
-    @param  syscr3     New cr3 value
-    @param  syscr4     New cr4 value, can be 0xFFFFFFFF to skip setup */
-void _std sys_setcr3(u32t syscr3, u32t syscr4);
 void      sys_tsscr3(u32t cr3);
 
 int _std sys_pagemode(void) {
@@ -204,21 +198,21 @@ void setup_pagman_mt(void) {
                log_it(0, "pager mutex err!\n");
 }
 
-int _std pag_enable(void) {
+qserr _std pag_enable(void) {
    u32t   map0, ii,
          diff0 = hlp_segtoflat(0);
    u16t flatds = get_flatcs() + 8;
 
-   if (hlp_hosttype()==QSHT_EFI) return ENOSYS;
+   if (hlp_hosttype()==QSHT_EFI) return E_SYS_EFIHOST;
 
    ii = sys_isavail(SFEA_PAE|SFEA_PGE);
    // no PAE?
-   if ((ii&SFEA_PAE)==0) return ENODEV;
+   if ((ii&SFEA_PAE)==0) return E_SYS_UNSUPPORTED;
    // add global flag if PGE supported
    if ((ii&SFEA_PGE)) global = PT_GLOBAL;
 
    mt_swlock();
-   if (pdptf) { mt_swunlock(); return EEXIST; }
+   if (pdptf) { mt_swunlock(); return E_SYS_INITED; }
 
    // malloc always returning memory aligned to 16 bytes
    pdpt = pdptf = (u64t*)malloc(8*4+16);
@@ -304,4 +298,30 @@ int _std pag_enable(void) {
    // notify about success
    sys_notifyexec(SECB_PAE, 0);
    return 0;
+}
+
+u32t _std pag_query(void *addr) {
+   u32t va = (u32t)addr;
+   // on EFI entire 4Gb should be mirrored
+   if (hlp_hosttype()==QSHT_EFI) return PGEA_WRITE; else
+   // 1st page is beyond of DS segment in plain mode
+   if (!in_pagemode) return va<PAGESIZE?PGEA_NOTPRESENT:PGEA_WRITE; else {
+   // else decoding PAE page tables
+      u32t  cr3v = getcr3();
+      u64t *pdpt = (u64t*)(cr3v&~(1<<CR3PAE_PDPSHL-1)),
+            *pde = (u64t*)(pdpt[va>>PD1G_ADDRSHL]&~(u64t)PAGEMASK) +
+                   ((va&PD1G_MASK)>>PD2M_ADDRSHL),
+              pv = *pde;
+
+      if ((pv&PT_PRESENT)==0) return PGEA_NOTPRESENT; else
+      if (pv&PD_BIGPAGE) return pv&PT_WRITE?PGEA_WRITE:PGEA_READ; else {
+         u64t  paddr = pv & ((u64t)1<<PT64_MAXADDR)-PAGESIZE;
+         u64t    *pt = (u64t*)paddr + ((va&PD2M_MASK)>>PT_ADDRSHL), ptv;
+         // ????
+         if (paddr>=_4GBLL) return PGEA_UNKNOWN;
+         ptv = *pt;
+         if ((ptv&PT_PRESENT)==0) return PGEA_NOTPRESENT; else
+            return ptv&PT_WRITE?PGEA_WRITE:PGEA_READ;
+      }
+   }
 }

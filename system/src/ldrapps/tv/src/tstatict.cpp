@@ -4,19 +4,15 @@
 /* function(s)                                                */
 /*                  TStaticText member functions              */
 /*------------------------------------------------------------*/
-
-/*------------------------------------------------------------*/
-/*                                                            */
-/*    Turbo Vision -  Version 1.0                             */
-/*                                                            */
-/*                                                            */
-/*    Copyright (c) 1991 by Borland International             */
-/*    All Rights Reserved.                                    */
-/*                                                            */
-/*------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #define Uses_TStaticText
-#define Uses_TEvent
 #define Uses_TDrawBuffer
 #define Uses_opstream
 #define Uses_ipstream
@@ -35,7 +31,9 @@
 
 TStaticText::TStaticText(const TRect &bounds, const char *aText) :
    TView(bounds),
-   text(newStr(aText)) {
+   text(newStr(aText)) 
+{
+   growMode |= gfFixed;
 }
 
 TStaticText::~TStaticText() {
@@ -101,9 +99,10 @@ TPalette &TStaticText::getPalette() const {
 void TStaticText::getText(char *s) {
    if (text == 0)
       *s = EOS;
-   else
+   else {
       strncpy(s, text, TEXTBUF_SIZE);
-   s[TEXTBUF_SIZE-1] = EOS;
+      s[TEXTBUF_SIZE-1] = EOS;
+   }
 }
 
 #ifndef NO_TV_STREAMS

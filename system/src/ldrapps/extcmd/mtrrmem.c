@@ -224,11 +224,24 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
    args = str_parseargs(args, 0, 1, argstr, argval, &acpitable, &os2table, 
                         &mtrr, &nopause, &tolog, &hide);
    if (hide) {
-      int rc = -1;
-      if (args->count==2) {
-         u64t addr = strtoull(args->item[0],0,16),
-               len = strtoull(args->item[1],0,16);
-         if (addr && len)
+      int    ii, rc = -1;
+      // merge it back to get comma separated list
+      char    *line = str_gettostr(args, " ");
+      str_list *cml = str_split(line, ",");
+      free(line);
+
+      for (ii=0; ii<cml->count && rc<=0; ii++) {
+         str_list *crange = str_split(cml->item[ii], " ");
+         if (crange->count!=2) {
+            printf("Invalid range argument at pos %i (%s).\n", ii+1, cml->item[ii]);
+            rc = EINVAL;
+         } else {
+            u64t addr = strtoull(crange->item[0],0,16),
+                  len = strtoull(crange->item[1],0,16);
+            if (!addr || !len) {
+               printf("Start address and length cannot be zero.\n");
+               rc = EINVAL;
+            } else
             if ((addr&PAGEMASK)!=0 || (len&PAGEMASK)!=0) {
                printf("Both start address and length must be aligned to page size (4kb).\n");
                rc = EINVAL;
@@ -237,7 +250,8 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                printf("Start address beyond the end of physical memory.\n");
                rc = EINVAL;
             } else {
-               u32t      pages = len>>PAGESHIFT, errcnt = 0;
+               u32t      pages = len>>PAGESHIFT, errcnt = 0,
+                        staddr = addr;
                pcmem_entry *ml = sys_getpcmem(0), *mp = ml;
                while (mp->pages) {
                   u64t next = mp->start + ((u64t)mp->pages<<PAGESHIFT);
@@ -251,7 +265,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                            PCMEM_USERAPP:btype))) errcnt++;
                         // trying to preserve in QSINIT`s own memory manager too
                         if (btype==PCMEM_QSINIT)
-                           if (!hlp_memreserve(addr,lp<<PAGESHIFT)) errcnt++;
+                           if (!hlp_memreserve(addr,lp<<PAGESHIFT,0)) errcnt++;
                      }
                      pages -= lp;
                      addr  += lp<<PAGESHIFT;
@@ -262,22 +276,27 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                free(ml);
                // update array in "physmem" storage key
                hlp_setupmem(0, 0, 0, SETM_SPLIT16M);
-               if (errcnt) printf("%d error(s) occured while hiding memory.\n", errcnt);
+               if (errcnt)
+                  printf("%d error(s) occured while hiding range %08X..%08X.\n",
+                     errcnt, staddr, staddr+len-1);
                rc = errcnt?EACCES:0;
             }
+         }
+         free(crange);
       }
-      free(args);
+      free(cml); free(args);
       if (rc<0) cmd_shellerr(EMSG_CLIB, rc=EINVAL, 0);
       // continue mem on /o or /a without error
       if (rc || !os2table && !acpitable) return rc;
    } else 
    if (args->count>0) {
-      // unknown args in source string
-      cmd_shellerr(EMSG_CLIB,EINVAL,0); free(args);
+      // uncknown args in source string
+      cmd_shellerr(EMSG_CLIB, EINVAL, 0); free(args);
       return EINVAL;
    } else
       free(args);
    args = 0;
+
 
    cmd_printseq(0, 1+tolog, 0);
    avail = hlp_memavail(&maxblock, &total);
@@ -292,7 +311,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
 
       cmd_printseq("\nPhysical memory, available for OS/2:", 0, 0);
       for (idx=0;idx<phm_count;idx++)
-         if (cmd_printseq("%2d. Address:%08X Size:%dkb", nopause?-1:0, 0,
+         if (cmd_printseq("%2d. Address:%08X Size:%7u kb", nopause?-1:0, 0,
             idx+1, phm[idx].startaddr, phm[idx].blocklen>>10)) return EZERO;
    }
    if (acpitable) {

@@ -2,13 +2,17 @@
 /*                                                                         */
 /*   EDITORS.H                                                             */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TIndicator, TEditor, TMemo, TFileEditor,          */
 /*   and TEditWindow                                                       */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #ifdef __BORLANDC__
 #if !defined( __DIR_H )
@@ -39,8 +43,6 @@
 const unsigned
 sfSearchFailed = UINT_MAX; // 0xFFFF;
 
-#define cmSave            (80)
-#define cmSaveAs          (81)
 #define cmFind            (82)
 #define cmReplace         (83)
 #define cmSearchAgain     (84)
@@ -69,6 +71,7 @@ sfSearchFailed = UINT_MAX; // 0xFFFF;
 #define cmHideSelect      (521)
 #define cmIndentMode      (522)
 #define cmUpdateTitle     (523)
+#define cmDelWordLeft     (524)      // dixie! For Ctrl-Bkspc
 
 #define edOutOfMemory     (0)
 #define edReadError       (1)
@@ -176,8 +179,8 @@ public:
 
    virtual void shutDown();
 
-   char TV_CDECL bufChar(size_t);
-   size_t TV_CDECL bufPtr(size_t);
+   char bufChar(size_t);
+   size_t bufPtr(size_t);
    virtual void changeBounds(const TRect &);
    virtual void convertEvent(TEvent &);
    Boolean cursorVisible();
@@ -210,21 +213,21 @@ public:
    void doUpdate();
    void doSearchReplace();
    void drawLines(int, int, size_t);
-   void TV_CDECL formatLine(void *, size_t, int, ushort);
+   void formatLine(void *, size_t, int, ushort);
    void find();
    size_t getMousePtr(TPoint);
    Boolean hasSelection();
    void hideSelect();
    Boolean isClipboard();
-   size_t TV_CDECL lineEnd(size_t);
+   size_t lineEnd(size_t);
    size_t lineMove(size_t, int);
-   size_t TV_CDECL lineStart(size_t);
+   size_t lineStart(size_t);
    void lock();
    void newLine();
-   size_t TV_CDECL nextChar(size_t);
+   size_t nextChar(size_t);
    size_t nextLine(size_t);
    size_t nextWord(size_t);
-   size_t TV_CDECL prevChar(size_t);
+   size_t prevChar(size_t);
    size_t prevLine(size_t);
    size_t prevWord(size_t);
    void replace();
@@ -527,4 +530,3 @@ struct TReplaceDialogRec {
 #endif  // Uses_TReplaceDialogRec
 
 #include <tvvo2.h>
-

@@ -12,8 +12,8 @@ extern "C" {
 
 #include "clib.h"
 
-typedef u32t     time_t;
-typedef u64t    clock_t;
+typedef u32t       time_t;
+typedef qsclock   clock_t;
 
 struct  tm {
    int      tm_sec;  // seconds after the minute -- [0,61]
@@ -60,7 +60,7 @@ time_t  _std dostimetotime(u32t dostime);
 clock_t _std clock(void);
 
 /// return # of microseconds since reboot
-clock_t _std sys_clock(void);
+qsclock _std sys_clock(void);
 
 #ifdef __cplusplus
 }

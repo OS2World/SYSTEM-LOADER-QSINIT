@@ -4,6 +4,14 @@
 // -------------------------------------------------------
 //
 #include "qstypes.h"
+/* code is independent from anything, except fptostr() which can be
+   eliminated by this define (with float printing, of course) */
+#ifndef NO_FPU_PRINTF
+#include "qsmodint.h"
+extern mod_addfunc *mod_secondary;
+#else
+#define mod_secondary 0
+#endif
 
 typedef void _std (*print_outf)(int ch, void *stream);
 u32t  _std strlen(const char *str);
@@ -205,6 +213,28 @@ int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc) {
                prec_fix = 1;
                break;
             }
+            case 'E':
+            case 'e':
+            case 'f':
+            case 'G':
+            case 'g': 
+               if (!mod_secondary) {
+                  char_prn = true;
+                  str = "?.?";
+                  len = 3;
+               } 
+#ifndef NO_FPU_PRINTF
+                 else {
+                  double value = *(double*)arg;
+                  arg += 2;
+                  len = mod_secondary->fptostr(value,++str,fmtc|(char)(alt?0x80:0),prec);
+                  
+                  if (*str == '-') prefix_cnt = 1; else
+                  if (plus||space) { *--str=plus?'+':' '; len++; prefix_cnt = 1; }
+                  prec = -1;
+               }
+#endif
+               break;
             case 'b':
             case 'B': {
                u8t *baptr = (u8t*)*arg;

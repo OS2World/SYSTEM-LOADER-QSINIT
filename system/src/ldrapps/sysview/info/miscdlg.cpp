@@ -107,6 +107,7 @@ int TSysApp::SetCodepage(int format) {
    dlg->helpCtx  = hcSetCodepage;
 
    cpline = new TInputLine(TRect(13, 4+format, 19, 5+format), 5);
+   cpline->helpCtx = hcSelectCodepage;
    dlg->insert(cpline);
 
    qs_cpconvert cpl = NEW(qs_cpconvert);

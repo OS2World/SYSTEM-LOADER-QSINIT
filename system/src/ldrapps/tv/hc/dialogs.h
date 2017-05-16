@@ -2,14 +2,18 @@
 /*                                                                         */
 /*   DIALOGS.H                                                             */
 /*                                                                         */
-/*   Copyright (c) Borland International 1991                              */
-/*   All Rights Reserved.                                                  */
-/*                                                                         */
 /*   defines the classes TDialog, TInputLine, TButton, TCluster,           */
-/*   TRadioButtons, TCheckBoxes, TStaticText, TParamText, TLabel,          */
-/*   THistoryViewer, and THistoryWindow.                                   */
+/*   TRadioButtons, TCheckBoxes, TMultiCheckBoxes, TListBox, TStaticText,  */
+/*   TParamText, TLabel, THistoryViewer, and THistoryWindow.               */
 /*                                                                         */
 /* ------------------------------------------------------------------------*/
+/*
+ *      Turbo Vision - Version 2.0
+ *
+ *      Copyright (c) 1994 by Borland International
+ *      All Rights Reserved.
+ *
+ */
 
 #include <tvvo.h>
 
@@ -17,12 +21,13 @@
 #define __BUTTON_TYPE
 
 const int
-bfNormal    = 0x00,
-bfDefault   = 0x01,
-bfLeftJust  = 0x02,
-bfBroadcast = 0x04,
+   bfNormal      = 0x00,
+   bfDefault     = 0x01,
+   bfLeftJust    = 0x02,
+   bfBroadcast   = 0x04,
+   bfGrabFocus   = 0x08,
 
-cmRecordHistory = 60;
+   cmRecordHistory = 60;
 
 #endif  // __BUTTON_TYPE
 
@@ -60,15 +65,34 @@ cmRecordHistory = 60;
 /*       28 = ListViewer selected                                         */
 /*       29 = ListViewer divider                                          */
 /*       30 = InfoPane                                                    */
-/*       31 = Reserved                                                    */
+/*       31 = Cluster Disabled                                            */
 /*       32 = Reserved                                                    */
 /* ---------------------------------------------------------------------- */
 
 #if defined( Uses_TDialog ) && !defined( __TDialog )
 #define __TDialog
 
+#define  cpGrayDialog \
+    "\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2A\x2B\x2C\x2D\x2E\x2F"\
+    "\x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3A\x3B\x3C\x3D\x3E\x3F"
+
+#define  cpBlueDialog \
+    "\x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4a\x4b\x4c\x4d\x4e\x4f"\
+    "\x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f"
+
+#define  cpCyanDialog \
+    "\x60\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f"\
+    "\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x7b\x7c\x7d\x7e\x7f"
+
+#define cpDialog cpGrayDialog
+
+const int dpBlueDialog = 0,
+          dpCyanDialog = 1,
+          dpGrayDialog = 2;
+
 class TRect;
 class TEvent;
+class TValidator;
 
 class TDialog : public TWindow {
 
@@ -127,12 +151,13 @@ inline opstream &operator << (opstream &os, TDialog *cl)
 
 class TRect;
 class TEvent;
+class TValidator;
 
 class TInputLine : public TView {
 
 public:
 
-   TInputLine(const TRect &bounds, int aMaxLen);
+   TInputLine(const TRect& bounds, int aMaxLen, TValidator *aValid = 0);
    ~TInputLine();
 
    virtual size_t dataSize();
@@ -143,6 +168,8 @@ public:
    void selectAll(Boolean enable);
    virtual void setData(void *rec);
    virtual void setState(ushort aState, Boolean enable);
+   virtual Boolean valid(ushort cmd);
+   void setValidator(TValidator* aValid);
 
    char *data;
    int maxLen;
@@ -157,9 +184,23 @@ private:
    int mouseDelta(TEvent &event);
    int mousePos(TEvent &event);
    void deleteSelect();
+   void adjustSelectBlock();
+   void saveState();
+   void restoreState();
+   Boolean checkValid(Boolean);
 
    static const char rightArrow;
    static const char leftArrow;
+
+   TValidator* validator;
+
+   int anchor;
+   int oldAnchor; // New variable to save another bit of state info
+   char* oldData;
+   int oldCurPos;
+   int oldFirstPos;
+   int oldSelStart;
+   int oldSelEnd;
 
 #ifndef NO_TV_STREAMS
    virtual const char *streamableName() const
@@ -309,6 +350,7 @@ public:
 /*        2 = Selected text                                               */
 /*        3 = Normal shortcut                                             */
 /*        4 = Selected shortcut                                           */
+/*        5 = Disabled text                                               */
 /* ---------------------------------------------------------------------- */
 
 #if defined( Uses_TCluster ) && !defined( __TCluster )
@@ -329,19 +371,25 @@ public:
 
    virtual size_t dataSize();
    void drawBox(const char *icon, char marker);
+   void drawMultiBox(const char *icon, const char* marker);
    virtual void getData(void *rec);
    ushort getHelpCtx();
    virtual TPalette &getPalette() const;
    virtual void handleEvent(TEvent &event);
    virtual Boolean mark(int item);
+   virtual uchar multiMark(int item);
+
    virtual void press(int item);
    virtual void movedTo(int item);
    virtual void setData(void *rec);
    virtual void setState(ushort aState, Boolean enable);
+   virtual void setButtonState(unsigned long aMask, Boolean enable);
 
+   Boolean buttonState(int);
 protected:
 
-   ushort value;
+   unsigned long value;
+   unsigned long enableMask;
    int sel;
    TStringCollection *strings;
 
@@ -350,6 +398,7 @@ private:
    int column(int item);
    int findSel(TPoint p);
    int row(int item);
+   void moveSel(int, int);
 
 #ifndef NO_TV_STREAMS
    virtual const char *streamableName() const
@@ -517,12 +566,86 @@ inline TCheckBoxes::TCheckBoxes(const TRect &bounds, TSItem *aStrings) :
 #endif  // Uses_TCheckBoxes
 
 
+#if defined( Uses_TMultiCheckBoxes ) && !defined( __TMultiCheckBoxes )
+#define __TMultiCheckBoxes
+
+const unsigned short cfOneBit       = 0x0101,
+                     cfTwoBits      = 0x0203,
+                     cfFourBits     = 0x040F,
+                     cfEightBits    = 0x08FF;
+
+/* ---------------------------------------------------------------------- */
+/*      TMultiCheckBoxes                                                  */
+/*                                                                        */
+/*      Palette layout                                                    */
+/*        1 = Normal text                                                 */
+/*        2 = Selected text                                               */
+/*        3 = Normal shortcut                                             */
+/*        4 = Selected shortcut                                           */
+/* ---------------------------------------------------------------------- */
+
+class TRect;
+class TSItem;
+
+class TMultiCheckBoxes : public TCluster {
+public:
+    TMultiCheckBoxes(TRect&, TSItem*, uchar, ushort, const char*);
+    ~TMultiCheckBoxes();
+    virtual size_t dataSize();
+    virtual void draw();
+    virtual void getData(void *);
+    virtual uchar multiMark(int item);
+    virtual void press( int item );
+    virtual void setData(void*);
+
+private:
+    uchar selRange;
+    ushort flags;
+    char* states;
+
+#ifndef NO_TV_STREAMS
+    virtual const char *streamableName() const
+        { return name; }
+
+protected:
+
+    TMultiCheckBoxes( StreamableInit );
+    virtual void write( opstream& );
+    virtual void *read( ipstream& );
+
+public:
+    static const char * const name;
+    static TStreamable *build();
+#endif  // ifndef NO_TV_STREAMS
+
+};
+
+#ifndef NO_TV_STREAMS
+inline ipstream& operator >> ( ipstream& is, TMultiCheckBoxes& cl )
+    { return is >> (TStreamable&)cl; }
+inline ipstream& operator >> ( ipstream& is, TMultiCheckBoxes*& cl )
+    { return is >> (void *&)cl; }
+
+inline opstream& operator << ( opstream& os, TMultiCheckBoxes& cl )
+    { return os << (TStreamable&)cl; }
+inline opstream& operator << ( opstream& os, TMultiCheckBoxes* cl )
+    { return os << (TStreamable *)cl; }
+#endif  // ifndef NO_TV_STREAMS
+
+#endif  // Uses_TMultiCheckBoxes
+
+
 #if defined( Uses_TListBox ) && !defined( __TListBox )
 #define __TListBox
 
 class TRect;
 class TScrollBar;
 class TCollection;
+
+struct TListBoxRec {
+    TCollection *items;
+    ushort selection;
+};
 
 class TListBox : public TListViewer {
 
@@ -657,16 +780,16 @@ class TRect;
 class TParamText : public TStaticText {
 
 public:
-   TParamText(const TRect &bounds, const char *aText, int aParamCount);
+   TParamText(const TRect& bounds);
+   ~TParamText();
 
-   virtual size_t dataSize();
-   virtual void getText(char *);
-   virtual void setData(void *rec);
+   virtual void getText(char *str);
+   virtual void setText(char *fmt, ...);
+   virtual int getTextLen();
 
 protected:
 
-   short paramCount;
-   void *paramList;
+   char *str;
 
 private:
 
@@ -737,6 +860,8 @@ protected:
    Boolean light;
 
 private:
+
+   void focusLink(TEvent&);
 
 #ifndef NO_TV_STREAMS
    virtual const char *streamableName() const
@@ -879,6 +1004,7 @@ public:
    virtual TPalette &getPalette() const;
    virtual void handleEvent(TEvent &event);
    virtual THistoryWindow *initHistoryWindow(const TRect &bounds);
+   virtual void recordHistory(const char *s);
    virtual void shutDown();
 protected:
 

@@ -1,0 +1,49 @@
+#
+# wmake makefile
+#
+
+PRJNAME  = memsize
+EXENAME  = $(PRJNAME).exe
+OUTROOT  = out
+CC       = @wcc386
+CFLAGS   = -4s -s -mf -oxs -zq -bt=os2
+
+!ifeq CFG 0
+OUTDIR  = $(OUTROOT)\Debug.wcc
+CFLAGS  = $(CFLAGS) -d2 -hw -of
+!else
+OUTDIR  = $(OUTROOT)\Release.wcc
+!endif
+
+LNK     = $(OUTDIR)\$(PRJNAME).lnk
+OUT     = $(OUTDIR)/
+
+BUILDFILES = $(OUT)memsize.obj
+
+result : $(OUTDIR) $(EXENAME)
+
+clean  : .SYMBOLIC
+      @echo Cleaning ...
+      @if exist $(OUTDIR)\*.obj del $(OUTDIR)\*.obj > nul
+      @if exist $(OUTDIR)\*.lnk del $(OUTDIR)\*.lnk > nul
+
+$(OUTDIR) : .SYMBOLIC
+      @if not exist $(OUTROOT) mkdir $(OUTROOT)
+      @if not exist $(OUTDIR) mkdir $(OUTDIR)
+
+$(EXENAME) : $(LNK) $(BUILDFILES)
+      @wlink @$(LNK)
+
+$(OUT)memsize.obj: memsize.c oemhlpex.h
+      $(CC) $(CFLAGS) -fo=$@ memsize.c
+
+$(LNK) : makefile.wcc
+      @echo sys os2v2               >$@
+      @echo name $(PRJNAME)         >>$@
+!ifeq CFG 0
+      @echo debug watcom all        >>$@
+!endif
+      @echo file $(OUT)memsize.obj  >>$@
+      @echo op quiet                >>$@
+      @echo op el                   >>$@
+      @echo op st=32768             >>$@

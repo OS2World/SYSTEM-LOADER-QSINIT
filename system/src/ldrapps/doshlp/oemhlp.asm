@@ -4,8 +4,11 @@
 ;
 
                 ; 1 - ordinary debug, 2 - all oemhlp, except PCI
-                ; 3 - all with with PCI
+                ; 3 - all & PCI calls
                 oemhlp_debug = 0
+                ; 0 - use saved device list, supplied by bootos2.exe
+                ; 1 - walk over PCI config space & search
+                oemhlp_walk  = 1
 
                 include segdef.inc                              ;
                 include doshlp.inc                              ;
@@ -77,11 +80,12 @@ IOCTLTable      label   word                                    ;
                 dw      GET_MEMORY_INFO                         ; 9 - return memory info
                 dw      GET_VIDEO_INFO                          ; A - return DMQS selector
                 dw      FN_ERR                                  ; B - PCI - will be replaced by PciCall
-                dw      FN_ERR                                  ; C - return DBCS info
+                dw      GET_DBCS_INFO                           ; C - return DBCS unique information
                 dw      GET_MACH_ID                             ; D - return machine ID byte
                 dw      QUERY_DISK_INFO                         ; E - return disk info
                 dw      FN_ERR                                  ; F - unsupported
                 dw      GET_DEVHLP_ADDR                         ;10 - return DevHlp address
+                dw      GET_MEM_INFO_EX                         ;11 - return extended memory info
 IOCTLTable_Size equ     $-offset IOCTLTable                     ;
 
 ;
@@ -101,6 +105,10 @@ OEMHLP_MISC_INFO        equ     6                               ;
 OEMHLP_VIDEO_ADAPTER    equ     7                               ;
 OEMHLP_SVGA_INFO        equ     8                               ;
 OEMHLP_DMQS_INFO        equ     10                              ;
+
+OEMHLP_DBCS_HWSCROLL    equ     0                               ; return video H/W scroll capability
+OEMHLP_DBCS_FONTGDTS    equ     1                               ; return GDTs for DBCS fonts
+OEMHLP_DBCS_INT10VECTOR equ     2                               ; return original INT 10h vector
 
 ;
 ; OEMHLP_GETOEMADAPTIONINFO data packet
@@ -138,18 +146,27 @@ LowMemKB        dw      ?                                       ;
 HighMemKB       dd      ?                                       ;
 MEMORY_Packet   ends                                            ;
 
+;
+; OEMHLP_GETMEMINFOEX data packet
+; ---------------------------------------------------------------
+MEMORYEX_Packet struc                                           ;
+MiLowPages      dd      ?                                       ;
+MiHighPages     dd      ?                                       ;
+MiAvailPages    dd      ?                                       ;
+MEMORYEX_Packet ends                                            ;
 
                 public  AdaptInfo
 AdaptInfo       label   near
 ADAPT_Data      ADAPT_Packet    <>                              ;
 BIOS_Data       BIOS_Packet     <>                              ;
 MEMORY_Data     MEMORY_Packet   <>                              ;
+MEMORYEX_Data   MEMORYEX_Packet <>                              ;
 MACH_Data       MACH_Packet     <>                              ;
 
-; 컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�
+; ---------------------------------------------------------------
 ; OEMHLP_CHECK_VIDEO, OEMHLP_MISC_INFO or OEMHLP_VIDEO_ADAPTER
 ; data packet structure
-; 컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�
+; ---------------------------------------------------------------
 
 NO_ADAPTER_SET  equ     -1                                      ;
 
@@ -171,6 +188,14 @@ MAX_FONTS       equ     6                                       ;
 FONT_SIZE       equ     4*MAX_FONTS
 
 FONT_TABLE      dd      0,0,0,0,0,0                             ;
+;
+; DBCS data GDT selectors list (6 words)
+; ---------------------------------------------------------------
+DBCS_SelCnt     dw      0                                       ;
+DBCS_SegSize    dw      0                                       ; last segment size
+DBCS_Sel        dw      0,0,0,0                                 ;
+; ---------------------------------------------------------------
+
                 public  DEVHLP                                  ;
                 public  PCIConfigBX,PCIConfigAL,PCIConfigCL
 DEVHLP          dd      ?                                       ; Device Helper service routine
@@ -279,8 +304,8 @@ FN_IOCTL        proc    near                                    ;
                 cmp     si,IOCTLTable_Size                      ;
                 jnc     FN_ERR                                  ;
 if oemhlp_debug GT 1
-                cmp     al,11
-                jz      @@fiocd_skip
+                cmp     al,11                                   ;
+                jz      @@fiocd_skip                            ;
                 dbg16print <"OEMHLP ioctl %x",10>,<ax>          ;
                 call    IOCTLTable[si]                          ;
                 dbg16print <"OEMHLP ioctl rc %x",10>,<ax>       ;
@@ -348,6 +373,14 @@ GET_MEMORY_INFO proc    near                                    ;
                 call    CopyDataPacket                          ;
                 ret                                             ;
 GET_MEMORY_INFO endp                                            ;
+; ---------------------------------------------------------------
+                public  GET_MEM_INFO_EX
+GET_MEM_INFO_EX proc    near                                    ;
+                mov     cx,size MEMORYEX_Packet                 ;
+                mov     si,offset MEMORYEX_Data                 ;
+                call    CopyDataPacket                          ;
+                ret                                             ;
+GET_MEM_INFO_EX endp                                            ;
 ; ---------------------------------------------------------------
                 public  GET_MACH_ID
 GET_MACH_ID     proc    near                                    ;
@@ -480,6 +513,143 @@ GET_FONTS       proc    near                                    ;
 GET_FONTS       endp
 
 ;
+; DBCS services IOCTL routine
+; ---------------------------------------------------------------
+                public  GET_DBCS_INFO                           ;
+GET_DBCS_INFO   proc    near                                    ;
+                push    bx                                      ;
+                push    cx                                      ;
+                push    dx                                      ;
+                push    di                                      ;
+                push    es                                      ;
+                cmp     word ptr es:[bx].GIOParaLen,4           ;
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                jnz     @@dbcsi_ret                             ;
+                mov     ax,word ptr es:[bx].GIOParaPack+2       ; check access
+                mov     di,word ptr es:[bx].GIOParaPack         ;
+                mov     cx,word ptr es:[bx].GIOParaLen          ;
+                Dev_Hlp VerifyAccess                            ;
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                jc      @@dbcsi_ret                             ;
+                mov     ax,word ptr es:[bx].GIODataPack+2       ;
+                mov     di,word ptr es:[bx].GIODataPack         ;
+                mov     cx,word ptr es:[bx].GIODataLen          ;
+                Dev_Hlp VerifyAccess                            ;
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                jc      @@dbcsi_ret                             ;
+                push    es                                      ;
+                les     di,es:[bx].GIOParaPack                  ;
+                mov     ax,word ptr es:[di]                     ; Fn #
+if oemhlp_debug GT 1
+                dbg16print <"OEMHLP dbcs info Fn %x",10>,<ax>   ;
+endif
+                pop     es                                      ;
+                les     di,es:[bx].GIODataPack                  ;
+                or      ax,ax                                   ;
+                jnz     @@dbcsi_01                              ; OEMHLP_DBCS_HWSCROLL
+                mov     es:[di],al                              ; just 0
+                jmp     @@dbcsi_noerr                           ;
+@@dbcsi_01:
+                cmp     ax,OEMHLP_DBCS_FONTGDTS                 ;
+                jnz     @@dbcsi_02                              ;
+                call    DBCS_FONT_GDTS                          ;
+                jmp     @@dbcsi_noerr                           ;
+@@dbcsi_02:
+                cmp     ax,OEMHLP_DBCS_INT10VECTOR              ;
+                jnz     @@dbcsi_noerr                           ;
+                call    DBCS_INT10VEC                           ;
+                jc      @@dbcsi_ret                             ;
+@@dbcsi_noerr:
+                xor     ax, ax                                  ;
+@@dbcsi_ret:
+                pop     es                                      ;
+                pop     di                                      ;
+                pop     dx                                      ;
+                pop     cx                                      ;
+                pop     bx                                      ;
+                ret                                             ;
+GET_DBCS_INFO   endp                                            ;
+
+DBCS_FONT_GDTS  proc    near                                    ;
+@@dbcs_fntaddr  = dword ptr [bp-4]                              ;
+@@dbcs_fntlen   = dword ptr [bp-8]                              ;
+                movzx   eax,External.DbcsFontSeg                ;
+                shl     eax,4                                   ;
+                jz      @@dbcs_fnsel_ret                        ;
+                cmp     DBCS_SelCnt,0                           ;
+                jnz     @@dbcs_fnsel_ret                        ;
+                push    di                                      ;
+                push    es                                      ;
+                push    bp                                      ;
+                mov     bp,sp                                   ;
+                push    eax                                     ;
+                push    External.DBCSFontSize                   ;
+@@dbcs_fnsel_loop:
+                push    ds                                      ;
+                pop     es                                      ;
+                mov     di,offset DBCS_Sel                      ;
+                mov     ax,DBCS_SelCnt                          ;
+                shl     ax,1                                    ;
+                add     di,ax                                   ;
+                mov     cx,1                                    ;
+                Dev_Hlp AllocGDTSelector                        ;
+                mov     si,es:[di]                              ;
+                mov     eax,@@dbcs_fntaddr                      ;
+                mov     ecx,@@dbcs_fntlen                       ;
+                cmp     ecx,0F000h                              ;
+                jbe     @@dbcs_fnsel_last                       ;
+                mov     ecx,0F000h                              ;
+@@dbcs_fnsel_last:
+                mov     dh,1                                    ;
+                Dev_Hlp PhysToGDTSel                            ;
+                inc     DBCS_SelCnt                             ;
+                mov     DBCS_SegSize,cx                         ;
+                add     @@dbcs_fntaddr,0F000h                   ;
+                sub     @@dbcs_fntlen,0F000h                    ;
+                jbe     @@dbcs_fnsel_ready                      ;
+                cmp     DBCS_SelCnt,4                           ;
+                jc      @@dbcs_fnsel_loop                       ;
+@@dbcs_fnsel_ready:
+                add     sp,8                                    ;
+                pop     bp                                      ;
+                pop     es                                      ;
+                pop     di                                      ;
+@@dbcs_fnsel_ret:
+                cld                                             ;
+                mov     si,offset DBCS_SelCnt                   ;
+                mov     cx,6                                    ;
+            rep movsw                                           ;
+                ret                                             ;
+DBCS_FONT_GDTS  endp                                            ;
+
+DBCS_INT10VEC   proc    near                                    ; update int 10h vector
+                test    External.Flags,EXPF_DBCSI10H            ; in bios interrupt table
+                cld                                             ;
+                jz      @@dbcs_i10_set                          ; to value, supplied by OS2DBCS
+                stosw                                           ;
+                stosw                                           ;
+                jmp     @@dbcs_i10_ret                          ;
+@@dbcs_i10_set:
+                mov     eax,External.SavedInt10h                ; ptr for caller
+                stosd                                           ;
+                xor     ax,ax                                   ; 4 bytes at phys 0040h
+                mov     bx,40h                                  ;
+                mov     cx,4                                    ;
+                mov     dh,4                                    ;
+                Dev_Hlp PhysToUVirt                             ;
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                jc      @@dbcs_i10_ret                          ;
+                mov     eax,External.SavedInt10h                ; restore BIOS int 10h
+                mov     es:[bx],eax                             ; vector, saved by OS2DBCS
+                mov     ax,es                                   ;
+                mov     dh,2                                    ;
+                Dev_Hlp PhysToUVirt                             ; flag it to prevent
+                or      External.Flags,EXPF_DBCSI10H            ; second call
+@@dbcs_i10_ret:
+                ret                                             ;
+DBCS_INT10VEC   endp                                            ;
+
+;
 ; read log from user space (copy OEMHLP$ boot.log)
 ; ---------------------------------------------------------------
                 public  FN_LOGREAD
@@ -601,7 +771,7 @@ FN_NONDESRD     endp                                            ;
 PciCall         proc    near                                    ;
                 push    di                                      ;
                 push    ecx                                     ;
-                push    bx                                      ;
+                push    ebx                                     ;
                 push    dx                                      ;
                 push    fs                                      ;
 
@@ -625,7 +795,7 @@ if oemhlp_debug GT 2
 endif
                 pop     fs                                      ;
                 pop     dx                                      ;
-                pop     bx                                      ;
+                pop     ebx                                     ;
                 pop     ecx                                     ;
                 pop     di                                      ;
                 ret                                             ;
@@ -691,6 +861,73 @@ PCIGetBiosInfo  proc    near                                    ;
                 ret                                             ;
 PCIGetBiosInfo  endp                                            ;
 
+if oemhlp_walk GT 0
+; Searching for dword in PCI config space
+; ---------------------------------------------------------------
+; IN : eax - dword, di - mask for low 16 bits, dl - index
+;      cl - offset in device space
+; OUT: CF=1 if no entry, else ch=bus/cl=devfun, al = bios error code
+;      esi - destroyd
+PCIWalk         proc    near                                    ;
+                push    bx                                      ;
+                pushf                                           ;
+                cli                                             ;
+                mov     esi,eax                                 ; dword, we search for
+                mov     ebx,80000000h                           ; starting from 0.0.0
+                or      bl,cl                                   ;
+                movzx   cx,dl                                   ; index
+@@pciwlk_loop:
+                mov     eax,ebx                                 ;
+                mov     dx,PCI_ADDR_PORT                        ;
+                out     dx,eax                                  ;
+                add     dl,4                                    ; 0xCFC
+                in      eax,dx                                  ;
+                and     ax,di                                   ;
+                cmp     eax,esi                                 ;
+                jnz     @@pciwlk_next                           ;
+                jcxz    @@pciwlk_found                          ; index==0?
+                dec     cx                                      ;
+@@pciwlk_next:
+                test    bh,7                                    ;
+                jnz     @@pciwlk_notFn0                         ;
+
+                mov     dx,PCI_ADDR_PORT                        ;
+                mov     eax,ebx                                 ;
+                mov     al,PCI_HEADER_TYPE and not 3            ;
+                out     dx,eax                                  ;
+                add     dl,4 + (PCI_HEADER_TYPE and 3)          ; 0xCFC
+                in      al,dx                                   ;
+                cmp     al,0FFh                                 ;
+                jz      @@pciwlk_notpresent                     ;
+                test    al,80h                                  ; multifunction device?
+                jnz     @@pciwlk_notFn0                         ;
+@@pciwlk_notpresent:
+                or      bh,7                                    ;
+@@pciwlk_notFn0:
+                inc     bh                                      ; next devfn
+                jnz     @@pciwlk_loop                           ;
+                shld    eax,ebx,16                              ;
+                cmp     al,PCIConfigCL                          ;
+                jz      @@pciwlk_notfound                       ;
+                add     ebx,10000h                              ; next bus
+                jmp     @@pciwlk_loop                           ;
+@@pciwlk_found:
+                shr     ebx,8                                   ;
+                mov     cx,bx                                   ;
+                popf                                            ;
+                xor     al,al                                   ; CF=0
+                pop     bx                                      ;
+                ret                                             ;
+@@pciwlk_notfound:
+                mov     al,PCI_BIOS_ERR_NODEV                   ;
+                popf                                            ;
+                pop     bx                                      ;
+                stc                                             ;
+                ret                                             ;
+PCIWalk         endp                                            ;
+
+else ; oemhlp_walk > 0
+
 ; Search dword in PCI array
 ; ---------------------------------------------------------------
 ; IN : eax - dword, di - array, dl - index
@@ -718,39 +955,59 @@ PCISearchList   proc    near                                    ;
                 ret                                             ;
 PCISearchList   endp                                            ;
 
+endif ; oemhlp_walk > 0
+
 ;
 ; PCI - Find Class Code
 ; PCI - Find Device
 ; ---------------------------------------------------------------
-; we searching in dword array of vendors or class code and get index
-; of founded entry, then read bus/slot/func from the same index of
-; PCIBusList array
+; if oemhlp_walk == 0
+;   we searching in dword array of vendors or class code and get index
+;   of founded entry, then read bus/slot/func from the same index of
+;   PCIBusList array
+; else
+;   we just walking over PCI space until the last bus
+;
 PCIFindClassCode proc    near                                   ;
                 enter   12,0                                    ;
                 VrfyPCIData PCI_PFCC_DATA_SIZE                  ;
                 jc      PCIFuncErr                              ;
                 VrfyPCIParm PCI_PFCC_PARM_SIZE                  ; verify access
                 jc      PCIFuncErr                              ;
-                mov     fs,@@selParmPack                        ; call pci bios
+                mov     fs,@@selParmPack                        ;
                 mov     bx,@@offParmPack                        ;
                 mov     dl,fs:[bx].pfcc_bIndex                  ;
                 mov     eax,fs:[bx].pfcc_ulClassCode            ;
-                mov     di,External.PCIClassList                ;
-
-                xor     dh,dh
 if oemhlp_debug GT 2
+                xor     dh,dh                                   ;
                 dbg16print <"FindClassCode: %lx %d",10>,<dx,eax> ;
 endif
+if oemhlp_walk GT 0
+                mov     di,0FF00h                               ; read dword at 8
+                shl     eax,8                                   ; and ignore low byte
+                mov     cl,PCI_REVISION_ID                      ;
+else
+                mov     di,External.PCIClassList                ;
+endif
 pci_find_common:
+if oemhlp_walk GT 0
+                call    PCIWalk                                 ;
+else
                 call    PCISearchList                           ;
+endif
                 mov     es,@@selDataPack                        ; fill packet
                 mov     bx,@@offDataPack                        ;
                 mov     byte ptr es:[bx].pfcc_bReturn,al        ;
                 jc      PCIFuncFail                             ;
+if oemhlp_walk GT 0
+                xchg    ch,cl                                   ; to be compat with
+                mov     ax,cx                                   ; debug printing too
+else
                 mov     di,External.PCIBusList                  ; get bus/slot/func
                 shl     cx,1                                    ; from array
                 add     di,cx                                   ; at founded index
                 mov     ax,[di]                                 ;
+endif ; oemhlp_walk > 0
                 mov     byte ptr es:[bx].pfcc_bBusNum,al        ;
                 mov     byte ptr es:[bx].pfcc_bDevFunc,ah       ;
                 ; ------------ debug -----------
@@ -762,7 +1019,7 @@ if oemhlp_debug GT 2
                 and     ax,7
                 shr     cx,11
                 dbg16print <"Device: %d.%d.%d",10>,<ax,cx,dx>
-endif
+endif ; oemhlp_debug > 2
                 ; ------------------------------
                 xor     ax,ax                                   ; error code
                 mov     es,@@selReqPack                         ;
@@ -779,13 +1036,18 @@ PCIFindDevice   label   near                                    ;
                 mov     bx,@@offParmPack                        ;
                 mov     dl,fs:[bx].pfd_bIndex                   ;
                 mov     eax,dword ptr fs:[bx].pfd_usDeviceID    ;
-                mov     di,External.PCIVendorList               ; common
-
-                xor     dh,dh
+if oemhlp_walk GT 0
+                rol     eax,16                                  ; swap vendor/device words
+                mov     di,0FFFFh                               ;
+                xor     cl,cl                                   ; PCI_VENDOR_ID
+else
+                mov     di,External.PCIVendorList               ;
+endif
 if oemhlp_debug GT 2
+                xor     dh,dh                                   ;
                 dbg16print <"FindDevice: %lx %d",10>,<dx,eax>   ;
 endif
-                jmp     pci_find_common                         ; processing
+                jmp     pci_find_common                         ; common processing
 PCIFindClassCode endp
 
 ;
@@ -806,7 +1068,7 @@ endif
 ; * returning error will cause trap in resource.sys, produced by
 ;   Veit`s pcibus.snp snooper
 ;
-; to resolve this we always return FFFFFFFF if bus/slot/func is 
+; to resolve this we always return FFFFFFFF if bus/slot/func is
 ; not in list
 ;
                 mov     fs,@@selParmPack                        ; device is in
@@ -831,7 +1093,12 @@ if oemhlp_debug GT 2
                 dbg16print <"PCIReadConfig: %lx",10>,<eax>      ;
 endif
                 mov     dx,PCI_ADDR_PORT                        ;
+                pushf                                           ; just for
+                cli                                             ; safeness
+                push    ax                                      ;
+                and     al,not 3                                ;
                 out     dx,eax                                  ;
+                pop     ax                                      ;
                 add     dl,4                                    ; 0xCFC
                 mov     ah,fs:[bx].prc_bSize                    ;
                 cmp     ah,1                                    ;
@@ -853,12 +1120,14 @@ endif
                 shl     eax,cl                                  ;
                 shl     eax,1                                   ;
                 dec     eax                                     ;
-                jmp     @@pcir_done                             ;
+                jmp     @@pcir_exit                             ;
 @@pcir_rdb:
                 and     eax,3                                   ;
                 add     dl,al                                   ;
                 in      al,dx                                   ;
 @@pcir_done:
+                popf                                            ;
+@@pcir_exit:
                 mov     es,@@selDataPack                        ; fill packet
                 mov     bx,@@offDataPack                        ;
                 mov     es:[bx].prc_bReturn,0                   ;
@@ -897,9 +1166,12 @@ if oemhlp_debug GT 2
                 dbg16print <"PCIWriteConfig: %lx",10>,<eax>     ;
 endif
                 mov     dx,PCI_ADDR_PORT                        ;
+                pushf                                           ; just for
+                cli                                             ; safeness
+                mov     cl,al                                   ;
+                and     al,not 3                                ;
                 out     dx,eax                                  ;
                 add     dl,4                                    ; 0xCFC
-                mov     cl,al                                   ;
                 mov     ch,fs:[bx].pwc_bSize                    ;
                 mov     eax,fs:[bx].pwc_ulData                  ;
                 cmp     ch,1                                    ;
@@ -920,6 +1192,7 @@ endif
                 add     dl,cl                                   ;
                 out     dx,al                                   ;
 @@pciw_done:
+                popf                                            ;
                 xor     cl,cl                                   ; CF=0
 @@pciw_err:
                 mov     es,@@selDataPack                        ;
@@ -942,10 +1215,15 @@ PCIFuncErr      label   near                                    ;
 
 ; Is PCI device present?
 ; ---------------------------------------------------------------
+; function checks list if oemhlp_walk == 0 or just last bus # in walk mode
 ; in : fs:[bx] - read/write pci packet
 ; out: CF=1 if not present, cl - BIOS error code
 PCIVerifyArg    label   near                                    ;
                 mov     al,fs:[bx].prc_bBusNum                  ;
+if oemhlp_walk GT 0
+                cmp     PCIConfigCL,al                          ; it should be >=
+                jc      @@pva_nodev                             ;
+else ; oemhlp_walk > 0
                 mov     ah,fs:[bx].prc_bDevFunc                 ; search list
                 push    ds                                      ; of Bus/Slot/Func
                 pop     es                                      ; for required dev.
@@ -954,6 +1232,7 @@ PCIVerifyArg    label   near                                    ;
                 cld                                             ; simulate BIOS
           repne scasw                                           ; error code
                 jnz     @@pva_nodev                             ;
+endif ; oemhlp_walk > 0
 @@pva_allok:
                 xor     cl,cl                                   ; CF=0
                 ret                                             ;
@@ -1077,6 +1356,13 @@ DI20:
                 movzx   eax,External.HighMem                    ;
                 add     eax,External.ExtendMem                  ;
                 mov     MEMORY_Data.HighMemKB,eax               ;
+                shr     eax,2                                   ; kb -> pages
+                mov     MEMORYEX_Data.MiAvailPages,eax          ;
+
+                mov     eax,External.MemPagesLo                 ;
+                mov     MEMORYEX_Data.MiLowPages,eax            ;
+                mov     eax,External.MemPagesHi                 ;
+                mov     MEMORYEX_Data.MiHighPages,eax           ;
 
                 mov     ecx,External.LogBufSize                 ; map log buffer
                 jecxz   @@DI_NoLogMap                           ; to linear address

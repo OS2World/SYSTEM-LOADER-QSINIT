@@ -105,7 +105,7 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
          // compact it on mount
          //if (rc==0) dsk->compact(1);
          if (rc==0) mount_action(dsk, args->item[1]); else {
-            if (rc==E_DSK_UNCKFS) {
+            if (rc==E_DSK_UNKFS) {
                printf("File \"%s\" is not an disk image!\n", args->item[1]);
                showerr = 0;
             }

@@ -38,6 +38,9 @@ _BSS            ends                                            ;
 _DATA           segment                                         ;
 rmcall32ax      dw      0301h                                   ; dpmi func for rmcall
 rmcall32bx      dw      0                                       ; flags in bx
+                public  _cvio_blink, _mfs_rmcmode               ;
+_cvio_blink     db      0                                       ;
+_mfs_rmcmode    dw      (FN30X_LOCKI16H or FN30X_LOCKI10H) shl 8 ;
 _DATA           ends                                            ;
 
 _TEXT           segment
@@ -80,7 +83,7 @@ rmcall32regs:
                 mov     eax,[edi+rmcallregs_s.r_edx]            ; restore dword result
                 shl     eax,16                                  ; (dx:ax)
                 mov     ax,word ptr [edi+rmcallregs_s.r_eax]    ;
-                
+
                 mov     dx,[edi+rmcallregs_s.r_flags]           ; combine flags
                 pushf                                           ;
                 pop     cx                                      ;
@@ -106,15 +109,17 @@ rmcall32regs:
                 popf                                            ;
                 ret                                             ; return to caller
 
-; convert edx to seg:ofs but panic if it not in 16-bit segments
+; convert edx to seg:ofs, but check for 64k limit
 make_rmaddr     label   near                                    ;
                 sub     edx,_qs16base                           ;
                 push    ebx                                     ;
                 mov     ebx,0FFFF0000h                          ;
                 add     ebx,edx                                 ;
-                into                                            ; YES! now i used it ;)
+                jnc     @@vbox5_fix                             ; YES! now i used "into" ;)
+                into                                            ; but stupid VBox 5.1.x signal ALWAYS!
+@@vbox5_fix:
                 mov     bx,_rm16code                            ; it will make trap 4 on wrong addr
-                shl     ebx,16                                  ;
+                shl     ebx,16                                  ; (the easiest way to _throw_ here)
                 or      edx,ebx                                 ;
                 pop     ebx                                     ;
                 ret                                             ;
@@ -131,6 +136,8 @@ _mfs_open       label   near                                    ;
                 mov     ecx,4                                   ;
                 mov     edx,_filetable.ft_muOpen                ; function ptr
                 call    _mt_swlock                              ;
+                mov     ax,_mfs_rmcmode                         ; disable int10/16h
+                mov     rmcall32bx,ax                           ;
                 call    rmcall32                                ;
                 add     esp,8                                   ;
                 ret
@@ -144,6 +151,8 @@ _strm_open      label   near                                    ;
                 mov     ecx,2                                   ;
                 mov     edx,_filetable.ft_resofs                ; function ptr
                 call    _mt_swlock                              ;
+                mov     ax,_mfs_rmcmode                         ; disable int10/16h
+                mov     rmcall32bx,ax                           ;
                 call    rmcall32                                ;
                 add     esp,4                                   ;
                 ret
@@ -155,7 +164,10 @@ _mfs_read       label   near                                    ;
                 mov     word ptr [esp+8],0                      ;
                 mov     ecx,6                                   ; number of dw to copy
                 mov     edx,_filetable.ft_muRead                ; function ptr
+_mfs_common:
                 call    _mt_swlock                              ;
+                mov     ax,_mfs_rmcmode                         ; disable int10/16h
+                mov     rmcall32bx,ax                           ;
                 jmp     rmcall32                                ;
 
 ;u16t __cdecl strm_read(u32t buf, u16t readsize);
@@ -165,30 +177,28 @@ _strm_read      label   near                                    ;
                 mov     word ptr [esp+4],0                      ;
                 mov     ecx,3                                   ; number of dw to copy
                 mov     edx,_filetable.ft_reslen                ; function ptr
-                call    _mt_swlock                              ;
-                jmp     rmcall32                                ;
+                jmp     _mfs_common                             ;
 
-;u32t __cdecl mfs_close(void);
+;void __cdecl mfs_close(void);
                 public  _mfs_close                              ;
 _mfs_close      label   near                                    ;
                 xor     ecx,ecx                                 ;
                 mov     edx,_filetable.ft_muClose               ;
-                call    _mt_swlock                              ;
-                jmp     rmcall32                                ;
+                jmp     _mfs_common                             ;
 
-;u32t __cdecl mfs_term(void);
+;void __cdecl mfs_term(void);
                 public  _mfs_term                               ;
 _mfs_term       label   near                                    ;
                 xor     ecx,ecx                                 ;
                 mov     edx,_filetable.ft_muTerminate           ;
-                call    _mt_swlock                              ;
-                jmp     rmcall32                                ;
+                jmp     _mfs_common                             ;
 
 ;u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
                 public  _hlp_rmcall                             ;
 _hlp_rmcall     label   near                                    ;
-                call    _mt_swlock                              ;
-                pop     save_ret2                               ;
+                call    _mt_swlock                              ; yes, twice! because
+                call    _mt_swlock                              ; we have static save_ret2
+                pop     save_ret2                               ; usage AFTER rmcall32
                 pop     edx                                     ;
                 cmp     edx,0A0000h                             ; value < A0000?
                 jnc     @@hrmc_ext                              ;
@@ -209,20 +219,24 @@ _hlp_rmcall     label   near                                    ;
                 shr     dx,4                                    ; simple way
                 bswap   edx                                     ;
 @@hrmc_ext:
-                pop     ecx                                     ; 
+                pop     ecx                                     ;
                 call    rmcall_setflags                         ; read flags
                 call    rmcall32                                ;
                 lea     esp,[esp-8]                             ; do not touch flags
-                jmp     [save_ret2]                             ;
+                push    save_ret2                               ;
+                pushfd                                          ;
+                call    _mt_swunlock                            ;
+                popfd                                           ;
+                ret                                             ;
 
 rmcall_setflags label   near
-                test    ecx,RMC_EXITCALL                        ; 
+                test    ecx,RMC_EXITCALL                        ;
                 jz      @@hrmc_f1                               ; set "PIC reset"
                 and     ecx,not RMC_EXITCALL                    ; flag for DPMI call
                 mov     rmcall32bx,(FN30X_PICRESET or FN30X_TIMEROFF) shl 8 ;
 @@hrmc_f1:
                 test    ecx,RMC_IRET                            ;
-                jz      @@hrmc_f2                               ; far call with 
+                jz      @@hrmc_f2                               ; far call with
                 and     ecx,not RMC_IRET                        ; iret frame
                 mov     rmcall32ax,0302h                        ;
 @@hrmc_f2:
@@ -306,8 +320,8 @@ _key_read_int   label   near                                    ; read keyboard
                 jmp     _key_filter                             ;
 
 ;u8t  key_pressed(void);
-                public  _key_pressed                            ;
-_key_pressed    label   near                                    ; is key pressed?
+                public  _ckey_pressed                           ;
+_ckey_pressed   label   near                                    ; is key pressed?
                 mov     dl,16h                                  ; int 16h
                 mov     ah,11h                                  ; enhanced key check
                 call    rmint_common                            ;
@@ -315,8 +329,8 @@ _key_pressed    label   near                                    ; is key pressed
                 retn                                            ;
 
 ;u8t  _std key_push(u16t code);
-                public  _key_push                               ;
-_key_push       label   near                                    ; push key press
+                public  _ckey_push                              ;
+_ckey_push      label   near                                    ; push key press
                 mov     dl,16h                                  ;
                 mov     ah,05h                                  ; int 16h, ah=05h
                 mov     cx,[esp+4]                              ; scan<<8|key
@@ -325,14 +339,15 @@ _key_push       label   near                                    ; push key press
                 setz    al                                      ; 1 on success
                 retn    4                                       ;
 
-;void _std vio_intensity(u8t value);
-                public  _vio_intensity
-_vio_intensity  label   near
+;void _std cvio_intensity(u8t value);
+                public  _cvio_intensity                         ;
+_cvio_intensity label   near                                    ;
                 mov     dl,10h                                  ; int 10h
                 mov     ah,[esp+8]                              ; ax=1003h
                 or      ah,ah                                   ;
                 setz    ah                                      ; value for bl
-                bswap   eax                                     ; 
+                mov     _cvio_blink,ah                          ;
+                bswap   eax                                     ;
                 mov     ax,1003h                                ;
                 call    rmint_common                            ;
                 retn    4                                       ;

@@ -2,18 +2,18 @@
 // QSINIT "start" module
 // dump module table
 //
-#include "stdlib.h"
 #include "qsutil.h"
 #include "qsmodint.h"
 #include "qsint.h"
 #include "qsinit.h"
 #include "qslog.h"
 #include "qslxfmt.h"
-#include "internal.h"
+#include "syslocal.h"
 #include "qspdata.h"
 
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
 extern mod_addfunc* _std          mod_secondary;
+extern mt_proc_cb   _std           mt_exechooks;
 
 void log_mdtdump_int(printf_function pfn) {
    int ii=2, obj;
@@ -93,7 +93,9 @@ void _std log_mdtdump(void) {
 }
 
 // print memory control table contents (debug)
-void _std log_memtable(void* memtable, void* memftable, u8t *memheapres, u32t *memsignlst, u32t memblocks) {
+void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
+                       u32t *memsignlst, u32t memblocks, process_context **memowner)
+{
    auto u32t*         mt =   memtable;
    auto free_block **mft =  memftable;
    auto u8t         *mhr = memheapres;
@@ -104,23 +106,28 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres, u32t *m
    mt_swlock();
    log_it(2,"<=====QS memory dump=====>\n");
    log_it(2,"Total : %d kb\n",memblocks<<6);
+   log_it(2,"        addr        sign   pid         size\n");
    for (ii=0,cnt=0;ii<memblocks;ii++,cnt++) {
       free_block *fb=(free_block*)((u32t)mt+(ii<<16));
       if (mt[ii]&&mt[ii]<FFFF) {
-         char     buffer[64];
+         char     buffer[80], pid[8];
          module      *mi = mod_by_eip((u32t)fb, 0, 0, 0);
          int         len;
          *(u32t*)&sigstr = memsignlst[ii];
 
-         len = snprintf(buffer, 64, "%5d. %08X - %c %-4s  %7d kb (%d)", cnt, fb,
-            mhr[ii>>3]&1<<(ii&7) ? 'R' : ' ', sigstr, Round64k(mt[ii])>>10, mt[ii]);
-         while (len<51) len = strlen(strcat(buffer, " "));
+         if (memowner[ii]) snprintf(pid, 8, " %5u", memowner[ii]->pid);
+            else strcpy(pid, "      ");
+
+         len = snprintf(buffer, 64, "%5d. %08X - %c %-4s %s  %7d kb (%d)", cnt, fb,
+            mhr[ii>>3]&1<<(ii&7) ? 'R' : ' ', sigstr, pid, Round64k(mt[ii])>>10,
+               mt[ii]);
+         while (len<58) len = strlen(strcat(buffer, " "));
          if (mi) strcat(buffer, "// ");
          log_it(2,"%s%s\n", buffer, mi?mi->name:"");
       } else
       if (!mt[ii]&&ii&&mt[ii-1]) {
          if (fb->sign!=FREE_SIGN) log_it(2,"free header destroyd!!!\n");
-            else log_it(2,"%5d. %08X - <free>  %7d kb\n",cnt,fb,fb->size<<6);
+            else log_it(2,"%5d. %08X - <free>         %7d kb\n",cnt,fb,fb->size<<6);
       }
    }
    log_it(2,"%5d. %08X - end\n",cnt,(u32t)mt+(memblocks<<16));
@@ -155,17 +162,17 @@ void _std log_dumppctx(process_context* pq) {
    log_it(2,"  env.ptr : %08X\n", pq->envptr);
 
    // buffers can grow in next revisions - so print it in this way
-   ii = sizeof(pq->rtbuf)/4/2;
+   ii = sizeof(pq->rtbuf)/4;
    snprintf(fmtstr, 24, "    rtbuf : %%%dlb\n", ii/2);
    log_it(2, fmtstr, pq->rtbuf);
    memcpy(fmtstr, "          ", 10);
-   log_it(2, fmtstr, pq->rtbuf+ii);
+   log_it(2, fmtstr, pq->rtbuf+ii/2);
 
-   ii = sizeof(pq->userbuf)/4/2;
+   ii = sizeof(pq->userbuf)/4;
    snprintf(fmtstr, 24, "  userbuf : %%%dlb\n", ii/2);
    log_it(2, fmtstr, pq->userbuf);
    memcpy(fmtstr, "          ", 10);
-   log_it(2, fmtstr, pq->userbuf+ii);
+   log_it(2, fmtstr, pq->userbuf+ii/2);
 
    if (!pd) log_it(2,"  procinfo ptr is NULL!\n"); else {
       char *cdv = pd->piCurDir[pd->piCurDrive];
@@ -181,7 +188,64 @@ void _std START_EXPORT(mod_dumptree)(void) {
    while (pq) {
       log_dumppctx(pq);
       pq = pq->pctx;
-      if (pq) log_it(2,"------------------\n");
+      log_it(2,"------------------\n");
    }
+   if (mt_exechooks.mtcb_cfpt)
+      log_it(2,"FPU owner pid %u\n", mt_exechooks.mtcb_cfpt->tiPID);
+   else
+      log_it(2,"FPU is not used\n");
    log_it(2,"==================\n");
+}
+
+/** enum all modules in system.
+    @param [out] pmodl   List of modules, must be releases via free().
+    @return number of modules in returning list */
+u32t _std mod_enum(module_information **pmodl) {
+   module_information *rc, *rp;
+   u32t   mcnt = 0, ii,
+          slen = 0;
+   module  *md;
+   char    *cb;
+
+   if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
+   md = mod_list;
+   while (md) {
+      mcnt++;
+      slen += strlen(md->mod_path)+1 + strlen(md->name)+1;
+      md = md->next;
+   }
+   if (!pmodl) return mcnt;
+   rc = (module_information*)malloc_local(sizeof(module_information)*mcnt + slen);
+   md = mod_list;
+   cb = (char*)(rc + mcnt);
+   ii = 0;
+   rp = rc;
+   while (md && ii++<mcnt) {
+      rp->handle    = (u32t)md;
+      rp->flags     = md->flags;
+      rp->start_ptr = md->start_ptr;
+      rp->stack_ptr = md->stack_ptr;
+      rp->usage     = md->usage;
+      rp->objects   = md->objects;
+      rp->baseaddr  = (u32t)md->baseaddr;
+      rp->mod_path  = cb;
+      strcpy(cb, md->mod_path); cb+=strlen(cb)+1;
+      rp->name      = cb;
+      strcpy(cb, md->name); cb+=strlen(cb)+1;
+      md->tmp       = rp;
+      memcpy(&rp->imports, &md->impmod, sizeof(void*)*(MAX_IMPMOD+1));
+
+      md = md->next;
+      rp++;
+   }
+   rp = rc;
+   mcnt = ii;
+   for (ii=0; ii<mcnt; ii++) {
+      u32t idx = 0;
+      while (rp->imports[idx]) rp->imports[idx] = (module_information*)
+         (((module*)rp->imports[idx])->tmp);
+   }
+   if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
+   *pmodl = rc;
+   return mcnt;
 }
