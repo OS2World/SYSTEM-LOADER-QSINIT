@@ -544,10 +544,12 @@ void TSysApp::SearchBinStart(TAppWindow *who) {
    dlg->insert(control);
    THexEditor *edBox = new THexEditor(TRect(1, 1, 78, 17+largeBox), (TScrollBar*)control);
    dlg->insert(edBox);
-   TCheckBoxes *opts = new TCheckBoxes(TRect(2, 18+largeBox, 24, 19+largeBox),
-      new TSItem("case insensitive", 0));
+   TCheckBoxes *opts = new TCheckBoxes(TRect(2, 18+largeBox, 24, 20+largeBox),
+      new TSItem("~c~ase insensitive", new TSItem("~b~eep when found", 0)));
+
    dlg->insert(opts);
    if (icaseSrch) opts->press(0);
+   if (beepSrch) opts->press(1);
 
    control = new TButton(TRect(56, 18+largeBox, 66, 20+largeBox), "~F~ind",
       cmOK, bfDefault);
@@ -568,6 +570,7 @@ void TSysApp::SearchBinStart(TAppWindow *who) {
 
    if (execView(dlg)==cmOK) {
       icaseSrch = opts->mark(0);
+      beepSrch  = opts->mark(1);
       edBox->getData(&searchData);
       destroy(dlg);
 
@@ -646,11 +649,14 @@ void TSysApp::SearchBinNext(TAppWindow *who) {
 
    destroy(searchDlg);
    searchDlg = 0;
+
+   if (beepSrch) opts_beep(5000, 100);
+
    // show message boxes after zeroing searchDlg (else ::idle will kill us)
    if (lastSearchStop == TDiskSearchDialog::stopEnd) {
       infoDlg(MSGI_SRCHNOTFOUND);
    } else {
-      // pos in both cases: it was founded or cancel pressed
+      // pos in both cases: it was found or cancel pressed
       hxview->posToCluster(t_sector, t_secpos);
       switch (lastSearchStop) {
          case TDiskSearchDialog::stopReadErr : 
@@ -1159,12 +1165,13 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
          char             fsname[32];
          u32t fstype = hlp_volinfo(vol, &vi);
          u32t clsize = vi.ClSize * vi.SectorSize;
+         int  msgidx = !fstype || fstype>=FST_OTHER ? (vi.FsName[0]?-1:0) : fstype;
 
          dlg = new TDialog(TRect(17, 3, 63, 19), "Format");
          if (!dlg) return;
          dlg->options |= ofCenterX | ofCenterY;
 
-         strncpy(fsname, fstype||!vi.FsName[0] ? ftstr[fstype] : vi.FsName, 32);
+         strncpy(fsname, msgidx<0?vi.FsName:ftstr[msgidx], 32);
 
          dlg->insert(new TButton(TRect(18, 13, 28, 15), "O~K~", cmOK, bfDefault));
          dlg->insert(new TColoredText(TRect(3, 2, 41, 4), "Format complete.", 0x7A));

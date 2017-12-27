@@ -115,10 +115,8 @@
                 extrn   _hlp_diskmode   :near
                 extrn   _tm_calibrate   :near
                 extrn   _vio_getmodefast:near
-                extrn   _key_waithlt    :near
                 extrn   _hlp_runcache   :near
                 extrn   _hlp_fddline    :near
-                extrn   _vio_defshape   :near
                 extrn   _key_getspeed   :near
                 extrn   _hlp_seroutset  :near
                 extrn   _vio_intensity  :near
@@ -129,7 +127,7 @@
                 extrn   _mod_apidirect  :near
                 extrn   _hlp_diskadd    :near
                 extrn   _hlp_diskremove :near
-                extrn   _log_vprintf    :near
+                extrn   __log_vprintf   :near
                 extrn   __I8D           :near
                 extrn   __U8D           :near
                 extrn   __U8RS          :near
@@ -188,13 +186,21 @@
                 extrn   _sys_clock      :near
                 extrn   _hlp_blistadd   :near
                 extrn   _hlp_blistdel   :near
-                extrn   _se_sesno       :near
                 extrn   _memcmp         :near
                 extrn   _ExCvt          :byte
                 extrn   _ff_convert     :near
                 extrn   _ff_wtoupper    :near
                 extrn   _hlp_fexist     :near
                 extrn   _hlp_diskbios   :near
+                extrn   _VHTable        :byte
+                extrn   _vio_getcolor   :near
+                extrn   _ff_dbc_1st     :near
+                extrn   _ff_dbc_2nd     :near
+                extrn   _hlp_serialrate :near
+                extrn   _hlp_serialin   :near
+                extrn   _hlp_serialout  :near
+                extrn   _hlp_serialset  :near
+                extrn   _key_waitex     :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -240,7 +246,7 @@ _exptable_data:
                 dd      offset _sys_errbrk                      ;
                 dd      offset _sto_init                        ;
                 dd      offset _hlp_seroutset                   ;
-                dd      offset _log_vprintf                     ;
+                dd      offset __log_vprintf                    ;
                 dd      offset _hlp_tscread                     ; #19
 ;----------------------------------------------------------------
 ;                nextord <20>                                    ;
@@ -267,6 +273,12 @@ _exptable_data:
                 dd      offset _memcmp                          ;
                 dd      offset _ff_convert                      ;
                 dd      offset _ff_wtoupper                     ;
+                dd      offset _ff_dbc_1st                      ;
+                dd      offset _ff_dbc_2nd                      ;
+                dd      offset _hlp_serialrate                  ;
+                dd      offset _hlp_serialin                    ;
+                dd      offset _hlp_serialout                   ;
+                dd      offset _hlp_serialset                   ;
 ;----------------------------------------------------------------
                 nextord <70>                                    ;
                 dd      offset _snprintf                        ;
@@ -305,7 +317,7 @@ _exptable_data:
                 dd      offset _vio_strout                      ;
                 dd      offset _vio_clearscr                    ;
                 dd      offset _vio_setpos                      ;
-                dd      offset _vio_setshape                    ;
+                dd      0                                       ; vio_setshape was here
                 dd      offset _vio_setcolor                    ;
                 dd      offset _vio_setmode                     ;
                 dd      offset _vio_resetmode                   ;
@@ -325,8 +337,8 @@ _exptable_data:
                 dd      offset _hlp_int15mem                    ;
                 dd      offset _exit_poweroff                   ;
                 dd      offset _exit_restirq                    ;
-                dd      offset _se_sesno                        ;
-                next_is_offset                                  ;
+                next_offsets <2>                                ;
+                dd      offset _VHTable                         ; *
                 dd      offset _BootBPB                         ; *
                 dd      offset _hlp_runcache                    ;
                 dd      offset _exit_reboot                     ;
@@ -391,7 +403,7 @@ _exptable_data:
                 dd      offset _key_status                      ;
                 dd      offset _key_wait                        ;
                 dd      offset _key_push                        ;
-                dd      offset _key_waithlt                     ;
+                dd      offset _key_waitex                      ;
                 dd      offset _key_getspeed                    ;
 ;----------------------------------------------------------------
                 nextord <190>                                   ;
@@ -405,18 +417,19 @@ _exptable_data:
                 dd      offset _sys_clock                       ;
 ;----------------------------------------------------------------
                 nextord <200>                                   ;
-                dd      offset _vio_getshape                    ;
+                dd      offset _vio_getshape                    ; #200
                 dd      offset _vio_getpos                      ;
                 dd      offset _vio_getmodefast                 ;
-                dd      offset _vio_defshape                    ;
+                dd      offset _vio_setshape                    ;
                 dd      offset _vio_intensity                   ;
                 dd      offset _vio_setmodeex                   ;
                 dd      offset _vio_writebuf                    ;
                 dd      offset _vio_readbuf                     ;
                 dd      offset _vio_ttylines                    ;
+                dd      offset _vio_getcolor                    ; #209
 ;----------------------------------------------------------------
-                nextord <210>                                   ;
-                dd      offset _hlp_diskcount                   ;
+;                nextord <210>                                   ;
+                dd      offset _hlp_diskcount                   ; #210
                 dd      offset _hlp_disksize                    ;
                 dd      offset _hlp_diskread                    ;
                 dd      offset _hlp_diskwrite                   ;

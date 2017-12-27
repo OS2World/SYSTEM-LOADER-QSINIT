@@ -83,8 +83,7 @@ void TView::resetCursor() {
             SetConsoleCursorPosition(TThreads::chandle[cnOutput],coord);
 #elif defined(__QSINIT__)
             vio_setpos(cur.y, cur.x);
-            if (state & sfCursorIns) vio_setshape(0x00,TScreen::startupCursor&0xFF);
-            else vio_setshape(TScreen::startupCursor>>8,TScreen::startupCursor&0xFF);
+            vio_setshape(state&sfCursorIns ? VIO_SHAPE_FULL : TScreen::startupCursor);
 #else
 #error Unknown platform!
 #endif
@@ -133,7 +132,7 @@ label1:
       TThreads::crInfo.dwSize = 1;
       SetConsoleCursorInfo(TThreads::chandle[cnOutput], &TThreads::crInfo);
 #elif defined(__QSINIT__)
-      vio_setshape(0x20,0x00);
+      vio_setshape(VIO_SHAPE_NONE);
 #else
 #error Unknown platform!
 #endif  // __NT__

@@ -20,11 +20,14 @@ qshandle   mutex;
 u32t     threads,
           tlsvar;
 
-static u32t _std threadfunc1(void *arg) {
+static void _std start_hook(mt_threadfunc thread, void *arg) {
    u32t pid = mod_getpid(),
         tid = mt_getthread();
    log_printf("Hi! I`m thread! :)\n");
    log_printf("My pid is %d, tid %d, arg=\"%s\"\n", pid, tid, arg);
+}
+
+static u32t _std threadfunc1(void *arg) {
    log_printf("Dumping process tree with me:\n");
    mt_dumptree();
    if (arg) free(arg);
@@ -102,6 +105,7 @@ void main(int argc, char *argv[]) {
    clock_t      stm;
    qserr        res;
    qshandle     que;
+   mt_ctdata    tsd;
    char         *cp;
    if (!mt_active()) {
       res = mt_initialize();
@@ -112,7 +116,12 @@ void main(int argc, char *argv[]) {
    }
    tlsvar = mt_tlsalloc();
    cp     = argv[1] ? strdup(argv[1]) : 0;
-   tid    = mt_createthread(threadfunc1, 0, 0, cp);
+   memset(&tsd, 0, sizeof(tsd));
+   tsd.size      = sizeof(tsd);
+   tsd.stacksize = 8192;
+   tsd.onenter   = start_hook;
+
+   tid    = mt_createthread(threadfunc1, 0, &tsd, cp);
    log_printf("mt_createthread() = %X\n", tid);
 
    mt_waitthread(tid);

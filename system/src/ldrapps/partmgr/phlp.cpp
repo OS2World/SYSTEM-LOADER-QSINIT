@@ -177,6 +177,7 @@ dsk_mapblock* _std dsk_getmap(u32t disk) {
                    rc[ii].Flags   |= DMAP_LVMDRIVE;
                    rc[ii].DriveLVM = de->Drive_Letter;
                 }
+                if (de->On_Boot_Manager_Menu) rc[ii].Flags|=DMAP_BMBOOT;
              }
       }
       // copy free space
@@ -234,7 +235,8 @@ qserr _std dsk_getptgeo(u32t disk, disk_geo_data *geo) {
     @return partition index or -1 */
 long vol_index(u8t vol, u32t *disk) {
    disk_volume_data  vi;
-   u32t mt = hlp_volinfo(vol, &vi);
+   hlp_volinfo(vol, &vi);
+
    if (vi.TotalSectors) {
       FUNC_LOCK  lk;
       hdd_info  *hi = get_by_disk(vi.Disk);

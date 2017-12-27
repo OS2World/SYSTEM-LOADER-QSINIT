@@ -112,9 +112,9 @@ void  _std hlp_memcprint(void);
 //  boot filesystem (OS/2 micro-FSD) file management
 //-------------------------------------------------------------------
 
-/** open file from boot partition via micro-FSD.
-    Only one file in read mode can be opened, this is IBM`s micro-FSD design
-    limitation.
+/** open file from the boot partition via micro-FSD.
+    Only one file in read-only mode can be opened, this is IBM`s micro-FSD
+    design limitation.
     In EFI build function read files from \EFI\BOOT dir of EFI system volume.
 
     In MT mode - this call captures internal mutex and any other thread will
@@ -264,6 +264,23 @@ u32t _std hlp_diskbios(u32t disk, int qs2bios);
     @return (HDM_QUERY|current access mode) or 0 on error */
 u32t _std hlp_diskmode(u32t disk, u32t flags);
 
+/// @name hlp_disktype() result (disk types)
+//@{
+#define HDT_INVALID     0       ///< Invalid disk number
+#define HDT_REGULAR     1       ///< Regular disk device (HDD or flash drive)
+#define HDT_FLOPPY      2       ///< Floppy disk
+#define HDT_CDROM       3       ///< CD-ROM (rare case, when BIOS maps it as HDD)
+#define HDT_RAMDISK     4       ///< Ram disk
+#define HDT_EMULATED    5       ///< Other emulated device (VHDD)
+//@}
+
+/** query disk type.
+    Note, that for volume handles (QDSK_VOLUME) function returns type of
+    disk, where volume placed!
+    @param  disk      Disk number.
+    @return HDT_* value */
+u32t _std hlp_disktype(u32t disk);
+
 /** try to mount a part of disk as FAT/FAT32/exFAT partition.
     This is low level mount function, use vol_mount() for partition based
     mounting.
@@ -300,6 +317,7 @@ typedef struct {
 #define FST_FAT16       2       ///< FAT16 volume
 #define FST_FAT32       3       ///< FAT32 volume
 #define FST_EXFAT       4       ///< ExFAT volume
+#define FST_OTHER       5       ///< other filesystem
 //@}
 
 /** mounted volume info.
@@ -387,7 +405,7 @@ u32t  _std hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length)
 u32t  _std hlp_segtoflat(u16t Segment);
 
 /// rm 16:16 to qsinit flat addr conversion (for lvalue only)
-#define hlp_rmtopm(x) (hlp_segtoflat((u32t)(x)>>16) + (u16t)x)
+#define hlp_rmtopm(x) (hlp_segtoflat((u32t)(x)>>16) + (u16t)(x))
 
 /** real mode function call with arguments.
     @param rmfunc  16 bit far pointer / FLAT addr,
@@ -479,7 +497,7 @@ u32t _std hlp_hosttype(void);
 //@{
 #define QBIO_APM         0    ///< query APM presence, return ver or 0x100xx, where xx - error code
 #define QBIO_PCI         1    ///< query PCI BIOS (B101h), return bx<<16|cl<<8| al or 0 if no PCI
-#define QBIO_KEYREADNW   2    ///< keyboard poll without waiting (int 16h, ah=10h)
+#define QBIO_KEYREADNW   2    ///< keyboard poll (status<<16|code)
 #define QBIO_EQLIST      3    ///< BIOS equipment list (int 11h, return ax)
 //@}
 
@@ -494,6 +512,7 @@ u32t _std hlp_insafemode(void);
 /// @name exit_pm32 error codes
 //@{
 #define QERR_NO486       1
+#define QERR_SOFTFAULT   4
 #define QERR_DPMIERR     6
 #define QERR_NOMEMORY    8
 #define QERR_NOTHING     9

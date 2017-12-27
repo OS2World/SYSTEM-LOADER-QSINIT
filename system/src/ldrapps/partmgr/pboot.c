@@ -9,7 +9,7 @@
 #include "qsdm.h"
 #include "vio.h"
 #include "pscan.h"
-#include "hpfs/hpfs.h"         // for HPFSSEC_SUPERB only
+#include "sys/fs/hpfs.h"         // for HPFSSEC_SUPERB only
 
 #define MBR_LOAD_ADDR    0x7C00
 
@@ -344,11 +344,24 @@ u32t _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf) {
 qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
    u8t    sbuf[MAX_SECTOR_SIZE];
    struct Boot_Record *btw = (struct Boot_Record *)&sbuf;
-   char   bfname[16], fsname[10];
-   u32t   current, curst;
+   char         lvm_letter = 0;
+   char         bfname[16], fsname[10];
+   u32t     current, curst;
 
    if (type>DSKBS_EXFAT) return E_SYS_INVPARM;
    if (type==DSKBS_DEBUG) return dsk_debugvbr(disk,sector)?0:E_DSK_ERRWRITE;
+   // try to discover LVM drive letter for this sector
+   if (disk&QDSK_VOLUME) {
+      u32t  phdisk;
+      long  volidx = vol_index(disk&~QDSK_VOLUME, &phdisk);
+      if (volidx>0) {
+         lvm_partition_data lvd;
+         if (lvm_partinfo(phdisk, volidx, &lvd)) {
+            lvm_letter = toupper(lvd.Letter);
+            if (lvm_letter<'C' || lvm_letter>'Z') lvm_letter = 0;
+         }
+      }
+   }
 
    memset(sbuf, 0, sizeof(sbuf));
    curst = dsk_ptqueryfs(disk, sector, fsname, sbuf);
@@ -364,6 +377,7 @@ qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
          case FST_FAT16: current = DSKBS_FAT16; break;
          case FST_FAT32: current = DSKBS_FAT32; break;
          case FST_EXFAT: current = DSKBS_EXFAT; break;
+         case FST_OTHER:
          case FST_NOTMOUNTED:
             if (strcmp(fsname,"HPFS")) return E_DSK_UNKFS;
             current = DSKBS_HPFS;
@@ -431,6 +445,8 @@ qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
       // copy custom boot name
       if (bfname[0])
          memcpy(sbuf+((u32t)&hpfs_bsname - (u32t)&hpfs_bsect), bfname, 15);
+      if (lvm_letter)
+         btw->BR_EBPB.EBPB_Dirty = 0x80+(lvm_letter-'C');
 
       if (hlp_diskwrite(disk, sector, 1, sbuf)==0) return E_DSK_ERRWRITE;
       if (hpfs_bscount>1)
@@ -510,6 +526,7 @@ int _std vol_dirty(u8t vol, int on) {
             if (on>0) bre->BR_ExF_State|=2; else bre->BR_ExF_State&=~2;
          break;
       }
+      case FST_OTHER:
       case FST_NOTMOUNTED:
          if (strcmp(fsname,"HPFS")) return -E_DSK_UNKFS;
          return hpfs_dirty(vol, on);

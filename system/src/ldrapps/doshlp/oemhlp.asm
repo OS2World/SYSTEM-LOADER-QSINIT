@@ -624,8 +624,9 @@ DBCS_FONT_GDTS  endp                                            ;
 
 DBCS_INT10VEC   proc    near                                    ; update int 10h vector
                 test    External.Flags,EXPF_DBCSI10H            ; in bios interrupt table
-                cld                                             ;
-                jz      @@dbcs_i10_set                          ; to value, supplied by OS2DBCS
+                cld                                             ; to value, supplied by OS2DBCS
+                jz      @@dbcs_i10_set                          ;
+                xor     ax,ax                                   ;
                 stosw                                           ;
                 stosw                                           ;
                 jmp     @@dbcs_i10_ret                          ;
@@ -963,7 +964,7 @@ endif ; oemhlp_walk > 0
 ; ---------------------------------------------------------------
 ; if oemhlp_walk == 0
 ;   we searching in dword array of vendors or class code and get index
-;   of founded entry, then read bus/slot/func from the same index of
+;   of found entry, then read bus/slot/func from the same index of
 ;   PCIBusList array
 ; else
 ;   we just walking over PCI space until the last bus
@@ -1005,7 +1006,7 @@ if oemhlp_walk GT 0
 else
                 mov     di,External.PCIBusList                  ; get bus/slot/func
                 shl     cx,1                                    ; from array
-                add     di,cx                                   ; at founded index
+                add     di,cx                                   ; at found index
                 mov     ax,[di]                                 ;
 endif ; oemhlp_walk > 0
                 mov     byte ptr es:[bx].pfcc_bBusNum,al        ;

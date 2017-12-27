@@ -270,7 +270,7 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                         } else
                         if ((we->sigf[ii]&WOBJ_SAVERES)) {
                            we->sigf[ii]  = WOBJ_OK;
-                           // is must be non-zero, else data was damaged
+                           // must be non-zero, else data was damaged
                            *cwe->resaddr = cwe->reserved>>32;
                         }
                   }

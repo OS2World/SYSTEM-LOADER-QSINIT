@@ -3,6 +3,7 @@ name = "MTLIB"
 
 exports = {
    _shl_detach          = { index = 1   group = "shell" format="usp"     }
+   _shl_start           = { index = 2   group = "shell" format="usp"     }
 
    _mt_createthread     = { index = 10  group="mt"      format="up@upp"  }
    _mt_exitthread       = { index = 11  group="mt"      format="Vu"      }
@@ -16,19 +17,19 @@ exports = {
 
    _mt_waitobject       = { index = 40  group="sync"    format="@upu@u&*u" }
 
-   _mod_execse          = { index = 50  group="exec"    format="@u@uss@u&*u" }
+   _mod_execse          = { index = 50  group="exec"    format="@u@uss@u@u&*us" }
 }
 
 class = {
    name = "qs_mtlib"
    entries = {
       initialize   = "upp"
-      state        = "upp"
+      active       = "upp"
       getmodpid    = "uppp"
       waitobject   = "@upppu@u&*u"
       createthread = "uppp@upp"
       resumethread = "@uppuu"
       threadname   = "@upps"
-      execse       = "@upp@uss@u&*u"
+      execse       = "@upp@uss@u@u&*us"
    }
 }

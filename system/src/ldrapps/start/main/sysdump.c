@@ -7,8 +7,8 @@
 void get_gdt(struct lidt64_s *gdt);
 void get_idt(struct lidt64_s *idt);
 #ifdef __WATCOMC__
-#pragma aux get_gdt = "sgdt [eax]" parm [eax];
-#pragma aux get_idt = "sidt [eax]" parm [eax];
+#pragma aux get_gdt = "sgdt [eax]" parm [eax] modify exact [];
+#pragma aux get_idt = "sidt [eax]" parm [eax] modify exact [];
 #endif
 
 /// dump GDT to log

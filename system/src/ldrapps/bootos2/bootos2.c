@@ -61,7 +61,8 @@ u32t     dhfsize = 0,               // doshlp file size
         mfsdsize = 0,               // mini-fsd file file
         arenacnt = 0,               // number of filled arenas
        respart4k = 0,               // doshlp size, rounded to page
-      laddrdelta = 0;               // paddr / vaddr offset
+      laddrdelta = 0,               // paddr / vaddr offset
+         mfsdcrc = 0;               // crc of mini-fsd file
 void    *mfsdptr = 0;               // pointer to mini-fsd file
 int     twodiskb = 0,               // two disk boot flag
        isos4krnl = 0,               // is OS/4 kernel?
@@ -518,15 +519,14 @@ void load_kernel(module  *mi) {
 
       // copying mini-FSD to final location
       if (mfsdptr) {
-         u32t crc = sto_dword(STOKEY_MFSDCRC);
          /* always print CRC value (this allows to check file version also:
             just compare crc with pkzip /view OS2BOOT.ZIP) */
-         log_printf("mFSD: %08X, crc: %08X\n", b16frame, crc);
+         log_printf("mFSD: %08X, crc: %08X\n", b16frame, mfsdcrc);
          memcpy((void*)(b16frame+pdiff), mfsdptr, mfsdsize);
 
-         if (crc) {
+         if (mfsdcrc) {
             u32t ncrc = crc32(0, (u8t*)(b16frame+pdiff), mfsdsize);
-            if (ncrc!=crc) {
+            if (ncrc!=mfsdcrc) {
                log_printf("mFSD crc mismatch! (%08X)\n", ncrc);
                error_exit(17, "mini-FSD is damaged!\n");
             }
@@ -863,12 +863,13 @@ void memparm_init(void) {
    } while (parmptr && ii<REMOVEMEM_LIMIT-1);
    rmvmem[ii] = 0;
    // query log size in 64k blocks
-   parmptr = key_present("LOGSIZE");
+   parmptr      = key_present("LOGSIZE");
+   resblock_len = sto_dword(STOKEY_LOGSIZE);
+   // cmd line arg has a priority above storage key (key is saved by AOSCFG)
    if (parmptr)
-      if ((resblock_len = strtoul(parmptr,0,0))<64) resblock_len = 0; else {
-         if (resblock_len>32768) resblock_len = 32768;
-         resblock_len>>=6;
-      }
+      if ((resblock_len = strtoul(parmptr,0,0))<64) resblock_len = 0;
+   if (resblock_len>32768) resblock_len = 32768;
+   resblock_len   >>= 6;
    resblock_len    += exrsize;
    resblock_addr    = hlp_setupmem(limit, &resblock_len, rmvmem, SETM_SPLIT16M);
    efd->LogBufPAddr = resblock_addr;
@@ -1028,13 +1029,9 @@ void *read_file(const char *path, u32t *size, int kernel) {
    *size = 0;
    if (strchr(path,'\\')==0 && strchr(path,'/')==0) {
       if (bootsrc) {
-         char *cp = strdup("A:\\");
-         cp[0] += bootsrc;
-         cp     = strcat_dyn(cp,path);
-         rc     = freadfull(cp,size);
+         char *cp = sprintf_dyn("%c:\\%s", 'A'+bootsrc, path);
+         rc = freadfull(cp,size);
          free(cp);
-         // no file? try it via HPFS read
-         if (!rc) rc = altfs_readfull(bootsrc,path,size);
       }
       if (!rc) rc = hlp_freadfull(path,size,0);
       if (!rc && kernel && strnicmp(path,"OS2KRNL",8)==0) {
@@ -1210,6 +1207,7 @@ void main(int argc,char *argv[]) {
       if (boot_info.minifsd_ptr) {
          mfsdptr  = boot_info.minifsd_ptr;
          mfsdsize = boot_info.filetab.ft_mfsdlen;
+         mfsdcrc  = sto_dword(STOKEY_MFSDCRC);
       } else
       if ((bootflags&BF_MICROFSD)!=0)
          error_exit(9,"Mini-FSD is absent in FSD boot mode!\n");
@@ -1388,11 +1386,11 @@ void main(int argc,char *argv[]) {
          strcat(cmdcall, parmptr);
       }
    }
-/* &^$%&^ off this code, never saw the PXE BIOS, who able to do this, this
-   just closes any boot i/o after error exit and nothing else */
 #if 0
    /* PXEOS4 boot? direct call to mfs_term, but only in real run!
-      Moveton says - it may release some of low memory for us */
+      Moveton says - it may release some of low memory for us.
+      p.s. but I never saw PXE BIOS, who able to do this, so remove it,
+      because it just closes any i/o after error exit and nothing else */
    if (boot_info.filetab.ft_cfiles==6 && !testmode)
       hlp_rmcall(boot_info.filetab.ft_muTerminate, 0);
 #endif
@@ -1606,7 +1604,7 @@ void main(int argc,char *argv[]) {
          char *qslog;
 
          if (resblock_err==QSMR_USED) {
-            log_printf("unable to flushing QS log, log memory in use\n");
+            log_printf("unable to save QS log, memory in use\n");
          } else {
             if (level>LOG_GARBAGE) level=LOG_GARBAGE;
             qslog = log_gettext(level|LOGTF_LEVEL|LOGTF_TIME);
@@ -1615,8 +1613,7 @@ void main(int argc,char *argv[]) {
                char *log = pag_physmap(efd->LogBufPAddr, efd->LogBufSize<<16, 0);
             
                if (log) {
-                  log_printf("flushing QS log to kernel, max level %d, size %d\n",
-                             level, len);
+                  log_printf("flushing QS log, max level %d, size %d\n", level, len);
                   // log is too large?
                   if (len>=(efd->LogBufSize<<16)-efd->LogBufWrite) {
                      u32t diff = len - (efd->LogBufSize<<16) + 1;

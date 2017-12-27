@@ -2,8 +2,10 @@
 // QSINIT
 // all FAT types micro-FSD emulation
 // -----------------------------------------------
-// This code is not designed to handle huge files,
-// it just should load QSINIT.LDI & INI file.
+// This code is not designed to handle huge files, it just should load
+// QSINIT.LDI & INI file. START module will replace this code to common
+// FAT handling as fast as it can.
+// 
 // There is no long names for FAT12/16/32!
 //
 #include "qslocal.h"
@@ -222,7 +224,7 @@ u16t _std fat_open(void) {
       // dir record should have least 3 entries, i.e. exclude last two
       for (ii=0; ii<root_n-2; ii++, de++)
          if (!de->Dir_ExF_Type) break; else
-         // our`s name should fit into 15 chars
+         // our`s name forced to be <=15 chars
          if (de->Dir_ExF_Type==0x85 && de->Dir_ExF_SecCnt==2 &&
             de[1].Dir_ExF_Type==0xC0 && de[2].Dir_ExF_Type==0xC1)
          {
@@ -233,7 +235,7 @@ u16t _std fat_open(void) {
                u32t idx;
                for (idx=0; idx<namelen; idx++) {
                   u16t ch = dne->Dir_ExFnName[idx];
-                  if (ch>0x80) break;
+                  if (ch>=0x80) break;
                   if (toupper(ch)!=mfsd_openname[idx]) break;
                   if (idx==namelen-1) {
                      // file to long!

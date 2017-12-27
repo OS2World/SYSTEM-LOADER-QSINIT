@@ -14,10 +14,6 @@ extern u8t    useint13ext,
                   useAFio;
 extern char    aboutstr[];
 
-#ifdef INITDEBUG
-void earlyserinit(void);
-#endif
-
 static int cmpname(const char *name, char *pos, u32t len) {
    pos--;
    while ((*pos==' '||*pos=='\t')&&len) { pos--; len--; }
@@ -131,8 +127,7 @@ void get_ini_parm(void) {
       //hlp_memfree(ini);
    } else {
 #ifdef INITDEBUG
-      ComPortAddr=0x2F8;
-      earlyserinit();
+      serial_init(ComPortAddr = 0x2F8);
 #endif
    }
    log_printf("hi!\n");

@@ -47,6 +47,7 @@ typedef enum {
            xcpt_align   = 17,               ///< alignment exception
            xcpt_machine = 18,               ///< machine check exception
            xcpt_simd    = 19,               ///< SSEx exception
+           xcpt_syserr  = 0xFFF8,           ///< common sys err (file name is fmt string here!)
            xcpt_intbrk  = 0xFFF9,           ///< internal data is broken
            xcpt_prcerr  = 0xFFFA,           ///< process data structs damaged
            xcpt_exierr  = 0xFFFB,           ///< shared class stack damaged
@@ -107,6 +108,8 @@ void     _std sys_exfunc4(u32t xcptype, const char* file, u32t line);
 void     _std sys_exfunc5(volatile sys_xcpt* except, const char* file, u32t line);
 jmp_buf* _std sys_exfunc6(volatile sys_xcpt* except);
 u32t     _std sys_exfunc7(volatile sys_xcpt* except);
+
+#define _throwmsg_(msg)        sys_exfunc4(xcpt_syserr, msg, 0)
 
 /** set DR0..DR3 access breakpoint.
     It will trap to default trap screen, but can show eip, where memory was broken.

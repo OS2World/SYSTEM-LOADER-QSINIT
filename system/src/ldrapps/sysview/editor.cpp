@@ -284,7 +284,7 @@ void THexEdWindow::GotoFilePosDlg() {
 
    if (SysApp.execView(dlg)==cmOK) {
       u64t pos = strtoull(getstr(sgMemPos), 0, 16);
-      if (pos<=sz) hexEd->posToCluster(pos>>8, pos&0xFF);
+      if (pos<=sz) hexEd->posToCluster(pos>>bshift, pos&(1<<bshift)-1);
          else SysApp.errDlg(MSGE_RANGE);
    }
    destroy(dlg);
@@ -295,8 +295,8 @@ static int binfile_rw(int wr, int userdata, le_cluster_t cluster, void *data) {
    u64t    fullsize = wn->hexEd->fullSize(),
              clsize = fullsize>>wn->bshift;
    u32t     recsize = 1<<wn->bshift;
-   if (fullsize & recsize-1) clsize++;
-   if (clsize-1==cluster) recsize = fullsize & recsize-1;
+   if (fullsize & recsize-1)
+      if (clsize++==cluster) recsize = fullsize & recsize-1;
 
    if (opts_fseek(wn->srcFile, cluster<<wn->bshift, SEEK_SET)) return 0;
 
@@ -435,6 +435,10 @@ THexEdWindow* TSysApp::OpenHexEditor(int NewFile, const char *fn) {
          But, the funny thing is "Run" dialog, which executes command in the
          context of THIS process */
       srcf = _fsopen(fname, NewFile?"w+b":"r+b", SH_DENYWR);
+      if (!srcf && !NewFile) {
+         srcf = _fsopen(fname, "rb", SH_DENYWR);
+         if (srcf) infoDlg(MSGI_FILEREADONLY);
+      }
       if (!srcf) {
          errDlg(NewFile?MSGE_FILECREATERR:MSGE_FILEOPENERR);
          break;

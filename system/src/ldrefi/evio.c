@@ -8,6 +8,8 @@
 u16t text_col   = 7;
 u8t  cvio_blink = 0;
 
+extern u32t cvio_ttylines;
+
 int  _std tolower(int cc);
 void _std usleep(u32t usec);
 void _std cache_ctrl(u32t action, u8t vol);
@@ -32,20 +34,15 @@ void _std cvio_getpos(u32t *line, u32t *col) {
    call64(EFN_VIOGETPOS, 0, 2, line, col);
 }
 
-static u8t cur_start = 7,
-             cur_end = 8;
+static u8t cur_shape = VIO_SHAPE_LINE;
 
-void _std cvio_setshape(u8t start, u8t end) {
-   call64(EFN_VIOSHOWCURSOR, 0, 1, start&0x20? 0 : 1);
+void _std cvio_setshape(u16t shape) {
+   cur_shape = shape;
+   call64(EFN_VIOSHOWCURSOR, 0, 1, shape==VIO_SHAPE_NONE?0:1);
 }
 
 u16t _std cvio_getshape(void) {
-   return (u16t)cur_start<<8 | cur_end;
-}
-
-void _std cvio_defshape(u8t shape) {
-   if (shape==VIO_SHAPE_NONE) vio_setshape(0x20,0); else
-      vio_setshape(7,8);
+   return cur_shape;
 }
 
 void _std cvio_setcolor(u16t color) {
@@ -53,22 +50,29 @@ void _std cvio_setcolor(u16t color) {
    call64(EFN_VIOSETCOLOR, 0, 1, color);
 }
 
+u16t _std cvio_getcolor(void) {
+   return text_col;
+}
+
 void _std cvio_setmode(u32t lines) {
    call64(EFN_VIOSETMODE, 0, 1, lines);
+   cvio_ttylines = 0;
 }
 
 int _std cvio_setmodeex(u32t cols, u32t lines) {
-   return call64(EFN_VIOSETMODEEX, 0, 2, cols, lines);
-}
-
-void _std cvio_resetmode(void) {
-   u32t cols, lines;
-   if (!vio_getmode(&cols, &lines)) cols = 0;
-   if (cols!=80 || lines!=25) vio_setmode(25); else vio_clearscr();
+   int rc = call64(EFN_VIOSETMODEEX, 0, 2, cols, lines);
+   if (rc) cvio_ttylines = 0;
+   return rc;
 }
 
 u8t  _std cvio_getmode(u32t *cols, u32t *lines) {
    return call64(EFN_VIOGETMODE, 0, 2, cols, lines);
+}
+
+void _std cvio_resetmode(void) {
+   u32t cols, lines;
+   if (!cvio_getmode(&cols, &lines)) cols = 0;
+   if (cols!=80 || lines!=25) cvio_setmode(25); else cvio_clearscr();
 }
 
 void _std cvio_getmodefast(u32t *cols, u32t *lines) {
@@ -100,13 +104,14 @@ void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
    if (width && height) {
       u8t *bptr = (u8t*)buf;
       // dumb simulation :(
-      u32t  svline, svcol;
+      u32t  svline, svcol,
+           svcolor = cvio_getcolor();
       u8t     pcol = VIO_COLOR_LWHITE;
-      vio_setcolor(pcol);
-      vio_getpos(&svline, &svcol);
+      cvio_setcolor(pcol);
+      cvio_getpos(&svline, &svcol);
 
       for (;height>0;height--) {
-         vio_setpos(line++, col);
+         cvio_setpos(line++, col);
          if (toscr) {
             u32t wx = width;
             u8t *bx = bptr;
@@ -127,27 +132,29 @@ void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
                         else stb[ii++] = ch;
                   }
                }
-               if (col!=pcol) vio_setcolor(pcol = col);
+               if (col!=pcol) cvio_setcolor(pcol = col);
                if (ii>1) {
                   stb[ii] = 0;
-                  vio_strout(stb);
+                  cvio_strout(stb);
                   bx+=ii*2;
                   wx-=ii;
                } else {
                   register char ch = bx[0];
-                  vio_charout(ch==8||ch==10||ch==13?' ':ch);
+                  cvio_charout(ch==8||ch==10||ch==13?' ':ch);
                   bx+=2;
                   wx--;
                }
             }
          } else {
-            // do not simulate missing read, but return empty rect
+            /* do not simulate missing read, but return empty rect.
+               even this call is not required now, since BVIO readbuf uses
+               session`s shadow buffer to read data from */
             memsetw((u16t*)bptr, 0x0720, width);
          }
          bptr+=pitch;
       }
-      vio_setpos(svline, svcol);
-      vio_setcolor(VIO_COLOR_RESET);
+      cvio_setpos(svline, svcol);
+      cvio_setcolor(svcolor);
    }
 }
 
@@ -156,25 +163,19 @@ void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
 u32t _std ckey_status(void) {
    return call64(EFN_KEYSTATUS, 0, 0);
 }
-
+/*
 u16t _std key_read_int(void) {
    return call64(EFN_KEYREAD, 0, 0);
-}
+}*/
 
-u16t _std key_read_nw(void) {
-   return call64(EFN_KEYWAIT, 0, 1, 0);
+u16t _std key_read_nw(u32t *status) {
+   return call64(EFN_KEYWAIT, 0, 2, 0, status);
 }
 
 u8t  _std ckey_pressed(void) {
    return call64(EFN_KEYPRESSED, 0, 0);
 }
-/*
-u16t _std ckey_wait(u32t seconds) {
-   return call64(EFN_KEYWAIT, 0, 1, seconds);
-}
 
-u16t _std ckey_read() { return key_read_int(); }
-*/
 static u8t _rate = 0, _delay = 0;
 
 void _std key_speed(u8t rate, u8t delay) {
@@ -182,7 +183,6 @@ void _std key_speed(u8t rate, u8t delay) {
    _rate  = rate  &= 0x1F;
    _delay = delay &= 3;
    // no way to set it in EFI :)
-   //rmcall(setkeymode,2,(u32t)delay<<8|rate);
    mt_swunlock();
 }
 

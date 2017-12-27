@@ -11,7 +11,7 @@ int get_sys_area(u8t vol, u32t *disk, u64t *start, u32t *length) {
    disk_volume_data vi;
    u32t         fstype = hlp_volinfo(vol,&vi);
 
-   if (fstype!=FST_NOTMOUNTED) {
+   if (fstype!=FST_NOTMOUNTED && fstype<=FST_EXFAT) {
       if (disk)   *disk   = vi.Disk;
       if (start)  *start  = vi.StartSector;
       if (length) {

@@ -254,6 +254,15 @@ _biostest       proc    far
                 jz      @@bt_pci_fail                           ;
                 mov     ah,10h                                  ;
                 int     16h                                     ;
+                push    ax                                      ;
+                mov     ah,02h                                  ; keyboard status
+                int     16h                                     ;
+                push    ax                                      ;
+                mov     ah,12h                                  ;
+                int     16h                                     ;
+                pop     dx                                      ;
+                mov     dh,ah                                   ; dx - status
+                pop     ax                                      ; ax - key code
                 ret                                             ;
 @@bt_int11h:
                 int     11h                                     ;

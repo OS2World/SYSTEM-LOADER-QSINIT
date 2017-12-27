@@ -3,6 +3,9 @@
 #include "qsmodext.h"
 #include "qsshell.h"
 
+void exi_register_vh_tty(void);
+void exi_register_extcmd(void);
+
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
       if (mod_query(mod_getname(hmod,0), MODQ_LOADED|MODQ_NOINCR)) {
@@ -13,11 +16,12 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       cmd_shelladd("MTRR", shl_mtrr);
       cmd_shelladd("LOG" , shl_log);
       cmd_shelladd("PCI" , shl_pci);
-   } else {
-      cmd_shellrmv("PCI" , shl_pci);
-      cmd_shellrmv("LOG" , shl_log);
-      cmd_shellrmv("MTRR", shl_mtrr);
-      cmd_shellrmv("MEM" , shl_mem);
+      // register serial port vio handler
+      exi_register_vh_tty();
+      // and qs_extcmd class
+      exi_register_extcmd();
+      // set system flag on self to prevent unload
+      ((module*)hmod)->flags |= MOD_SYSTEM;
    }
    return 1;
 }

@@ -57,7 +57,7 @@ unsigned long __stdcall mem_getobjinfo(void *M, long *Owner, long *Pool);
     @return success flag = 1/0. */
 int           __stdcall mem_setobjinfo(void *M, long Owner, long Pool);
 
-/** get unique id. 
+/** get unique id.
     Owner is constant usually and Pool is unique, this guarantee
     ~4G of unique values */
 void          __stdcall mem_uniqueid(long *Owner, long *Pool);
@@ -80,12 +80,13 @@ void          __stdcall mem_statmax(int topcount);
 
 /// @name some known system owner values (do not use it!!!)
 //@{
+#define QSMEMOWNER_FILECC      0x42434346  ///< file cache headers
 #define QSMEMOWNER_MODLDR      0x4243444D  ///< LX module loader
+#define QSMEMOWNER_SESTATE     0x42434D53  ///< session data
+#define QSMEMOWNER_COLIB       0x42434F4C
+#define QSMEMOWNER_COPROCESS   0x42434F50
 #define QSMEMOWNER_TRACE       0x42435254  ///< trace buffers
 #define QSMEMOWNER_MTLIB       0x4243544D  ///< MTLIB internals
-#define QSMEMOWNER_COLIB       0x42434F4C
-#define QSMEMOWNER_SESTATE     0x42434D53  ///< session data
-#define QSMEMOWNER_COPROCESS   0x42434F50
 #define QSMEMOWNER_LINENUM     0xFFFFE000  ///< 0xFFFFE000..0xFFFFFFFE
 #define QSMEMOWNER_COTHREAD    0xFFFFD000  ///< 0xFFFFD000..0xFFFFDFFF
 #define QSMEMOWNER_UNOWNER     0xFFFFC000

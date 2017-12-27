@@ -144,7 +144,7 @@ _ret64:
                 pop     eax                                     ;
                 pop     edx                                     ;
 @@c64_nolog:
-                call    _mt_yield                               ;
+;                call    _mt_yield                               ;
                 ret                                             ;
 _call64         endp
 

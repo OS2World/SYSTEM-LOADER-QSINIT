@@ -11,10 +11,10 @@
 extern "C" {
 #endif
 
-/** print character to serial port */
+/** print character to the *debug* serial port */
 void  _std  hlp_seroutchar(u32t symbol);
 
-/** print string to serial port */
+/** print string to the *debug* serial port */
 void  _std  hlp_seroutstr (char* Buf);
 
 /** query debug serial port parameters.
@@ -22,12 +22,46 @@ void  _std  hlp_seroutstr (char* Buf);
     @return port address or 0 */
 u16t  _std  hlp_seroutinfo(u32t *baudrate);
 
-/** set debug serial port parameters.
+/** set *debug* serial port parameters.
+    Note, that hlp_serialset() call with the same port address will disable
+    *debug* com port output.
+
     @param port       COM port address. use 0 for previous value, 0xFFFF to
                       disable debug COM port output.
     @param baudrate   use 0 for previos value, else valid baud rate
     @return 1 on success, 0 on invalid baud rate (port addr can`t be checked) */
 int   _std  hlp_seroutset (u16t port, u32t baudrate);
+
+/** switch debug com port to vt100 terminal (and back).
+    @param sesno      Session number, use 0 to revert port back to debug output
+                      mode.
+    @return error code or 0 */
+qserr _std  hlp_serconsole(u32t sesno);
+
+/** set 16450-compatible serial port baud rate.
+    @param port       COM port address.
+    @param baudrate   valid baud rate
+    @return 1 on success, 0 on invalid baud rate (port addr can`t be checked) */
+int   _std  hlp_serialrate(u16t port, u32t baudrate);
+
+/** get a characer from 16450-compatible serial port.
+    @param port       COM port address.
+    @return character or zero */
+u8t   _std  hlp_serialin(u16t port);
+
+/** print character to 16450-compatible serial port.
+    @param port       COM port address.
+    @param chr        Symbol to print */
+void  _std  hlp_serialout(u16t port, u8t chr);
+
+/** init 16450-compatible serial port.
+    Note, that function disables *debug* com port output if "port" parameter
+    match to current debug port.
+
+    @param port       COM port address.
+    @param baudrate   Valid baud rate, 0 for 115200.
+    @return 1 on success, 0 on invalid baud rate (port addr can`t be checked) */
+int   _std  hlp_serialset(u16t port, u32t baudrate);
 
 /// print to log/serial port.
 int __cdecl log_printf(const char *fmt, ...);
@@ -61,6 +95,27 @@ void  _std  log_mdtdump(void);
 
 /// dump opened files
 void  _std  log_ftdump(void);
+
+/// dump session list
+void  _std  log_sedump(void);
+
+
+#ifdef __WATCOMC__
+/** dump CPU registers into log & debug port.
+    Function preserves all registers and flags, ss selector must be FLAT.
+    @param level      priority (0..3) */
+void        log_dumpregs(int level);
+/// dump CPU registers into debug port ONLY.
+void        hlp_dumpregs(void);
+
+#pragma aux log_dumpregs "_*" parm routine modify exact [];
+#pragma aux hlp_dumpregs "_*" modify exact [];
+
+#else  // !__WATCOMC__
+void  _std  log_dumpregs(int level);
+void  _std  hlp_dumpregs(void);
+#endif
+
 
 /// @name flags for log_gettext
 //@{
@@ -137,11 +192,6 @@ int    _std log_query(log_querycb cbproc, void *extptr);
 void   _std log_flush(void);
 
 #endif // LOG_INTERNAL
-
-/** process hotkeys for dump actions.
-    @attention function defined here, but located in START module
-    @return 0 if key is not hotkey */
-int    _std log_hotkey(u16t key);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,12 @@
 #include "ff.h"
 #include "sysio.h"
 
+// FatFs >= R0.13 defines
+#ifndef FF_VOLUMES
+#define FF_VOLUMES _VOLUMES
+#define FF_MAX_LFN _MAX_LFN
+#endif
+
 #define VFAT_SIGN        0x54414656   ///< VFAT string
 #define VFATDIR_SIGN     0x45444656   ///< VFDE string
 #define VFATFH_SIGN      0x48464656   ///< VFFH string
@@ -37,7 +43,7 @@ typedef struct {
 } file_handle;
 
 u32t     fatio_classid = 0;
-static FATFS   *extdrv[_VOLUMES];
+static FATFS   *extdrv[FF_VOLUMES];
 
 #define instance_ret(type,inst,err)      \
    type *inst = (type*)data;             \
@@ -64,7 +70,7 @@ static qserr wrfunc(qserr err) {
 static qserr _exicc fat_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
 
-   if (vol>=_VOLUMES) return E_DSK_BADVOLNAME;
+   if (vol>=FF_VOLUMES) return E_DSK_BADVOLNAME;
 
    if (extdrv) {
       vol_data         *vdta = _extvol+vol;
@@ -122,7 +128,7 @@ static qserr _exicc fat_finalize(EXI_DATA) {
          snprintf(dp, 8, "%d:", vd->vol);
          res = f_mount(0, dp, 0);
       }
-      vdta->flags &= ~(VDTA_FAT|VDTA_ON);
+      vdta->flags &= ~VDTA_FAT;
       vd->vol      = -1;
       vd->mount_ok = 0;
       return errcvt(res);
@@ -277,7 +283,6 @@ static qserr _exicc fat_setsize(EXI_DATA, io_handle_int file, u64t newsize) {
 static qserr _exicc fat_pathinfo(EXI_DATA, const char *path, io_handle_info *info) {
    FILINFO    *fi;
    FRESULT    res;
-   time_t     tmv;
    char    *cpath;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (!path || !info) return E_SYS_ZEROPTR;
@@ -286,13 +291,15 @@ static qserr _exicc fat_pathinfo(EXI_DATA, const char *path, io_handle_info *inf
    if (!fi) return E_SYS_NOMEM;
    mem_zero(fi);
    cpath = fat_cvtpath(vd, path);
-   if (!cpath) return E_SYS_INVPARM;
+   if (!cpath) { free(fi); return E_SYS_INVPARM; }
    res   = f_stat(cpath, fi);
    free(cpath);
    if (res==FR_OK) {
+      time_t  tmv;
       info->attrs  = fi->fattrib;
       info->fileno = 0;
       info->size   = fi->fsize;
+      info->vsize  = fi->fsize;
 
       tmv = dostimetotime((u32t)fi->fdate<<16|fi->ftime);
       io_timetoio(&info->atime, tmv);
@@ -497,15 +504,16 @@ static qserr _exicc fat_dirnext(EXI_DATA, dir_handle_int dh, io_direntry_info *d
    de->attrs  = dd->fi.fattrib;
    de->fileno = 0;
    de->size   = dd->fi.fsize;
+   de->vsize  = de->size;
    de->dir    = dd->dirname;
 
    if (dd->fi.fname[0]) {
-      strncpy(de->name, dd->fi.fname, _MAX_LFN + 1);
+      strncpy(de->name, dd->fi.fname, FF_MAX_LFN + 1);
    } else {
       strncpy(de->name, dd->fi.altname, 13);
       de->name[12] = 0;
    }
-   de->name[_MAX_LFN] = 0;
+   de->name[FF_MAX_LFN] = 0;
 
    tmv = dostimetotime((u32t)dd->fi.fdate<<16|dd->fi.ftime);
    io_timetoio(&de->atime, tmv);
@@ -521,7 +529,7 @@ static qserr _exicc fat_dirclose(EXI_DATA, dir_handle_int dh) {
    FRESULT       res;
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    if (!dd) return E_SYS_ZEROPTR;
-   if (!dd->sign!=VFATDIR_SIGN) return E_SYS_INVPARM;
+   if (dd->sign!=VFATDIR_SIGN) return E_SYS_INVPARM;
 
    dd->sign = 0;
    res = f_closedir(&dd->dir);
@@ -615,6 +623,13 @@ static qserr _exicc fat_setlabel(EXI_DATA, const char *label) {
    return E_DSK_NOTMOUNTED;
 }
 
+static u32t _exicc fat_avail(EXI_DATA) { return 0; }
+
+static qserr _exicc fat_finfo(EXI_DATA, io_handle_int fh, io_direntry_info *info) {
+   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
+   return E_SYS_UNSUPPORTED;
+}
+
 static void _std fat_init(void *instance, void *userdata) {
    volume_data *vd = (volume_data*)userdata;
    vd->sign        = VFAT_SIGN;
@@ -630,25 +645,22 @@ static void _std fat_done(void *instance, void *userdata) {
    memset(vd, 0, sizeof(volume_data));
 }
 
-static void *methods_list[] = { fat_initialize, fat_finalize, fat_volinfo,
+static void *m_list[] = { fat_initialize, fat_finalize, fat_avail, fat_volinfo,
    fat_setlabel, fat_drive, fat_open, fat_read, fat_write, fat_flush,
-   fat_close, fat_size, fat_setsize, fat_setattr, fat_getattr, fat_setexattr,
-   fat_getexattr, fat_lstexattr, fat_remove, fat_renmove, fat_makepath,
-   fat_remove, fat_pathinfo, fat_setinfo, fat_diropen, fat_dirnext,
-   fat_dirclose };
+   fat_close, fat_size, fat_setsize, fat_finfo, fat_setattr, fat_getattr,
+   fat_setexattr, fat_getexattr, fat_lstexattr, fat_remove, fat_renmove,
+   fat_makepath, fat_remove, fat_pathinfo, fat_setinfo, fat_diropen,
+   fat_dirnext, fat_dirclose };
 
 void register_fatio(void) {
    u32t ii;
    // something forgotten! interface part is not match to implementation
-   if (sizeof(_qs_sysvolume)!=sizeof(methods_list)) {
-      log_printf("Function list mismatch\n");
-      _throw_(xcpt_align);
-   }
-   for (ii=0; ii<_VOLUMES; ii++) extdrv[ii] = (FATFS*)malloc(sizeof(FATFS));
+   if (sizeof(_qs_sysvolume)!=sizeof(m_list)) _throwmsg_("fatio: size mismatch");
+   for (ii=0; ii<FF_VOLUMES; ii++) extdrv[ii] = (FATFS*)malloc(sizeof(FATFS));
 
    // register private(unnamed) class
-   fatio_classid = exi_register(0 /*"qs_common_fatio"*/, methods_list,
-      sizeof(methods_list)/sizeof(void*), sizeof(volume_data), 0,
+   fatio_classid = exi_register("qs_sys_fatio", m_list,
+      sizeof(m_list)/sizeof(void*), sizeof(volume_data), EXIC_PRIVATE,
          fat_init, fat_done, 0);
    if (!fatio_classid)
       log_printf("unable to register FAT i/o class!\n");

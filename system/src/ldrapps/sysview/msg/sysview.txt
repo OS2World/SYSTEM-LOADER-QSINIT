@@ -1,13 +1,17 @@
 .topic NoContext=0
  QSINIT test app ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-This a QSINIT test program with some actual functionality like disk and
-text file editor.
+Test program with some actual functionality: disk editor, partition
+management, binary and text file editors, calculator, log viewer and
+so on.
 
 Common key sequences:
- * F10 - menu
- * Alt-F3 - close window
- * Alt-X / Ctrl-X - exit from app
+ * F10    / Ctrl-Q - menu
+ * Alt-F3 / Ctrl-Z - close window
+ * Alt-X  / Ctrl-W - exit from app
+
+Also note, that Ctrl-E/S/D/X acts as arrow keys in Turbo Vision, this
+may help in terminal session.
 
 .topic about_this_file=2
 This file requires Borland C++ tvhc.exe to compile ‹
@@ -228,8 +232,9 @@ Note, that binary editor operates with constant size blocks. For physical disk
 editing it is equal to disk sector size, memory editor uses fixed 256 bytes as
 a block size and binary file editor uses sector size of a source disk.
 
-Any changes in the current block should be commited before going to the other
-one. Reverse of these changes (by Backspace key) is possible only until commit.
+Any changes in the current block are forced to be commited before going to
+another one. Reverse of these changes (by Backspace key) is possible only
+until commit.
 
 .topic Goto=2062
  Binary≥Go to ‹    (F11)
@@ -502,8 +507,8 @@ editor will ask for update actual memory.
 
 Note that in non-paging mode QSINIT shows all memory, but below 4Gb only. In
 paging mode QSINIT shows all physical memory, but device space at the end of
-4th gigabyte is not mapped and unaccessible. This is not so bad, because
-walking over it in memory editor can cause deadlocks.
+4th gigabyte is NOT mapped and unaccessible. This is not so bad, because
+walking over it in the memory editor can cause deadlocks.
 
 .topic SectGoto=2102
  Disk≥Go to sector ‹    (F11)
@@ -532,7 +537,7 @@ too, but this case is unavoidable (Disks must be close in size to avoid this).
 
 * "Wipe old data" - (Structure only) wipe partition boot sectors on target disk
 after copying. This is required because some old data can be available in it.
-Turn this option off if you restoring MBR structure from backup disk to broken
+Turn this option OFF if you restoring MBR structure from backup disk to broken
 original.
 
 .topic VolClone=2121
@@ -547,13 +552,17 @@ system structures not adjusted to new partition size.
 Only one thing updated by copying process - common BPB in boot sector, if it
 available. This occurs on HPFS, JFS and all types of FAT (including exFAT).
 
+Command should clone any FAT (+exFAT), HPFS, JFS, NTFS - without any troubles.
+It, also, updates bootsector files, listed in NTLDR`s boot.ini on FAT
+partition.
+
 .topic FileDlgCommon=2124
  Open/Save dialog‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 To change disk just type A: or B: (and so on) in file name`s edit line.
 This is QSINIT internal drive letter, not OS/2.
 
-* A: - boot partition (FAT/FAT32/exFAT, file i/o on HPFS/JFS is not supported)
+* A: - boot partition (FAT/FAT32/exFAT, HPFS is read-only, file i/o on JFS is not supported)
 
 * B: - small ram disk with QSINIT apps (contents of QSINIT.LDI archive)
 
@@ -579,7 +588,7 @@ a new partition.
 Code page selection does NOT mean visibility of national language characters.
 QSINIT still uses BIOS fonts by default - and these fonts have no such graphic.
 
-But note, that some graphic console modes uses russian (cp866) font.
+But note, that some graphic console modes use russian (cp866) font.
 
 .topic BinFilePos=2135
 Type file position here as a hex value (i.e., without 0x prefix).

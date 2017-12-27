@@ -8,11 +8,13 @@
                 include inc/qsinit.inc
                 include inc/cpudef.inc
                 include inc/qspdata.inc
+                include inc/basemac.inc
 
                 extrn   _mt_swlock:near                         ;
                 extrn   _mt_swunlock:near                       ;
                 extrn   _fpu_updatets:near                      ;
                 extrn   _mt_exechooks:mt_proc_cb_s              ;
+                extrn   _log_dumpregs_int:near                  ;
 
 xcpt_rec_sign   = 54504358h                                     ;
 xcpt_cmask      = 0FFFFh                                        ;
@@ -73,6 +75,7 @@ CODE32          segment dword public USE32 'CODE'
 
                 extrn   _trap_screen:near
                 extrn   _trap_screen_64:near
+                extrn   _reipl:near
                 extrn   _exit_pm32:near
                 extrn   __longjmp:near
                 extrn   _key_read:near
@@ -232,11 +235,9 @@ _trap_handle    label   near
                 push    exf4_file                               ;
                 push    eax                                     ;
                 call    _trap_screen                            ;
-cad_wait        label   near                                    ;
-                sti                                             ;
-@@trap_loop:
-                hlt                                             ;
-                jmp     @@trap_loop                             ;
+                push    4                                       ; QERR_SOFTFAULT
+                call    _reipl                                  ;
+                UD2                                             ; just to guarantee
 
 ; ---------------------------------------------------------------
 ; this point called with disabled interrupts and foreign stack
@@ -258,11 +259,9 @@ _trap_handle_64 label   near
                 call    walk_xcpt                               ;
 @@trap64_nocatch:
                 call    _trap_screen_64                         ;
-                sti                                             ;
-                call    _key_read                               ; wait key
-                push    10                                      ; and exit to EFI
-                call    _exit_pm32                              ;
-                jmp     cad_wait                                ;
+                push    4                                       ; QERR_SOFTFAULT
+                call    _reipl                                  ;
+                UD2                                             ;
 
 ; walk exception stack
 ; ---------------------------------------------------------------
@@ -427,7 +426,9 @@ _sys_exfunc5    proc    near
                 push    dword ptr [esp+12]                      ; trap it!
                 push    offset trap_data                        ;
                 call    _trap_screen                            ;
-                jmp     cad_wait                                ;
+                push    4                                       ; QERR_SOFTFAULT
+                call    _reipl                                  ;
+                UD2                                             ;
 _sys_exfunc5    endp
 
 ; return pointer to setjmp buffer
@@ -454,6 +455,73 @@ _sys_exfunc7    proc    near
                 ret     4                                       ;
 _sys_exfunc7    endp
 
-CODE32          ends
+
+; dump registers into log/serial port
+;----------------------------------------------------------------
+; void  _std  log_dumpregs(int level);
+; void  _std  hlp_dumpregs(void);
+
+                public  _hlp_dumpregs, _log_dumpregs            ;
+_hlp_dumpregs   proc    near                                    ;
+                xchg    eax,[esp]                               ;
+                push    eax                                     ; make log_dumpregs(-1)
+                mov     eax,-1                                  ; stack 
+                xchg    eax,[esp+4]                             ; 
+_log_dumpregs   label   near                                    ; flags should be
+                push    ebp                                     ; preserved until
+                mov     ebp,esp                                 ; pushfd below!
+                push    ds                                      ;
+                push    es                                      ;
+                push    ss                                      ; who knows?
+                mov     es,[esp]                                ;
+                pop     ds                                      ;
+                lea     esp,[esp - size tss_s]                  ;
+                pushad                                          ; esp = regs!
+                lea     esi,[esp + size pushad_s]               ; esi = struct
+                mov     [esi].tss_eax,eax                       ;
+                pushfd                                          ;
+                pop     eax                                     ;
+                mov     [esi].tss_eflags,eax                    ;
+                mov     eax,[esp].pa_esi                        ;
+                mov     [esi].tss_esi,eax                       ;
+                mov     eax,[ebp]                               ; simulate stack
+                mov     [esi].tss_ebp,eax                       ; state before call
+                lea     eax,[ebp+12]                            ;
+                mov     [esi].tss_esp,eax                       ;
+                mov     eax,[ebp+4]                             ;
+                mov     [esi].tss_eip,eax                       ;
+                mov     [esi].tss_ss,ss                         ;
+                mov     [esi].tss_fs,fs                         ;
+                mov     [esi].tss_gs,gs                         ;
+                mov     [esi].tss_cs,cs                         ;
+                mov     ax,[ebp-4]                              ;
+                mov     [esi].tss_ds,ax                         ;
+                mov     ax,[ebp-8]                              ;
+                mov     [esi].tss_es,ax                         ;
+                mov     [esi].tss_ebx,ebx                       ;
+                mov     [esi].tss_ecx,ecx                       ;
+                mov     [esi].tss_edx,edx                       ;
+                mov     [esi].tss_edi,edi                       ;
+                mov     eax,dr6                                 ;
+                mov     [esi].tss_esp1,eax                      ;
+                mov     eax,dr7                                 ;
+                mov     [esi].tss_esp2,eax                      ;
+                str     ax                                      ;
+                mov     [esi].tss_ss2,ax                        ;
+
+                push    [esi].tss_eflags                        ; function may alter it
+                push    [ebp+8]                                 ;
+                push    esi                                     ;
+                call    _log_dumpregs_int                       ;
+                popfd                                           ;
+                popad                                           ;
+                mov     es,[ebp-8]                              ;
+                mov     ds,[ebp-4]                              ;
+                mov     esp,ebp                                 ;
+                pop     ebp                                     ;
+                ret     4                                       ;
+_hlp_dumpregs   endp                                            ;
+
+CODE32          ends                                            ;
 
                 end

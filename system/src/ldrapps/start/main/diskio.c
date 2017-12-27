@@ -6,12 +6,10 @@
 // moved here from QSINIT binary
 
 #include "qsutil.h"
-#include "qsint.h"
-#include "qsstor.h"
-#include "stdlib.h"
-#include "qsinit_ord.h"
 #include "seldesc.h"
-#include "qsmodext.h"
+#include "syslocal.h"
+#include "qsstor.h"
+#include "qsinit_ord.h"
 #include "qcl/sys/qsedinfo.h"
 #include "dskinfo.h"
 #include "parttab.h"
@@ -42,10 +40,8 @@ static void _std notify_diskremove(sys_eventinfo *cbinfo) {
 }
 
 void setup_cache(void) {
-   u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
-   if (qsinit)
-      if (mod_apichain(qsinit, ORD_QSINIT_hlp_runcache, APICN_ONENTRY, catch_cacheptr) &&
-         sys_notifyevent(SECB_DISKREM|SECB_GLOBAL, notify_diskremove)) return;
+   if (mod_apichain(mh_qsinit, ORD_QSINIT_hlp_runcache, APICN_ONENTRY, catch_cacheptr) &&
+      sys_notifyevent(SECB_DISKREM|SECB_GLOBAL, notify_diskremove)) return;
    log_it(2, "failed to catch!\n");
 }
 
@@ -138,7 +134,7 @@ u32t _std hlp_unmountall(u32t disk) {
 }
 
 qs_extdisk _std hlp_diskclass(u32t disk, const char *name) {
-   struct qs_diskinfo *di = hlp_diskstruct(disk, 0);
+   struct qs_diskinfo *di;
    qs_extdisk       rcptr = 0;
 
    mt_swlock();
@@ -158,6 +154,49 @@ qs_extdisk _std hlp_diskclass(u32t disk, const char *name) {
       }
    mt_swunlock();
    return rcptr;
+}
+
+u32t _std hlp_disktype(u32t disk) {
+   // validate disk arg
+   if ((disk&~(QDSK_FLOPPY|QDSK_VOLUME|QDSK_DISKMASK|QDSK_DIRECT))==0 &&
+      (disk&(QDSK_FLOPPY|QDSK_VOLUME))!=(QDSK_FLOPPY|QDSK_VOLUME))
+   {
+      struct qs_diskinfo *qe = 0;
+      u32t                rv = HDT_INVALID;
+
+      if (disk&QDSK_VOLUME) {
+         u8t vol = disk&QDSK_DISKMASK;
+         disk    = FFFF;
+
+         if (vol==DISK_LDR) rv = HDT_RAMDISK; else
+         if (vol<DISK_COUNT && _extvol) {
+            mt_swlock();
+            if (_extvol[vol].flags&VDTA_ON) disk = _extvol[vol].disk;
+         }
+      } else
+         mt_swlock();
+      // skip B: & invalid volume, it also not locked in such cases
+      if (disk!=FFFF) {
+         disk &= QDSK_FLOPPY|QDSK_DISKMASK;
+         qe = hlp_diskstruct(disk, 0);
+         
+         if (qe) {
+            if (qe->qd_flags&HDDF_HOTSWAP) {
+               qs_extdisk exc = hlp_diskclass(disk, 0);
+               u32t  extstate = exc ? exc->state(EDSTATE_QUERY) : 0;
+         
+               rv = extstate&EDSTATE_RAM?HDT_RAMDISK:HDT_EMULATED;
+            } else
+            // filter cd-rom & real 1.44 (not a flash drive, reported as floppy)
+            if (qe->qd_sectorsize==2048) rv = HDT_CDROM; else
+               if (qe->qd_sectors<=2880*2) rv = HDT_FLOPPY; else
+                  rv = HDT_REGULAR;
+         }
+         mt_swunlock();
+      }
+      return rv;
+   }
+   return HDT_INVALID;
 }
 
 // Initialize a Drive

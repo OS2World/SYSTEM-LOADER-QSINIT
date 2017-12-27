@@ -22,6 +22,9 @@ typedef u32t  dir_handle_int;
     on user level (even if you can acquire such ptr in some way ;). */
 typedef struct qs_sysvolume_s {
    /** initialize it.
+       Note, that function should not modify anything in FS, especially
+       unknown. During mount volume may be shared between default FAT handler
+       (forced) and init function.
        @param   vol      Volume (0==A, 1==B and so on)
        @param   flags    SFIO_* flags
        @param   bootsec  Boot sector data (only when append==0)
@@ -30,6 +33,8 @@ typedef struct qs_sysvolume_s {
    qserr     _exicc (*init)     (u8t vol, u32t flags, void *bootsec);
    /// unmount volume
    qserr     _exicc (*done)     (void);
+   /// return information about optional functions support (see SFAF_*)
+   u32t      _exicc (*avail)    (void);
    /** query volume info.
        note, that info->FsVer should contain 0 if FS was not recognized, else
        any non-zero value (ex. FAT type)
@@ -59,6 +64,9 @@ typedef struct qs_sysvolume_s {
    qserr     _exicc (*close)    (io_handle_int fh);
    qserr     _exicc (*size)     (io_handle_int fh, u64t *size);
    qserr     _exicc (*setsize)  (io_handle_int fh, u64t newsize);
+   /** information about open file handle (OPTIONAL function).
+       check (avail()&SFAF_FINFO) before use. */
+   qserr     _exicc (*finfo)    (io_handle_int fh, io_direntry_info *info);
 
    qserr     _exicc (*setattr)  (const char *path, u32t attr);
    qserr     _exicc (*getattr)  (const char *path, u32t *attr);
@@ -81,17 +89,28 @@ typedef struct qs_sysvolume_s {
 
 /// @name io_open() mode value
 //@{
-#define SFOM_OPEN_EXISTING      0     ///< Opens the file, fails if the file is not existing
-#define SFOM_OPEN_ALWAYS        1     ///< Opens existing file, else create new
-#define SFOM_CREATE_NEW         2     ///< Creates a new file, fails if file is existing
-#define SFOM_CREATE_ALWAYS      3     ///< Creates a new file, existing file will be overwritten
+#define SFOM_OPEN_EXISTING      0     ///< opens the file, fails if the file is not existing
+#define SFOM_OPEN_ALWAYS        1     ///< opens existing file, else create new
+#define SFOM_CREATE_NEW         2     ///< creates a new file, fails if file is existing
+#define SFOM_CREATE_ALWAYS      3     ///< creates a new file, existing file will be overwritten
 //@}
 
 /// @name init() flags
 //@{
-#define SFIO_NOMOUNT            1     ///< Force mounting and ignore FS detection
-#define SFIO_FORCE              2     ///< Force mounting (if FS is not recognized)
+#define SFIO_NOMOUNT            1     ///< ignore FS detection (for FAT fs only)
+#define SFIO_FORCE              2     ///< force mounting (if FS is not recognized)
 //@}
+
+/// @name avail() flags
+//@{
+#define SFAF_FINFO       0x000001     ///< finfo() function is available
+//@}
+
+/** register qs_sysvolume compatible class as a new filesystem handler.
+    Function forces remount of the all unknown volumes.
+    @return error code (too many FS handlers or wrong number of functions in
+            the supplied class) or 0 on success. */
+qserr _std io_registerfs(u32t classid);
 
 #ifdef __cplusplus
 }

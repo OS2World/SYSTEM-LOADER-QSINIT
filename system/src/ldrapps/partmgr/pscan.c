@@ -526,7 +526,7 @@ static u32t scan_disk(hdd_info *drec) {
          if (userlast > lpnext && userlast-lpnext > drec->lvm_spt)
             fbl->add(new_item(lpnext, userlast - lpnext + 1));
         
-         // free blocks founded?
+         // free blocks found?
          if ((drec->fsp_size=fbl->count())!=0) {
             u32t   heads = 0,
                 sectin4k = 4096 / drec->info.SectorSize;

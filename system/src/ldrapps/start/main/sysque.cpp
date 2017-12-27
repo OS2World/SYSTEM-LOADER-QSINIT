@@ -289,6 +289,8 @@ static qserr get_index(qshandle queue, u32t index, qe_event **rce, int peek = 0)
 qe_event* _std qe_takeevent(qshandle queue, u32t index) {
    qe_event *rc = 0;
    get_index(queue, index, &rc);
+   // make it caller process owned
+   if (rc) mem_localblock(rc);
    return rc;
 }
 
@@ -317,6 +319,8 @@ qe_event* _std qe_waitevent(qshandle queue, u32t timeout_ms) {
             else break; // timeout or error
       } while (!err && !rc);
    }
+   // make it caller process owned
+   if (rc) mem_localblock(rc);
    return rc;
 }
 
@@ -336,6 +340,8 @@ int _std qe_available(qshandle queue) {
 
 // assumes MT locked state
 static qe_eid pushto(qshandle owner, sys_queue *qi, qe_event *src, clock_t at = 0) {
+   /* here we allocate block in this module context, this makes it global. All
+      of event returning functions will change owner to the current process */
    qe_event *ev = (qe_event*)malloc(sizeof(qe_event));
    qe_eid   res = QEID_POSTED;
    clock_t  now = sys_clock();
@@ -440,5 +446,7 @@ qe_event* _std qe_unschedule(qe_eid eventid) {
       retev = ev_l->ev;
       delete ev_l;
    }
+   // make it caller process owned
+   if (retev) mem_localblock(retev);
    return retev;
 }

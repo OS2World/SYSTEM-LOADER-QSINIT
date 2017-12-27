@@ -96,7 +96,8 @@ typedef struct {
 typedef struct {
    u32t      attrs;
    s32t     fileno;                   ///< unique system fno if file is open, else -1
-   u64t       size;
+   u64t       size;                   ///< file size
+   u64t      vsize;                   ///< size of valid data in the file
    io_time   ctime;
    io_time   atime;
    io_time   wtime;
@@ -106,7 +107,8 @@ typedef struct {
 typedef struct {
    u32t      attrs;
    s32t     fileno;                   ///< unique system fno if file is open, else -1
-   u64t       size;
+   u64t       size;                   ///< file size
+   u64t      vsize;                   ///< size of valid data in the file
    io_time   ctime;
    io_time   atime;
    io_time   wtime;
@@ -204,6 +206,10 @@ qserr    _std io_lasterror(io_handle fh);
 /** file information by handle.
     Note, what io_direntry_info.size value depends on sector i/o mode
     too.
+    Also note, that vsize field is not guaranteed to be valid. For example,
+    on HPFS io_pathinfo() is always returns it equal to file size and only
+    this function may return actual information.
+
     @param fh      file/directory/mutex handle
     @param info    buffer for file information
     @return error code */
@@ -273,7 +279,13 @@ qserr    _std io_setinfo  (const char *path, io_handle_info *info, u32t flags);
 //@}
 
 qserr    _std io_diropen  (const char *path, dir_handle *pdh);
+
+/** directory enumeration step.
+    @param dh      directory handle
+    @param de      buffer for the file information
+    @return E_SYS_NOFILE after the last file, other error code or 0 on success */
 qserr    _std io_dirnext  (dir_handle dh, io_direntry_info *de);
+
 qserr    _std io_dirclose (dir_handle dh);
 
 qserr    _std io_lock     (io_handle fh, u64t start, u64t len);

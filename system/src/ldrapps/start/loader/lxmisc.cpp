@@ -23,16 +23,15 @@ static qshandle         ldr_mutex = 0,
 u8t                     mod_delay = 1;   ///< exe delayed unpack
 static TStrings        *DelayList = 0;
 static io_handle       mfs_handle = 0;
+u32t                    mh_qsinit = 0;   ///< QSINIT module handle
 
 extern "C" {
 extern u32t          M3BufferSize;
 extern u16t               IODelay;
-extern mod_addfunc* mod_secondary;
 extern char            aboutstr[];
 extern char      aboutstr_local[];
 
 #pragma aux aboutstr       "_*";
-#pragma aux mod_secondary  "_*";
 #pragma aux IODelay        "_*";
 
 void         check_version(void);
@@ -281,7 +280,7 @@ char *_std mod_getname(u32t mh, char *buffer) {
 static void release_ldi(void) {
    mt_swlock();
    void *mem = sto_data(STOKEY_ZIPDATA);
-   sto_save(STOKEY_ZIPDATA,0,0,0);
+   sto_del(STOKEY_ZIPDATA);
    mt_swunlock();
 
    hlp_memfree(mem);
@@ -375,8 +374,8 @@ int unpack_ldi(void) {
 
       if (mod_delay) {
          char *ep = strchr(zfpath,'.');
-         // delayed unpack
-         if (ep && (!strnicmp(ep,".EXE",4) || !strnicmp(ep,".DLL",4))) {
+         // delayed unpack (for large modules only)
+         if (ep && (!strnicmp(ep,".EXE",4) || !strnicmp(ep,".DLL",4)) && zfsize>_4KB) {
             filemem = hlp_memalloc(zfsize,0);
             // mark it
             *(u32t*)filemem = UNPDELAY_SIGN;
@@ -523,19 +522,14 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
    if (!exi_checkstate()) errtype = 2;
 
    if (errtype) {
-      char prnbuf[128];
-      vio_clearscr();
-      vio_setcolor(VIO_COLOR_LRED);
-      // can`t use printf here, if was closed above ;)
-      snprintf(prnbuf, 128, "\n Application \"%s\"\n made unrecoverable damage in"
-        " system %s structures...\n\n", pq->self->name, errtype==1?
-           "heap manager":"shared classes");
-      vio_strout(prnbuf);
-      snprintf(prnbuf, 128, " This will produce trap or deadlock in nearest time.\n"
-         " Reboot or press any key to continue...\n");
-      vio_strout(prnbuf);
-      vio_setcolor(VIO_COLOR_RESET);
-      key_wait(60);
+      char   prnbuf[256];
+      int  ses_exit = in_mtmode && sys_con && se_sesno()==sys_con;
+      // can`t use printf during common exit here, if was closed above ;)
+      snprintf(prnbuf, 256, "\n Application \"%s\"\n made unrecoverable damage in"
+        " system %s structures...\n\n This will produce trap or deadlock in nearest time.\n"
+           " Reboot or %s to continue...\n", pq->self->name, errtype==1?"heap manager":
+              "shared class", ses_exit?"switch back to your session":"press any key");
+      panic_no_memmgr(prnbuf);
    }
    log_printf("memory check done\n");
    mod_apiunchain((u32t)pq->self,0,0,0);
@@ -569,16 +563,16 @@ u32t _std mod_getmodpid(u32t module) {
    return 0;
 }
 
-mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, // number of entries
+mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, 0, // number of entries
    mod_buildexps, mod_searchload, mod_unpack1, mod_unpack2, mod_unpack3,
    mod_freeexps, mem_alloc, mem_realloc, mem_free, freadfull, log_pushtm,
    sto_save, sto_flush, unzip_ldi, mod_startcb, mod_exitcb, log_memtable,
    hlp_memcpy, mod_loaded, sys_exfunc4, hlp_volinfo, io_fullpath,
    getcurdir_dyn, io_remove, mem_freepool, sys_notifyexec, sys_notifyevent,
-   0,0,0, mt_muxcapture, mt_muxwait, mt_muxrelease, envcopy, 0, 0, fptostr,
+   0,0,0, mt_muxcapture, mt_muxwait, mt_muxrelease, env_copy, 0, 0, fptostr,
    fpu_stsave, fpu_strest, 0, io_mfs_open, io_mfs_read, io_mfs_close,
    io_open, io_read, io_write, io_seek, io_size, io_setsize, io_close,
-   io_lasterror, bitfind, setbits};
+   io_lasterror, bitfind, setbits, mempanic };
 
 void setup_loader_mt(void) {
    qserr   rc;

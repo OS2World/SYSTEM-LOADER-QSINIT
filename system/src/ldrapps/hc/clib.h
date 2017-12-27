@@ -15,9 +15,10 @@ extern "C" {
 #endif
 
 /** snprintf function.
-    there is no floating point support.
+    There is no floating point support on early stages (START module provides
+    FP support).
     @code
-    %b modified in default syntax:
+    %b modified in comparation with default syntax:
        %12Lb  - print 12 qwords from specified address
        %12lb  - print 12 dwords from specified address
        %12hb  - print 12 shorts from specified address
@@ -65,7 +66,7 @@ char* __stdcall _utoa64 (u64t     value, char *buffer, int radix);
 #define _ltoa64 _itoa64
 
 /* a set of functions for byte/word/dword/qword search and fill;
-   note, what memrchrX available for reverse search in stdlib.h */
+   note, that memrchrX available for reverse search in stdlib.h */
 void* __stdcall memchr  (const void*mem, int  chr, u32t buflen);
 u8t*  __stdcall memchrnb(const u8t* mem, u8t  chr, u32t buflen);
 u16t* __stdcall memchrw (const u16t*mem, u16t chr, u32t buflen);
@@ -100,33 +101,46 @@ u64t  __stdcall mt_cmpxchgq(u64t volatile *src, u64t value, u64t cmpvalue);
     Uses simple calibrated loop, up to 4294 sec (enough for common use).
 
     MTLIB replaces it by own variant, which makes the same if delay is
-    smaller, than half of timer tick, else yields time via mt_waitobject(). */
+    smaller, than half of timer tick, else yields time via mt_waitobject().
+    
+    Note for system code: this, also, mean, that MT lock state is
+    unpredictable after this call and must be reset before it! */
 void  __stdcall usleep  (u32t usec);
 
 /** string to int conversion.
-    This is qsinit init time internal call basically, better use atoi & strtol.
-    Accept spaces before, -, dec & hex values */
+    Accepts spaces before, -, dec & hex values.
+
+    This is init time internal call basically, better use atoi & strtol.
+    But it useful because of missing octal conversion (function skips leading
+    zeroes).
+    See also str2ulong(), str2int64() and str2uint64() in stdlib.h */
 long  __stdcall str2long(const char *str);
 
 u32t  __stdcall crc32   (u32t crc, const u8t* buf, u32t len);
 
 u32t get_esp(void);
-#pragma aux get_esp = "mov eax,esp" value [eax];
+#pragma aux get_esp = "mov eax,esp" value [eax] modify exact [eax];
 
 u16t get_flatcs(void);
 #pragma aux get_flatcs =   \
     "xor     eax,eax"      \
     "mov     eax,cs"       \
-    value [ax];
+    value [ax] modify exact [eax];
+
+u16t get_flatds(void);
+#pragma aux get_flatds =   \
+    "xor     eax,eax"      \
+    "mov     eax,ds"       \
+    value [ax] modify exact [eax];
 
 u16t get_flatss(void);
 #pragma aux get_flatss =   \
     "xor     eax,eax"      \
     "mov     eax,ss"       \
-    value [ax];
+    value [ax] modify exact [eax];
 
 u16t get_taskreg(void);
-#pragma aux get_taskreg = "str ax" value [ax];
+#pragma aux get_taskreg = "str ax" value [ax] modify exact [eax];
 
 u32t ints_enabled(void);
 #pragma aux ints_enabled = \
@@ -134,7 +148,26 @@ u32t ints_enabled(void);
     "pop     eax"          \
     "shr     eax,9"        \
     "and     eax,1"        \
-    value [eax];
+    value [eax] modify exact [eax];
+
+u32t _bittest(u32t src, u32t bit);
+#pragma aux _bittest =     \
+    "bt      ecx,eax"      \
+    "setc    al"           \
+    parm [ecx] [eax] value [eax] modify exact [eax];
+
+// return previous bit value
+u32t _bitset(u32t *dst, u32t bit);
+#pragma aux _bitset =      \
+    "bts     [ecx],eax"    \
+    "setc    al"           \
+    parm [ecx] [eax] value [eax] modify exact [eax];
+
+u32t _bitreset(u32t *dst, u32t bit);
+#pragma aux _bitreset =    \
+    "btr     [ecx],eax"    \
+    "setc    al"           \
+    parm [ecx] [eax] value [eax] modify exact [eax];
 
 #ifdef __cplusplus
 }

@@ -3,11 +3,10 @@
 // multitasking support
 // ----------------------------------------------------
 //
-// !WARNING! this API is unfinished now and some parts of QSINIT
-//           code still thread-unsafe.
+// !WARNING! this API still unfinished now!
 //
-#ifndef QSINIT_TASKF
-#define QSINIT_TASKF
+#ifndef QSINIT_TASKFUNC
+#define QSINIT_TASKFUNC
 
 #include "qstypes.h"
 #include "time.h"
@@ -47,17 +46,19 @@ void          mt_yield(void);
 /// thread function type
 typedef u32t _std (*mt_threadfunc)(void *arg);
 
-/// thread enter/exit callback type
-typedef u32t _std (*mt_threadcb  )(mt_tid tid);
+/// thread enter callback (called in thread context)
+typedef void _std (*mt_threadcbi )(mt_threadfunc thread, void *arg);
+/// thread exit callback (called in thread context)
+typedef void _std (*mt_threadcbo )(void);
 
 /// thread creation data.
 typedef struct {
    u32t             size;    ///< structure size
    void           *stack;    ///< pre-allocated stack pointer
    u32t        stacksize;    ///< stack size (default is 64k)
-   mt_threadcb   onenter;    ///< thread start hook
-   mt_threadcb    onexit;    ///< thread exit hook
-   mt_threadcb    onterm;    ///< thread termination hook
+   mt_threadcbi  onenter;    ///< thread start hook
+   mt_threadcbo   onexit;    ///< thread exit hook
+   mt_threadcbo   onterm;    ///< thread termination hook (not implemented)
    u32t              pid;    ///< pid of parent process (use 0 to current)
 } mt_ctdata;
 
@@ -213,7 +214,7 @@ typedef struct {
    (i.e. first signaled will terminate waiting).
 
    Timeout can be defined by those rules too (i.e. just add QWHT_CLOCK wait
-   entry with mt_waitentry.group = 0 or as separate group).
+   entry with mt_waitentry.group = 0 or as a separate group).
 
    Note, what clib usleep() function in MT mode calls this for a long waiting
    periods (more, than half of timer tick).
@@ -224,7 +225,11 @@ typedef struct {
    The same note applied to QWHT_QUEUE.
 
    For QWHT_TID/QWHT_PID unneeded resaddr parameter must be zero, else result
-   code will written into random location.
+   code will written into the random location.
+
+   Thread/process must exist for QWHT_TID/QWHT_PID entries. I.e., if thread
+   has finished before this call - function will return error about wrong TID
+   value.
 
    @param  list             Objects list
    @param  count            Objects list size
@@ -270,7 +275,7 @@ qserr    _std mt_waitobject  (mt_waitentry *list, u32t count, u32t glogic,
                             is common handle and it accepted by io_setstate(),
                             io_getstate() and io_duphandle().
                             I.e., mutex handle can be detached from process as
-                            file handle can.
+                            a file handle can.
 
    @retval 0                on success
    @retval E_MT_DUPNAME     duplicate mutex name */
@@ -444,35 +449,36 @@ qe_event*_std qe_unschedule  (qe_eid eventid);
 //@{
 #define QEXS_DETACH       0x0001       ///< launch detached process
 #define QEXS_WAITFOR      0x0002       ///< delay execution until 1st mt_waitobject() for this pid
-#define QEXS_NOTACHILD    0x0004       ///< launch as independent process, not a caller`s child
+#define QEXS_BOOTENV      0x0004       ///< use init process environment instead of current
+#define QEXS_BACKGROUND   0x0008       ///< start new session in the background
 //@}
 
-/** start new session.
-    Function starts a new session. Caller can query launched process exit
-    code only by mt_waitobject() call. To guarantee it success QEXS_WAITFOR
-    flag should be used - it suspends new process until 1st mt_waitobject()
-    call from launcher process with child pid in wait entries.
+/** Function starts a new session.
+    
+    Caller can query launched process exit code only by mt_waitobject() call.
+    To guarantee it success QEXS_WAITFOR flag should be added - it suspends
+    new process until 1st mt_waitobject() call (in launcher process!) with
+    launched pid in wait entries.
+
+    Note, that start looks identically with common exec - mod_load() and then
+    mod_execse(). But mod_free() call after process exit is called by the
+    system automatically.
 
     @param       module  Module handle.
-    @param       env     Environment data.
-    @param       params  Arguments string.
+    @param       env     Environment data. QEXS_BOOTENV flag will determine
+                         the source of environment data if this argument is 0.
+    @param       params  Arguments string, can be 0.
     @param       flags   Execution flags (QEXS_*).
+    @param       vdev    List of devices to launch on it (use 0 for default).
     @param [out] ppid    Pid of new process (on success).
+    @param       title   Session title (ignored for QEXS_DETACH), can be 0.
     @return module load/start error code. Further activity is not depends on
             caller */
 qserr    _std mod_execse     (u32t module, const char *env, const char *params,
-                              u32t flags, mt_pid *ppid);
-
-#define SESN_DETACHED          0       ///< detached session common number
-
-/// query current session number
-u32t          se_sesno       (void);
-
-#ifdef __WATCOMC__
-#pragma aux se_sesno "_*" value [eax] modify exact [eax];
-#endif
+                              u32t flags, u32t vdev, mt_pid *ppid,
+                              const char *title);
 
 #ifdef __cplusplus
 }
 #endif
-#endif // QSINIT_TASKF
+#endif // QSINIT_TASKFUNC

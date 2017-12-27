@@ -8,8 +8,8 @@
 u32t _std common_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf,
    u32t pitch, int write) 
 {
-   con_modeinfo *mi = modes+mode;
-   u32t          rc = 0;
+   modeinfo  *mi = modes[mode];
+   u32t       rc = 0;
    if (mode>=mode_cnt) return 0;
    if (!mi->physmap && !mi->shadow) return 0;
 
@@ -45,8 +45,8 @@ u32t _std common_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf,
 
 /// fill number of screen lines by color value
 u32t common_clear(u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color) {
-   con_modeinfo *mi = modes+mode;
-   u32t          rc = 0;
+   modeinfo  *mi = modes[mode];
+   u32t       rc = 0;
    if (mode>=mode_cnt) return 0;
 
    if (x<mi->width && y<mi->height) {
@@ -75,7 +75,7 @@ u32t common_clear(u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color) {
 u32t common_clear_nofb(u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color) {
    u32t  rc = 0;
    if (common_clear(mode, x, y, dx, dy, color)) {
-      con_modeinfo *mi = modes+mode;
+      modeinfo  *mi = modes[mode];
 
       if (mi->physmap) rc = 1; else
       if (pl_dirclear) {
@@ -89,8 +89,8 @@ u32t common_clear_nofb(u32t mode, u32t x, u32t y, u32t dx, u32t dy, u32t color) 
 }
 
 u32t common_scroll(u32t mode, u32t ys, u32t yd, u32t lines) {
-   con_modeinfo *mi = modes+mode;
-   u32t          rc = 0;
+   modeinfo  *mi = modes[mode];
+   u32t       rc = 0;
    if (mode>=mode_cnt) return 0;
 
    if (ys<mi->height && yd<mi->height) {
@@ -138,7 +138,7 @@ u32t common_scroll(u32t mode, u32t ys, u32t yd, u32t lines) {
 u32t common_scroll_nofb(u32t mode, u32t ys, u32t yd, u32t lines) {
    u32t  rc = 0;
    if (common_scroll(mode, ys, yd, lines)) {
-      con_modeinfo *mi = modes+mode;
+      modeinfo  *mi = modes[mode];
 
       if (mi->physmap) rc = 1; else 
          pl_flush(mode, 0, yd, mi->width, lines);
@@ -147,8 +147,8 @@ u32t common_scroll_nofb(u32t mode, u32t ys, u32t yd, u32t lines) {
 }
 
 u32t common_flush(u32t mode, u32t x, u32t y, u32t dx, u32t dy) {
-   con_modeinfo  *mi = modes+mode;
-   u32t        vbpps;
+   modeinfo    *mi = modes[mode];
+   u32t      vbpps;
    if (mode>=mode_cnt) return 0;
    if (!mi->shadow || !mi->physmap) return 0;
    if (x>=mi->width || y>=mi->height) return 0;
@@ -163,7 +163,7 @@ u32t common_flush(u32t mode, u32t x, u32t y, u32t dx, u32t dy) {
 }
 
 u32t common_flush_nofb(u32t mode, u32t x, u32t y, u32t dx, u32t dy) {
-   con_modeinfo  *mi = modes+mode;
+   modeinfo  *mi = modes[mode];
    if (mode>=mode_cnt) return 0;
    if (!mi->shadow) return 0;
    if (x>=mi->width || y>=mi->height) return 0;

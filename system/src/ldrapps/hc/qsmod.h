@@ -13,6 +13,14 @@ extern "C" {
 #endif
 
 /** load module.
+    Every EXE module must be loaded before use in the same manner with DLL
+    module. The only difference is DLL initialization "LibMain" call, executed
+    by this function.
+
+    System makes no difference between EXE and DLL modules, except mod_exec()
+    and mod_execse() calls, i.e. EXE module can be used as a library and
+    export functions.
+
     @param       path    Path to module (full or relative to current dir)
     @param       flags   Must be 0.
     @param [out] error   Error code, can be 0
@@ -89,6 +97,10 @@ void *_std mod_getfuncptr(u32t module, u32t index);
     module. If module is current process, system module or DLL term function
     returned 0 - mod_free() returns error (module will stay in place and
     fully functional).
+
+    Note, that EXE modules, started via mod_execse() system will unload
+    automatically, after process exit.
+
     @param  module            Module handle.
     @retval E_MOD_HANDLE      Bad module handle
     @retval E_MOD_FSELF       Trying to free self

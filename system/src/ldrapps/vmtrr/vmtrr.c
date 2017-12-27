@@ -40,49 +40,19 @@ static void printmtrr(void) {
 
 int get_videomem(u64t *wc_addr, u64t *wc_len, pci_location *dev, int method) {
    u32t       modes = 0, bacount, ii, 
-             vmaddr = 0, vmlen = 0, vmidx = 0;
+              vmlen = 0, vmidx = 0;
    u16t       index = 0;
-   u64t       bases[6], 
+   u64t      vmaddr = 0,
+              bases[6],
               sizes[6];
-   con_modeinfo *mi = con_querymode(&modes);
-   if (!mi || !wc_addr || !wc_len) return 0;
-   // check info size
-   if (mi[0].infosize!=sizeof(con_modeinfo)) {
-      log_it(2,"VMTRR: CONSOLE.DLL version mismatch!\n");
-      return 0;
-   }
+   if (!wc_addr || !wc_len) return 0;
    *wc_addr = 0;
    *wc_len  = 0;
-   for (ii=0; ii<modes; ii++) 
-      if (mi[ii].flags&CON_GRAPHMODE) 
-         if (mi[ii].width>=640 && mi[ii].height>=480 && mi[ii].bits>=8) {
-            /* log_it(2,"%dx%dx%d %08X %d kb\n", mi[ii].width, mi[ii].height, 
-               mi[ii].bits, mi[ii].physaddr, mi[ii].memsize>>10); */
-
-            /* use 2Gb as below border - for old PCs... it will be denied by
-               optimizer, if no direct empty window for it */
-            if (mi[ii].physaddr>=_1GB*2) {
-               if (!vmlen) vmlen = mi[ii].memsize;
-
-               if (mi[ii].physaddr) {
-                  if (!vmaddr) vmaddr = mi[ii].physaddr; else
-                  if ((u32t)abs((int)vmaddr - (int)mi[ii].physaddr)<vmlen) {
-                     if (mi[ii].physaddr<vmaddr) { vmaddr = mi[ii].physaddr; vmidx = ii; }
-                  } else {
-                     log_it(2,"VMTRR: Video mem (%dkb) mismatch: %08X for mode %dx%dx%d "
-                        "and %08X for mode %dx%dx%d\n", vmlen>>10, vmaddr,
-                           mi[vmidx].width, mi[vmidx].height, mi[vmidx].bits,
-                              mi[ii].physaddr, mi[ii].width, mi[ii].height, mi[ii].bits);
-                     return 0;
-                  }
-               }
-            }
-         }
+   vmlen = con_vmemsize(&vmaddr);
    if (!vmaddr || !vmlen) {
       log_it(2,"VMTRR: Unable to get video memory address (in 4th Gb)\n");
       return 0;
    }
-
    while (1) {
       switch (method) {
          case 1: // searching by class code
@@ -143,19 +113,12 @@ int main(int argc,char *argv[]) {
 
    if (argc>1) {
       if (argc==2 && (strchr(argv[1],':') || strchr(argv[1],'.'))) {
-         char *cp = strchr(argv[1],':');
-         if (cp) {
-            vcard.vendorid = strtoul(argv[1],0,16);
-            vcard.deviceid = strtoul(cp+1,0,16);
-            method = 2;
-         } else {
-            cp = strchr(argv[1],'.');
-            vcard.bus  = str2long(argv[1]);
-            vcard.slot = str2long(cp+1);
-            cp =  strchr(cp+1,'.');
-            vcard.func = cp?str2long(cp+1):0;
-            method = 3;
+         method = hlp_pciatoloc(argv[1], &vcard);
+         if (method==PCILOC_ERROR) {
+            cmd_shellhelp("VMTRR",CLR_HELP);
+            return 0;
          }
+         method++;
       } else 
       if (argc==3 && isdigit(argv[1][0]) && isdigit(argv[2][0])) {
          wc_addr = strtoull(argv[1],0,0);
@@ -234,7 +197,7 @@ int main(int argc,char *argv[]) {
    }
    /* save memlimit for OS/2 boot (setup can change WB to UC for a small part 
       of memory in 4th Gb - and we truncate access to this memory in OS/2 */
-   sto_save(STOKEY_MEMLIM, &memlimit, 4, 1);
+   sto_savedword(STOKEY_MEMLIM, memlimit);
 
    if (mtrr) { free(mtrr); mtrr=0; }
    return 0;

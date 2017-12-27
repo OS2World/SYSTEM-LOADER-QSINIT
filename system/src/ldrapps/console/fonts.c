@@ -1,16 +1,9 @@
 #include "stdlib.h"
-#include "console.h"
 #include "errno.h"
 #include "conint.h"
-#include "seldesc.h"
-#include "qsmodext.h"
-#include "qsinit_ord.h"
-#include "writegif.h"
 #include "direct.h"
 #include "time.h"
-#include "qsutil.h"
-#include "qcl/qslist.h"
-#include "vio.h"
+#include "qcl/sys/qsvioint.h"
 
 // default VGA palette for text mode + cursor color for text emu modes
 u8t stdpal_bin[51] = { 0x00,0x00,0x00,0x00,0x00,0xAA,0x00,0xAA,0x00,
@@ -29,31 +22,36 @@ void con_queryfonts(void) {
 }
 
 void con_freefonts(void) {
+   mt_swlock();
    if (!sysfnt) return; else {
       u32t cnt = sysfnt->count(), ii;
       // free font data
       for (ii=0; ii<cnt; ii++) free(sysfnt->value(ii));
       // and list
-      exi_free(sysfnt);
+      DELETE(sysfnt);
       sysfnt = 0;
    }
+   mt_swunlock();
 }
 
 static fontbits *con_searchfont(int x, int y) {
+   fontbits *rc = 0;
+   mt_swlock();
    if (sysfnt) {
       u32t cnt = sysfnt->count(), ii, dx, dy, lpos = FFFF;
       // search for suitable font
       for (ii=0; ii<cnt; ii++) {
          fontbits *fb = (fontbits*)sysfnt->value(ii);
          if (lpos==FFFF || abs(fb->x-x)<=dx && abs(fb->y-y)<=dx) {
-            dx = abs(fb->x-x); 
+            dx = abs(fb->x-x);
             dy = abs(fb->y-y);
             lpos = ii;
          }
       }
-      if (lpos!=FFFF) return (fontbits*)sysfnt->value(lpos);
+      if (lpos!=FFFF) rc = (fontbits*)sysfnt->value(lpos);
    }
-   return 0;
+   mt_swunlock();
+   return rc;
 }
 
 static void *con_getfont(int x, int y) {
@@ -68,25 +66,55 @@ u32t _std con_fontavail(int width, int height) {
    return con_getfont(width,height)?1:0;
 }
 
+void con_addfontmodes(int width, int height) {
+   dd_list  ml = NEW(dd_list);
+   u32t     ii;
+
+   mt_swlock();
+   for (ii=0; ii<mode_cnt; ii++)
+      if ((modes[ii]->flags&CON_GRAPHMODE) && modes[ii]->bits>=8) {
+         u32t wx = modes[ii]->width/width,
+              wy = modes[ii]->height/height;
+         if (wx>=80 && wy>=25) {
+            u32t wa = modes[ii]->height<<16|modes[ii]->width;
+            if (ml->indexof(wa,0)<0) ml->add(wa);
+         }
+      }
+   mt_swunlock();
+   // add all possible modes
+   for (ii=0; ii<ml->count(); ii++) {
+      u32t va = ml->value(ii),
+          res = con_addtextmode(width, height, va&0xFFFF, va>>16);
+      if (res) log_it(3, "addtextmode(%u,%u,%u,%u)==%u\n", width, height,
+         va&0xFFFF, va>>16, res);
+   }
+   DELETE(ml);
+}
+
 void _std con_fontadd(int width, int height, void *data) {
-   if (sysfnt) {
-      u32t     cnt = sysfnt->count(), ii,
-              bpln = BytesPerFont(width);
-      fontbits *fb = 0;
+   int ok = 0;
+   mt_swlock();
+   if (sysfnt && width && height && data) {
+      u32t      cnt = sysfnt->count(), ii,
+               bpln = BytesPerFont(width);
+      fontbits  *fb = 0;
       // search for suitable font
       for (ii=0; ii<cnt; ii++) {
          fb = (fontbits*)sysfnt->value(ii);
-         if (fb->x==width && fb->y==height) break; 
+         if (fb->x==width && fb->y==height) break;
             else fb = 0;
       }
       if (!fb) {
-         fb = (fontbits*)malloc(height*256*bpln+8);         
-         fb->x = width; 
+         fb = (fontbits*)malloc(height*256*bpln+8);
+         fb->x = width;
          fb->y = height;
          sysfnt->add(fb);
       }
       memcpy(&fb->bin, data, height*256*bpln);
+      ok = 1;
    }
+   mt_swunlock();
+   if (ok) con_addfontmodes(width, height);
 }
 
 void* con_buildfont(int width, int height) {
@@ -97,7 +125,7 @@ void* con_buildfont(int width, int height) {
 
    out = (u32t*)malloc(256*4*height);
    bpf = BytesPerFont(fb->x);
-   ys  = fb->y; 
+   ys  = fb->y;
    if (ys>height) ys = height;
 
    mem_zero(out);
@@ -159,69 +187,109 @@ static void tx2img(u32t mx, u32t my, u32t ltw, u32t lth, u16t *txmem, u8t *dst) 
    }
 }
 
-static int    shots_on = 0;
-static char *shots_dir = 0,
-             *name_buf = 0;
+static u32t   shots_on = 0;
 static u32t  shots_idx = 1;
 
 // trying to save stack here, because called from exit chain!
-int _std con_makeshot(const char *name, int mute) {
-   int   rc;
-   FILE *ff;
-   u32t mx, my, mfl;
-   con_modeinfo *mi;
-   // query current console mode
-   con_getmode(&mx, &my, &mfl);
-   mi = con_currentmode();
-   if ((mfl&CON_GRAPHMODE)!=0 || !mi || !mi->font_x || !mi->font_y) 
-      return ENOTTY;
+int _std con_makeshot(u32t sesno, const char *fname, int mute) {
+   u32t           mx = 0, my, fnpos, fnx = 0, fny = 0;
+   u16t       modeid = 0;
+   FILE          *ff;
+   int    rc, dev_id,
+             locname;
+   char        *name = (char*)fname;
+   se_stats      *si = se_stat(sesno);
+   qs_vh    scrncopy = 0;
+   // this is detached session, may be?
+   if (!si) return ENOTTY;
+   /* query session`s active mode and first active device.
+      We may have no active device if session is in the background. */
+   mx     = si->mx;
+   my     = si->my;
+   dev_id = !si->handlers ? -1 : si->mhi[0].dev_id;
+   modeid = !si->handlers ?  0 : si->mhi[0].reserved;
+   free(si);
+   if (!mx) return ENOTTY;
+   /* try to query font size on the first active output device,
+      simulate values for background session */
+   if (dev_id>=0) {
+      vio_mode_info *mi = vio_modeinfo(mx, my, dev_id), *mp = mi;
+      if (!mi) dev_id = -1; else {
+         if (modeid)
+            while (mp->size)
+               if ((mp->mode_id&0xFFFF)==modeid) break; else mp++;
+         if (mp->size) {
+            fnx = mp->fontx;
+            fny = mp->fonty;
+         } else
+            dev_id = -1;
+         free(mi);
+      }
+   }
+   if (dev_id<0) {
+      fnx = 8;
+      fny = mx==80 && my<=30 ? 16 : 8;
+   }
    // makes a BEEEEP :)
    if (!mute) vio_beep(700,40);
-   // get free file name
+   // get a free file name
+   locname = name==0;
    do {
-      if (!name) {
-         int len = shots_dir ? strlen(shots_dir) : 0;
-         if (len) memcpy(name_buf, shots_dir, len);
-         sprintf(name_buf+len, "GRAB%03d.GIF", shots_idx);
+      if (locname) {
+         // alloc name buffer or get it from storage with directory string
+         if (!name) {
+            name = (char*)sto_datacopy(STOKEY_SHOTDIR,0);
+
+            if (!name) name = (char*)calloc_thread(_MAX_PATH+1,1); else
+               name = (char*)realloc_thread(name, _MAX_PATH+1);
+            fnpos = strlen(name);
+         }
+         sprintf(name+fnpos, "GRAB%03d.GIF", shots_idx);
       }
-      rc = _access(name?name:name_buf,F_OK);
+      rc = _access(name,F_OK);
       if (!rc) {
-         if (name) return EACCES; else
-         if (++shots_idx==1000) return EACCES;
+         if (!locname) return EACCES; else
+         // safe increment
+         if (mt_safedadd(&shots_idx,1)>=1000) return EACCES;
       }
    } while (!rc);
 
+   /* function returns "vio buffer" class with copy of session screen */
+   scrncopy = se_screenshot(sesno);
+   if (!scrncopy) return ENOTTY;
+
    rc = 0;
-   ff = fopen(name?name:name_buf, "wb");
-   if (!ff) return errno; else {
+   ff = fopen(name, "wb");
+
+   if (!ff) rc = errno; else {
       static char    str[128];
       time_t     now = time(0);
       int     rcsize = 0, ii,
-                 svx = mx * mi->font_x,
-                 svy = my * mi->font_y;
+                 svx = mx * fnx,
+                 svy = my * fny;
       void   *gifmem = 0,
-              *txmem = 0,
-              *grmem = 0;
+                *plt = malloc_th(sizeof(GIFPalette)),
+              *grmem = malloc_th(svx*svy);
       strcpy(str, "QSINIT screen, saved at ");
       strcat(str, ctime(&now));
       str[strlen(str)-1] = 0;
-      // get and convert text screen
-      txmem = malloc(mx * my * 2);
-      grmem = malloc(svx * svy);
-      con_read(0, 0, mx, my, txmem, mx*2);
-      tx2img(mx, my, mi->font_x, mi->font_y, txmem, grmem);
+      tx2img(mx, my, fnx, fny, scrncopy->memory(), grmem);
       // get default text mode palette
-      memset(txmem, 0, 768);
-      memcpy(txmem, stdpal_bin, 48);
+      memset(plt, 0, 768);
+      memcpy(plt, stdpal_bin, 48);
       // encode GIF image
-      gifmem = WriteGIF(&rcsize, grmem, svx, svy, (GIFPalette*)txmem, -1, str);
-      free(txmem);
+      gifmem = con_writegif(&rcsize, grmem, svx, svy, (GIFPalette*)plt, -1, str);
       free(grmem);
+      free(plt);
       // and write it
       if (!gifmem) rc = EFAULT; else
          if (fwrite(gifmem,1,rcsize,ff)!=rcsize) rc = EIO;
       fclose(ff);
+      log_it(3, "Screen shot %s %s (%ux%u, %u bytes)\n", name, rc?"save error":"saved",
+         svx, svy, rcsize);
    }
+   if (scrncopy) DELETE(scrncopy);
+   if (locname) free(name);
 
    if (!mute) {
       while (vio_beepactive()) usleep(2000);
@@ -230,54 +298,57 @@ int _std con_makeshot(const char *name, int mute) {
    return rc;
 }
 
-int _std hook_proc(mod_chaininfo *mc) {
-   u16t key = mc->mc_regs->pa_eax;
-   // react on Alt-G
-   if (key==0x2200) con_makeshot(0,0);
-   return 1;
+void _std makeshot_cb(sys_eventinfo *ei) {
+   se_stats *dl = se_deviceenum();
+   u32t      ii;
+   /* push Ctrl-P back to the active session`s queue if we got it on display
+      screen */
+   if ((u16t)ei->info==0x1910 && ei->info2==0) {
+      se_keypush(se_foreground(), 0x1910, ei->info>>16);
+      return;
+   }
+   /* search for the device, where hotkey was pressed and query active session
+      in it */
+   for (ii=0; ii<dl->handlers; ii++)
+      if (dl->mhi[ii].dev_id==ei->info2)
+         if (!dl->mhi[ii].reserved) return; else
+            con_makeshot(dl->mhi[ii].reserved, 0, 0);
 }
 
 int  _std con_instshot(const char *path) {
-   char *np = 0;
+   u32t  hkflags;
+   char       np[_MAX_PATH+1];
+   qserr      rc;
+
    if (path) {
-      if (strlen(path)>=_MAX_PATH-16) return ENAMETOOLONG;
-      np = strdup(path);
-      if (!np) return ENOMEM; else {
+      int len = strlen(path);
+      if (len>=_MAX_PATH-16) return ENAMETOOLONG; else {
          dir_t pi;
-         int len = strlen(np);
-         if (len && (np[len-1]=='\\'||np[len-1]=='/'))
-            np[len-1]=0;
+         strcpy(np,path);
+         if (len && (np[len-1]=='\\'||np[len-1]=='/')) np[len-1] = 0;
          // check for existence and directory attr
-         if (_dos_stat(np,&pi)) { free(np); return errno; }
-         if ((pi.d_attr&_A_SUBDIR)==0) { free(np); return ENOTDIR; }
+         if (_dos_stat(np,&pi)) return errno;
+         if ((pi.d_attr&_A_SUBDIR)==0) return ENOTDIR;
          strcat(np,"\\");
-         // set this module as block owner
-         mem_modblock(np);
       }
-   }
-   if (shots_on) {
-      if (shots_dir) { free(shots_dir); shots_dir = 0; }
-   } else {
-      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
-      if (qsinit) {
-         mod_apichain(qsinit, ORD_QSINIT_key_read, APICN_ONEXIT|APICN_FIRSTPOS, hook_proc);
-         mod_apichain(qsinit, ORD_QSINIT_key_wait, APICN_ONEXIT|APICN_FIRSTPOS, hook_proc);
-      }
-      name_buf = (char*)malloc(_MAX_PATH+1);
-   }
-   shots_dir = np;
-   return 0;
+   } else
+      np[0] = 0;
+   shots_on = 1;
+   hkflags  = SECB_GLOBAL|(mt_active()?SECB_THREAD:0);
+   // Alt-G
+   rc = sys_sethotkey(0x2200, KEY_ALT, hkflags, makeshot_cb);
+   // Ctrl-P (filtered above to work in serial port sessions only)
+   if (!rc) sys_sethotkey(0x1910, KEY_CTRL, hkflags, makeshot_cb);
+   // save to storage key to make it thread-safe
+   if (!rc) sto_save(STOKEY_SHOTDIR, np, strlen(np)+1, 1); else shots_on = 0;
+   return rc?qserr2errno(rc):0;
 }
 
 void _std con_removeshot(void) {
-   if (!shots_on) return; else {
-      u32t qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR);
-      if (qsinit) {
-         mod_apiunchain(qsinit, ORD_QSINIT_key_read, APICN_ONEXIT, hook_proc);
-         mod_apiunchain(qsinit, ORD_QSINIT_key_wait, APICN_ONEXIT, hook_proc);
-      }
-      shots_on = 0;
-      if (shots_dir) { free(shots_dir); shots_dir = 0; }
-      if (name_buf) { free(name_buf); name_buf = 0; }
-   }
+   // make it thread safe ;)
+   if (mt_cmpxchgd(&shots_on,0,1)!=1) return;
+   // uninstall hotkey callback
+   sys_sethotkey(0,0,0,makeshot_cb);
+   // remove storage key
+   sto_del(STOKEY_SHOTDIR);
 }

@@ -67,7 +67,7 @@ void* __stdcall malloc_thread(unsigned long size) {
 }
 
 void* __stdcall calloc_thread(unsigned long n, unsigned long size) {
-   return mem_allocz(QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid(), size);
+   return mem_allocz(QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid(), n*size);
 }
 
 void* __stdcall realloc_thread(void *old_blk, unsigned long size) {

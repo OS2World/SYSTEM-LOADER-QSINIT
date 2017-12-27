@@ -52,7 +52,8 @@ setup call in some cases. */
 extern "C" {
 #endif
 
-/// Watcom C runtime _msize() function analogue
+/** Watcom C runtime _msize() function analogue.
+   But note, that heap manager always round block size up to 16 bytes! */
 #define _msize(block) mem_blocksize(block)
 
 void* __stdcall malloc (unsigned long size);
@@ -63,11 +64,19 @@ void* __stdcall realloc(void *old_blk, unsigned long size);
 
 void  __stdcall free   (void *ptr);
 
+/* alloc thread owned block.
+   Block will be released after thread exit.
+   Function works in non-MT mode too (for single main appalication thread, of
+   course. */
 void* __stdcall malloc_thread(unsigned long size);
 
 void* __stdcall calloc_thread(unsigned long n, unsigned long size);
 
 void* __stdcall realloc_thread(void *old_blk, unsigned long size);
+
+#define malloc_th  malloc_thread
+#define calloc_th  calloc_thread
+#define realloc_th realloc_thread
 
 #define MAXFILELINEMASK (~QSMEMOWNER_LINENUM)
 
@@ -108,7 +117,10 @@ int __stdcall mem_modblock(void *block);
 
 /** set string info for shared memory block.
     String is visible in heap dump as a "file name".
+    String must exist while block is allocated (heap manager only saves its
+    pointer value and nothing else).
     This macro also switches block type to shared if it was not so.
+
     @param  str     string, must be valid until the end of use.
     @param  info    misc info value, 0...8190 */
 #define __set_shared_block_info(p, str, info) \

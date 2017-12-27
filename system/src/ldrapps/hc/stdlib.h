@@ -51,11 +51,11 @@ char*  __stdcall strlwr(char *str);
 
 /** binary comparision.
     This function compatible with watcom bcmp, but returns position of
-    founded difference + 1.
+    found difference + 1.
     @param  s1      first binary array
     @param  s2      second binary array
     @param  length  length of data
-    @return position of founded difference + 1 or 0 if arrays are equal */
+    @return position of found difference + 1 or 0 if arrays are equal */
 u32t   __stdcall bcmp   (const void *s1, const void *s2, u32t length);
 
 s32t   __stdcall strtol (const char *ptr, char **endptr, int base);
@@ -284,12 +284,14 @@ char*  __stdcall getenv (const char *name);
 /** change environment variable.
     function simulate to watcom setenv.
     @attention this call invalidates all pointers, returned by getenv(), for
-               all threads of current process.
+               all threads of the current process.
     @param name            variable name
     @param newvalue        variable new value
     @param overwrite       allow overwrite previous value
     @return zero on success */
 int    __stdcall setenv (const char *name, const char *newvalue, int overwrite);
+
+#define unsetenv(name) setenv(name,0,1)
 
 int    __stdcall clearenv(void);
 
@@ -370,7 +372,7 @@ int    __stdcall _replacepattern(const char *frompattern, const char *topattern,
 
 /** patch binary data.
     Search "times" times in "len" bytes from "addr" for "str" with size "slen"
-    and replace "plen" bytes at offset "poffs" from founded location to data,
+    and replace "plen" bytes at offset "poffs" from found location to data,
     located in "pstr" array.
     if slen==0, zero-term string assumed in "str".
     optionally return unprocessed len in "stoplen".
@@ -428,11 +430,20 @@ u64t   __stdcall bswap64(u64t value);
     If SBIT_STREAM used - array is a physical bit stream, i.e. zero index
     have the 7th bit of 1st byte, if no flag is used - array contain data
     in dwords in Intel byteorder format.
-    @param dst    Start of array.
-    @param pos    Index of bit in array.
-    @param count  Number of bits to change.
-    @param flags  SBIT_*. */
+    @param  dst      Start of array.
+    @param  pos      Index of bit in array.
+    @param  count    Number of bits to change.
+    @param  flags    SBIT_*. */
 void   __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags);
+
+/** search for contiguous area of set or clear bits in bitmap array.
+    @param  bmp      start of array.
+    @param  size     size of array in *bits*.
+    @param  on       search value (1/0)
+    @param  length   number of bits to search
+    @param  hint     position where to start
+    @return position of found area or 0xFFFFFFFF if no one */
+u32t   __stdcall findbits(void *bmp, u32t size, int on, u32t length, u32t hint);
 
 // reverse search of value match/mismatch (from the end to start of block)
 void*  __stdcall memrchr  (const void*mem, int  chr, u32t buflen);
@@ -447,6 +458,18 @@ u64t*  __stdcall memrchrnq(const u64t*mem, u64t chr, u32t buflen);
 // exchange data in two memory blocks
 void   __stdcall memxchg  (void *m1, void *m2, u32t length);
 
+/** trim leading characters from the charset.
+    @return src value with string moved to the start position. */
+char*  __stdcall trimleft (char *src, char *charset);
+/** trim trailing characters from the charset.
+    @return src value with truncated string. */
+char*  __stdcall trimright(char *src, char *charset);
+
+/** replace one character to another.
+    zero is not accepted as a character parameter.
+    @return number of processed replacements. */
+u32t  __stdcall replacechar(char *str, char from, char to);
+
 /** string to uint.
     Unlike strtol() it makes only hex & dec convertions, but not octal.
     Pair str2long() function available in clib.h for int values */
@@ -459,7 +482,7 @@ u64t  __stdcall str2uint64(const char *str);
 /** safe memcpy.
     Function makes a memmove(), but protected by exception handler.
     Optionally it allows copying from/to page 0 (1st page is mapped as
-read-only in PAE mode and inaccessible from FLAT DS in non-paged mode).
+    read-only in PAE mode and inaccessible from FLAT DS in non-paged mode).
 
     @param dst    Destination address.
     @param src    Source address.

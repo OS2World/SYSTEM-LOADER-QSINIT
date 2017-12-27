@@ -1,12 +1,11 @@
 #include "clib.h"
 #include "qslog.h"
-#include "qsint.h"
+#include "qslocal.h"
 #include "qsutil.h"
 #include "qstime.h"
 #include "qecall.h"
 #include "qshm.h"
 #include "qssys.h"
-#include "qsmodint.h"
 
 extern u16t               IODelay;
 /* note that the same var present in BIOS host files, but with sligtly
@@ -15,7 +14,6 @@ extern u64t          countsIn55ms;
 static u64t               lasttsc = 0, lasttime;
 static u32t             tick_base = 0;
 static u64t             tick_btsc = 0;
-extern mod_addfunc *mod_secondary; // secondary function table, from "start" module
 
 void _std tm_setdate(u32t dostime) {
    call64(EFN_TMSETDATE, 0, 1, &dostime);

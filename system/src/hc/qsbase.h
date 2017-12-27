@@ -50,5 +50,8 @@
 #ifndef QSBASE_NOMOD
 #include "../ldrapps/hc/qsmod.h"
 #endif
+#ifndef QSBASE_NOSESMGR
+#include "../ldrapps/hc/qscon.h"
+#endif
 
 #endif // QS_BASE_H

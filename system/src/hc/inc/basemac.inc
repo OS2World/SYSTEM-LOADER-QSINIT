@@ -20,3 +20,7 @@ RestReg macro reglist                                           ; pop those regi
          pop reg
     endm
 endm
+
+UD2     macro
+        db    0Fh,0Bh
+endm

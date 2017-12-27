@@ -4,24 +4,19 @@
 //
 #include "dpmi.h"
 #include "stdlib.h"
-#include "qsutil.h"
 #include "conint.h"
 #include "qspage.h"
-#include "qsint.h"
 #include "vio.h"
 #include "vbedata.h"
 #include "cpudef.h"
 #include "qsxcpt.h"
-#include "qssys.h"
 #include "qshm.h"
 
+#define VGA_TEXT_MODES 3
 #define TEXTMEM_SEG    0xB800
 #define NONFB_WINA     1
 #define NONFB_WINB     2
 
-VBEModeInfo         *vinfo = 0; // vesa mode info
-u32t              vesa_cnt = 0; // vesa mode info array size
-u32t          vesa_memsize = 0; // vesa memory size
 u16t              vesa_ver = 0; // vesa version
 u32t             nonfb_cnt = 0; // number of non-LFB modes
 // disk r/w buffer, used for vesa calls
@@ -32,7 +27,7 @@ static u32t   gran_per_win = 0, // granularity units in window
                current_win = 0,
                 mode_pitch = 0, // line length of current mode
                   mode_bpp = 0,
-               mode_bshift = 0; // bytes<<width (its possible since we drop 24-bit)
+               mode_bshift = 0; // bytes<<width (possible since we drop 24-bit)
 static u8t        *win_ptr = 0,
                    win_num = 0; // winA=0, winB=1
 
@@ -133,7 +128,7 @@ static int fixmodeinfo(u16t mode, VBEModeInfo *cm) {
       if (!fbaddr_enabled) cm->ModeAttributes&=~VSMI_LINEAR;
       // non-LFB mode
       if ((cm->ModeAttributes&VSMI_LINEAR)==0) {
-         /* just drop all 24-bit modes. Censored off this crazy
+         /* just drop all 24-bit modes. *Censored* off this crazy
             handling of splitted pixel at the 64k border */
          if (cm->BitsPerPixel==24) return 0;
          /* determine output window.
@@ -155,25 +150,20 @@ static int fixmodeinfo(u16t mode, VBEModeInfo *cm) {
 }
 
 /** query all available vesa modes
-    @param         vinfo    array for modes (256 entries)
-    @param         minfo    mode info array for mode numbers
-    @param         mmask    bitmask for color modes: bit 0 = 8 bit,
-                            bit 1 = 15 bit, bit 2 = 16 bit, bit 3 = 24 bit,
-                            bit 4 = 32 bit, bit 5 = 1 bit,  bit 6 = 4 bit.
-                            By default 0x5F is used.
-    @param   [out] memsize  Total video memory size, can be 0
-    @return  number of supported modes (<=MAXVESA_MODES) */
-u32t vesadetect(VBEModeInfo *vinfo, con_intinfo *minfo, u32t mmask, u32t *memsize) {
-   u16t       rmbuff = boot_info.diskbuf_seg, *modes;
+    @param        mmask     mask for color modes: bit 0 = 8 bit, 1 = 15 bit,
+                            2 = 16 bit, 3 = 24 bit, 4 = 32 bit, 5 = 1 bit,
+                            6 = 4 bit, 0x5F is used by default.
+    @return number of supported modes */
+void vesadetect(u32t mmask) {
+   u16t       rmbuff = boot_info.diskbuf_seg, *mpt;
 /* note: using real mode disk buffer to get vesa info.
    Vesa info and vesa mode info must use separate buffes, because at least VBox,
    puts mode list into VBEInfo->Reserved area */
    VBEInfo     *vib = (VBEInfo*)hlp_segtoflat(rmbuff);
    VBEModeInfo  *cm = (VBEModeInfo*)((u8t*)vib + Round1k(sizeof(VBEInfo)));
    struct rmcallregs_s rr;
-   u32t          ii;
-   if (memsize) *memsize = 0;
-
+   /* vpc 2007 reports LFB, but does not support it actually.
+      This, also is a nice test of bank switching antiquity. */
    if (is_virtualpc()) {
       log_it(0, "VirtualPC detected, disabling LFB!\n");
       fbaddr_enabled = 0;
@@ -186,19 +176,17 @@ u32t vesadetect(VBEModeInfo *vinfo, con_intinfo *minfo, u32t mmask, u32t *memsiz
    // make vesa 2.x call
    vib->VBESignature = MAKEID4('V','B','E','2');
    // query list of modes
-   if (!int10h(&rr)) return 0;
-   if ((rr.r_eax&0xFFFF)!=0x004F) return 0;
+   if (!int10h(&rr)) return;
+   if ((rr.r_eax&0xFFFF)!=0x004F) return;
    nonfb_cnt = 0;
    vesa_ver  = vib->VBEVersion;
-   ii        = vib->ModeTablePtr;
-   modes     = (u16t*)hlp_rmtopm(ii);
+   vmem_size = (u32t)vib->TotalMemory<<16;
+   mpt       = (u16t*)hlp_rmtopm(vib->ModeTablePtr);
    // total video memory size
-   if (memsize) *memsize = (u32t)vib->TotalMemory<<16;
    log_printf("vesa %hx: %ukb\n", vesa_ver, vib->TotalMemory<<6);
 
-   ii = 0;
-   while (*modes!=0xFFFF && ii<MAXVESA_MODES) {
-      u16t mode_num = *modes;
+   while (*mpt!=0xFFFF && mode_cnt<MAX_MODES) {
+      u16t mode_num = *mpt;
       memset(&rr, 0, sizeof(rr));
       memset(cm, 0, sizeof(VBEModeInfo));
       rr.r_ds  = rmbuff;
@@ -246,22 +234,21 @@ u32t vesadetect(VBEModeInfo *vinfo, con_intinfo *minfo, u32t mmask, u32t *memsiz
                   // drop incorrect modes
                   if (cm->XResolution>132 || cm->YResolution>60) break;
                }
-               vinfo[ii] = *cm;
+               modes[mode_cnt] = malloc(sizeof(modeinfo)+sizeof(VBEModeInfo));
+               memset(modes[mode_cnt], 0, sizeof(modeinfo));
+               memcpy(modes[mode_cnt]+1, cm, sizeof(VBEModeInfo));
                /* log_printf("%4u x %4u -> %08X\n", cm->XResolution,
                   cm->YResolution, cm->PhysBasePtr); */
-               minfo[ii].vesaref = ii;
-               minfo[ii].modenum = *modes;
-
-               ii++;
+               modes[mode_cnt++]->modenum = *mpt;
             } while (false);
          }
       }
-      modes++;
+      mpt++;
    }
    // re-init handlers because we have bank switching :(
    if (nonfb_cnt) plinit_vesa();
 
-   return ii;
+   return;
 }
 
 /// call mode info for single mode
@@ -298,12 +285,13 @@ u32t vesasetmode(VBEModeInfo *vinfo, u16t mode, u32t flags) {
    // set mode
    if (!int10h(&rr)) return 0;
    if ((rr.r_eax&0xFFFF)!=0x004F) return 0;
+/*
    if ((flags&CON_GRAPHMODE)==0) {
       vio_intensity(1);
       vio_getmode(0,0);
       if ((flags&CON_NOSCREENCLEAR)==0) vio_clearscr(); else
          vio_setpos(0,0);
-   }
+   } */
    return 1;
 }
 
@@ -378,7 +366,7 @@ static u32t _std out_dirblit(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t s
 
 
 static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf, u32t pitch, int write) {
-   con_modeinfo *mi = modes+mode;
+   modeinfo *mi = modes[mode];
    if (mode>=mode_cnt) return 0;
    // copying memory
    if ((mi->flags&CON_GRAPHMODE)==0) {
@@ -394,8 +382,10 @@ static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf
          } else
             MoveBlock(b800+y*mi->width+x, buf, dx<<1, dy, mi->width<<1, pitch);
       } else {
+#if 0
          if (write) evio_writebuf(x,y,dx,dy,buf,pitch);
             else evio_readbuf(x,y,dx,dy,buf,pitch);
+#endif
       }
       return 1;
    } else {
@@ -414,40 +404,46 @@ static u32t _std out_copy(u32t mode, u32t x, u32t y, u32t dx, u32t dy, void *buf
    return 0;
 }
 
-static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
-   if ((flags&CON_GRAPHMODE)==0 && x==80 && (y==25||y==43||y==50)) {
-      vio_setmode(y);
+static u32t _std out_setmodeid(u32t mode_id) {
+   if (mode_id>=mode_cnt) return 0; else
+   if (mode_id<3) {
+      con_unsetmode();
+      cvio->vh_setmode(mode_id==0?25:(mode_id==1?43:50));
       // con_unsetmode() is called from hook here
-      current_mode = (y-25)/12;
+      current_mode = mode_id;
       real_mode    = current_mode;
       mode_changed = 1;
+      in_native    = 1;
       return 1;
    } else {
-      int  idx = search_mode(x,y,flags),
-        actual = idx;
+      int    idx = mode_id,
+          actual = idx;
+      u32t flags = modes[idx]->flags;
       /* is this an emulated text mode? select graphic mode and force
          "shadow buffer" flag */
-      if (idx>=0 && (modes[idx].flags&CON_EMULATED)!=0) {
-         actual = mref[idx].realmode;
+      if (flags&CON_EMULATED) {
+         actual = modes[idx]->realmode;
          flags |= CON_SHADOW;
          // internal error?
          if (actual<0) idx=-1;
       }
 
       if (idx>=0) {
-         con_modeinfo *m_pub = modes + idx,    // public mode info
-                      *m_act = modes + actual; // actual mode info
-         VBEModeInfo  *mi    = vinfo + mref[actual].vesaref;
-         int           no_fb = (mi->ModeAttributes&VSMI_LINEAR)==0;
+         modeinfo    *m_pub = modes[idx],    // public mode info
+                     *m_act = modes[actual]; // actual mode info
+         VBEModeInfo    *mi = (VBEModeInfo *)(m_act+1);
+         int          no_fb = (mi->ModeAttributes&VSMI_LINEAR)==0;
          // force shadow if no LFB here
          if (no_fb) flags|=CON_SHADOW;
-
-         // set mode
-         if (!vesasetmode(mi,mref[actual].modenum,flags)) return 0;
+         /* set mode, but only if we it does not match to current real mode */
+         if (real_mode==actual)
+            pl_clear(real_mode, 0, 0, m_act->width, m_act->height, 0);
+         else
+            if (!vesasetmode(mi, m_act->modenum, flags)) return 0;
          // free previous mode data
          con_unsetmode();
          // trying to update mode info
-         vesamodeinfo(mi,mref[actual].modenum);
+         vesamodeinfo(mi, m_act->modenum);
          // and pointers (for graphic/emulated text mode, not real text)
          if ((m_act->flags&CON_GRAPHMODE)!=0) {
             static const char *cstr[MTRRF_TYPEMASK+1] = { "UC", "WC", "??", "??",
@@ -490,6 +486,10 @@ static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
          real_mode      = actual;
          current_flags  = flags;
          mode_changed   = 1;
+         in_native      = m_pub->flags&(CON_GRAPHMODE|CON_EMULATED)?0:1;
+         /* this call sync cvio mode information with BIOS data (BIOS _must_
+            set it properly) */
+         if (in_native) cvio->vh_getmfast(0,0);
          // setup text emulation
          if ((m_pub->flags&CON_EMULATED)!=0) {
             alloc_shadow(m_pub,0);
@@ -502,46 +502,46 @@ static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
    return 0;
 }
 
+static u32t _std out_setmode(u32t x, u32t y, u32t flags) {
+   int  idx = search_mode(x,y,flags);
+   if (idx<0) return 0;
+   return out_setmodeid(idx);
+}
+
 static void _std out_leavemode(void) {
-   con_modeinfo *mi = 0;
+   modeinfo *mi = 0;
    do {
-      mi = modes + (mi?current_mode:real_mode);
+      mi = modes[mi?current_mode:real_mode];
       if (mi->physmap) {
          pag_physunmap(mi->physmap);
          mi->physmap = 0;
       }
-   } while (mi!=modes+current_mode);
+   } while (mi!=modes[current_mode]);
 }
 
 static void _std out_init(void) {
    u32t   ii;
-
-   if (!textonly) {
-      vinfo = (VBEModeInfo*) malloc(sizeof(VBEModeInfo)*MAXVESA_MODES);
-      mem_zero(vinfo);
-      vesa_cnt = vesadetect(vinfo, mref+PREDEFINED_MODES, enabled_modemask, &vesa_memsize);
-      if (!vesa_cnt) { free(vinfo); vinfo = 0; }
-   } else
-      vesa_cnt = 0;
-
-   // total number of available modes
-   mode_cnt   = PREDEFINED_MODES + vesa_cnt;
-   mode_limit = mode_cnt + MAXEMU_MODES + 1;
-   modes      = (con_modeinfo*)malloc(sizeof(con_modeinfo)*mode_limit);
-   mem_zero(modes);
    // common text modes
-   modes[0].width = modes[1].width = modes[2].width = 80;
-   modes[0].height = 25; modes[0].font_x = 9; modes[0].font_y = 16;
-   modes[1].height = 43; modes[1].font_x = 8; modes[1].font_y = 8;
-   modes[2].height = 50; modes[2].font_x = 8; modes[2].font_y = 8;
+   for (ii=0; ii<VGA_TEXT_MODES; ii++) {
+      modeinfo *mi = (modeinfo*)malloc(sizeof(modeinfo));
+      memset(mi, 0, sizeof(modeinfo));
+      modes[ii]  = mi;
+      mi->width  = 80;
+      mi->height = ii==0?25:(ii==1?43:50);
+      mi->font_x = ii?8:9;
+      mi->font_y = ii?8:16;
+   }
+   mode_cnt = VGA_TEXT_MODES;
 
-   for (ii = PREDEFINED_MODES; ii<mode_cnt; ii++) {
+   if (!textonly) vesadetect(enabled_modemask);
+
+   for (ii = VGA_TEXT_MODES; ii<mode_cnt; ii++) {
       u32t *fp;
-      VBEModeInfo  *vi  = vinfo + mref[ii].vesaref;
-      con_modeinfo *mi  = modes + ii;
-      mi->width         = vi->XResolution;
-      mi->height        = vi->YResolution;
-      mref[ii].realmode = -1;
+      modeinfo    *mi = modes[ii];
+      VBEModeInfo *vi = (VBEModeInfo *)(mi+1);
+      mi->width       = vi->XResolution;
+      mi->height      = vi->YResolution;
+      mi->realmode    = -1;
 
       if (vi->ModeAttributes&VSMI_GRAPHMODE) {
          static u32t  fbits[] = {1, 4, 8, 15, 16, 24, 32, 0};
@@ -561,11 +561,21 @@ static void _std out_init(void) {
             if (mi->bits==16 && mi->rmask==0x7C00 && mi->gmask==0x3E0) mi->bits=15;
          }
          mi->physaddr = vi->ModeAttributes&VSMI_LINEAR ? vi->PhysBasePtr : 0;
+         // detect, check & save lowest used memory address value
+         if (mi->physaddr && mi->physaddr>_1MB) {
+            if (!vmem_addr) vmem_addr = mi->physaddr; else
+            if ((u32t)abs((int)vmem_addr - (int)mi->physaddr)<vmem_size) {
+               if (mi->physaddr<vmem_addr) vmem_addr = mi->physaddr;
+            } else {
+               log_it(2,"Video mem (%dkb) mismatch: %08X for previous mode(s) "
+                  "and %08X for mode %dx%dx%d\n", vmem_size>>10, vmem_addr,
+                     mi->physaddr, mi->width, mi->height, mi->bits);
+            }
+         }
+
          mi->mempitch = vi->BytesPerScanline;
-         mi->memsize  = vesa_memsize;
       } else {
          mi->physaddr = TEXTMEM_SEG<<4;
-         mi->memsize  = 0x8000;
          mi->mempitch = vi->XResolution<<1;
          mi->font_x   = vi->XCharSize;
          mi->font_y   = vi->YCharSize;
@@ -574,9 +584,7 @@ static void _std out_init(void) {
 }
 
 static void out_close(void) {
-   if (vinfo) { free(vinfo); vinfo=0; }
-   vesa_memsize = 0;
-   vesa_cnt     = 0;
+   vmem_size = 0;
 }
 
 static fontbits *addfont(int ebx, fontbits *fb) {
@@ -615,6 +623,7 @@ static fontbits *addfont(int ebx, fontbits *fb) {
         }
         log_it(3,"9x%d font: %d diffs\n", fb->y, diffs);
         sysfnt->add(fb);
+        con_addfontmodes(fb->x, fb->y);
         return 0;
       }
       case 2:
@@ -628,14 +637,18 @@ static fontbits *addfont(int ebx, fontbits *fb) {
    }
    memcpy(&fb->bin, font, dy*256);
    sysfnt->add(fb);
+   con_addfontmodes(fb->x, fb->y);
    return fb;
 }
 
 static void out_addfonts(void) {
    fontbits *fb;
    if (!sysfnt) return;
+   // 8x14 is broken in most of BIOS, which I seen
+#if 0
    fb = addfont(2,0);     // 8 x 14, 9 x 14
    if (fb) addfont(5,fb);
+#endif
    fb = addfont(6,0);     // 8 x 16, 9 x 16
    if (fb) addfont(7,fb);
    fb = addfont(3,0);     // 8 x 8
@@ -644,6 +657,7 @@ static void out_addfonts(void) {
 
 int plinit_vesa(void) {
    pl_setmode   = out_setmode;
+   pl_setmodeid = out_setmodeid;
    pl_leavemode = out_leavemode;
    pl_copy      = out_copy;
    pl_flush     = nonfb_cnt ? common_flush_nofb : common_flush;

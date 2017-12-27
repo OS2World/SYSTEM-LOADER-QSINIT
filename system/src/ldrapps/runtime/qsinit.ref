@@ -19,8 +19,8 @@ exports = {
   _sys_setcr3      = { index=8 }                                  # internal call
   _sys_settr       = { index=9 }                                  # the same
 
-  _hlp_seroutchar  = { index=10 }                                 # serial print char
-  _hlp_seroutstr   = { index=11 }                                 # serial print string
+  _hlp_seroutchar  = { index=10 }                                 # debug com port print char
+  _hlp_seroutstr   = { index=11 }                                 # debug com port print string
   _log_printf      = { index=12 }                                 # printf to log
   _log_flush       = { index=13 }                                 # flush delayed log data
   _hlp_seroutinfo  = { index=14 group="system" format="h&*u" }    # query serial parameters
@@ -37,18 +37,24 @@ exports = {
   _hlp_memqconst   = { index=24 }                                 # internal
   _hlp_memprint    = { index=26 }                                 # print tables to log
   _hlp_memgetsize  = { index=27 }                                 # query block size
-  _hlp_memreserve  = { index=28 group="sysmem" format="ppu&*u" }  # reserve mem at phys addr
+  _hlp_memreserve  = { index=28 group="sysmem"  format="ppu&*u" } # reserve mem at phys addr
   _hlp_memallocsig = { index=29 }                                 # global malloc with signature
 
-  _hlp_fopen       = { index=31 group="mfs"    format="us"     }  # open file
-  _hlp_fread       = { index=32 group="mfs"    format="u@upu"  }  # read file
-  _hlp_fclose      = { index=33 group="mfs"    format="vv"     }  # close file
-  _hlp_freadfull   = { index=34 group="mfs"    format="ps&*up" }  # open/read/close file
-  _hlp_fexist      = { index=35 group="mfs"    format="us"     }  # is file exists
+  _hlp_fopen       = { index=31 group="mfs"     format="us"     } # open file
+  _hlp_fread       = { index=32 group="mfs"     format="u@upu"  } # read file
+  _hlp_fclose      = { index=33 group="mfs"     format="vv"     } # close file
+  _hlp_freadfull   = { index=34 group="mfs"     format="ps&*up" } # open/read/close file
+  _hlp_fexist      = { index=35 group="mfs"     format="us"     } # is file exists
 
-  _memcmp          = { index=40  group="clib"   format = "ippu" } #
-  _ff_convert      = { index=41  group="ucvt"   format = "CCu"  } #
-  _ff_wtoupper     = { index=42  group="ucvt"   format = "CC"   } #
+  _memcmp          = { index=40 group="clib"    format="ippu"   } #
+  _ff_convert      = { index=41 group="ucvt"    format="CCu"    } #
+  _ff_wtoupper     = { index=42 group="ucvt"    format="CC"     } #
+  _ff_dbc_1st      = { index=43 group="ucvt"    format="i@b"    } #
+  _ff_dbc_2nd      = { index=44 group="ucvt"    format="i@b"    } #
+  _hlp_serialrate  = { index=45 group="serial"  format="i@hu"   } # serial port rate
+  _hlp_serialin    = { index=46 group="serial"  format="@b@h"   } # serial port char in
+  _hlp_serialout   = { index=47 group="serial"  format="v@hc"   } # serial port char out
+  _hlp_serialset   = { index=48 group="serial"  format="i@hu"   } # serial port init
 
   _snprintf        = { index=70 group="string"  format="i&sus." } # clib
   _memset          = { index=72 group="clib"    format="pp@cu" }  #
@@ -84,7 +90,7 @@ exports = {
   _vio_strout      = { index=101 }                                # print string
   _vio_clearscr    = { index=102 group="vio"    format="vv"    }  # clear screen
   _vio_setpos      = { index=103 }                                # set cursor position
-  _vio_setshape    = { index=104 group="vio"    format="v@b@b" }  # set cursor shape
+  # 104 removed (old vio_setshape)
   _vio_setcolor    = { index=105 }                                # set output color
   _vio_setmode     = { index=106 group="vio"    format="vu"    }  # set text mode
   _vio_resetmode   = { index=107 group="vio"    format="vv"    }  # reset mode to 80x25
@@ -103,7 +109,7 @@ exports = {
   _hlp_int15mem    = { index=120 }                                # get full ACPI memory table
   _exit_poweroff   = { index=121 }                                # power off the system
   _exit_restirq    = { index=122 group="system" format="vi"    }  # set IRQ restore flag
-  _se_sesno        = { index=123 }                                # query current session no
+  _VHTable         = { index=123 offset = yes }                   # vio handlers table
   _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
   _hlp_runcache    = { index=125 group="disk"   format="up"    }  # install cache handler
   _exit_reboot     = { index=126 }                                # reboot system
@@ -160,7 +166,7 @@ exports = {
   _key_status      = { index=183 group="key"    format="@uv" }    # get sys key status
   _key_wait        = { index=184 group="key"    format="@hu" }    # wait key with delay
   _key_push        = { index=185 group="key"    format="b@h" }    # push key to keyboard buffer
-  _key_waithlt     = { index=186 group="key"    format="ii" }     # wait method setup
+  _key_waitex      = { index=186 group="key"    format="@hu&*@u" } # wait key
   _key_getspeed    = { index=187 group="key"    format="v&*b&*b" } # get keyboard rate/delay
 
   _tm_counter      = { index=190 }                                # bios timer counter value
@@ -172,15 +178,16 @@ exports = {
   _hlp_tscin55ms   = { index=196 group="system" format="@qv" }    # rtdsc cycles in 55 ms
   _sys_clock       = { index=197 group="time"   format="@qv" }    # mks sys reboot
 
-  _vio_getshape    = { index=200 group="vio"    format="@hv" }    # get cursor shape
+  _vio_getshape    = { index=200 group="vio"    format="hv"  }    # get cursor shape
   _vio_getpos      = { index=201 }                                # get cursor pos
   _vio_getmodefast = { index=202 }                                # the same (internal)
-  _vio_defshape    = { index=203 group="vio"    format="vb" }     # set cursor shape
-  _vio_intensity   = { index=204 group="vio"    format="vb" }     # select intensity or blink
+  _vio_setshape    = { index=203 group="vio"    format="vh"  }    # set cursor shape
+  _vio_intensity   = { index=204 group="vio"    format="vb"  }    # select intensity or blink
   _vio_setmodeex   = { index=205 group="vio"    format = "iuu" }  # set text mode
   _vio_writebuf    = { index=206 group="vio" }                    # buffer -> text screen
   _vio_readbuf     = { index=207 group="vio" }                    # text screen -> buffer
   _vio_ttylines    = { index=208 }                                # ptr to printed lines count
+  _vio_getcolor    = { index=209 }                                # get current color
 
   _hlp_diskcount   = { index=210 group="diskio" format="u&*u"  }  # physical disk access
   _hlp_disksize    = { index=211 group="disk"   format="u@u&*up" } #

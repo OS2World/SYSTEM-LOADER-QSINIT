@@ -342,7 +342,7 @@ typedef b LetterWdtArray[256];
 #define RET_BADPATH     16  //  bad or invalid path
 #define RET_NOACCESS    17  //  access denied
 #define RET_BADCRC      18  //  invalid CRC - file damaged
-#define RET_NOTFOUND    19  //  something was not founded
+#define RET_NOTFOUND    19  //  something was not found
 #define RET_SYNTAXERROR 20  //  syntax error in script or text file
 #define RET_FAILED      21  //  operation failed
 #define RET_ZEROPTR     22  //  NULL pointer supplied

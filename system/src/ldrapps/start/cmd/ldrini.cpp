@@ -77,6 +77,8 @@ int get_ini_parms(void) {
       msg_name  = ini.ReadStr(shell_section, "MESSAGES");
       ecmd_name = ini.ReadStr(shell_section, "EXTCOMMANDS");
       mod_delay = !ini.ReadInt(cfg_section, "UNZALL", 0);
+      rc        = ini.ReadInt(cfg_section,"REIPL");
+      if (rc>0) reipltime = rc;
       // disable clock in menu
       rc        = ini.ReadInt(cfg_section,"NOCLOCK");
       if (rc || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1);
@@ -88,7 +90,7 @@ int get_ini_parms(void) {
    } else
       log_printf("no file!\n");
    // save value
-   sto_save(STOKEY_PCISCAN, &pciscan, 4, 1);
+   sto_savedword(STOKEY_PCISCAN, pciscan);
    // set default names if no ini file or key in it
    if (!msg_name)  msg_name  = msg_path;
    if (!ecmd_name) ecmd_name = ECMD_PATH;
@@ -248,6 +250,20 @@ char* _std str_mergeargs(str_list*list) {
    TStrings lst;
    str_getstrs(list,lst);
    return strdup(lst.MergeCmdLine()());
+}
+
+str_list* _std str_copylines(str_list*list, u32t first, u32t last) {
+   TStrings lst;
+   if (first<=last) {
+      str_getstrs(list,lst);
+      if (lst.Count())
+         if (first>=lst.Count()) lst.Clear(); else {
+            if (last>=lst.Count()) last=lst.Max();
+            if (++last!=lst.Count()) lst.Delete(last,lst.Count()-last);
+            if (first) lst.Delete(0,first);
+         }
+   }   
+   return str_getlist_local(lst.Str);
 }
 
 /// create list from array of char*
@@ -462,6 +478,10 @@ void _std sto_save(const char *entry, void *data, u32t len, int copy) {
    }
 }
 
+void _std sto_savedword(const char *entry, u32t value) {
+   sto_save(entry, &value, 4, 1);
+}
+
 void _std sto_flush(void) {
    MTLOCK_THIS_FUNC _lk;
 
@@ -503,6 +523,19 @@ void *_std sto_data(const char *entry) {
    sto_entry *ste = sto_find(entry);
    if (!ste) return 0;
    return ste->isalloc && ste->size<=4?&ste->ddvalue:ste->data;
+}
+
+void *_std sto_datacopy(const char *entry, u32t *psize) {
+   MTLOCK_THIS_FUNC _lk;
+
+   sto_entry *ste = sto_find(entry);
+   if (psize) *psize = 0;
+   if (!ste) return 0;
+   void *rc = malloc_local(ste->size);
+   if (psize) *psize = ste->size;
+   if (!rc) return 0;
+   memcpy(rc, ste->isalloc && ste->size<=4?&ste->ddvalue:ste->data, ste->size);
+   return rc;
 }
 
 /// get size of to stored data

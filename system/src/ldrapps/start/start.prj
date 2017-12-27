@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0020
+version=0x0022
 
 [config]
 0=Common
@@ -56,17 +56,18 @@ revnum=?[[$(svnrev)!$(svnrev)!%(svnrev)]]
 ..\..\ldrefi\inc\efnlist.inc  ..\hc\inc\qschain.inc
 ..\..\init\inc\dskinfo.inc ..\..\init\inc\qspdata.inc
 ..\..\hc\inc\parttab.inc ..\..\hc\inc\ioint13.inc
-..\..\hc\inc\filetab.inc
+..\..\hc\inc\filetab.inc ..\..\init\inc\qsvdata.inc
 start.c misc\trapscrn.c main\diskio.c misc\clibio.c
 loader\lxmisc.cpp loader\unpsix.asm loader\mdtdump.c
-main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp
-misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c
+main\memmgr.cpp misc\clib.c misc\time.c misc\exi.cpp misc\dce.cpp
 cmd\ldrini.cpp cmd\shell.cpp cmd\extcmd.cpp misc\lists.cpp
-misc\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c main\sysmt.c
+misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c misc\cache.cpp
+vio\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c main\sysmt.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
-main\sysf.asm main\pcibus.c misc\mbox.cpp pm\meminit.cpp main\notify.c
+main\sysf.asm main\pcibus.c vio\mbox.cpp pm\meminit.cpp main\notify.c
 pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiofat.c
-main\sysque.cpp misc\clibm.c misc\scanf.c fs\ff.c
+main\sysque.cpp misc\clibm.c misc\scanf.c fs\ff.c vio\viobase.cpp
+vio\vhbuf.c vio\vhvio.cpp
 
 [make_footer]
 $(outdir) : .DIRECTORY
@@ -103,7 +104,6 @@ file /[[$(**c)! !,]]
 file /[[$(**cpp)! !,]]
 file /[[$(**asm)! !,]]
 file %(appinit_lib)\bld\Common\initdll.obj
-#lib %(appinit_lib)\runtime.lib
 lib %(appinit_lib)\imp_st.lib
 lib %(appinit_lib)\cpplib.lib
 lib %(WATCOM)\lib386\plib3s.lib

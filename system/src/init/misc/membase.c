@@ -48,52 +48,54 @@ void memmgr_init(void) {
    memsignlst[0] = 0x2A2A2A; // ***
 }
 
-static void halterr(void) {
+static void halterr(u32t type, void *addr, u32t info, char here, u32t caller) {
    mt_swlock();
    hlp_memprint();
-   exit_pm32(QERR_MCBERROR);
+   if (!mod_secondary) exit_pm32(QERR_MCBERROR); else
+      mod_secondary->mempanic(type, addr, info, here, caller);
 }
 
 /*  here: 'a' - alloc, 'r' - realloc, 'f' - free, 'i' - isfree, 'm' - avail,
           'b' - blocksize */
-static void mterr(void *blk,u32t ii,char here,u32t caller) {
-   log_printf("used/free: %08X mt:%08X %c %08X\n",blk,memtable[ii],here,caller);
-   halterr();
+static void mterr(void *blk, u32t ii, char here, u32t caller) {
+   log_printf("used/free: %08X mt:%08X %c %08X\n", blk, memtable[ii], here, caller);
+   halterr(MEMHLT_MEMTABLE, blk, ii, here, caller);
 }
 
-static void szerr(free_block *fb,u32t mustbe,char here,u32t caller) {
-   log_printf("free size: %08X %16b sz:%08X %c %08X\n",fb,fb,mustbe,here,caller);
-   halterr();
+static void szerr(free_block *fb, u32t mustbe, char here, u32t caller) {
+   log_printf("free size: %08X %16b sz:%08X %c %08X\n", fb, fb, mustbe, here, caller);
+   halterr(MEMHLT_FBSIZEERR, fb, mustbe, here, caller);
 }
 
 // trying to free or realloc read-only block
-static int hrchk(u32t pos,char here,u32t caller) {
+static int hrchk(u32t pos, char here, u32t caller) {
    if (memheapres[pos>>3]&1<<(pos&7)) {
-      log_printf("r/o: %08X %c %08X\n",(u32t)memtable+(pos<<16),here,caller);
-      if (here!='f') halterr();
+      u8t *addr = (u8t*)memtable+(pos<<16);
+      log_printf("r/o: %08X %c %08X\n", addr, here, caller);
+      if (here!='f') halterr(MEMHLT_REALLOCRO, addr, 0, here, caller);
       return 1;
    }
    return 0;
 }
 
-static void addrcheck(void *addr,u32t caller) {
-   if (addr<memtable||(u32t)addr>=(u32t)memtable+availmem||
+static void addrcheck(void *addr, char here, u32t caller) {
+   if (addr<memtable || (u32t)addr>=(u32t)memtable+availmem ||
       ((u32t)addr-(u32t)memtable&0xFFFF)!=0)
    {
-      log_printf("bad addr: %08X (%08X)\n",addr,caller);
-      halterr();
+      log_printf("bad addr: %08X %c %08X\n", addr, here, caller);
+      halterr(MEMHLT_WRONGADDR, addr, 0, here, caller);
    }
 }
 
-static void fbcheck(free_block *fb,char here,u32t caller) {
+static void fbcheck(free_block *fb, char here, u32t caller) {
    if (fb->sign!=FREE_SIGN) {
-      log_printf("free sign: %08X %16b %c %08X\n",fb,fb,here,caller);
-      halterr();
+      log_printf("free sign: %08X %16b %c %08X\n", fb, fb, here, caller);
+      halterr(MEMHLT_FBSIGN, fb, 0, here, caller);
    }
 }
 
 // add block to list of free blocks with the same size
-static void fb_add(free_block *fb,u32t size64k,char here,u32t caller) {
+static void fb_add(free_block *fb, u32t size64k, char here, u32t caller) {
    auto free_block **mft=memftable;
    fb->prev=0; fb->next=mft[size64k];
    if (mft[size64k]) {
@@ -105,7 +107,7 @@ static void fb_add(free_block *fb,u32t size64k,char here,u32t caller) {
 }
 
 // unlink block from list of free blocks
-static void fb_del(free_block *fb,u32t size64k,char here,u32t caller) {
+static void fb_del(free_block *fb, u32t size64k, char here, u32t caller) {
    free_block **mft=memftable,
                *pfb=fb->prev,
                *nfb=fb->next;
@@ -118,11 +120,11 @@ static void fb_del(free_block *fb,u32t size64k,char here,u32t caller) {
    if (nfb) nfb->prev=pfb;
 }
 
-static void fb_chkhdr(free_block *fb,char here,u32t caller,int first) {
-   if (first&&fb->prev||(u32t)fb->next>=(u32t)memtable+availmem) {
-      log_printf("bad hdr: %08X<-%08X->%08X %c %08X\n",fb->prev,
-         fb,fb->next,here,caller);
-      halterr();
+static void fb_chkhdr(free_block *fb, char here, u32t caller, int first) {
+   if (first&&fb->prev || (u32t)fb->next>=(u32t)memtable+availmem) {
+      log_printf("bad hdr: %08X<-%08X->%08X %c %08X\n", fb->prev, fb, fb->next,
+         here, caller);
+      halterr(MEMHLT_FBHEADER, fb, 0, here, caller);
    }
 }
 
@@ -146,7 +148,7 @@ static void *alloc_worker(u32t size, u32t caller, int ro, u32t sig, process_cont
          fb_chkhdr(fb,'a',caller,1);
          // unlink block from block list
          fb_del(fb,ii,'a',caller);
-         ps=(u32t)fb-(u32t)memtable>>16;
+         ps = (u32t)fb-(u32t)memtable>>16;
          if (mt[ps]) mterr(result,ps,'a',caller);
          // save user size
          mt        [ps] = size;
@@ -174,13 +176,20 @@ static void *alloc_worker(u32t size, u32t caller, int ro, u32t sig, process_cont
    return 0;
 }
 
-void* _std hlp_memallocsig(u32t size, const char *sig, u32t flags) {
-   void* rc=0;
+static void* alloc_common(u32t size, u32t caller, const char *sig, u32t flags) {
+   void* rc = 0;
    if (!size) return 0;
    if (size<availmem) {
-      u32t sv = sig ? *(u32t*)sig : 0;
-      rc = alloc_worker(size, CALLER(size), flags&QSMA_READONLY?1:0, sv,
-         flags&QSMA_LOCAL?mt_exechooks.mtcb_ctxmem:0);
+      u32t sv = sig ? *(u32t*)sig : 0, step = 0;
+      while (step<2) {
+         /* try to notify someone about low memory, at least CACHE should turn
+            itself OFF */
+         if (step++ && mod_secondary) mod_secondary->sys_notifyexec(SECB_LOWMEM,0);
+
+         rc = alloc_worker(size, caller, flags&QSMA_READONLY?1:0, sv,
+            flags&QSMA_LOCAL?mt_exechooks.mtcb_ctxmem:0);
+         if (rc) break;
+      }
    }
    if (!rc && (flags&QSMA_RETERR)==0) exit_pm32(QERR_NOMEMORY);
    // zero-fill requested part only
@@ -188,8 +197,12 @@ void* _std hlp_memallocsig(u32t size, const char *sig, u32t flags) {
    return rc;
 }
 
+void* _std hlp_memallocsig(u32t size, const char *sig, u32t flags) {
+   return alloc_common(size, CALLER(size), sig, flags);
+}
+
 void* hlp_memalloc(u32t size, u32t flags) {
-   return hlp_memallocsig(size,0,flags);
+   return alloc_common(size, CALLER(size), 0, flags);
 }
 
 /// free memory. addr must point to the begin of allocated block
@@ -199,7 +212,7 @@ void  hlp_memfree(void *addr) {
    u32t    sz,ii,stp,pos,caller=CALLER(addr);
    free_block       *sfb;
    // invalid address?
-   addrcheck(addr,caller);
+   addrcheck(addr,'f',caller);
    // position
    pos=(u32t)addr-(u32t)memtable>>16;
    // lock mt
@@ -236,7 +249,7 @@ u32t hlp_memgetsize(void *addr) {
    auto u32t* mt = memtable; // avoid 32bit offsets
    u32t   caller = CALLER(addr), pos;
    // invalid address?
-   addrcheck(addr,caller);
+   addrcheck(addr,'b',caller);
    // position
    pos=(u32t)addr-(u32t)memtable>>16;
    // lock
@@ -255,7 +268,7 @@ void* hlp_memrealloc(void *addr, u32t newsize) {
    auto free_block **mft = memftable;
    u32t  sz, nsz, caller = CALLER(addr), pos, ii;
    // invalid address?
-   addrcheck(addr,caller);
+   addrcheck(addr,'r',caller);
    if (!newsize) newsize++;
    // position
    pos=(u32t)addr-(u32t)memtable>>16;
@@ -354,7 +367,7 @@ void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason) {
       length  +=sz;
       physaddr-=sz;
       // invalid address?
-      addrcheck((void*)physaddr,caller);
+      addrcheck((void*)physaddr,'i',caller);
 
       pos = physaddr-(u32t)memtable>>16;
       sz  = Round64k(length)>>16;
@@ -363,7 +376,7 @@ void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason) {
       // check entire length is free
       if (memchrnd(mt+pos,0,sz)) {
          whyerr   = QSMR_USED;
-         physaddr = 0; 
+         physaddr = 0;
       } else {
          // mark this block as allocated
          free_block  *sfb;
@@ -372,17 +385,18 @@ void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason) {
             if (mt[ii]) break;
          sfb =(free_block*)((u32t)mt+(++ii<<16));
          fbsz=sfb->size;
-         fb_del(sfb,0,'i',caller);
+         fb_del(sfb, 0, 'i', caller);
          // free block before reserved space
-         if (pos-ii) fb_add(sfb,pos-ii,'i',caller);
+         if (pos-ii) fb_add(sfb, pos-ii, 'i', caller);
          // free block after reserved space
          if (pos+sz<ii+fbsz) fb_add((free_block*)((u32t)mt+(pos+sz<<16)),
-            ii+fbsz-(pos+sz),'i',caller);
+            ii+fbsz-(pos+sz), 'i', caller);
          // used memory
          mt[pos]=length;
          memsignlst[pos] = MAKEID4('r','e','s','v');
          while (--sz)
-            if (mt[++pos]) mterr((void*)physaddr,pos,'i',caller); else mt[pos]=FFFF;
+            if (mt[++pos]) mterr((void*)physaddr, pos, 'i', caller);
+               else mt[pos] = FFFF;
       }
       mt_swunlock();
 #ifndef INITDEBUG
@@ -464,7 +478,7 @@ u32t _std hlp_memavail(u32t *maxblock, u32t *total) {
          if (!mb) mb = size;
          while (fb) {
             // check for damaged free block header
-            fbcheck(fb,'a',caller);
+            fbcheck(fb,'m',caller);
             fb_chkhdr(fb,'m',caller,fb==mft[ii]);
             rc+=size;
             fb =fb->next;

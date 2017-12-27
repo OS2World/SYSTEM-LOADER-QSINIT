@@ -2,8 +2,8 @@
 // QSINIT API
 // various system calls
 //
-#ifndef QSINIT_SYSTEMAPI
-#define QSINIT_SYSTEMAPI
+#ifndef QSINIT_SYS_FUNCS
+#define QSINIT_SYS_FUNCS
 
 #ifdef __cplusplus
 extern "C" {
@@ -240,15 +240,35 @@ typedef struct {
    u16t _std (*convert)(u16t src, int to_unicode);
    /// unicode upper-case conversion
    u16t _std (*wtoupper)(u16t src);
-   /// uppercase table for high 128 OEM chars (should be copied)
+   /// test if the character is DBC 1st byte
+   int  _std (*dbc_1st)(u8t chr);
+   /// test if the character is DBC 2nd byte
+   int  _std (*dbc_2nd)(u8t chr);
+   /// uppercase table for high 128 OEM chars (should be copied, zero for dbcs pages)
    u8t   *oemupr;
 } codepage_info;
 
 typedef struct {
    u32t   eventtype;
    union {
-      u32t        info;
-      void       *data;
+      /** info field value:
+         SECB_IODELAY  - new IODelay value
+         SECB_DISKADD  - disk handle of added disk
+         SECB_DISKREM  - disk handle of removing disk
+         SECB_CPCHANGE - codepage_info*
+         SECB_HOTKEY   - key code in low word and keyboard status in high word.
+      info2 field value:
+         SECB_HOTKEY   - device number, where key was pressed */
+      struct {
+         u32t     info;
+         u32t    info2;
+         u32t    info3;
+      };
+      struct {
+         void    *data;
+         void   *data2;
+         void   *data3;
+      };
    };
 } sys_eventinfo;
 
@@ -275,6 +295,11 @@ typedef void _std (*sys_eventcb)(sys_eventinfo *info);
     For SECB_DISKREM only absence of SECB_THREAD flag guarantee disk presence
     at the time of call.
 
+    SECB_HOTKEY bit is not accepted here, use sys_sethotkey().
+
+    Note, that single-shot notifications like SECB_PAE & SECB_MTMODE are
+    never called if event was signaled before sys_notifyevent() call.
+
     @param   eventmask  Bit mask of events to call cbfunc (SECB_*).
     @param   cbfunc     Callback function, one address can be specified only
                         once, further calls only changes the mask, use mask 0
@@ -282,7 +307,7 @@ typedef void _std (*sys_eventcb)(sys_eventinfo *info);
     @return success flag (1/0) */
 u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 
-/// event masks for sys_notifyevent()
+/// event notification event types and flags
 //@{
 #define SECB_QSEXIT   0x00000001    ///< QSINIT exit
 #define SECB_PAE      0x00000002    ///< PAE page mode activated
@@ -292,11 +317,34 @@ u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 #define SECB_DISKADD  0x00000020    ///< new disk added (disk handle in info field)
 #define SECB_DISKREM  0x00000040    ///< disk removing (disk handle in info field)
 #define SECB_CPCHANGE 0x00000080    ///< code page changed (codepage_info* in data)
+#define SECB_LOWMEM   0x00000200    ///< insufficient of memory
+
+#define SECB_HOTKEY   0x00000100    ///< sys_sethotkey() callback (key code in info field)
 
 #define SECB_THREAD   0x40000000    ///< callback is new thread in process context
 #define SECB_GLOBAL   0x80000000    ///< global callback (see sys_notifyevent())
 //@}
 
+/** install/remove system hot-key callback.
+    Function can be called multiple times for the same callback function
+    with new "code" value, every call will *add* code to the list.
+
+    Callback will recieve sys_eventinfo record with SECB_HOTKEY in "eventtype",
+    key code in "info" field and number of source device, where key was
+    pressed in "info2" field.
+
+    Callback enumeration for hot-key processing is not intersected with
+    sys_notifyevent() events, but the same callback function can be used for
+    both cases simultaneously.
+
+    @param   code       Key value (will be removed from the user queue) or
+                        0 to remove all hot-keys for this function.
+    @param   statuskeys Keyboard status bits (KEY_SHIFT, KEY_ALT, KEY_CTRL)
+    @param   flags      Only SECB_THREAD and SECB_GLOBAL accepted here.
+    @param   cbfunc     Callback function.
+    @return error code or 0 */
+qserr    _std sys_sethotkey  (u16t code, u32t statuskeys, u32t flags,
+                              sys_eventcb cbfunc);
 
 /// flags for hlp_setupmem()
 //@{
@@ -322,4 +370,4 @@ u32t     _std hlp_setupmem(u32t fakemem, u32t *logsize, u32t *removemem, u32t fl
 }
 #endif
 
-#endif // QSINIT_SYSTEMAPI
+#endif // QSINIT_SYS_FUNCS

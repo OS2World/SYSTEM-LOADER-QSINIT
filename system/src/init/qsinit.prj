@@ -21,7 +21,9 @@ name=qsinit
 ; 0.18 - rev 394, "detach" command, exFAT support
 ; 0.19 - rev 405, floating point support, FatFs moved to START module
 ; 0.20 - rev 415, binary file editor, CD boot, svn uptime = 5 years :)
-version=0x0020
+; 0.21 - rev 428, screen sessions, "start" command, 7 years of QSINIT ;)
+; 0.22 - rev 441, HPFS r/o support, file cache
+version=0x0022
 
 ;
 ; some notes about current crazy linking + WASM:

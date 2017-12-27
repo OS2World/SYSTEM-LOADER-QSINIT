@@ -21,6 +21,12 @@ void set_errorlevel(int elvl) {
    setenv("ERRORLEVEL",errlvl,1);
 }
 
+void set_title(const char *str) {
+   char *title = str ? sprintf_dyn("cmd: %s", str) : 0;
+   se_settitle(se_sesno(), title);
+   if (title) free(title);
+}
+
 u32t execute_command(char *cmd) {
    str_list *cmd_s = str_splitargs(cmd);
    char     *cmd_f = 0;
@@ -30,6 +36,8 @@ u32t execute_command(char *cmd) {
       char ext[_MAX_EXT+1], path[_MAX_PATH];
       int search = 0, tryext = 0, err = 0, is_batch = 0;
       ext[0] = 0;
+
+      set_title(cmd);
 
       strcpy(path, cmd_s->item[0]);
       strupr(path);
@@ -80,7 +88,7 @@ u32t execute_command(char *cmd) {
                   } else err = 1;
                }
             }
-            // replacing (with care about "") command name to founded one
+            // replacing (with care about "") command name to found one
             if (!err) {
                char *ep = strstr(cmd,cmd_s->item[0]);
                if (ep) {
@@ -206,17 +214,21 @@ int cmdloop(const char *init) {
    qserr   err;
    read_history();
    do {
-      char *cmd, cdir[QS_MAXPATH+1];
-      vio_defshape(VIO_SHAPE_LINE);
+      char *cmd, cdir[QS_MAXPATH+1], *title;
+      vio_setshape(VIO_SHAPE_LINE);
 
-      err  = io_curdir(cdir, QS_MAXPATH+1);
+      err   = io_curdir(cdir, QS_MAXPATH+1);
+      set_title(err?"invalid directory":cdir);
+
       printf("\n%s=>", err?"??":cdir);
+
       cmd  = key_getstrex(editline_cb,-1,-1,-1,init);
       init = 0;
       printf("\n");
       cmd = push_history(cmd);
       if (cmd) rc = execute_command(cmd);
    } while (rc!=CMDR_RETEND);
+   set_title(0);
    return 0;
 }
 
@@ -300,5 +312,6 @@ int main(int argc,char *argv[]) {
        free(about);
        return cmdloop(init);
    }
+   set_title(0);
    return 0;
 }

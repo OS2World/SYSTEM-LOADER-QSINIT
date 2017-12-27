@@ -32,11 +32,10 @@ else
                 extrn   selfree       :near                     ;
 endif
                 extrn   _cvio_bufcommon:near                    ;
-                extrn   vh_common     :near                     ;
 
 _DATA           segment                                         ;
-                public  _cp_num                                 ;
-_cp_num         dw      0                                       ; current code page
+                public  _cp_num                                 ; current code page
+_cp_num         dw      0                                       ; (note, that it ZERO for DBCS pages)
 cpuid_supported db      0                                       ;
 msr_supported   db      2                                       ; bit 2 = init me
 ifdef EFI_BUILD
@@ -50,7 +49,7 @@ _pbin_header    dd      0                                       ;
 endif
                 align   4                                       ;
                 public  _mt_exechooks                           ;
-_mt_exechooks   mt_proc_cb_s <offset _mt_new,0,offset _mt_exit,0,0,0,0,0,0,0,offset vh_common,1,0,0>
+_mt_exechooks   mt_proc_cb_s <offset _mt_new,0,offset _mt_exit,0,0,0,0,0,0,0,1,0,0>
 
 _DATA           ends                                            ;
 
@@ -1704,17 +1703,6 @@ _mod_context    proc    near                                    ;
                 popfd                                           ;
                 ret                                             ;
 _mod_context    endp                                            ;
-
-;----------------------------------------------------------------
-; u32t _std se_sesno(void);
-                public  _se_sesno                               ;
-_se_sesno       proc    near                                    ;
-                pushfd                                          ;
-                cli                                             ;
-                mov     eax,_mt_exechooks.mtcb_sesno            ;
-                popfd                                           ;
-                ret                                             ;
-_se_sesno       endp                                            ;
 
 ;----------------------------------------------------------------
 ; u32t _std hlp_hosttype(void);

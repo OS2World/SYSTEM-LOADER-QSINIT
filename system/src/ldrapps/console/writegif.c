@@ -1,5 +1,4 @@
-#include "writegif.h"
-#include <stdlib.h>
+#include "conint.h"
 
 #define LzwTableSize 4095
 int BitMask[17]={0x0000,0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,
@@ -45,7 +44,7 @@ static int PutBits(int bb,BitBufferStruct *bs) {
       bs->usedsize++;
       bs->prevst[bs->bsize++]=(u8t)bs->BitBuffer;
       bs->HiBit-=8; bs->BitBuffer>>=8;
-      if (bs->bsize>255) { 
+      if (bs->bsize>255) {
          *(bs->prevst+=0x100)=0xFF;
          bs->bsize=1;
          bs->usedsize++;
@@ -54,35 +53,34 @@ static int PutBits(int bb,BitBufferStruct *bs) {
    return 1;
 }
 
-void *WriteGIF(int *ressize,          // result size buffer
-               void *srcdata,         // source data
-               int x,                 // x size
-               int y,                 // y size
-               GIFPalette *Palette,   // palette
-               int trcolor,           // transparent color (-1 to ignore)
-               const char *Copyright  // copyright (GIF89 only, can be 0)
-              )
+void *con_writegif(int *ressize,          // result size buffer
+                   void *srcdata,         // source data
+                   int x,                 // x size
+                   int y,                 // y size
+                   GIFPalette *Palette,   // palette
+                   int trcolor,           // transparent color (-1 to ignore)
+                   const char *Copyright) // copyright (GIF89 only, can be 0)
 {
    if (!ressize) return 0;
-   *ressize=0;
+   *ressize = 0;
    if (!srcdata||!Palette||x<=0||y<=0) return 0; else {
-      int rcsize=x*y+1024,xx,yy,result=0,
-           GIF89=Copyright||trcolor>=0&&trcolor<256;
+      int rcsize = x*y+1024, xx, yy, result = 0,
+           GIF89 = Copyright||trcolor>=0&&trcolor<256;
       CodeTableEntry *Table=0;
-      u8t *rcbuf=(u8t*)malloc(rcsize),
-           *bptr=rcbuf,
-            *src=(u8t*)srcdata,
-         *PixBuf=0,
-         *Append=0;
-      int  *Code=0,
-         *Prefix=0,
-           CBits=0;
+      u8t *rcbuf = (u8t*)malloc_th(rcsize),
+           *bptr = rcbuf,
+            *src = (u8t*)srcdata,
+         *PixBuf = 0,
+         *Append = 0;
+      int  *Code = 0,
+         *Prefix = 0,
+           CBits = 0;
       if (!bptr) return 0;
       memcpy(bptr,"GIF87a",6);
       if (GIF89) bptr[4]='9';
       bptr[6]=x&0xFF; bptr[7]=x>>8;
       bptr[8]=y&0xFF; bptr[9]=y>>8;
-      
+
       for (xx=0,yy=0;xx<x*y;xx++)
          if (src[xx]>yy) yy=src[xx];
       xx=9; while (yy<1<<xx) xx--; if (xx<0) xx=0;
@@ -91,7 +89,7 @@ void *WriteGIF(int *ressize,          // result size buffer
       yy=3<<(CBits=(xx&7)+1);
       memcpy(bptr+=13,Palette,yy);
       bptr+=yy;
-      
+
       if (GIF89&&Copyright) {
          int len=strlen(Copyright);
          if (len>255) len=255;
@@ -104,21 +102,21 @@ void *WriteGIF(int *ressize,          // result size buffer
          *bptr++=0x21; *bptr++=0xF9; *bptr++=0x04; *bptr++=0x05;
          *bptr++=0x20; *bptr++=0x00; *bptr++=trcolor; *bptr++=0x00;
       }
-      
+
       *bptr++=0x2C;
       bptr[0]=0; bptr[1]=0; bptr[2]=0; bptr[3]=0;
       bptr[4]=x&0xFF; bptr[5]=x>>8;
       bptr[6]=y&0xFF; bptr[7]=y>>8; bptr[8]=0;
       bptr+=9;
-      
-      Table =(CodeTableEntry*)malloc(sizeof(CodeTable));
-      PixBuf=(u8t*) malloc(LzwTableSize+2);
-      Code  =(int*) malloc(sizeof(SaveTable));
-      Prefix=(int*) malloc(sizeof(SaveTable));
-      Append=(u8t*) malloc(sizeof(CharTable));
-      
+
+      Table  = (CodeTableEntry*)malloc_th(sizeof(CodeTable));
+      PixBuf = (u8t*)malloc_th(LzwTableSize+2);
+      Code   = (int*)malloc_th(sizeof(SaveTable));
+      Prefix = (int*)malloc_th(sizeof(SaveTable));
+      Append = (u8t*)malloc_th(sizeof(CharTable));
+
       *bptr++=CBits;
-      
+
       if (Table&&PixBuf&&Code&&Prefix&&Append) {
          int  CCode,OldCode;
          int    CC=1<<CBits,
@@ -136,10 +134,10 @@ void *WriteGIF(int *ressize,          // result size buffer
          bs.rcsize    = rcsize;
          bs.usedsize  = bptr-rcbuf+1;
          bs.prevst    = bptr;
-         
+
          for (xx=0;xx<=Table_Size;xx++) Code[xx]=-1;
-         *bptr++=0xFF; 
-         
+         *bptr++=0xFF;
+
          do {
             if (!PutBits(CC,&bs)) break;
             OldCode=*S++; Length--;
@@ -157,10 +155,10 @@ void *WriteGIF(int *ressize,          // result size buffer
                   if (CTableSize<=4095) {
                      Code[Index]  = (short)CTableSize++;
                      Prefix[Index]= (short)OldCode;
-                     Append[Index]= (u8t)CCode;  
+                     Append[Index]= (u8t)CCode;
                      if ((CTableSize-1)>>bs.CBits) bs.CBits++;
                   } else {
-                     if (!PutBits(CC,&bs)) break; 
+                     if (!PutBits(CC,&bs)) break;
                      CTableSize=EOI+1; bs.CBits=CBits+1;
                      for (xx=0;xx<=Table_Size;xx++) Code[xx]=-1;
                   }
@@ -182,7 +180,7 @@ void *WriteGIF(int *ressize,          // result size buffer
       if (Code  ) free(Code  );
       if (Prefix) free(Prefix);
       if (Append) free(Append);
-      
+
       if (!result) {
          if (rcbuf) free(rcbuf);
          return 0;

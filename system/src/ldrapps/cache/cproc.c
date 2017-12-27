@@ -417,7 +417,7 @@ static u32t cache_io(diskinfo *di, u64t pos, u32t ssize, u8t *buf, int write) {
    while (ssize) {
       u32t   posbm = pos32k>>a_shift,
              block = 0,  // required block
-           slblock = 0;  // first founded from snext list
+           slblock = 0;  // first found from snext list
       // sectors to process in this iter
       if (!sbleft) sbleft = di->sin32k;
       if (sbleft>ssize) sbleft = ssize;

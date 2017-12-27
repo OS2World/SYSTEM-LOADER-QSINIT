@@ -32,13 +32,13 @@ static u32t envlen2(process_context *pq, u32t *lines) {
 }
 
 // make copy of process environment (in malloc buffer)
-char* _std envcopy(process_context *pq, u32t addspace) {
+char* _std env_copy(process_context *pq, u32t addspace) {
    u32t   len;
    char   *rc;
 
    env_lock();
    len = envlen(pq);
-   rc  = (char*)malloc(len+addspace);
+   rc  = (char*)malloc_local(len+addspace);
    if (rc) {
       if (addspace) memset(rc+len, 0, addspace);
       memcpy(rc, pq->envptr, len);
@@ -107,12 +107,13 @@ int __stdcall setenv(const char *name, const char *newvalue, int overwrite) {
          newlen = len + strlen(name) + strlen(newvalue) + 2; // "=" & "\0"
          // realloc env buffer
          if ((pq->flags|PCTX_BIGMEM)!=0 || mem_blocksize(pq->envptr)<newlen) {
-            char *newenv = envcopy(pq, newlen - len);
+            char *newenv = env_copy(pq, newlen - len);
+            // make it exe-module onwed, as mod_exec do
+            mem_modblockex(newenv, (u32t)pq->self);
             /* drop "large block" flag or free previously self-allocated pointer.
                we do not free original block, allocated in mod_exec */
             if (pq->flags&PCTX_BIGMEM) pq->flags&=~PCTX_BIGMEM; else
-            if (pq->flags&PCTX_ENVCHANGED) mem_free(pq->envptr);
-         
+               if (pq->flags&PCTX_ENVCHANGED) mem_free(pq->envptr);
             pq->envptr = newenv;
             pq->flags |= PCTX_ENVCHANGED;
          }

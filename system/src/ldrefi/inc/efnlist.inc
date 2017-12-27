@@ -10,7 +10,7 @@
           EFN_TMCALIBRATE   =  0                                ;
 ;u16t key_read(void);
           EFN_KEYREAD       =  1                                ;
-;u16t key_wait(u32t seconds);
+;u16t key_wait(u32t seconds, u32t *status);
           EFN_KEYWAIT       =  2                                ;
 ;u32t tm_counter(void);
           EFN_TMCOUNTER     =  3                                ; not used

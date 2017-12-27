@@ -717,7 +717,7 @@ void TEvent::getKeyEvent() {
       if (keyDown.charScan.charCode==0xE0) keyDown.charScan.charCode = 0;
       // drop scan code to make Ctrl-char working
       if (keyDown.charScan.charCode>=kbCtrlA &&
-          keyDown.charScan.charCode<=kbCtrlX &&
+          keyDown.charScan.charCode<=kbCtrlZ &&
           isLetterKey(keyDown.charScan.scanCode)) keyDown.charScan.scanCode = 0;
       // some EFI fixes ;)
       if (isFnKey(keyDown.charScan.scanCode)) keyDown.charScan.charCode = 0;

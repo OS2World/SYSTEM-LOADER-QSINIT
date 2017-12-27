@@ -104,6 +104,10 @@ typedef void*  Pointer;
 typedef List<l>                TList;
 typedef List<d>               TUList;
 typedef List<b>               TArray;
+#if defined(__LONGLONG_SUPPORT)
+typedef List<s64>             TQList;
+typedef List<u64>            TUQList;
+#endif
 typedef List<PChar>     TListOfPChar;
 typedef List<Pointer> TListOfPointer;
 typedef List<Pointer>       TPtrList;

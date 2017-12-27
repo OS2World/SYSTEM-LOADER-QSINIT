@@ -57,17 +57,17 @@ typedef struct bit_map_s {
        @param  on       search value (1/0)
        @param  length   number of bits to search
        @param  hint     position where to start
-       @return position of founded area or 0xFFFFFFFF if no one */
+       @return position of found area or 0xFFFFFFFF if no one */
    u32t    _exicc (*find   )(int on, u32t length, u32t hint);
    /** search and invert contiguous area.
        @param  on       search value (1/0)
        @param  length   number of bits to search
        @param  hint     position where to start
-       @return position of founded area or 0xFFFFFFFF if no one */
+       @return position of found area or 0xFFFFFFFF if no one */
    u32t    _exicc (*findset)(int on, u32t length, u32t hint);
    /** search for longest contiguous area.
        @param  [in]  on      search value (1/0)
-       @param  [out] start   pointer to founded position
+       @param  [out] start   pointer to found position
        @return length of area or zero if no one */
    u32t    _exicc (*longest)(int on, u32t *start);
    /** return total number of set or cleared bits.

@@ -66,6 +66,10 @@ char  opts_bootdrive() {
    return (char)sys_queryinfo(QSQI_OS2LETTER,0);
 }
 
+void  opts_settitle(const char *title) {
+   se_settitle(se_sesno(), title);
+}
+
 /* this call should dramatically cool down CPU in MT mode.
    By default Turbo Vision loops in TApplication::idle all of the time.
    This is BAD.
@@ -248,16 +252,10 @@ void  opts_free() {
    opl.Clear();
 }
 
-char  opts_bootdrive() {
-   return 0;
-}
-
-d     opts_port() {
-   return 0;
-}
-
-void  opts_yield() {
-}
+char  opts_bootdrive() { return 0; }
+d     opts_port() { return 0; }
+void  opts_yield() {}
+void  opts_settitle(const char *title) {}
 
 void  opts_bootkernel(char *name, char *opts) {
    TProgram::application->suspend();

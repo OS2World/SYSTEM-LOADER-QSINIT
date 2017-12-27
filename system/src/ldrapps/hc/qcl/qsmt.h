@@ -52,11 +52,12 @@ typedef struct qs_mtlib_s {
                                  mt_ctdata *optdata, void *arg);
    /// resume suspended thread
    qserr  _exicc (*resumethread)(u32t pid, u32t tid);
-   /// set thread comment
+   /// set thread comment (up to 16 chars)
    qserr  _exicc (*threadname)  (const char *str);
    /// start session
-   qserr  _exicc (*execse)      (u32t module, const char *env, const char *params,
-                                 u32t flags, mt_pid *ppid);
+   qserr  _exicc (*execse)      (u32t module, const char *env, const char *args,
+                                 u32t flags, u32t vdev, mt_pid *ppid,
+                                 const char *title);
 } _qs_mtlib, *qs_mtlib;
 
 #ifdef __cplusplus

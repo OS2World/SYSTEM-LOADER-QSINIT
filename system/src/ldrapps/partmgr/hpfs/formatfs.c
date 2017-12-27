@@ -357,6 +357,7 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    disk_geo_data   geo;
    fmt_info        *fd;
    u64t          wsect;
+   char         drivel = 0;
 
    hlp_volinfo(vol, &di);
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
@@ -370,9 +371,17 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
          flags |=DFMT_NOPTYPE;
          hidden = di.StartSector>=_4GBLL ? FFFF : di.StartSector;
       } else {
+         lvm_partition_data lvd;
+         u32t             flags;
          // MBR or hybrid partition
-         dsk_ptquery(di.Disk,volidx,0,0,0,0,&hidden);
+         dsk_ptquery(di.Disk,volidx,0,0,0,&flags,&hidden);
          if (hidden==FFFF) return E_PTE_EXTERR;
+         // query drive letter for the primary partition
+         if (flags&DPTF_PRIMARY)
+            if (lvm_partinfo(di.Disk, volidx, &lvd)) {
+               drivel = toupper(lvd.Letter);
+               if (drivel<'C' || drivel>'Z') drivel = 0;
+            }
       }
    }
    // turn off align for floppies
@@ -411,6 +420,7 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    if ((di.Disk&QDSK_FLOPPY)==0) fd->br.BR_EBPB.EBPB_PhysDisk = 0x80;
    // extended boot signature (28 on HPFS)
    fd->br.BR_EBPB.EBPB_Sign      = 0x28;
+   fd->br.BR_EBPB.EBPB_Dirty     = drivel?0x80+(drivel-'C'):0;
 #if 0
    memcpy(fd->br.BR_EBPB.EBPB_VolLabel, "NO NAME    ", 11);
 #endif

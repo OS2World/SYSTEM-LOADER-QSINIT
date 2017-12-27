@@ -181,8 +181,6 @@ u32t _std hpfs_format(u8t vol, u32t flags, read_callback cbprint);
 
 int  _std hpfs_dirty(u8t vol, int on);
 
-void*_std hpfs_freadfull(u8t vol, const char *name, u32t *bufsize);
-
 u32t _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint);
 
 /** update exFAT boot record.

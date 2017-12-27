@@ -11,11 +11,9 @@ boot time disk editor.
 with  runtime  and module execution support. It looks like old good DOS/4GW
 apps, but without DOS at all ;)
 
-   QSINIT  supports all options, available in well known OS/4 kernel loader
-ini  file  (os2ldr.ini).  Docs for it available in OS/4 kernel archive (for
-example,  here:  http://ru2.halfos.ru/core/downloads/).  Some additions and
-differences referenced at the end of readme. And unlike OS/4 loader, QSINIT
-has able to load OS/2 Warp type kernels (all kernels prior to Merlin FP13).
+   QSINIT  uses  OS/4 compatible configuration file (os2ldr.ini), with many
+additional  options.  Full list of options is referenced at the end of this
+file (section 12).
 
   =======================================================================
    2. Installation.
@@ -109,7 +107,7 @@ options will be shown.
 QSINIT.LDI zip archive. It support a subset of batch file syntax and define
 internal init process execution sequence.
 
-   Another (more easy) way is a creating of file qssetup.cmd in the root of
+   Another (more easy) way is a creating of QSSETUP.CMD file in the root of
 boot disk - it will be called by start.cmd just before showing menu.
 
    OS/2 boot process performed at the same way, as with IBM or OS/4 OS2LDR,
@@ -124,8 +122,8 @@ QSINIT apps menu, or type "tetris" in shell.
 
    Shell invoked by F3 key.
 
-   Shell  is  incomplete now, sorry (no complete input/output redirections,
-CON file and so on; just remember - this is not a BIG OS).
+   Shell is incomplete now, sorry (no complete input/output redirections, CON
+file and so on; just remember - this is not a BIG OS).
 
    Some shell features:
    * "sysview" app include text & binary file editors, log viewer, disk
@@ -138,6 +136,8 @@ CON file and so on; just remember - this is not a BIG OS).
       and read/write to it:
           dmgr list hd0     <- list partitions on hd0
           mount 2: hd0 4    <- mount 4th partition of hd0 as drive 2:/C:
+
+      HPFS is available to mount too, but with read-only access.
        
       Kernel from this partition can be selected for boot by typing it 
       full name in kernel options dialog, something like: 
@@ -148,38 +148,6 @@ CON file and so on; just remember - this is not a BIG OS).
          copy /boot file_on_tftp local_name 
       or unzipped:
          unzip /boot rev_arch.zip 2:\kernels
-
-    * "mtrr" command allow to edit MTRR registers directly. You must be
-      very familiar with Intel architecture to do this ;) Edited values
-      will be used for OS/2 (including SMP) - by default or you may drop
-      it by "mtrr reset" command or NOMTRR os2ldr.ini key.
-
-      You can add mtrr setup into qssetup.cmd, for example (see above).
-
-      Or you can use vmtrr utilite - it try do detect video memory size
-      and setup Write Combine automatically. Call it from settings menu
-      or add "vmtrr" string into qssetup.cmd.
-
-      One note: QSINIT must be used to load kernel file after VMTRR or
-      MTRR setup - else it leave "Write Combine" for 1st CPU only. It
-      must catch other CPUs start and setup MTRR registers in the same
-      way - but can do this only if it "main loader" (i.e. not launcher
-      of another loader via RESTART option).
-
-      Write Combine can be set for text mode video memory too, but only
-      on ATI cards (Intel and NV go crazy on this ;)). Command is:
-
-        mtrr fixed 0xB8000 0x8000 WC
-
-    * pressing LEFT SHIFT key on loading will cause skipping of start.cmd
-      and direct start of QSINIT shell (cmd.exe). This is some kind of 
-      emergency mode which allow to skip all additional processing (like
-      MTRR setup) - if this processing stops QSINIT boot.
-
-      Also, COM port output is off in this mode to prevent locking on
-      missing COM port / incorrect COM port address in os2ldr.ini.
-
-      [[Loading]] message must be red in this mode.
 
     * type "help" to get shell commands list and "help command" or 
       "command /?" to help on single command. Commands have many features,
@@ -195,10 +163,10 @@ CON file and so on; just remember - this is not a BIG OS).
       All FAT structures will be aligned to 4k (for Advanced Format HDDs).
       This can be turned off by /noaf key.
 
-      HPFS format is fully functional too (note, that QSINIT unable to read
-      and write HPFS, only able to format it). HPFS requires code page, by
-      default 850 used, but it can be selected in "chcp" command from a short
-      list of available in QSINIT.
+      HPFS format is fully functional too (note, that QSINIT unable to write
+      on HPFS, only read and format it). HPFS requires code page, by default
+      850 used, but it can be selected in "chcp" command from a short list of
+      available in QSINIT.
 
     * possibility of launching boot sector from any of primary or logical
       partitions. Command:
@@ -230,20 +198,11 @@ CON file and so on; just remember - this is not a BIG OS).
 
     * "dmgr clone" command can clone partition structure and data to another
       disk.
-      It knows nothing about file systems, but simple copying usually not
-      requires changes in file system.
+      It knows nothing about file systems, but simple copying usually can
+      be done without changes in file system.
 
       In case of FAT/exFAT/HPFS/JFS QSINIT updates boot sector of target
-      partition after cloning (set information about new location).
-
-    * There are may advantages in "dmgr" command options. For example, it can
-      set/reset dirty flag on HPFS and FAT partitions. Command
-        
-        dmgr bs a: dirty on
-
-      will force chkdsk on current boot volume.
-
-      But note, it looks like Windows is ignoring dirty flag on exFAT.
+      partition after cloning (update information about volume location).
 
     * "lvm" command can change OS/2 LVM drive letters, write LVM signatures
       to disk and some misc.
@@ -273,48 +232,32 @@ CON file and so on; just remember - this is not a BIG OS).
     * "mem hide" command can be used to hide some memory ranges from
       OS/2 (for example, if memory tests show errors in this range)
 
-    * one of non-obvious features is on-fly boot partition changing, without
-      booting from boot sector (this works with FAT & HPFS only).
-
-      Default HPFS boot sector code depends on OS/2 MBR code or VPart/AirBoot.
-      If both is absent - it can fail. In this case such emergency way can be
-      used.
-
-      At first, mount partition to QSINIT drive letter (ex. D:), then type in
-      shell:
-
-         bootos2 os2krnl source=d
-
-      and system will start booting from this partition, without boot sector
-      code using.
-
-      This mean what you can load QSINIT from flash drive with FAT32 and then
-      switch boot to HPFS partition on hdd.
+    * more of it in the section 5 below.
 
    QSINIT can be loaded by "WorkSpace On-Demand" PXE loader, but further
 loading process is untested.
 
    And a little note about QSINIT internal disks and it`s naming. QSINIT
 use ChaN`s FatFs code to access FAT/FAT32/exFAT partitions and follow its
-naming convention: all internal disks has named as 0:, 1:, 2: .. 9:
+naming convention: all internal disks has an additional names 0:, 1:,
+2: .. 9:.  A:-J: naming is supported as well.  Shell accept both variants,
+apps based on Turbo Vision library - accept A:-J: letters only.
 
-   For compatibility A:-J: naming is supported as well.  Shell accept both
-variants, apps based on Turbo Vision library - accept A:-J: letters only.
+   Virtual disk with QSINIT apps and data is always mapped to drive B:/1:
 
-   Virtual disk with QSINIT apps and data is always mapped as drive 1:/B:
-
-   On FAT/FAT32/exFAT boot - boot partition is available as drive 0:/A: and
+   On FAT/FAT32/exFAT boot - boot partition is available as drive A:/0: and
 you can modify it freely (edit text files, copy files in shell and so on...).
 
-   On FSD boot drive 0:/A: is mapped to boot partition too, but only for
-per-sector  access,  because QSINIT does not support full HPFS/JFS reading.
-But  drive  letter  still  can  be used somewhere, for example to show boot
-partition BPB:
+   HPFS file i/o is supported, but read-only.
+
+   JFS on the boot partition is mapped to the drive A:/0: too, but only for
+per-sector access, because QSINIT does not know this filesystem. But drive
+letter still can be used somewhere, for example to show boot partition BPB:
 
       dmgr bs 0: bpb
 
-   Other 8 disk numbers/letters ( 2:/C: - 9:/J: ) are free to mount of any
-FAT/FAT32/exFAT partition in system.
+   Other 8 disk numbers/letters ( C:/2: - J:/9: ) are free to mount of any
+FAT/FAT32/exFAT/HPFS partition in the system.
 
   =======================================================================
    4. Additional customization.
@@ -332,9 +275,10 @@ variable
 
    Or menu can be copied from the root of FSD boot disk - in qssetup.cmd
 
-      copy /boot menu.ini 1:\menu.ini
+      copy /boot menu.ini b:\menu.ini
 
-   This allow to make an easy changes in menu without editing archive.
+   This allow to make an easy changes in menu without editing of QSINIT.LDI
+archive.
 
    4.2 Switching to simple "boot manager" mode.
   ----------------------------------------------
@@ -358,9 +302,11 @@ of OS2LDR.INI file (see notes below).
    To set mode use
 
       mode con cols=x lines=y
+   or
+      mode con id=mode_id
 
-Maximum monitor resolution can be specified by adding string into qssetup.cmd,
-for example (DDC is not used now):
+   Maximum monitor resolution can be specified by adding an environment string
+into qssetup.cmd, for example (DDC is not used now):
 
       set vesa = on, maxw=1024, maxh=768
 
@@ -374,59 +320,166 @@ qssetup.cmd:
    "Graphic console" is much faster if you turn on write combining.
 
    Common syntax of this setup string is:
-     set vesa = on/off [, maxw=..] [, maxh=..] [, nofb]
+     set vesa = on/off [, maxw=..] [, maxh=..] [, nofb][, fbaddr=hex]
 
    NOFB parameter disable using of video memory`s linear frame pointer. This
 cause old bank switching method on VESA and EFI graphic functions usage in
-EFI build.
+EFI build. FBADDR affects EFI version only and forces video memory address
+to this value.
 
-   It is possible to use own font (binary file with 1 bit per pixel - i.e.
-8x16 x 256 chars will be 1 byte (8 bits) x 16 x 256 = 4096 bytes).
+   It is possible to use own fonts (binary file with 1 bit per pixel - i.e.
+8x16 x 256 chars will be 1 byte (8 bits) x 16 x 256 = 4096 bytes). Every
+added font will add a number of graphic console modes (one for every available
+graphic mode).
 
-   And it is possible to add own console modes on base of existing graphic
-modes (read more in "mode /?").
+   Note, that supplied with QSINIT 10x20 & 8x14 fonts have 866 codepage.
 
-   4.4 Size of QSINIT.LDI file.
+   4.4 Serial port console.
+  --------------------------
+
+   QSINIT supports serial port console (fixed to be 80x25 now).
+
+   Use "SM VADD" command to add 16550-compatible COM port as a new console
+device and then "SM ATTACH" to attach it to any active session (single session
+in default QSINIT mode and any running session(s) in MT (multithread) mode).
+
+   QSINIT simulates ANSI/VT100 terminal and should work fine with most of
+terminal programs.
+
+   Ctrl-Alt-F1 hotkey will switch current debug serial port into the such
+console and attach current on-screen session to it (if it works in 80x25),
+pressing it again will return log output back.
+
+   Via SM command you can set up a real multi-terminal environment, where
+each session will have own console (default display and several serial port
+connections).
+
+   4.5 Size of QSINIT.LDI file.
   ------------------------------
 
    Some modules can be removed from QSINIT.LDI archive without affecting
 base functionality (when it must fit into diskette image for CD boot, for
 example).
-   cache.dll - required only for r/w caching of FAT volumes (if cruel life
-               forces you to use QSINIT shell as copy utility ;)
-   cplib.dll - CHCP command, this module provides code pages for FAT/exFAT
-               and for HPFS formatting.
-   vdisk.dll - PAE ramdisk
-   vhdd.dll  - VHDD command (commonly not required at all ;)
-   mtlib.dll - threads (see below, in development and not required too)
+   cache.dll   - used only for caching of FAT volumes (if cruel life forces
+                 you to use QSINIT shell as copy utility ;)
+   cplib.dll   - CHCP command, this module provides code pages for FAT/exFAT
+                 and for HPFS formatting.
+   fslib.dll   - HPFS r/o support
+   vdisk.dll   - PAE ramdisk
+   vhdd.dll    - VHDD shell command
+   mtlib.dll   - threads, sessions (see below, not required for OS/2 boot)
+   console.dll - graphic console, "mode con" command and graphic memory
+                 information (required for VMTRR)
    msg\sysview.hlp - small help file for SYSVIEW, can be deleted too
 
    FNT files in MSG dir - custom fonts for graphic console (both in 866
-codepage) - requires for EFI build, basically (where own EFI console is a
-nightmare). They provide 80x30 and 100x42 text modes, selectable in QSINIT
+codepage) - required for EFI build, basically (where own EFI console`s speed
+is a nightmare). They provide 80x30 and 100x42 modes, selectable in QSINIT
 menu.
 
    Also, you can remove games, of course... Finally, the only things you
-need to boot is BOOTMENU.EXE, BOOTOS2.EXE, START and OS2BOOT directory.
+need to boot is BOOTMENU.EXE, MENU.INI, BOOTOS2.EXE, START.* and OS2BOOT
+directory.
+
+   4.6 ArcaOS loader OS2LDR.CFG file.
+  ------------------------------------
+
+   QSINIT supports Arca OS loader configuration file. This file is used, at
+least for HIDEMEM, MEMLIMIT, LOGSIZE, DBCARD, DBPORT, RAMDISKNAME and RAMDISK
+options.
+   But own QSINIT settings have a priority above options, listed above.
+
+   This mean, that OS2LDR.INI parameter will override LOGSIZE value.
+   
+   MEMLIMIT may be used only if it smaller, than limit, found during QSINIT
+processing - from OS2LDR.INI or rare VMTRR cut of a small part of 4th Gb.
+
+   RAMDISK and RAMDISKNAME keys will affect only if NO ramdisk present (i.e.
+no RAMDISK command was used in qssetup.cmd).
+
+   DBCARD or DBPORT options will be used if no debug COM port in use (i.e.
+OS2LDR.INI does not define it).
+
+   To remove OS2DLR.CFG processing - just delete file AOSCFG.EXE from the
+QSINIT.LDI archive.
 
   =======================================================================
-   5. "Kernel browser".
+   5. Several non-evident features.
   -----------------------------------------------------------------------
 
-   "IMPORT"  button  inside  of  kernel  options  setup  dialog will launch
-"kernel browser". This option is available for intensive testing of a large
-number of different kernel files.
+   5.1 MTRR registers setup.
+  ---------------------------
 
-   To  use this feature you must pack a number of kernels into REV_ARCH.ZIP
-and  then put it into the root of boot drive. After that, add DISKSIZE=2048
+   "mtrr" command allow to edit MTRR registers directly. You must be very
+familiar with Intel architecture to do this ;) Edited values will be used
+for OS/2 (including SMP) - by default or you may drop it by "mtrr reset"
+command or NOMTRR os2ldr.ini key.
+
+   You can add mtrr setup into qssetup.cmd, for example (see above).
+
+   Or you can use vmtrr utilite - it try do detect video memory size and
+setup Write Combine automatically. Call it from settings menu or add "vmtrr"
+string into qssetup.cmd.
+
+   Single note: QSINIT must be used to load kernel file after VMTRR or MTRR
+setup - else it leave "Write Combine" for 1st CPU only. It must catch other
+CPUs start and setup MTRR registers in the same way - but can do this only
+if it "main loader" (i.e. not launcher of another loader via RESTART option).
+
+   Write Combine can be set for text mode video memory too, but only on AMD
+cards (Intel and NV go crazy on this ;)). Command is:
+
+      mtrr fixed 0xB8000 0x8000 WC
+
+   5.2 Boot partition changing.
+  ------------------------------
+
+   One of non-obvious features is on-fly boot partition changing, without
+booting from boot sector (this works with FAT & HPFS only).
+
+   Default HPFS boot sector code depends on OS/2 MBR code or VPart/AirBoot.
+If both is absent - it can fail. In this case such emergency way can be used.
+
+   At first, mount partition to QSINIT drive letter (ex. D:), then type in
+   shell:
+
+      bootos2 os2krnl source=d
+
+   and system will start from this partition, without use of boot sector code.
+
+   This mean that you can load QSINIT from flash drive with FAT32 and then
+switch boot to HPFS partition on HDD, for example.
+
+   5.3 "Dirty" flag setup.
+  -------------------------
+
+   "dmgr" command has an ability to set/reset "dirty" flag on HPFS and FAT
+partitions. For example, command
+        
+        dmgr bs a: dirty on
+
+    will force CHKDSK on current boot volume during system startup.
+
+    But note, it looks like Windows is ignoring dirty flag on exFAT now and
+supports "dirty" for FAT/FAT32 only.
+
+   5.4 "Kernel browser".
+  -----------------------
+
+   "IMPORT" button inside of kernel options dialog (invoked by "right" key
+in the kernel selection menu) - will launch "kernel browser". This option is
+available for intensive testing of a large number of different kernel files.
+
+   To use this feature you should pack kernel files into REV_ARCH.ZIP file
+and then put it into the root of boot drive. After that, add DISKSIZE=2048
 to OS2LDR.INI "config" section.
 
    This ZIP will be loaded by pressing "IMPORT" button and any file from it
-can  be selected as kernel for current boot. This method works on FAT, HPFS
-and  PXE, but can fail on JFS boot because of bug in micro-FSD (it hangs on
-large files or access over 4Gb - this may be fixed in later JFS builds).
+can be selected as a kernel for current boot. This method works on FAT, HPFS
+and PXE, but may fail on old-formatted JFS (just try newer build`s sysinstx
+on it first).
 
-   ZIP  file  name  can be overloaded by REV_ARCH_PATH environment variable
+   ZIP file name can be overridden by REV_ARCH_PATH environment variable
 (add set REV_ARCH_PATH = ... into qssetup.cmd - see note above about it).
 
   =======================================================================
@@ -453,11 +506,18 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
     - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
       Add "NOTASK=1" to OS2LDR.INI to disable task gates in this case.
 
-    - VBox is much better, except PAE paging mode - it looks unstable.
+    - VPC does not support multitasking (no APIC timer in it).
 
-   EFI version works in QEMU only (with TianoCore), but even here small
-   troubles still possible (QEMU still have bugs in amd64 compatible mode
-   emulation).
+    - VBox is much better, except PAE paging mode - it looks unstable
+      (at least in VBox 4.x).
+
+    - in some VBox 5.x versions QSINIT on start hangs into INT 4 interrupt.
+      This is VBox bug in CPU _into_ command processing, just update QSINIT
+      to more fresh version.
+
+   EFI version works in QEMU only (with TianoCore), but even here small bugs
+   still possible (at least CPU _xlat_ command cause troubles in amd64
+   compatible mode emulation).
 
  * note, that huge USB HDDs can be non-operable via BIOS, especially on
    old motherboards. Only a starting part of disk can be readed, up to 128Gb,
@@ -469,11 +529,21 @@ large files or access over 4Gb - this may be fixed in later JFS builds).
 
  * some alternatively gifted BIOS coders (HP laptops, for example) does not
    return disk size information at all. This should not affect to OS/2 boot,
-   but for using this disk in QSINIT disk size must be detected.
+   but for using this disk in QSINIT, disk size must be detected.
 
-   "Detect size" option available in Disk Manament dialog in SysView as well
+   "Detect size" option available in Disk Management dialog in SysView as well
    as "dmgr mode" command is able to set number of sectors directly.
 
+ * pressing LEFT SHIFT key on loading will cause skipping of QSSETUP.CMD and
+   direct start of QSINIT shell (cmd.exe). This is some kind of emergency mode
+   which allow to skip any additional processing (like MTRR setup) - if this
+   processing stops QSINIT boot.
+
+   Also, COM port output is off in this mode to prevent locking on missing
+   port / incorrect port address in os2ldr.ini.
+
+   [[Loading]] message is red in this mode. If it green then you are too
+   slow :)
 
   =======================================================================
    7. QSINIT boot details.
@@ -605,26 +675,32 @@ the latest version.
    By default, this mode is OFF and QSINIT still an old good single-thread
 DOS-like environment.
 
-   "Mode sys mt" command (or API call) will switch it to more OS-like
-mode, where process can have some threads and, even, DETACH command is
-ready. No screen sessions & session switching now, it is still "single
-screen" only. But DETACH command can be helpful for some long actions,
-for example copying of huge zip file from TFTP server (PXE boot):
+   "Mode sys mt" command (or API call) will switch it to more OS-like mode,
+where threads and sessions are available. START and DETACH shell commands
+will also turn this mode on use.
+
+    There is no pretty "task list" and session kill now, only session
+switching by Alt-Esc key (Ctrl-N in serial port console). But it still
+useful for some long actions, for example copying of huge zip file from
+TFTP server (PXE boot):
 
      detach copy /boot /beep huge_file_via_pxe.zip c:\
 
    Another one advancement is using of "hlt" during idle time, i.e. QSINIT
 in MT mode will save power/CPU temperature.
 
-   Most of QSINIT code is thread safe now (except console output).
+   Most of QSINIT code is thread safe now.
 
    Multithreading is far from ideal. For example, long file write operations
-can cause huge delays for other threads, but (!!!) - this is not a premium
+can cause huge delays for other threads, but, hey!! - this is not a premium
 desktop OS :)
+   At least, you can play tetris while second session searches data on the big
+HDD - this is real.
 
    Additional setup is available, by SET string in qssetup.cmd:
 
-     set mtlib = on/off [, timeres=..] [, kbres=..]
+     set mtlib = on/off [, timeres=..]
+     set kbres = value
 
    where OFF parameter will disable MT mode at all, TIMERES sets thread "tick"
 time, in milliseconds (default is 16 (4 in EFI build)) and KBRES is keyboard
@@ -635,31 +711,75 @@ hotkeys (various dumps) works in it at any time.
 
 
   =======================================================================
-  11. Additions in kernel loading and OS2LDR.INI
-      in comparision with OS/4 loader.
+  11. Supported kernels
   -----------------------------------------------------------------------
-
-   Warp  3  and Merlin (up to FP12) kernels can be loaded as well as Aurora
-type  kernels.  Memory for such kernels is limited to 1Gb (if anybody knows
-real  limit  -  please, tell me ;) Warp Server SMP kernel is not supported.
+   Warp 3 and Merlin (up to FP12) kernels can be loaded as well as Aurora
+type kernels. Memory for such kernels is limited to 1Gb (if anybody knows
+real limit  -  please, tell me ;) Warp Server SMP kernel is not supported.
 This is possible, but who really need it?
+
    Kernel type is determined automatically.
 
-   In  OS2LDR.INI  only  DBPORT,  DBCARD, DISKSIZE, NOAF, BAUDRATE, UNZALL,
-PCISCAN_ALL,  MFSPRINT  and RESETMODE keys affect QSINIT, any other is used
-for OS/2 kernel menu/boot only.
+   OS/4 kernel requires additional processing as well. It is difficult a
+bit to support it, because this is closed-source project. But, at least now,
+QSINIT should load any revision of it.
 
-   LETTER,  LOGLEVEL, NOAF, CPUCLOCK, NOMTRR and BAUDRATE can be added both
-to  kernel  parameters  line  and to "config" section; DISKSIZE, RESETMODE,
-USEBEEP,  NOCLOCK,  UNZALL,  DBCARD and PCISCAN_ALL have effect in "config"
-section only.
+  =======================================================================
+  12. OS2LDR.INI file format.
+  -----------------------------------------------------------------------
 
-   VALIMIT option can be used without memory size value, in this case value
-of VIRTUALADDRESSLIMIT in CONFIG.SYS will be used (this is actual for later
-OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
+   OS2LDR.INI format is simple:
 
- * DISKSIZE  - additional space for qsinit "virtual disk" in kb. Required by
-               "kernel browser" option above.
+      [config]
+      ; default kernel index (1..x) for kernel menu ([kernel] section below)
+      default=1
+      ; default index (1..x) for partition boot menu
+      default_partition = 4
+      ; timeout, in sec - to wait before default item will be started
+      timeout=4
+   
+      ; common options
+      dbport=0x3F8
+      ...
+   
+      [kernel]
+      <kernel file name> = menu string [, option, option ...]
+      ...
+      OS2KRNL = Common boot
+      OS2KRNL = Common boot with Alt-F2, ALTF2
+   
+      [partition]
+      disk/partition [, boot sector file] = menu string [, option, option ...]
+      ...
+      hd0/0 = Boot 1st partition of disk 0
+      hd0/0,bootsect.dos = The same but use bootsect.dos file as a boot sector
+      hd1/0 = Boot 1nd partition of disk 1
+      hd2   = Boot MBR of disk 2 (with MTRR reset), nomtrr
+
+      ; comments supported only on 1st posistion of the line
+      
+   A new section "[partition]" is available in OS2LDR.INI. It defines a list
+of partitions to boot and available from "Boot partition" menu in QSINIT.
+   This menu will also be selected as default if no "[kernel]" available.
+
+   OS2LDR.INI can be shared with OS/4 loader, but the last one ignores unknown
+sections, so this is not a problem.
+
+   Partition indexes for "[partition]" can be queried by pressing F7 in menu.
+   Boot sector file can be specified by direct QSINIT path or will be searched
+in the root of this partition (any FAT type).
+
+   TIMEOUT and USEBEEP parameters affect [partition] menu too (timeout counter
+occurs during first launch only).
+   Options for boot partition menu can be added to menu line only. Only two
+of them is supported now: CPUCLOCK and NOMTRR.
+
+
+   Alphabetical list of OS2LDR.INI options:
+
+ * ALTE      - (OS/4) invoke embedded config.sys editor during kernel startup.
+
+ * ALTF1..ALTF5 - simulate Alt-F1..Alt-F5 keypress for kernel.
 
  * BAUDRATE  - debug COM port baud rate (115200 by default). BAUDRATE in 
                "config" section will affect both QSINIT and OS/2 kernel, in
@@ -667,62 +787,23 @@ OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
                Supported values: 150,300,600,1200,2400,4800,9600,19200,38400,
                57600 and 115200.
 
- * NOAF      - turn OFF Advanced Format aligning for disk read/write ops. 
-               Affect both QSINIT and OS/2 boot (until IDE/SATA driver load).
-               By default most of long i/o ops aligned to 4k.
+ * CALL=batch_file - call QSINIT batch file just before starting kernel.
+               "batch_file" must be a fully qualified path in QSINIT!
+               I.e. A:\BATCH.CMD (boot disk, possible on FAT boot only), or
+               C:\dir1\batch.cmd (from mounted volume).
+               VIEWMEM (if specified) will be called after this batch file and
+               then kernel will be launched.
 
- * RESETMODE - in addition to RESETMODE=1 support number of text lines to set:
-               RESETMODE=25, RESETMODE=43 and RESETMODE=50;
-               This option will reset display mode to 80x25 before menu or
-               reset it to selected number of lines (80x25, 80x43, 80x50).
+               At this CALL time kernel has loaded and fixuped in their memory
+               location, but QSINIT still fully functional. This is possible
+               because QSINIT never touches kernel memory areas.
 
- * LETTER=X  - allow to change boot drive letter for OS/2.
-               This option only changes letter, not partition. Wrong letter
-               sometimes can be supplied by Boot Manager, for example.
+ * CFGEXT=EXT - use CONFIG.EXT file instead of CONFIG.SYS. File must be placed
+               in the root directory. EXT - extension, up to 3 chars.
 
- * SOURCE=X  - changes boot partition for OS/2 boot, where X - QSINIT drive
-               letter of mounted (to QSINIT!) FAT or HPFS partition. I.e. this
-               key can change boot partition to any available FAT or HPFS with
-               OS/2 - without reboot.
-               Basically, it designed for booting from PAE RAM disk, but works
-               in common case too.
-
- * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
-               configurations). It will beep with one tone on first line and
-               another tone on any other.
-
- * NOCLOCK=1 - turn off clock in menus
-
- * LOGLEVEL=0..3 - maximim level of QSINIT log messages to copy to OS/2 kernel
-               log. By default - messages is not copied at all.
-
- * UNZALL=1  - unpack all modules from QSINIT.LDI to virtual disk duaring init.
-               By default, EXE/DLL modules only reserve space on disk - until
-               first usage. Option suitable to check QSINIT.LDI consistency on
-               every boot (unstable PXE connection or devices with bad sectors).
-
- * MFSPRINT=1  allow usage of BIOS screen and keyboard services by micro-FSD
-               code (filesystem bootstrap).
-
-               By default QSINIT blocks them during read from boot device. This
-               cause elimination of JFS boot copyright message (a kind of
-               garbage on screen) and deactivate PXE BIOS keyboard polling for
-               ESC key (i.e., PXE BIOS stucks keyboard until the end of file
-               load).
-
-               Turning this option on is actual only for someone, who writes
-               micro-FSD :)
-
- * DEFMSG    - use OS2LDR.MSG file instead of embedded messages.
-
- * NOMTRR    - do not use MTRR changes, was done in QSINIT for OS/2 boot.
-
-               This key works in partition menu too.
-               This key can be actual for NTLDR`s graphic mode (with menu
-               on national language).
-
- * VIEWMEM   - open memory editor just before starting kernel (when it ready to
-               launch).
+ * CHSONLY   - ansient HDDs supports (switch BIOS disk i/o to CHS mode during
+               kernel boot).
+               This mode can also be set by DMGR MODE command in QSINIT shell.
 
  * CPUCLOCK=1..16 - setup clock modulation on Intel CPUs. 1 = 6.25% of speed,
                16 = 100%. On middle aged processors actual step is 12.5% (it
@@ -739,16 +820,9 @@ OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
 
                This key works both in OS/2 boot and partitions menu.
 
- * CALL=batch_file - call QSINIT batch file just before starting kernel.
-               "batch_file" must be a fully qualified path in QSINIT!
-               I.e. A:\BATCH.CMD (boot disk, possible on FAT boot only), or
-               C:\dir1\batch.cmd (from mounted volume).
-               VIEWMEM (if specified) will be called after this batch file and
-               then kernel will be launched.
-
- * PCISCAN_ALL=1 - scan all 256 PCI buses. By default QSINIT scan only number
-               of buses, reported by PCI BIOS. This key can be really slooooow
-               on old PCs (2 minutes on my PPro).
+ * CTRLC=1   - (OS/4, >=2970) enable Ctrl-C check for kernel debugger. This
+               options slows the system reasonably. It fources kernel debugger
+               to check for incoming Ctrl-C via serial port periodically.
 
  * DBCARD = bus.slot.func,port_index  or
    DBCARD = vendor:device,[index,]port_index - query address of PCI COM port
@@ -773,40 +847,144 @@ OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
                DBCARD=9710:9835,3         <- port E800h
                DBCARD=4.2.0,2             <- port E880h
 
+ * DBPORT=addr - debug COM port address. Dec or 0xHEX value.
+               This option turns COM port ON earlier, than DBCARD, but DBCARD
+               is less dependent on PCI configuration changes.
 
-   Also,  new section "[partition]" is available in OS2LDR.INI. It define a
-list  of partitions to boot and available to use from "Boot partition" menu
-in QSINIT.
+ * DEFMSG    - use OS2LDR.MSG file instead of embedded messages.
 
-   OS2LDR.INI  can  be  shared  with  OS/4  loader, but it ignores unknown
-sections, so this is not a problem.
-   Section format is very simple:
+ * DISKSIZE=value - additional space in QSINIT "virtual disk", kb. Required
+               for "kernel browser" option above.
 
-   [partition]
-   hd0/0 = Boot 1st partition of disk 0
-   hd0/0,bootsect.dos = The same but use bootsect.dos file as boot sector
-   hd1/0 = Boot 1nd partition of disk 1
-   hd2   = Boot MBR of disk 2 (with MTRR reset), nomtrr
+ * FULLCABLE=1 - use hardware flow control for COM port cable (requires full
+               cable, off by default).
 
-   I.e. syntax:
-   disk/partition [, boot sector file] = menu string [, option, option ...]
+ * LETTER=X  - allow to change boot drive letter for OS/2.
+               This option only changes letter for later boot, not partition.
+               Wrong letter sometimes can be supplied by Boot Manager.
 
-   Partition index can be queried by pressing F7 in menu.
-   Boot sector file can be specified by direct QSINIT path or will be searched
-in the root of this partition (any FAT type).
+ * LOADSYM   - (OS/4, >=4058) load SYM file by loader, not kernel.
 
-   TIMEOUT and USEBEEP parameters will affect this menu too (timeout counter
-occurs on first launch only).
-   Options for boot partition menu can be added to menu line only. Only two
-of them is supported now: CPUCLOCK and NOMTRR.
+ * LOGSIZE=value - set log size for resident part of loader, in kb. This value
+               will rounded down to nearest 64k.
+               Boot log is avalable on OS/2 user level:
+                  "copy ___hlp$ boot.log"  - with ACPI.PSD running
+                  "copy oemhlp$ boot.log"  - without ACPI.PSD
 
-   Default string number is "default_partition" key in "[config]" section
-(in the same way with kernel setup):
+ * LOGLEVEL=0..3 - maximim level of QSINIT log messages to copy to OS/2 kernel
+               log. By default - messages is not copied at all.
 
-   [config]
-   default_partition = 4
+ * LOGOMASK=value - (OS/4) bit mask to disable vesa mode usage for new logo.
+               Bit 0 - 8 bit color, 1 - 15bit, 2 - 16bit, 3 - 24bit, 4 - 32bit
+               I.e. value of 31 (or 0x1F) - all modes enabled
 
-   will select "Boot MBR of disk 2" as default.
+ * MEMLIMIT=value - limit available memory for OS/2 to specified value in Mb.
+               Where value >=16 & less than total available memory below 4Gb.
+
+ * MENUPALETTE=value - color values for kernel selection menu: byte 0 - text
+               color, 1 - selected row color, 2 - background, 3 - border.
+               Default value is 0x0F070F01.
+
+ * MFSDSYM=name - (OS/4, >=4058) use "name" as a SYM file for mini-FSD.
+
+ * MFSPRINT=1  allow usage of BIOS screen and keyboard services by micro-FSD
+               code (filesystem bootstrap).
+
+               By default QSINIT blocks them during read from boot device. This
+               cause elimination of JFS boot copyright message (a kind of
+               garbage on screen) and deactivate PXE BIOS keyboard polling for
+               ESC key (i.e., PXE BIOS stucks keyboard until the end of file
+               load).
+
+               Turning this option on is actual only for someone, who writes
+               micro-FSD :)
+
+ * NOAF      - turn OFF Advanced Format aligning for disk read/write ops. 
+               Affect both QSINIT and OS/2 boot (until IDE/SATA driver load).
+               By default most of long i/o ops aligned to 4k.
+
+ * NOCLOCK=1 - turn off clock in QSINIT menus
+
+ * NODBCS    - disable DBCS file loading (OS2DBCS, OS2DBCS.FNT). Option saves
+               a small amount of memory in 1st Mb for drivers on DBCS systems
+               and has no any other special effects (except missing graphic
+               console on early boot stage).
+
+ * NOLOGO    - do not show kernel logo.
+
+ * NOMTRR    - do not use MTRR changes, was done in QSINIT for OS/2 boot.
+
+               This key works in partition menu too.
+               This key can be actual for NTLDR`s graphic mode (with menu
+               on national language).
+
+ * NOREV     - do not show kernel revision.
+
+ * PCISCAN_ALL=1 - scan all 256 PCI buses. By default QSINIT scan only number
+               of buses, reported by PCI BIOS. This key can be really slooooow
+               on old PCs (2 minutes on my PPro).
+
+ * PRELOAD=1 - (OS/4, >=2075) preload all files for BASEDEV boot stage before
+               starting to launch them (as Windows do).
+               See detailed reference in OS/4 documentation.
+
+ * REIPL=value - reboot PC after fatal QSINIT errors (traps). value - number
+               of seconds before reboot (>=1). By default - off.
+
+ * RESETMODE=1 - This option will reset display mode to 80x25 before menu or
+               reset it to selected number of lines (80x25, 80x43, 80x50).
+               Number of text lines can typed instead of 1: RESETMODE=25,
+               RESETMODE=43 or RESETMODE=50.
+
+ * RESTART   - this option turns off ANY other options and loads file in
+               kernel selection menu as another OS2LDR (loader, not a kernel).
+
+               I.e. this is "restart loader" option.
+               It does not work for PXE boot (ask Moveton why).
+
+               It able to load Windows XP NTLDR on FAT16 partition :) As said
+               above, this is the legacy of time, when MS & IBM were friends.
+
+ * SOURCE=X  - changes boot partition for OS/2 boot, where X - QSINIT drive
+               letter of mounted (to QSINIT!) FAT or HPFS partition. I.e. this
+               key can change boot partition to any available FAT or HPFS with
+               OS/2 - without reboot.
+               Basically, it designed for booting from PAE RAM disk, but works
+               in common case too.
+
+ * SYM=name  - use "name" as SYM file for DEBUG kernel.
+               Filename is up to 11 chars length (7.3, limited by patching
+               of original IBM kernels)
+
+ * UNZALL=1  - unpack all modules from QSINIT.LDI to virtual disk duaring init.
+               By default, EXE/DLL modules only reserve space on disk - until
+               first usage. Option suitable to check QSINIT.LDI consistency on
+               every boot (unstable PXE connection or devices with bad sectors).
+
+ * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
+               configurations). It will beep with one tone on first line and
+               another tone on any other.
+
+ * VALIMIT[=value] (OS/4, >=4199) VIRTUALADDRESSLIMIT value, in Mb.
+               Key can be used without memory size value, in this case value
+               of VIRTUALADDRESSLIMIT in CONFIG.SYS will be used (actual for
+               later OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
+
+ * VIEWMEM   - open memory editor just before starting kernel (when it ready to
+               launch).
+
+
+   In  OS2LDR.INI  only  DBPORT,  DBCARD, DISKSIZE, NOAF, BAUDRATE, UNZALL,
+USEBEEP, PCISCAN_ALL, MFSPRINT, REIPL and RESETMODE keys affect QSINIT, any
+other is used for OS/2 kernel menu/boot only.
+
+   LETTER,  LOGLEVEL, NOAF, CPUCLOCK, NOMTRR and BAUDRATE can be added both
+to  kernel  parameters  line  and to "config" section; DISKSIZE, RESETMODE,
+USEBEEP,  NOCLOCK,  UNZALL,  DBCARD and PCISCAN_ALL have effect in "config"
+section only.
+
+   File also can be named as QSINIT.INI - and this name has a priority. This
+allows to solve possible problems with OS/4 loader.
 
 
    Other differences:
@@ -837,6 +1015,6 @@ of them is supported now: CPUCLOCK and NOMTRR.
    QSINIT source code available in SDK archive.
 
    PXEOS4 package: ftp://212.12.30.18/public/pxeos4-1.130817.zip
-     newer versions here: http://moveton.ho.ua/files
+     newer versions here: http://moveton.tk/files
 
    Author: dixie, e-dixie@mail.ru

@@ -6,6 +6,7 @@
                 .xmm3
 
                 include inc/cpudef.inc
+                include inc/qspdata.inc
                 include inc/pci.inc
 
                 MSR_IA32_MTRR_DEF_TYPE = 02FFh
@@ -20,6 +21,7 @@ CODE32          segment dword public USE32 'CODE'
 
                 extrn   _fpu_xcpt_nm :near
                 extrn   _fpu_rmcallcb:near
+                extrn   _mt_exechooks:mt_proc_cb_s
 
 ;----------------------------------------------------------------
 ;void _std hlp_mtrrmstart(u32t *state);
@@ -119,7 +121,7 @@ _hlp_mtrrmstart endp                                            ;
 ;  bit CPU_CR0_CD       -
 ;  bit CPU_CR0_PG       - PGE must be ignored if PG is 0
 ;
-;  warning! whose bit accessed from syshlp.c code
+;  warning! these bits accessed from syshlp.c code
 
                 public  _hlp_mtrrmend
 _hlp_mtrrmend   proc  near
@@ -321,6 +323,17 @@ _fpu_statesave  proc    near                                    ;
                 fsave   [eax]                                   ;
                 ret     4                                       ;
 _fpu_statesave  endp                                            ;
+
+;----------------------------------------------------------------
+; u32t _std se_sesno(void);
+                public  _se_sesno                               ;
+_se_sesno       proc    near                                    ;
+                pushfd                                          ;
+                cli                                             ;
+                mov     eax,_mt_exechooks.mtcb_sesno            ;
+                popfd                                           ;
+                ret                                             ;
+_se_sesno       endp                                            ;
 
 ;----------------------------------------------------------------
 ;void _std fpu_staterest(void *buffer);

@@ -18,8 +18,11 @@ typedef u16t fig[4][4];
 
 u16t glass[SIZE_Y][SIZE_X];
 u8t  gcol [SIZE_Y][SIZE_X];
-int       x,y,rotate,level;
-long        score,nextTIME;
+int       x,y,rotate,level,
+                  shownext = 0;
+long        score,nextTIME,
+                 prevshore = -1,
+                   prevlvl = -1;
 u16t        figCUR,figNEXT;
 u16t                base_y = 0;     ///< offset from top to make it aligned vertically
 
@@ -64,25 +67,37 @@ fig rot[7][4] = {
 };
 
 
+/* optimized a bit - to be fast on serial port console ;) */
 void print() {
    char prtbuf[32];
-   int  ii,jj;
-   textcolor(0x07);
-   for (ii=1;ii<=SIZE_Y;ii++) {
-      gotoxy(10,ii);
-      vio_charout('º'); // Û
-      for (jj=1;jj<=SIZE_X;jj++) {
-         if (glass[ii-1][jj-1]) {
-           textcolor(0x0|gcol[ii-1][jj-1]);
-           vio_strout("°°"); // °±²ß
+   u16t    buf[64], *pb,
+           col = VIO_COLOR_WHITE<<8;
+   int   ii,jj;
+   for (ii=0; ii<SIZE_Y; ii++) {
+      pb    = buf;
+      *pb++ = col|'º';
+      for (jj=0; jj<SIZE_X; jj++) {
+         if (glass[ii][jj]) {
+           col = (u16t)gcol[ii][jj]<<8;
+           *pb++ = col|'°';
+           *pb++ = col|'°';
          } else {
-           textcolor(0x07);
-           vio_strout("  ");
+           col = VIO_COLOR_WHITE<<8;
+           *pb++ = col|' ';
+           *pb++ = col|' ';
          }
       }
-      textcolor(0x07);
-      vio_charout('º');
+      col = VIO_COLOR_WHITE<<8;
+      *pb++ = col|'º';
+      vio_writebuf(9, ii+base_y, SIZE_X*2+2, 1, &buf, 0);
    }
+   col = VIO_COLOR_WHITE<<8;
+   pb  = buf;
+   *pb++ = col|'ß';
+   for (ii=0; ii<SIZE_X; ii++) { *pb++ = col|'ß'; *pb++ = col|'ß';}
+   *pb++ = col|'ß';
+   vio_writebuf(9, SIZE_Y+base_y, SIZE_X*2+2, 1, &buf, 0);
+
    for (ii=1;ii<=4;ii++)
       for (jj=1;jj<=4;jj++)
          if (rot[figCUR][rotate-1][ii-1][jj-1]) {
@@ -91,24 +106,27 @@ void print() {
             vio_strout("ÛÛ");
          }
    textcolor(0x07);
-   gotoxy(10,SIZE_Y+1);
-   vio_charout('ß'); //È
-   for (ii=1;ii<=SIZE_X;ii++) vio_strout("ßß"); // ÍÍ
-   vio_charout('ß'); //¼
-   textcolor(0x07);
-   snprintf(prtbuf,32,"Score:%d        ",score);
-   gotoxy(POS_INF0,10); vio_strout(prtbuf);
-   snprintf(prtbuf,32,"Level:%d        ",level);
-   gotoxy(POS_INF0,11); vio_strout(prtbuf);
-   gotoxy(POS_INF0,2); vio_strout("NEXT:");
-   textcolor(color[figNEXT]);
-   for (ii=1;ii<=4;ii++) {
-      gotoxy(POS_INF0,2+ii);
-      for (jj=1;jj<=4;jj++)
-         if (rot[figNEXT][1][ii-1][jj-1]) vio_strout("²²");
-            else vio_strout("  ");
+   if (score!=prevshore) {
+      snprintf(prtbuf, 32, "Score:%d        ", prevshore = score);
+      gotoxy(POS_INF0,10); vio_strout(prtbuf);
    }
-   textcolor(0x07);
+   if (level!=prevlvl) {
+      snprintf(prtbuf, 32, "Level:%d        ", prevlvl = level);
+      gotoxy(POS_INF0,11); vio_strout(prtbuf);
+   }
+   if (shownext) {
+      gotoxy(POS_INF0,2); vio_strout("NEXT:");
+      textcolor(color[figNEXT]);
+      for (ii=1;ii<=4;ii++) {
+         gotoxy(POS_INF0,2+ii);
+         for (jj=1;jj<=4;jj++)
+            if (rot[figNEXT][1][ii-1][jj-1]) vio_strout("²²");
+               else vio_strout("  ");
+      }
+      textcolor(0x07);
+      shownext = 0;
+   } else
+      gotoxy(POS_INF0+5,2);
 }
 
 void GenNew() {
@@ -122,13 +140,14 @@ void GenNew() {
    }
    x=5; y=0;
    nextTIME=timer+15/level;
+   shownext = 1;
 }
 
 void init() {
    key_speed(0,0);
    textcolor(0x07);
-   level=1;
-   figNEXT=0xFF;
+   level   = 1;
+   figNEXT = 0xFF;
    score=0;
    clrscr();
    memset(glass,0,sizeof(glass));
@@ -229,20 +248,18 @@ void done() {
 }
 
 void main() {
-   u16t oldshape;
    u32t     cols, lines;
-   /* reset mode to 80x25 if it too large for us
-      this allow to playing in 80x30 virtual console mode */
+   /* reset to 80x25 if mode too large for us, but allows to play
+      in 80x30 (virtual console mode) */
    if (!vio_getmode(&cols, &lines) || cols!=80 || lines>30) vio_resetmode(); else {
       base_y = (lines - 25) / 2;
       clrscr();
    }
-   // save old shape & hide cursor
-   oldshape = vio_getshape();
-   vio_setshape(0x20,0);
+   // hide cursor.
+   vio_setshape(VIO_SHAPE_NONE);
    init();
    run();
    done();
-   // restore cursor
-   vio_setshape(oldshape>>8,oldshape&0xFF);
+   // show cursor
+   vio_setshape(VIO_SHAPE_WIDE);
 }

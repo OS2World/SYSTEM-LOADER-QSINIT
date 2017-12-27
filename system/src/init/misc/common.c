@@ -3,6 +3,7 @@
 #include "qslocal.h"
 #include "qsvdata.h"
 #include "qsxcpt.h"
+#include "qcl/sys/qsvioint.h"
 
 extern stoinit_entry    storage_w[STO_BUF_LEN];
 extern u8t*              logrmbuf;
@@ -11,7 +12,6 @@ static int           in_exit_call = 0;
 static u8t            exit_called = 0;
 extern u16t              text_col;
 extern u8t             cvio_blink;
-extern u32t         cvio_ttylines;
 #ifndef EFI_BUILD
 extern u16t             logbufseg;
 extern u8t                restirq; // restore IRQs flag
@@ -22,8 +22,6 @@ void getfullSMAP(void);
 void poweroffpc(void);
 void biostest(void);
 #endif
-void setbaudrate(void);
-void earlyserinit(void);
 
 // some externals
 int  _std _snprint(char *buf, u32t count, const char *fmt, long *argp);
@@ -41,7 +39,6 @@ void _std cvio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, 
 int  _std cvio_setmodeex(u32t cols, u32t lines);
 void _std cvio_intensity(u8t value);
 u8t  _std ckey_pressed(void);
-u16t _std key_read_nw(void);
 void _std cb_codepage(sys_eventinfo *info);
 
 /// put message to real mode log delay buffer
@@ -92,20 +89,38 @@ void _std exit_restirq(int on) {
 
 static u16t check_rate[10] = {150,300,600,1200,2400,4800,9600,19200,38400,57600};
 
+int _std checkbaudrate(u32t baudrate) {
+   return baudrate==115200 || memchrw(check_rate,baudrate,10)!=0;
+}
+
 int _std hlp_seroutset(u16t port, u32t baudrate) {
    if (baudrate)
-      if (baudrate==115200 || memchrw(check_rate,baudrate,10)!=0)
-         BaudRate = baudrate;
-      else
+      if (checkbaudrate(baudrate)) BaudRate = baudrate; else
          return 0;
    mt_swlock();
-   if (port==0xFFFF) ComPortAddr = 0; else
-   if (port) {
-      ComPortAddr = port;
-      earlyserinit();
-   } else
-   if (baudrate && ComPortAddr) setbaudrate();
+   if (port==0xFFFF) ComPortAddr = 0; else {
+      if (port) serial_init(ComPortAddr = port); else
+         if (baudrate && ComPortAddr) hlp_serialrate(ComPortAddr, baudrate);
+      // reset lock
+      if (mod_secondary && mod_secondary->dbport_lock)
+         mod_secondary->dbport_lock = 0;
+   }
    mt_swunlock();
+   return 1;
+}
+
+int _std hlp_serialset(u16t port, u32t baudrate) {
+   if (!port) return 0;
+   if (!baudrate) baudrate = 115200;
+   if (!checkbaudrate(baudrate)) return 0;
+
+   mt_swlock();
+   if (port==ComPortAddr)
+      if (mod_secondary) mod_secondary->dbport_lock = 1; else ComPortAddr = 0;
+   serial_init(port);
+   hlp_serialrate(port, baudrate);
+   mt_swunlock();
+
    return 1;
 }
 
@@ -176,7 +191,7 @@ int __cdecl log_printf(const char *fmt,...) {
    return _log_it(1, fmt, ((long*)&fmt)+1);
 }
 
-int _std log_vprintf(const char *fmt, long *argp) {
+int _std _log_vprintf(const char *fmt, long *argp) {
    return _log_it(1, fmt, argp);
 }
 
@@ -257,87 +272,53 @@ stoinit_entry *sto_init(void) {
 }
 
 /**************************************************************************/
+/** wait key with timeout.
+    Be careful, key_wait() uses seconds in timeout, but this function - milliseconds.
+
+    @param       ms       time to wait for, ms. Value of 0xFFFFFFFF means forever.
+    @param [out] status   ptr to keyboard status at the moment of key press,
+                          can be 0.
+    @return key code or 0 */
+u16t _std ckey_waitex(u32t ms, u32t *status) {
+   qsclock  sclk;
+   u16t  keycode = key_read_nw(status);
+   if (keycode || !ms) return keycode;
+
+   sclk  = sys_clock();
+   while (1) {
 #ifdef EFI_BUILD
-static u8t hltflag = 0;
-#define SLEEP_TIME  10
+      usleep(10000);
 #else
-static u8t hltflag = 1;
-#define SLEEP_TIME  20
+      cpuhlt();
 #endif
+      keycode = key_read_nw(status);
 
-int _std key_waithlt(int on) {
-   int prev = hltflag;
-   hltflag  = on?1:0;
-   return prev;
-}
-
-u16t _std ckey_wait(u32t seconds) {
-   u32t    btime, diff;
-   u16t  keycode = key_read_nw();
-
-   if (keycode || !seconds) return keycode;
-
-   btime = tm_counter();
-   diff  = 0;
-   while (seconds>0) {
-       if (hltflag) cpuhlt(); else usleep(SLEEP_TIME*1000); // 10-20 ms
-       keycode = key_read_nw();
-
-       if (keycode) return keycode; else {
-          u32t now = tm_counter();
-          if (now != btime) {
-              if ((diff+=now-btime)>=18) { seconds--; diff = 0; }
-              btime = now;
-          }
-       }
+      if (keycode) return keycode; else 
+      // it will never be greater, than 0xFFFFFFFF
+      if ((u32t)((sys_clock()-sclk)/1000) > ms) break;
    }
    return 0;
 }
 
+// this function goes via current vio router
+u16t _std key_wait(u32t seconds) {
+   return key_waitex(seconds>FFFF>>10?FFFF:seconds*1000, 0);
+}
+
 u16t _std ckey_read() {
 #ifdef EFI_BUILD
-   return ckey_wait(x7FFF);
+   return ckey_waitex(FFFF,0);
 #else
    // goes to real mode for a while until MTLIB start
-   return mt_exechooks.mtcb_yield ? ckey_wait(x7FFF) : key_read_int();
+   return mt_exechooks.mtcb_yield ? ckey_waitex(FFFF,0) : key_read_int();
 #endif
 }
 
-/**************************************************************************/
-/* this function called in MT locked state only, during session switching,
-   so be careless here */
-vio_session_data* _std cvio_savestate(void) {
-   vio_session_data *rc;
-   u32t     cols, lines;
-   cvio_getmodefast(&cols, &lines);
-   // mod_secondary should be here
-   rc = (vio_session_data*)mod_secondary->mem_alloc(QSMEMOWNER_SESTATE, 0,
-        sizeof(vio_session_data) + cols*lines*2);
-   rc->vs_sign  = SESDATA_SIGN;
-   rc->vs_x     = cols;
-   rc->vs_y     = lines;
-   rc->vs_color = text_col;
-   rc->vs_shape = cvio_getshape();
-   cvio_getpos(&rc->vs_cy, &rc->vs_cx);
-   rc->vs_lines = cvio_ttylines;
-   rc->vs_flags = cvio_blink?0:VSF_INTENSITY;
-   cvio_readbuf(0, 0, cols, lines, rc+1, cols*2);
-   return rc;
-}
-
-// the same as cvio_savestate()
-void  _std cvio_reststate(vio_session_data *state) {
-   u32t     cols, lines;
-   vio_session_data *sd = (vio_session_data*)state;
-
-   if (sd->vs_sign!=SESDATA_SIGN || (sd->vs_flags&VSF_GRAPHIC))
-      mod_secondary->sys_throw(xcpt_intbrk, __FILE__, __LINE__);
-   cvio_getmodefast(&cols, &lines);
-   if (cols!=sd->vs_x || lines!=sd->vs_y) cvio_setmodeex(sd->vs_x, sd->vs_y);
-   cvio_intensity(sd->vs_flags&VSF_INTENSITY?1:0);
-   cvio_writebuf(0, 0, sd->vs_x, sd->vs_y, sd+1, sd->vs_x*2);
-   cvio_setpos(sd->vs_cy, sd->vs_cx);
-   cvio_setshape(sd->vs_shape>>8, sd->vs_shape);
-   cvio_setcolor(sd->vs_color);
-   cvio_ttylines = sd->vs_lines;
+/// trap screen on missing function in active VIO handler
+void vioroute_panic(u32t offset) {
+   char err[64];
+   vio_handler *vh = VHTable[VHI_ACTIVE];
+   snprintf(err, 64, "VIO handler \"%s\" missing entry %u", vh->vh_name,
+      offset-FIELDOFFSET(vio_handler,vh_setmode)>>2);
+   mod_secondary->sys_throw(xcpt_syserr, err, 0);
 }

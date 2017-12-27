@@ -21,12 +21,23 @@ void *_std sto_data(const char *entry);
 /// get size of to stored data
 u32t  _std sto_size(const char *entry);
 
+/** return a copy of stored data in application owned heap block.
+    @param        entry  Key name.
+    @param  [out] psize  Ptr to size of returned data, can be 0.
+    @return data copy in heap block or 0 if no such key */
+void *_std sto_datacopy(const char *entry, u32t *psize);
+
 /** save user data. 
     @param  entry  Key name.
     @param  data   Pointer to data, use 0 to delete key.
     @param  len    Length to data.
     @param  copy   Make copy of data or save pointer (boolean) */
 void  _std sto_save(const char *entry, void *data, u32t len, int copy);
+
+/** save user data (dword). 
+    @param  entry  Key name.
+    @param  value  Dword value. */
+void  _std sto_savedword(const char *entry, u32t value);
 
 /// delete key
 #define sto_del(entry) sto_save(entry, 0, 0, 0)

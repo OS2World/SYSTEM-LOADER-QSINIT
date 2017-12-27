@@ -21,7 +21,7 @@ u32t             pid_alloc = 0;    ///< number of allocated entires in pid_list
 u16t              force_ss = 0;
 u32t          tls_prealloc = 0;
 
-/// process exec function (args in [eax ebx ecx edx])
+/// process exec entry point (has a special args list and stack)
 void mt_launch(void);
 
 /// stack, as it filled by launch32() code in QSINIT.
@@ -93,6 +93,17 @@ static void pidlist_del(u32t pid) {
    if (!pos) return;
    *pos = 0;
    pid_ptrs[pos-pid_list] = 0;
+}
+
+// enum processes
+void enum_process(qe_pdenumfunc cb, void *usrdata) {
+   u32t ii;
+   if (!cb) return;
+   mt_swlock();
+   for (ii=0; ii<pid_alloc; ii++)
+      if (pid_ptrs[ii])
+         if (!cb(pid_ptrs[ii],usrdata)) break;
+   mt_swunlock();
 }
 
 // callback, invoked by pag_enable()
@@ -221,6 +232,7 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
 
 mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    struct tss_s   rd;
+   u32t        *sptr;
    mt_prcdata    *pd = org_mtnew(pq,0), *cpd,
                 *ppd = pt_current->tiParent;
    mt_thrdata    *td = pd->piList[0];
@@ -231,24 +243,31 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    pd->piFirstChild  = 0;
    pd->piParent      = ppd;
 
+   // first thread registers
+   memset(&rd, 0, sizeof(rd));
+
    if (sd && sd->sign!=SEDAT_SIGN) sd = 0;
    if (sd) {
       pd->piParentTID = 0;
       pd->piMiscFlags|= PFLM_NOPWAIT;
       if (sd->flags&QEXS_DETACH) td->tiSession = SESN_DETACHED; else {
-         // !!
+         // flag to launch code about to create a new session
+         rd.tss_ecx    = 1;
+         rd.tss_edx    = sd->flags&QEXS_BACKGROUND?0:FFFF;
+         rd.tss_eax    = sd->vdev;
+         rd.tss_ebx    = (u32t)sd->title;
+         // set current session until se_newsession() call
          td->tiSession = pt_current->tiSession;
       }
-      sd->pid = pd->piPID;
-      sd->sno = td->tiSession;
-      // change parent data to QSINIT
-      if (sd->flags&QEXS_NOTACHILD) {
-         pd->piParentPID = 1;
-         pd->piParent    = pd_qsinit;
-         pq->parent      = pq_qsinit->self;
-         pq->pctx        = pq_qsinit;
-         ppd             = pd_qsinit;
-      }
+      // report it back to the caller (mod_execse())
+      sd->pid         = pd->piPID;
+      sd->sno         = td->tiSession;
+      // set QSINIT (pid 1) as parent process
+      pd->piParentPID = 1;
+      pd->piParent    = pd_qsinit;
+      pq->parent      = pq_qsinit->self;
+      pq->pctx        = pq_qsinit;
+      ppd             = pd_qsinit;
       /* process must be suspended until launcher`s
          mt_waitobject() for it */
       if (sd->flags&QEXS_WAITFOR) pd->piMiscFlags|=PFLM_LWAIT;
@@ -259,18 +278,24 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    td->tiState      = THRD_SUSPENDED;
    td->tiTime       = 0;
    td->tiLastTime   = 0;
-   // first thread registers
-   memset(&rd, 0, sizeof(rd));
+
    rd.tss_eip = (u32t)&mt_launch;
    rd.tss_cs  = get_flatcs();
    rd.tss_ds  = rd.tss_cs + 8;
    rd.tss_es  = rd.tss_ds;
-   rd.tss_esp = pq->self->stack_ptr;
    rd.tss_ss  = force_ss?force_ss:get_flatss();
-   rd.tss_eax = (u32t)pq->self;
-   rd.tss_ebx = pq->self->start_ptr;
-   rd.tss_ecx = (u32t)pq->envptr;
-   rd.tss_edx = (u32t)pq->cmdline;
+   // save values into the app stack
+   sptr       = (u32t*)pq->self->stack_ptr;
+   *--sptr    = (u32t)pq->cmdline;
+   *--sptr    = (u32t)pq->envptr;
+   *--sptr    = 0;
+   *--sptr    = (u32t)pq->self;
+   *--sptr    = (u32t)&mt_exitthreada;
+   *--sptr    = pq->self->start_ptr;
+   rd.tss_esp = (u32t)sptr;
+
+   //log_it(2, "%04X:%08X: %6lb\n", rd.tss_ss, rd.tss_esp, rd.tss_esp);
+
    rd.tss_eflags = CPU_EFLAGS_IOPLMASK|CPU_EFLAGS_IF;
    mt_setregs(fd, &rd);
    // insert process into tree
@@ -426,9 +451,8 @@ void init_process_data(void) {
    mt_exechooks.mtcb_yield  = &yield;
    mt_exechooks.mtcb_glock  = 0;
    // install cb for page mode switching on
-   sys_notifyevent(SECB_PAE|SECB_GLOBAL, pageson);
-
-   // mt_dumptree();
+   if (sys_pagemode()) force_ss = get_flatss(); else
+      if (!sys_is64mode()) sys_notifyevent(SECB_PAE|SECB_GLOBAL, pageson);
 }
 
 void update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue) {
@@ -494,17 +518,29 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
       u32t *stackptr;
       // ready stack esp setup
       if (rstack) th->tiList[0].fiRegs.tss_esp = rstack + stacksize;
-      // sub space for argument & ret addr
-      th->tiList[0].fiRegs.tss_esp -= 8;
-      // create stack
-      stackptr = (u32t*)th->tiList[0].fiRegs.tss_esp;
-      stackptr[0] = (u32t)&mt_exitthreada;
-      stackptr[1] = (u32t)arg;
-
+      // callbacks
       if (optdata) {
          th->tiCbStart = optdata->onenter;
          th->tiCbExit  = optdata->onexit;
          th->tiCbTerm  = optdata->onterm;
+      }
+      // create stack
+      if (th->tiCbStart) {
+         th->tiList[0].fiRegs.tss_eip = (u32t)th->tiCbStart;
+         th->tiList[0].fiRegs.tss_esp -= 20;
+         stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
+         // stack for tiCbStart
+         stackptr[0] = (u32t)thread;
+         stackptr[1] = (u32t)thread;
+         stackptr[2] = (u32t)arg; 
+         // stack for thread function
+         stackptr[3] = (u32t)&mt_exitthreada;
+         stackptr[4] = (u32t)arg;
+      } else {
+         th->tiList[0].fiRegs.tss_esp -= 8;
+         stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
+         stackptr[0] = (u32t)&mt_exitthreada;
+         stackptr[1] = (u32t)arg;
       }
       if (flags&MTCT_NOFPU) th->tiMiscFlags |= TFLM_NOFPU;
       if (flags&MTCT_NOTRACE) th->tiMiscFlags |= TFLM_NOTRACE;
@@ -592,9 +628,6 @@ u32t _std mt_termthread(mt_tid tid, u32t result) {
    return rc;
 }
 
-/// this removes register saving and so on ...
-#pragma aux mt_exitthread_int aborts;
-
 /** exit thread call. */
 void _std mt_exitthread_int(u32t result) {
    mt_thrdata  *th;
@@ -607,6 +640,9 @@ void _std mt_exitthread_int(u32t result) {
    th->tiExitCode  = result;
    th->tiState     = THRD_FINISHED;
 
+   if (dump_lvl>0)
+      log_it(3, "pid %u tid %u finished, exit code: 0x%08X\n", th->tiPID,
+         th->tiTID, th->tiExitCode);
    // free threads, who waits for us
    update_wait_state(pd, THWR_TIDEXIT, th->tiTID);
 
@@ -665,28 +701,13 @@ void _std mt_usleep(u32t usec) {
    }
 }
 
+/// "system idle" thread
 static u32t _std sleeper(void *arg) {
    clock_t lct = sys_clock();
    u32t    cnt = 0;
-   // mark self (this naming occurs in first idle time slice)
    mt_threadname("system idle");
-   /* if we called too often during last 10 seconds - check for ctrl-alt
-      pressed and then tries to get hotkey. This cause keypress loss */
    while (1) {
       __asm { hlt }
-#if 0
-      if (sys_clock()-lct > 10000000) {
-         lct = sys_clock();
-         cnt = 0;
-      } else
-      if (++cnt > 100) {
-         if (((cnt-1)%25)==0) hlp_seroutchar('~');
-         if ((key_status()&(KEY_ALT|KEY_CTRL))==(KEY_ALT|KEY_CTRL)) {
-            u16t key = key_wait(0);
-            if (key) log_hotkey(key);
-         }
-      }
-#endif
    }
    return 0;
 }

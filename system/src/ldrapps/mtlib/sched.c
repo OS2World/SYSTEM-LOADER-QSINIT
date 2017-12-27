@@ -163,12 +163,16 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
       if (!thread && ethr) thread = ethr;
       // this is me again :)
       if (!thread && zthr) thread = zthr;
-#if 0
-      if (eater) hlp_seroutchar('e');
-      hlp_seroutchar('~');
-      if (ethr && thread==ethr) hlp_seroutchar('!');
-      if (thread) { hlp_seroutchar(thread->tiPID%10 + '0'); hlp_seroutchar(thread->tiTID%10 + '0'); }
-#endif
+      // primitive switch tracing
+      if (sched_trace) {
+         if (eater) hlp_seroutchar('e');
+         hlp_seroutchar('~');
+         if (ethr && thread==ethr) hlp_seroutchar('!');
+         if (thread) { 
+            hlp_seroutchar(thread->tiPID%10 + '0');
+            hlp_seroutchar(thread->tiTID%10 + '0');
+         }
+      }
    }
    if (!thread) thread = pt_sysidle;
 

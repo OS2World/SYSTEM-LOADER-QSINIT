@@ -87,10 +87,12 @@ void* opts_freadfull(const char *name, u32t *bufsize, int *reterr);
 u32t  opts_memend(void);
 /// sleep a bit - special function for TApplication::idle
 void  opts_yield();
+void  opts_settitle(const char *title);
 /// return 0 - no file, 1 - file, 2 - dir
 int   opts_fileexist(const char *str);
 int   opts_fseek(FILE *ff, long long offset, int where);
-
+extern "C"
+void  opts_beep(u32t freq, u32t duration);
 
 /// @name flags values for TView::userValue[0]
 //@{
@@ -116,7 +118,8 @@ public:
   int                      nextBootOwnMbr;
   int                      createAtTheEnd,
                                createAFal;
-  int                           icaseSrch;
+  int                           icaseSrch,
+                                 beepSrch;
   u32t                       cmMemEditPos;
 
   TEditWindow                 *clipWindow;
@@ -266,6 +269,7 @@ public:
 #define MSGI_BOOTQSOK      (8)
 #define MSGI_DEVICEMEM     (9)
 #define MSGI_WINSELFAILED (10)
+#define MSGI_FILEREADONLY (11)
 
 #define MSGE_FLOPPY        (0)
 #define MSGE_NOTSUPPORTED  (1)

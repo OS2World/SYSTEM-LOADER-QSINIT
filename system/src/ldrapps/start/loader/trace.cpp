@@ -185,7 +185,7 @@ static u32t trace_makelists(TraceInfo *mti, u32t mh, u32t **ords,
             u32t grp = mti->fmt.Objects(ii);
             if ((mti->groups.Objects(grp)&TRACEF_CLASS)) {
                if (!mti->classid[grp])
-                  mti->classid[grp] = exi_queryid(mti->groups[grp]());
+                  mti->classid[grp] = exi_queryid_int(mti->groups[grp](),0);
                pvoid *thlist = exi_thunklist(mti->classid[grp]);
                /* because ordinals are always short (1..65535), we can put
                   both ordinals & addresses of thunks in the same array. This
@@ -314,14 +314,16 @@ static int trace_common(const char *module, const char *group, int quiet, int on
    on = on?TRACEF_ON:0;
    if (!group||!*group) {
       for (ii=0; ii<mti->groups.Count(); ii++) 
-         if ((mti->groups.Objects(ii)^on)) {
+         if ((mti->groups.Objects(ii)&TRACEF_ON^on)) {
             if (on) mti->groups.Objects(ii)|=TRACEF_ON; else
                mti->groups.Objects(ii)&=~TRACEF_ON;
             difflist.Add(ii);
          }
    } else {
       ii = mti->groups.IndexOf(group);
-      if (ii>=0 && (mti->groups.Objects(ii)^on)) {
+      if (ii>=0 && (mti->groups.Objects(ii)&TRACEF_ON^on)) {
+         /* log_it(2,"trace_onoff(%s, %X^%X, %s)\n", module, mti->groups.Objects(ii),
+            on, mti->groups[ii]()); */
          if (on) mti->groups.Objects(ii)|=TRACEF_ON; else
             mti->groups.Objects(ii)&=~TRACEF_ON;
          difflist.Add(ii);

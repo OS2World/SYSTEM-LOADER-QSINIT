@@ -205,6 +205,7 @@ TSysApp::TSysApp() :
    kernel_parm = 0;
    bootcmd     = 0;
    icaseSrch   = 0;
+   beepSrch    = 0;
    searchDlg   = 0;
    copyDlg     = 0;
    bootDlg     = 0;
@@ -316,7 +317,8 @@ void TSysApp::infoDlg(int MsgType) {
                                 "\3""Bootstrap code updated.",
                                 "\3""QSINIT files transfered.",
                                 "\3""A device memory space reached, searching in it can cause a deadlock!",
-                                "\3""Unable to select which window to use, make it active first!"
+                                "\3""Unable to select which window to use, make it active first!",
+                                "\3""File opened in read-only mode!"
                                };
    messageBox(infoMsgArray[MsgType], mfInformation+mfOKButton);
 }
@@ -695,10 +697,10 @@ TMenuBar *CreateMenuBar( TRect r ) {
          ))))))+
       *new TMenuItem("~S~elect codepage",cmSetCodepage,kbNoKey,hcSetCodepage,"")+
       newLine()+
-      *new TMenuItem( "E~x~it", cmQuit, kbCtrlX, hcExit, "Ctrl-X" )+
+      *new TMenuItem( "E~x~it", cmQuit, kbCtrlW, hcExit, "Ctrl-W" )+
       *new TMenuItem("~P~ower off",cmPowerOff,kbNoKey,hcPowerOff,"")+
    *new TSubMenu("~S~ystem",hcNoContext)+
-      *new TMenuItem("~D~isk management",cmDmgr,kbCtrlD,hcDmgrDlg,"Ctrl-D")+
+      *new TMenuItem("~D~isk management",cmDmgr,kbCtrlP,hcDmgrDlg,"Ctrl-P")+
       newLine()+
       *new TMenuItem("~P~hysical sectors",cmSectEd,kbNoKey,hcSectEdit,"")+
       *new TMenuItem("~V~iew sector as",kbNoKey,
@@ -826,8 +828,10 @@ TStatusLine *TSysApp::initStatusLine(TRect r) {
    return new TMyStatusLine(r,
       *new TStatusDef(0,0xFFFF) +
       *new TStatusItem( 0, kbF10, cmMenu) +
+      *new TStatusItem( 0, kbCtrlQ, cmMenu) +
       *new TStatusItem("~F1~ Help", kbF1, cmHelp) +
       *new TStatusItem( 0 /*"~Alt-F3~ Close"*/, kbAltF3, cmClose) +
+      *new TStatusItem( 0, kbCtrlZ, cmClose) +
       *new TStatusItem( 0, kbF5, cmZoom) +
       *new TStatusItem( 0, kbCtrlF5, cmResize) +
       *new TStatusItem( 0, kbF6, cmNext) +
@@ -970,6 +974,7 @@ void TSysApp::OpenHelp(ushort goHelpCtx, int dlgmode) {
 }
 
 extern "C" int tvMain(int argc,char *argv[]) {
+   opts_settitle("SysView application");
    if (argc>2) {
       if (stricmp(argv[1],"/boot")==0||stricmp(argv[1],"/rest")==0) {
          SysApp.kernel = argv[2];
@@ -1008,5 +1013,6 @@ extern "C" int tvMain(int argc,char *argv[]) {
    }
    SysApp.run();
    SysApp.shutDown();
+   opts_settitle(0);
    return 0;
 }

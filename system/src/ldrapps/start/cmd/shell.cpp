@@ -214,6 +214,48 @@ u32t cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb) {
 
 static u32t cmd_process(spstr ln,session_info *si);
 
+static void process_set(spstr line) {
+   if (!line) {
+      str_list* env = str_getenv();
+      for (u32t ii=0; ii<env->count; ii++) printf("%s\n", env->item[ii]);
+      free(env);
+   } else {
+      if (line.word(1).upper()=="/P") {
+         if (line.words()==1) printf("Variable name is missing\n"); else {
+            line.del(0,line.wordpos(2));
+            spstr  vn = line.word(1,"=").trim();
+            if (vn.length()) {
+               // allow set /p var = "text : "
+               spstr prompt(line.word(2,"="));
+               prompt.trim().unquote();
+               printf(prompt());
+               char *value = key_getstrex(0, -1, -1, -1, 0);
+               if (value) {
+                  setenv(vn(), value, 1);
+                  free(value);
+               }
+            }
+         }
+      } else {
+         int vp = line.wordpos(2,"=");
+         if (vp>0) {
+            spstr   value = line.right(line.length()-vp).trim();
+            setenv(line.word(1,"=").trim()(), !value?0:value(),1);
+         } else {
+            str_list* env = str_getenv();
+            int      once = 0;
+            for (u32t ii=0; ii<env->count; ii++)
+               if (strnicmp(line(), env->item[ii], line.length())==0) {
+                  printf("%s\n", env->item[ii]);
+                  once++;
+               }
+            free(env);
+            if (!once) printf("Environment variable \"%s\" not defined\n", line());
+         }
+      }
+   }
+}
+
 static u32t process_for(TStrings &plist, session_info *si) {
    u32t rc = 0;
    int ppos=0, isdir=0, isrec=0, isstep=0, relpath=0, breakable=1;
@@ -421,7 +463,7 @@ static u32t cmd_process(spstr ln, session_info *si) {
          // get default value
          if (ii==0 && plist.Count()>1) ii = plist[1].Dword();
       } else
-         while (log_hotkey(ii=key_read()));
+         ii = key_read();
       set_errorlevel(ii);
    } else
    if (cmd=="PUSHKEY") {
@@ -433,28 +475,7 @@ static u32t cmd_process(spstr ln, session_info *si) {
       vio_clearscr();
    } else
    if (cmd=="SET") {
-      if (!parm) {
-         str_list* env=str_getenv();
-         for (ii=0;ii<env->count;ii++) printf("%s\n",env->item[ii]);
-         free(env);
-      } else {
-         int vp=parm.wordpos(2,"=");
-         if (vp>0) {
-            spstr value;
-            value=parm.right(parm.length()-vp).trim();
-            setenv(parm.word(1,"=").trim()(), !value?0:value(),1);
-         } else {
-            str_list* env=str_getenv();
-            int      once=0;
-            for (ii=0;ii<env->count;ii++)
-               if (strnicmp(parm(),env->item[ii],parm.length())==0) {
-                  printf("%s\n",env->item[ii]);
-                  once++;
-               }
-            free(env);
-            if (!once) printf("Environment variable \"%s\" not defined\n",parm());
-         }
-      }
+      process_set(parm);
    } else
    if (cmd=="FOR") {
       rc = process_for(plist,si);
@@ -469,7 +490,7 @@ static u32t cmd_process(spstr ln, session_info *si) {
    if (cmd=="PAUSE") {
       if (!parm) parm = "Press any key when ready...";
       printf("%s\n", parm());
-      while (log_hotkey(key_read()));
+      key_read();
    } else
    if (cmd=="EXIT") {
       linediff = si->list.Count()-si->nextline;
@@ -513,13 +534,13 @@ static u32t cmd_process(spstr ln, session_info *si) {
             module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
                                    (module*)mod_searchload(cmd(),0,&error);
             if (md) {
-               char *env = envcopy(mod_context(), 0);
+               char *env = env_copy(mod_context(), 0);
                s32t   rc;
 
                if (si->mode&MODE_DLAUNCH) {
                   qs_mtlib mt = get_mtlib();
-                  error = mt ? mt->execse((u32t)md, env, parm(), QEXS_DETACH|
-                               QEXS_NOTACHILD, 0) : E_MT_DISABLED;
+                  error = mt ? mt->execse((u32t)md,env,parm(),QEXS_DETACH,0,0,0) :
+                               E_MT_DISABLED;
                   rc    = qserr2errno(error);
                } else {
                   rc = mod_exec((u32t)md, env, parm(), 0);
@@ -617,36 +638,6 @@ u32t _std cmd_execint(const char *section, const char *args) {
    u32t        rc = cmd_run(cst, CMDR_ECHOOFF);
    cmd_close(cst);
    return rc;
-}
-
-int _std log_hotkey(u16t key) {
-   u8t kh = key>>8;
-   //log_printf("key %04X state: %08X\n", key, key_status());
-   if ((key_status()&(KEY_CTRL|KEY_ALT))==(KEY_CTRL|KEY_ALT)) {
-      switch (kh) {
-         // Ctrl-Alt-F3: class list
-         case 0x3D: case 0x60: case 0x6A: exi_dumpall(); return 1;
-         // Ctrl-Alt-F4: file handles
-         case 0x3E: case 0x61: case 0x6B: log_ftdump(); io_dumpsft(); return 1;
-         // Ctrl-Alt-F5: process tree
-         case 0x3F: case 0x62: case 0x6C: mod_dumptree(); return 1;
-         // Ctrl-Alt-F6: gdt dump
-         case 0x40: case 0x63: case 0x6D: sys_gdtdump(); return 1;
-         // Ctrl-Alt-F7: idt dump
-         case 0x41: case 0x64: case 0x6E: sys_idtdump(); return 1;
-         // Ctrl-Alt-F8: page tables dump
-         case 0x42: case 0x65: case 0x6F: pag_printall(); return 1;
-         // Ctrl-Alt-F9: dump pci config space
-         case 0x43: case 0x66: case 0x70: log_pcidump(); return 1;
-         // Ctrl-Alt-F10: dump module table
-         case 0x44: case 0x67: case 0x71: log_mdtdump(); return 1;
-         // Ctrl-Alt-F11: dump main memory table
-         case 0x85: case 0x89: case 0x8B: hlp_memcprint(); hlp_memprint(); return 1;
-         // Ctrl-Alt-F12: dump memory log
-         case 0x86: case 0x8A: case 0x8C: mem_dumplog("User request"); return 1;
-      }
-   }
-   return 0;
 }
 
 static cmd_eproc common_add(const char *name, cmd_eproc proc, PCmdList &lst) {

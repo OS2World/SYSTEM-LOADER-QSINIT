@@ -6,24 +6,39 @@
 
 #include "qsint.h"
 #include "syslocal.h"
+#include "qsinit_ord.h"
+#include "qsvdata.h"
 #include "cpudef.h"
 #include "qstask.h"
 #include "qserr.h"
 #include "qssys.h"
+#include "qscon.h"
 #include "sysio.h"
 
-#define TLS_GROW_SIZE   64    ///< TLS array one time grow size
+#define TLS_GROW_SIZE         64       ///< TLS array one time grow size
 
-static qs_mtlib               mtlib = 0;
-u8t                       in_mtmode = 0;
-qs_sysmutex                   mtmux = 0;
-extern mod_addfunc* _std  mod_secondary;  // this thing is import from QSINIT module
+typedef void  _std (*pf_beep) (u16t freq, u32t ms);
+static qs_mtlib            mtlib = 0;
+static int              kbask_ms = 0,
+                      memstat_on = 0;
+u8t                    in_mtmode = 0;
+qs_sysmutex                mtmux = 0;
+static qshandle            sys_q = 0;
+u64t              memstat_period = CLOCKS_PER_SEC*120;
+static pf_beep             _beep = 0;  ///< original vio_beep call
+u32t                     sys_con = 0;  ///< "system console" session
+
 extern module *     _std      mod_ilist;  // and this
 extern mt_proc_cb   _std   mt_exechooks;  // and also this ;)
 
 void   setup_loader_mt(void);
 void   setup_pagman_mt(void);
 void   setup_exi_mt   (void);
+
+void _std v_beep(u16t freq, u32t ms) {
+   if (freq>16384 || (int)ms<0) return;
+   qe_postevent(sys_q, SYSQ_BEEP, freq, ms, 0);
+}
 
 static qserr _std muxcvtfunc(qshandle mutex, mux_handle_int *res) {
    if (!res) return E_SYS_ZEROPTR; else {
@@ -36,17 +51,112 @@ static qserr _std muxcvtfunc(qshandle mutex, mux_handle_int *res) {
    }
 }
 
-static u32t _std memstat_thread(void *arg) {
-   mtlib->threadname("memstat");
+/// free session module after exit
+static void session_free(mt_prcdata *pd) {
+   mod_secondary->exit_cb(pd->piContext, pd->piExitCode);
+   mt_exechooks.mtcb_fini(pd->piContext);
+   mt_safedand(&pd->piModule->flags, ~MOD_EXECPROC);
+   mod_free((u32t)pd->piModule);
+}
+
+
+/** process system queue requests.
+    Everything here should not use FPU (because no_fpu flag in the creation of
+    this thread below). */
+static void process_sysq(qe_event *ev) {
+   switch (ev->code) {
+      case SYSQ_SESSIONFREE:
+         session_free((mt_prcdata*)ev->a);
+         break;
+      case SYSQ_BEEP:
+         if (_beep) _beep(ev->a,ev->b);
+         break;
+      case SYSQ_MEMSTAT:
+         mem_stat();
+         /*log_sedump();
+         mod_dumptree(); */
+         qe_schedule(sys_q, sys_clock()+memstat_period, SYSQ_MEMSTAT, 0, 0, 0);
+         break;
+      case SYSQ_DCNOTIFY:
+         // cache timer in MT mode
+         sys_dccommit(DCN_TIMER);
+         qe_schedule(sys_q, sys_clock()+CLOCKS_PER_SEC, SYSQ_DCNOTIFY, 0, 0, 0);
+         break;
+      default:
+         log_it(3,"unknown sys_q event %X %X %X %X!\n", ev->code, ev->a, ev->b, ev->c);
+   }
+}
+
+extern void vh_input_read_loop(void);
+
+/** system service thread.
+    1. keyboard poll & push keys to the current session.
+    2. process async sys_q queue commands.
+    3. unzip delayed LDI entries on start
+*/
+static u32t _std sys_servicethread(void *arg) {
+   s64t     kbask_clk;
+   mt_thrdata    *pth;
+   qserr           rc;
+
+   mt_getdata(0, &pth);
+   // add TFLM_SYSTEM bit to thread flags
+   mt_safedor(&pth->tiMiscFlags, TFLM_SYSTEM);
+
+   mtlib->threadname("service");
    // unzip LDI
    unzip_delaylist();
    // dump memstat once per 2 minutes
-   if (env_istrue("MEMSTAT")==1)
-      while (true) {
-         mem_stat();
-         usleep(CLOCKS_PER_SEC*120);
+   if (memstat_on) {
+      if (memstat_on>1) memstat_period = CLOCKS_PER_SEC*memstat_on;
+      qe_schedule(sys_q, sys_clock()+memstat_period, SYSQ_MEMSTAT, 0, 0, 0);
+   }
+   // keyboard poll period
+   if (kbask_ms<4 || kbask_ms>128) kbask_ms = hlp_hosttype()==QSHT_EFI?8:18;
+   kbask_clk = kbask_ms*1000;
+   // log it
+   log_it(3, "memstat %s, kb poll = %i ms!\n", memstat_on?"on":"off", kbask_ms);
+   /* switch this thread into separate invisible console.
+      This console used, at least for memmgr error message during session
+      exit. I.e. mod_exitcb() validation calls may produce error message
+      screen. It showed in the current console for common modules, but for
+      detached ones it requires a place to show. And here it is. */
+   rc = se_newsession(se_devicemask(), 0, "System Console");
+   if (rc) log_it(1, "unable to create session - %X!\n", rc); else {
+      sys_con = se_sesno();
+      se_setstate(sys_con, VSF_NOLOOP|VSF_HIDDEN, FFFF);
+   }
+   // post 1st cache commit event
+   qe_postevent(sys_q, SYSQ_DCNOTIFY, 0, 0, 0);
+
+   while (1) {
+      u64t nextclk = sys_clock() + kbask_clk;
+      qe_event *ev = qe_waitevent(sys_q, kbask_ms);
+
+      // loop queue events until at least 3/4 of kbask_ms
+      while (ev) {
+         s64t tdiff;
+
+         process_sysq(ev); free(ev); ev = 0;
+
+         tdiff = nextclk - sys_clock();
+         // signed check - <1/4 of kbask || <0
+         if (tdiff>=kbask_clk>>2) ev = qe_waitevent(sys_q, tdiff/1000);
       }
+      vh_input_read_loop();
+   }
    return 0;
+}
+
+/// Alt-Esc & Ctrl-N processing callback (task switch on the device where it was pressed).
+static void _std sys_tswcb(sys_eventinfo *kd) {
+   /* push Ctrl-N back to the active session queue if it was pressed on
+      device 0 (screen) */
+   if ((u16t)kd->info==0x310E && kd->info2==0) {
+      se_keypush(se_foreground(), 0x310E, kd->info>>16);
+      return;
+   }
+   se_selectnext(kd->info2);
 }
 
 /** callback from MT lib - MT mode is ready.
@@ -54,10 +164,16 @@ static u32t _std memstat_thread(void *arg) {
     we have fully functional threading here, but still no threads except
     "system idle" :) */
 void _std mt_startcb(qs_sysmutex mproc) {
+   mt_ctdata  ctd;
+   qserr      err;
    // and we need this pointer too ;)
    if (!mtlib) get_mtlib();
+   // create & detach service queue
+   if (qe_create(0,&sys_q)) log_it(0, "sys_q init error!\n"); else
+      io_setstate(sys_q, IOFS_DETACHED, 1);
+   // call back to the MT lib
    mtmux     = mproc;
-   mtmux->init(muxcvtfunc, qe_available_spec);
+   mtmux->init(muxcvtfunc, qe_available_spec, sys_q);
    in_mtmode = 1;
    // create mutexes for QSINIT binary (module loader & micro-FSD access)
    setup_loader_mt();
@@ -65,17 +181,26 @@ void _std mt_startcb(qs_sysmutex mproc) {
    setup_pagman_mt();
    // create mutexes for exi instances
    setup_exi_mt();
+   // catch vio_beep
+   _beep         = (pf_beep)mod_apidirect(mh_qsinit, ORD_QSINIT_vio_beep);
+   mod_apichain(mh_qsinit, ORD_QSINIT_vio_beep, APICN_REPLACE, v_beep);
    // run funcs, waiting for this happens
    sys_notifyexec(SECB_MTMODE, 0);
-   // memstat thread
-   if (env_istrue("MEMSTAT")==1 || mod_delay) {
-      mt_ctdata  tsd;
-      memset(&tsd, 0, sizeof(mt_ctdata));
-      tsd.size      = sizeof(mt_ctdata);
-      tsd.stacksize = 65536;
-      tsd.pid       = 1;
-      mtlib->createthread(memstat_thread, 0, &tsd, 0);
-   }
+   // catch alt-esc and ctrl-n
+   err = sys_sethotkey(0x0100, KEY_ALT, SECB_GLOBAL, sys_tswcb);
+   if (!err) err = sys_sethotkey(0x310E, KEY_CTRL, SECB_GLOBAL, sys_tswcb);
+   if (err) log_it(0, "hotkeys error (%X)!\n", err);
+   /* read vars for service thread (must be here because thread itself has
+      pid 1 environment) */
+   kbask_ms      = env_istrue("KBRES");
+   memstat_on    = env_istrue("MEMSTAT");
+   if (memstat_on<0) memstat_on = 0;
+   // service thread
+   memset(&ctd, 0, sizeof(mt_ctdata));
+   ctd.size      = sizeof(mt_ctdata);
+   ctd.stacksize = 32768;
+   ctd.pid       = 1;
+   mtlib->createthread(sys_servicethread, MTCT_NOFPU|MTCT_NOTRACE, &ctd, 0);
 }
 
 /** callback from MT lib - thread exit.
@@ -92,6 +217,8 @@ void _std mt_pexitcb(mt_thrdata *td) {
       /* call it here for the main thread, else notification code can be
          invoked in parent context after process exit */
       sys_notifyfree(pid);
+      // as a company
+      sys_hotkeyfree(pid);
       /* here too - this will free all instances before the moment of imported
          DLL mod term function. I.e. if we will call it after DLL fini - DLL
          can deny unload if it provides class for us */
@@ -100,7 +227,7 @@ void _std mt_pexitcb(mt_thrdata *td) {
    // in MT mode only
    if (td) {
       /* if we owning mfs_mutex - hlp_fclose() must be called to reset
-         mutex & flags in mfs i/o function */
+         mutex & flags in mfs i/o functions */
       if (!mt_muxstate(mod_secondary->mfs_mutex, 0)) hlp_fclose();
       /* if we owning ldr_mutex - then trap screen is too close to us now,
          but still tries to clear mod_ilist at least. */
@@ -110,7 +237,23 @@ void _std mt_pexitcb(mt_thrdata *td) {
              mod_ilist = 0;
           }
       }
+      // disable any vio output
+      td->tiSession = SESN_DETACHED;
+      // and check sessions for empty ones after that
+      se_closeempty();
    }
+}
+
+void panic_no_memmgr(const char *msg) {
+   u32t sesno = se_sesno();
+   if (in_mtmode) se_switch(sesno, FFFF);
+
+   vio_resetmode();
+   vio_setcolor(VIO_COLOR_LRED);
+   while (*msg)
+      if (vio_charout(*msg++)) { vio_charout('\xDD'); vio_charout(' '); }
+   vio_setcolor(VIO_COLOR_RESET);
+   if (sesno!=sys_con) key_wait(60);
 }
 
 qs_mtlib get_mtlib(void) {

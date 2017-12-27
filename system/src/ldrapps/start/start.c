@@ -19,6 +19,7 @@ void setup_memory(void);
 void setup_fileio(void);
 void setup_storage(void);
 void setup_hardware(void);
+void setup_sessions(void);
 void check_version(void);
 int  get_ini_parms(void);
 int  unpack_ldi(void);
@@ -28,6 +29,8 @@ void mem_init(void);
 void _std mod_main(void) {
    // init static classes and variables
    _wc_static_init();
+   // query QSINIT module handle
+   mh_qsinit = (u32t)mod_context()->self;
    // init global exception handler
    setup_exceptions(0);
    // init memory manager
@@ -36,6 +39,8 @@ void _std mod_main(void) {
       - must be called before mod_secondary export */
    setup_log();
    setup_storage();
+   // setup vio to common way
+   setup_sessions();
    // file i/o, uses storage at least, and provides system file i/o for everybody
    setup_fio();
    if (!unpack_ldi()) exit_pm32(QERR_NOEXTDATA);
@@ -60,7 +65,6 @@ void _std mod_main(void) {
    if (hlp_insafemode()) {
       cmd_state cst;
       log_printf("skipping start.cmd\n");
-      key_waithlt(0);
       cmd_exec("1:\\safemode.cmd",0);
    } else {
       if (hlp_hosttype()==QSHT_BIOS) setup_exceptions(1);

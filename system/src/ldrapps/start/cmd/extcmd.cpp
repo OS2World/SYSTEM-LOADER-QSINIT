@@ -42,22 +42,21 @@ static int pause_check(int init_counter) {
    vio_getmodefast(0, &pp_lines);
 
    if (init_counter>=0 && (pp_flags&PRNSEQ_NP)==0 && 
-      (int)(*vio_ttylines()-pp_lstart)>=(int)pp_lines-1) 
+      (int)(vio_ttylines(-1)-pp_lstart)>=(int)pp_lines-1) 
    {
       vio_setcolor(VIO_COLOR_GRAY);
       vio_strout("Press any key to continue...");
       vio_setcolor(VIO_COLOR_RESET);
-      do {
-         u16t key = key_read();
-         // exit by ESC
-         if ((key&0xFF)==27) { vio_charout('\n'); return 1; }
-         if (!log_hotkey(key)) break;
-      } while (1);
+
+      u16t key = key_read();
+      // exit by ESC
+      if ((key&0xFF)==27) { vio_charout('\n'); return 1; }
+
       // write gray text & attribute
       vio_setcolor(VIO_COLOR_WHITE);
       vio_strout("\r                            \r");
       vio_setcolor(VIO_COLOR_RESET);
-      mt_tlsset(QTLS_SHLINE, *vio_ttylines());
+      mt_tlsset(QTLS_SHLINE, vio_ttylines(-1));
    }
    return 0;
 }
@@ -72,7 +71,7 @@ static int pause_check(int init_counter) {
 static u32t pause_println(const char *line, int init_counter=0, u8t color=0) {
    // begin of sequence
    if (init_counter>0) {
-      mt_tlsset(QTLS_SHLINE, *vio_ttylines());
+      mt_tlsset(QTLS_SHLINE, vio_ttylines(-1));
       mt_tlsset(QTLS_SHFLAGS, init_counter);
    }
    if (!line) return 0;
@@ -134,7 +133,6 @@ int ask_yn(int allow_all) {
    u16t chv = 0;
    while (1) {
       chv = key_read();
-      if (log_hotkey(chv)) continue;
       char cch = toupper(chv&0xFF);
       if (cch=='A') return 2;
       if (cch=='Y') return 1;
@@ -525,8 +523,7 @@ static int readtree_prn(dir_cbinfo *cbi, spstr &pp) {
    // check for ESC every 1024 files in non-pause mode
    if (cbi->dir_npmode<0 && cbi->check_esc && (++cbi->lincounter&1023)==0) {
       u16t key = key_wait(0);
-      if (key && !log_hotkey(key))
-         if ((key&0xFF)==27) rc = -1;
+      if ((key&0xFF)==27) rc = -1;
    }
    // flag user break
    if (rc<0) cbi->ubreak = 1;
@@ -1672,11 +1669,11 @@ u32t _std shl_msgbox(const char *cmd, str_list *args) {
          static const char *opts[] = { "GRAY", "CYAN", "GREEN", "LGREEN",
             "BLUE", "LBLUE", "RED", "LRED", "WHITE", "CENTER", "LEFT", "RIGHT",
             "JUSTIFY", "WIDE", "OK", "OKCANCEL", "YESNO", "YNCANCEL",
-            "DEF1", "DEF2", "DEF3", 0 };
+            "DEF1", "DEF2", "DEF3", "POPUP", 0 };
          static u16t values[] = { MSG_GRAY, MSG_CYAN, MSG_GREEN, MSG_LIGHTGREEN,
              MSG_BLUE, MSG_LIGHTBLUE, MSG_RED, MSG_LIGHTRED, MSG_WHITE, MSG_CENTER,
              MSG_LEFT, MSG_RIGHT, MSG_JUSTIFY, MSG_WIDE, MSG_OK, MSG_OKCANCEL,
-             MSG_YESNO, MSG_YESNOCANCEL, MSG_DEF1, MSG_DEF2, MSG_DEF3 };
+             MSG_YESNO, MSG_YESNOCANCEL, MSG_DEF1, MSG_DEF2, MSG_DEF3, MSG_POPUP };
 
          for (idx=2; idx<al.Count(); idx++) {
             for (ii=0; opts[ii]; ii++)
@@ -1762,7 +1759,8 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
          if (!port) {
             printf("There is no debug COM port in use now.\n");
          } else {
-            printf("Debug COM port address: %04hX, baudrate: %d.\n", port, rate);
+            printf("Debug COM port address: %04hX, baudrate: %d%s.\n", port, rate,
+               mod_secondary->dbport_lock?" (output disabled)":"");
          }
          if (cmv && cmv<CPUCLK_MAXFREQ) {
             cmv = 10000/CPUCLK_MAXFREQ*cmv;
@@ -1817,7 +1815,7 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
             // empty value acts as 1 here
             u32t svmode = !mstr ? 1 : mstr.Dword();
 
-            sto_save(STOKEY_CMMODE, &svmode, 4, 1);
+            sto_savedword(STOKEY_CMMODE, svmode);
             rc = 0;
          }
          if (al.IndexOfName("DBCARD")>=0) {
@@ -2280,6 +2278,7 @@ void setup_shell(void) {
    cmd_shelladd("MOVE"   , shl_move   );
    cmd_shelladd("REBOOT" , shl_reboot );
    cmd_shelladd("DELAY"  , shl_delay  );
+   cmd_shelladd("SM"     , shl_sm     );
 
    // install MODE SYS handler
    cmd_modeadd("SYS", shl_mode_sys);

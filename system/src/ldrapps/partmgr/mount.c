@@ -10,6 +10,7 @@
 #include "qsint.h"
 #include "qsio.h"
 #include "direct.h"
+#include "qcl/qsextdlg.h"
 
 // is key present? (with argument or not)
 #define key_present(kparm,key) str_findkey(kparm,key,0)
@@ -103,8 +104,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
          }
       } else
       if (list) {
-         static char *fattype[5] = { "unknown ", "  FAT12 ", "  FAT16 ",
-                                     "  FAT32 ", "  exFAT " };
+         static char *fattype[5] = { "unknown", "FAT12", "FAT16", "FAT32", "exFAT" };
          cmd_printseq(0,1,0);
          rc = 0;
 
@@ -137,9 +137,10 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                   if (idx>=0) sprintf(str,"  %s.%d  %s", dname, idx, lvmi); else
                      if (ii!=DISK_LDR && dname[0]) sprintf(str,"  %s  %s", dname, lvmi);
                }
-               if (shellprn(" %c:/%c: %s %s %s",'0'+ii,'A'+ii, fattype[vt[ii]],
-                  get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
-                     { rc = EINTR; break; }
+               if (shellprn(" %c:/%c: %8s  %s %s",'0'+ii,'A'+ii, 
+                  vt[ii]<=FST_EXFAT?fattype[vt[ii]]:vi[ii].FsName,
+                     get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
+                        { rc = EINTR; break; }
             }
       } else
       if (args->count>=2) {
@@ -172,7 +173,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
             cache_envstart();
             // re-scan disk
             dsk_ptrescan(disk,1);
-            // mount as floppy
+            // mount as a floppy
             if (idx<0) {
                u32t     st = dsk_sectortype(disk,0,0);
                int success = st==DSKST_BOOTFAT || st==DSKST_BOOTBPB || st==DSKST_BOOT
@@ -205,12 +206,13 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                   if (vi[ii].StartSector && vi[ii].Disk==disk &&
                      vi[ii].StartSector==start)
                   {
-                     printf("Already mounted as %c:\n", '0'+ii);
-                     rc = 0; break;
+                     printf("Already mounted as %c:\n", 'A'+ii);
+                     rc = EBUSY; break;
                   }
+               if (rc>0) break;
                // mount
                if (hlp_mountvol(vol&QDSK_DISKMASK, disk, start, size)) {
-                  printf("Mounted as %c:\n", '0'+(vol&QDSK_DISKMASK));
+                  printf("Mounted as %c:\n", 'A'+(vol&QDSK_DISKMASK));
                   rc = 0;
                } else {
                   printf("Failed to mount!");
@@ -238,12 +240,9 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
 
       if (stricmp(args->item[0],"all")==0) {
          for (ii=DISK_LDR+1; ii<DISK_COUNT; ii++)
-            if (vt[ii]) {
-               if (hlp_unmountvol(ii)) {
-                  printf("Volume %c: unmounted\n", '0'+ii);
-               } else {
-                  printf("Failed to unmount %c: !\n", '0'+ii);
-               }
+            if (vi[ii].TotalSectors) {
+               if (hlp_unmountvol(ii)) printf("Volume %c: unmounted\n", 'A'+ii);
+                  else printf("Failed to unmount %c: !\n", 'A'+ii);
             }
          if (io_curdisk()>DISK_LDR) io_setdisk(DISK_LDR);
          return 0;
@@ -261,9 +260,9 @@ u32t _std shl_umount(const char *cmd, str_list *args) {
                if (vol==io_curdisk()) io_setdisk(DISK_LDR);
 
                if (hlp_unmountvol(vol)) {
-                  printf("Volume %c: unmounted\n", '0'+vol);
+                  printf("Volume %c: unmounted\n", 'A'+vol);
                } else {
-                  printf("Failed to unmount %c:\n", '0'+vol);
+                  printf("Failed to unmount %c:\n", 'A'+vol);
                   rc = ENOMNT;
                }
             }
@@ -390,11 +389,8 @@ u32t _std shl_dm_mbr(const char *cmd, str_list *args, u32t disk, u32t pos) {
                         if (vol_mount(&mvol, disk, index)) mvol = 0; else
                            rvol = QDSK_VOLUME|mvol;
                      if (rvol)
-                        if (hlp_volinfo(rvol&QDSK_DISKMASK,0)==FST_NOTMOUNTED) {
-                           // this can be HPFS
-                           fdata = hpfs_freadfull(rvol&QDSK_DISKMASK, np, &filesize);
-                        } else {
-                           // this is FAT
+                        if (hlp_volinfo(rvol&QDSK_DISKMASK,0)!=FST_NOTMOUNTED) {
+                           // this is FAT/HPFS
                            char *fp = sprintf_dyn("%c:\\", (rvol&QDSK_DISKMASK)+'0');
                            fp    = strcat_dyn(fp, np);
                            fdata = freadfull(fp, &filesize);
@@ -1036,10 +1032,10 @@ u32t _std shl_format(const char *cmd, str_list *args) {
             static const char *ftstr[5] = {"unrecognized", "FAT12", "FAT16", "FAT32", "exFAT"};
             u32t  fstype = hlp_volinfo(disk, &vi),
                   clsize = vi.ClSize * vi.SectorSize;
+            int   msgidx = !fstype || fstype>=FST_OTHER ? (vi.FsName[0]?-1:0) : fstype;
 
             printf("\rFormat complete.     \n");
-            printf("\nThe type of file system is %s.\n\n",
-               fstype || !vi.FsName[0] ? ftstr[fstype] : vi.FsName);
+            printf("\nThe type of file system is %s.\n\n", msgidx<0?vi.FsName:ftstr[msgidx]);
             printf("  %s total disk space\n", get_sizestr(vi.SectorSize, vi.TotalSectors));
 
             printf("  %s are available\n", get_sizestr(clsize, vi.ClAvail));
@@ -1062,19 +1058,19 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
-
    cmd_printseq(0,1,0);
 
    while (args->count>=2) {
-      static char *subcommands[7] = {"WRITE", "ASSIGN", "RENAME", "INFO", "QUERY", "WIPE", 0};
+      static char *subcommands[8] = {"WRITE", "ASSIGN", "RENAME", "INFO",
+                                     "QUERY", "WIPE"  , "SELECT", 0};
       int    subcmd = get_arg_index(args->item[0],subcommands),
                  rc = E_SYS_INVPARM;
       long     disk = FFFF;
-      u32t    ssize;
-      u64t  dsksize;
+      u32t    ssize = 0;
+      u64t  dsksize = 0;
       if (subcmd<0) break;
-
-      if (subcmd!=4 || args->count>4) {
+      // read disk parameter
+      if (subcmd<4 || subcmd==5 || subcmd==4 && args->count>4) {
          disk = get_disk_number(args->item[subcmd==4?4:1]);
          if (disk<0) {
             printf("Invalid disk name specified!\n");
@@ -1085,7 +1081,7 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
             return EINVAL;
          }
       }
-      dsksize = hlp_disksize64(disk,&ssize);
+      if (disk!=FFFF) dsksize = hlp_disksize64(disk, &ssize);
 
       if (subcmd==0) {
          int master_boot = -1;
@@ -1221,8 +1217,56 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
             }
          vio_setcolor(VIO_COLOR_RESET);
          rc = lvm_wipeall(disk);
+      } else
+      if (subcmd==6 && args->count>=2) {
+         /* it should have at least BOOT or disk name parameter:
+            LVM SELECT [ALL|DISK] {BOOT|[partname] disk} */
+         static char *argstr   = "ALL|DISK|BOOT|E+|E-";
+         static short argval[] = { BTDT_DISKTREE, BTDT_HDD, 1, 0, BTDT_NOEMU};
+         u32t     rdsk = FFFF;
+         long     ridx = -1;
+         u32t       dt = BTDT_LVM, emu = FFFF;
+         int      boot = 0;
+         char  *dskvar = 0,
+               *ptivar = 0;
+         str_list *arr = str_parseargs(args, 1, 1, argstr, argval, &dt, &dt,
+                                       &boot, &emu, &emu);
+         if (emu==FFFF) emu = boot?BTDT_NOEMU:0;
+         // filter variants without error
+         if (boot && arr->count==0) rc = 0; else
+         if (!boot)
+            if (dt==BTDT_HDD && arr->count==1) { rc = 0; dskvar = arr->item[0]; } else
+               if (arr->count==2) { rc = 0; ptivar = arr->item[0]; dskvar = arr->item[1]; }
+         // no error in args
+         if (!rc) {
+            qs_extcmd dlg = NEW(qs_extcmd);
+            // no extcmd.dll?
+            if (!dlg) rc = E_SYS_UNSUPPORTED; else {
+               rc = dlg->bootmgrdlg(dt==BTDT_LVM?"Select volume":(dt==BTDT_HDD?
+                  "Select disk":"Select partition"), 0, dt|emu, &rdsk, &ridx);
+               DELETE(dlg);
+               if (!rc) {
+                  if (dskvar) setenv(dskvar, dsk_disktostr(rdsk,0), 1);
+                  if (ptivar) env_setvar(ptivar, ridx);
+                  // call "DMGR MBR disk BOOT" command just to simplify code
+                  if (boot) {
+                     char     *cmd = sprintf_dyn(dt==BTDT_HDD||ridx<0?"BOOT":"BOOT %u", ridx);
+                     str_list *cma = str_split(cmd, " ");
+                     free(cmd);
+                     shl_dm_mbr(0, cma, rdsk, 0);
+                     free(cma);
+                 }
+               } else {
+                  // clear vars in case of error
+                  if (dskvar) setenv(dskvar, 0, 1);
+                  if (ptivar) setenv(ptivar, 0, 1);
+               
+                  if (rc==E_SYS_UBREAK) rc = 0;
+               }
+            }
+         }
+         if (arr) free(arr);
       }
-
       if (rc) {
          cmd_shellerr(EMSG_QS, rc, 0);
          return qserr2errno(rc);

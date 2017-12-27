@@ -14,6 +14,7 @@
 #define E_TYPE_PTE          (0x00030000)         ///< partition management
 #define E_TYPE_LVM          (0x00040000)         ///< LVM errors
 #define E_TYPE_MT           (0x00050000)         ///< MT lib errors
+#define E_TYPE_CON          (0x00060000)         ///< Console errors
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_SYS_DONE          (E_TYPE_SYS+0x0001)  ///< duplicate call/operation
@@ -54,6 +55,7 @@
 #define E_SYS_INTVAL        (E_TYPE_SYS+0x0024)  ///< invalid integer value
 #define E_SYS_EOF           (E_TYPE_SYS+0x0025)  ///< (unexpected) end of file reached
 #define E_SYS_CRC           (E_TYPE_SYS+0x0026)  ///< CRC error in file
+#define E_SYS_NOTFOUND      (E_TYPE_SYS+0x0027)  ///< entry not found
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_DSK_ERRREAD       (E_TYPE_DSK+0x0001)  ///< disk read error
@@ -71,13 +73,16 @@
 #define E_DSK_MOUNTED       (E_TYPE_DSK+0x000D)  ///< partition already mounted
 #define E_DSK_NOLETTER      (E_TYPE_DSK+0x000E)  ///< there is no free drive letter
 #define E_DSK_2TBERR        (E_TYPE_DSK+0x000F)  ///< unable to access disk data above 2TB
-#define E_DSK_SSIZE         (E_TYPE_DSK+0x0010)  ///< unsupported sector size (>4kb)
+#define E_DSK_SSIZE         (E_TYPE_DSK+0x0010)  ///< unsupported sector size
 #define E_DSK_VLARGE        (E_TYPE_DSK+0x0011)  ///< volume too large for selected filesystem
 #define E_DSK_VSMALL        (E_TYPE_DSK+0x0012)  ///< volume too small to fit filesystem structures
 #define E_DSK_SELTYPE       (E_TYPE_DSK+0x0013)  ///< failed to select FAT type (16 or 32)
 #define E_DSK_CLSIZE        (E_TYPE_DSK+0x0014)  ///< wrong cluster size parameter
 #define E_DSK_CNAMELEN      (E_TYPE_DSK+0x0015)  ///< custom boot file name length too long
 #define E_DSK_FSMISMATCH    (E_TYPE_DSK+0x0016)  ///< file system type mismatch (dsk_newvbr())
+#define E_DSK_FILESIZE      (E_TYPE_DSK+0x0017)  ///< file size is not match file system information
+#define E_DSK_FILEALLOC     (E_TYPE_DSK+0x0018)  ///< file allocation data is incorrect
+#define E_DSK_FSSTRUCT      (E_TYPE_DSK+0x0019)  ///< file system structures are invalid or damaged
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_PTE_FLOPPY        (E_TYPE_PTE+0x0001)  ///< big floppy, pt is empty
@@ -162,5 +167,16 @@
 #define E_MT_SEMBUSY        (E_TYPE_MT +0x000E)  ///< semaphore is busy
 #define E_MT_LOCKLIMIT      (E_TYPE_MT +0x000F)  ///< too many nested lock calls (>64k)
 #define E_MT_SEMFREE        (E_TYPE_MT +0x0010)  ///< semaphore is free
+
+/* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
+#define E_CON_MODERR        (E_TYPE_CON+0x0001)  ///< video mode is not supported
+#define E_CON_DETACHED      (E_TYPE_CON+0x0002)  ///< not supported in detached session
+#define E_CON_DEVLIMIT      (E_TYPE_CON+0x0003)  ///< too many vio devices
+#define E_CON_NODEVICE      (E_TYPE_CON+0x0004)  ///< no vio device with such number
+#define E_CON_SESNO         (E_TYPE_CON+0x0005)  ///< invalid session number
+#define E_CON_BADHANDLER    (E_TYPE_CON+0x0006)  ///< invalid vio handler device
+#define E_CON_DUPDEVICE     (E_TYPE_CON+0x0007)  ///< device with such parameters already exist
+#define E_CON_NOSESMODE     (E_TYPE_CON+0x0008)  ///< device has no mode for one or more active sessions
+#define E_CON_BADMODEID     (E_TYPE_CON+0x0009)  ///< invalid mode id value
 
 #endif // QS_ERR_NUMBERS

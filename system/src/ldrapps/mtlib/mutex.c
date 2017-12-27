@@ -19,9 +19,12 @@ qs_muxcvtfunc    hlp_cvtmux = 0;
 qe_availfunc     hlp_qavail = 0;
 
 /// common init call.
-static void _exicc mutex_init(EXI_DATA, qs_muxcvtfunc sf1, qe_availfunc sf2) {
+static void _exicc mutex_init(EXI_DATA, qs_muxcvtfunc sf1, qe_availfunc sf2,
+   qshandle sys_queue)
+{
    hlp_cvtmux = sf1;
    hlp_qavail = sf2;
+   sys_q      = sys_queue;
 }
 
 /// create mutex.
@@ -191,8 +194,12 @@ static qserr _exicc callat(EXI_DATA, qsclock at, qs_croncbfunc cb, void *usrdata
    return res;
 }
 
+static void _exicc enumpd(EXI_DATA, qe_pdenumfunc cb, void *usrdata) { 
+   enum_process(cb, usrdata);
+}
+
 static void *m_list[] = { mutex_init, mutex_create, mutex_release, mutex_free,
-                          mutex_state, callat};
+                          mutex_state, callat, enumpd};
 
 void register_mutex_class(void) {
    memset(&attcb, 0, sizeof(attcb));
@@ -201,8 +208,10 @@ void register_mutex_class(void) {
       log_printf("Function list mismatch\n");
       _throw_(xcpt_align);
    }
-   // register private(unnamed) class
-   mux_classid = exi_register(0,m_list,sizeof(m_list)/sizeof(void*),0,0,0,0,0);
+   /* register private(unnamed) class and making it EXCLUSIVE because we
+      have only one instance for the START module */
+   mux_classid = exi_register(0, m_list, sizeof(m_list)/sizeof(void*), 0,
+                              EXIC_EXCLUSIVE, 0, 0, 0);
    mux_hlpinst = exi_createid(mux_classid, EXIF_SHARED);
    if (!mux_classid || !mux_hlpinst)
       log_printf("mutex class registration error!\n");

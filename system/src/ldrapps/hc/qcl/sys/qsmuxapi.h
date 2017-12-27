@@ -38,6 +38,14 @@ typedef qsclock _std (*qs_croncbfunc)(void **pusrdata);
     @return number of events in queue or -1 if handle is invalid */
 typedef int     _std (*qe_availfunc) (qshandle queue, u32t *ppid, u32t *sft_no);
 
+/** process data enumeration callback.
+    _qs_sysmutex.enumpd calls this function for every existing process in
+    system. MT lock active during call.
+    @param  pd            process data.
+    @param  usrdata       user data arg from enumpd call.
+    @return 1 to continue enumeration, 0 to cancel */
+typedef int     _std (*qe_pdenumfunc)(void *pd, void *usrdata);
+
 typedef struct {
    int        state;
    u32t         pid;
@@ -54,7 +62,8 @@ typedef struct {
     functions to handle mutexes as common system handles */
 typedef struct qs_sysmutex_s {
    /// common init call.
-   void      _exicc (*init   )(qs_muxcvtfunc sf1, qe_availfunc sf2);
+   void      _exicc (*init   )(qs_muxcvtfunc sf1, qe_availfunc sf2,
+                               qshandle sys_q);
    /// create mutex.
    qserr     _exicc (*create )(mux_handle_int *res, u32t sft_no);
    /// release mutex.
@@ -80,6 +89,11 @@ typedef struct qs_sysmutex_s {
        @param  usrdata      User data arg for callback
        @return 0 on success or error value */
    qserr     _exicc (*callat )(qsclock at, qs_croncbfunc cb, void *usrdata);
+   /** enum processes.
+       Process enumeration function, callback called for every process, with
+       address mt_prcdata in parameter. MT lock is on during entire call.
+       @param  cb           Callback function address */
+   void      _exicc (*enumpd )(qe_pdenumfunc cb, void *usrdata);
 } _qs_sysmutex, *qs_sysmutex;
 
 /// direct export for MTLIB
@@ -93,6 +107,13 @@ typedef struct qs_fpustate_s {
    /// allocate state (use -1 for current fiber)
    qserr     _std   (*allocstate)(mt_thrdata *owner, int fiber);
 } _qs_fpustate, *qs_fpustate;
+
+/// @name sys_q events
+#define SYSQ_SESSIONFREE    0x00001  ///< session free (mt_prcdata* in event.a)
+#define SYSQ_BEEP           0x00002  ///< speaker beep (freq in a, dur in b)
+#define SYSQ_MEMSTAT        0x00003  ///< periodic memory stat (scheduled)
+#define SYSQ_DCNOTIFY       0x00004  ///< data cache timer notification
+//@}
 
 #ifdef __cplusplus
 }

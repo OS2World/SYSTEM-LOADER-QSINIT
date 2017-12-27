@@ -16,7 +16,7 @@ extern "C" {
     @param [out]    ddlo       ptr to low dword (eax value), can be 0
     @param [out]    ddhi       ptr to high dword (edx value), can be 0
     @return bool - success flag, return 0 in both dwords if failed */
-u32t _std hlp_getmsrsafe(u32t index, u32t *ddlo, u32t *ddhi);
+u32t  _std hlp_getmsrsafe (u32t index, u32t *ddlo, u32t *ddhi);
 
 /** Safe version of hlp_writemsr() (write MSR register).
     Function catch an occured exception and return zero in this case.
@@ -24,12 +24,12 @@ u32t _std hlp_getmsrsafe(u32t index, u32t *ddlo, u32t *ddhi);
     @param  ddlo       low dword (eax value)
     @param  ddhi       high dword (edx value)
     @return bool - success flag */
-u32t _std hlp_setmsrsafe(u32t index, u32t ddlo, u32t ddhi);
+u32t  _std hlp_setmsrsafe (u32t index, u32t ddlo, u32t ddhi);
 
 /** return rdtsc counter value.
     Note, that QSINIT support started on 486DX and this function will
     always return 0 on 486 ;) */
-u64t _std hlp_tscread(void);
+u64t  _std hlp_tscread    (void);
 
 /** return number of rdtsc cycles in 55 ms.
     On EFI host value is constant between tm_calibrate() calls and VERY
@@ -42,17 +42,17 @@ u64t _std hlp_tscread(void);
     future implementation of AMD Pstates - can ;)
 
     @return 0 on 486 or timer error, else - value */
-u64t _std hlp_tscin55ms(void);
+u64t  _std hlp_tscin55ms  (void);
 
 /** query cpu temperature.
     Function read Intel CPUs digital sensor value from MSR.
     @return current cpu temperature, in degrees, or 0 if not supported */
-u32t _std hlp_getcputemp(void);
+u32t  _std hlp_getcputemp (void);
 
 /** query cpu clock modulation.
     @return value      in range of 1..16 for every 6.25% of cpu clock or 0 on error
     (no clock modulation in CPU) */
-u32t _std hlp_cmgetstate(void);
+u32t  _std hlp_cmgetstate (void);
 
 #define CPUCLK_MINFREQ       1    ///< lower possible freqency
 #define CPUCLK_AVERAGE       8    ///<  50% speed
@@ -64,7 +64,7 @@ u32t _std hlp_cmgetstate(void);
     @retval 0          on success
     @retval ENODEV     no clock modulation on this CPU
     @retval EINVAL     invalid argument */
-u32t _std hlp_cmsetstate(u32t state);
+u32t  _std hlp_cmsetstate (u32t state);
 
 
 /// @name hlp_mtrrquery() flags
@@ -87,7 +87,7 @@ u32t _std hlp_cmsetstate(u32t state);
     @param [out] state     ptr to mtrr current state (see MTRRS_*, can be 0)
     @param [out] addrbits  ptr to physaddr bits, supported by processor
     @return number of variable range MTRR registers in processor */
-u32t _std hlp_mtrrquery(u32t *flags, u32t *state, u32t *addrbits);
+u32t  _std hlp_mtrrquery  (u32t *flags, u32t *state, u32t *addrbits);
 
 
 /// @name MTRR setup error codes
@@ -108,7 +108,7 @@ u32t _std hlp_mtrrquery(u32t *flags, u32t *state, u32t *addrbits);
 
     @param state     state flags (MTRRS_*)
     @return MTRRERR_* value */
-u32t _std hlp_mtrrstate(u32t state);
+u32t  _std hlp_mtrrstate  (u32t state);
 
 /// @name hlp_mtrrvread() state parameter
 //@{
@@ -127,7 +127,7 @@ u32t _std hlp_mtrrstate(u32t state);
     @param [out] length    block length
     @param [out] state     block flags (see MTRRF_*)
     @return success flag (1/0) */
-int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state);
+int   _std hlp_mtrrvread  (u32t reg, u64t *start, u64t *length, u32t *state);
 
 /** setup variable range mtrr register.
     @param reg        variable range register index
@@ -135,7 +135,7 @@ int  _std hlp_mtrrvread(u32t reg, u64t *start, u64t *length, u32t *state);
     @param length     block length
     @param state      block flags (see MTRRF_*)
     @return MTRRERR_* value */
-u32t _std hlp_mtrrvset(u32t reg, u64t start, u64t length, u32t state);
+u32t  _std hlp_mtrrvset   (u32t reg, u64t start, u64t length, u32t state);
 
 #define MTRR_FIXEDMAX       88    ///< max number of fixed ranges
 
@@ -147,7 +147,7 @@ u32t _std hlp_mtrrvset(u32t reg, u64t start, u64t length, u32t state);
     @param [out] length    array of [MTRR_FIXEDMAX] block lengths
     @param [out] state     array of [MTRR_FIXEDMAX] cache types
     @return number of filled entries or 0 on invalid parameter/no mtrr */
-u32t _std hlp_mtrrfread(u32t *start, u32t *length, u32t *state);
+u32t  _std hlp_mtrrfread  (u32t *start, u32t *length, u32t *state);
 
 /** return real cache type for specified area (based on MTRR values).
     This value is determined by Intel rules and both fixed and variable range
@@ -158,7 +158,7 @@ u32t _std hlp_mtrrfread(u32t *start, u32t *length, u32t *state);
     @param length     block length
     @return cache type (MTRRF_*) or MTRRF_TYPEMASK value if area is invalid or
             multiple cache types used over it */
-u32t _std hlp_mtrrsum(u64t start, u64t length);
+u32t  _std hlp_mtrrsum    (u64t start, u64t length);
 
 /** setup fixed range mtrr registers.
     Function split addr and length to multiple fixed length registers.
@@ -168,31 +168,31 @@ u32t _std hlp_mtrrsum(u64t start, u64t length);
     @param length     block length
     @param state      cache type
     @return MTRRERR_* value */
-u32t _std hlp_mtrrfset(u32t addr, u32t length, u32t state);
+u32t  _std hlp_mtrrfset   (u32t addr, u32t length, u32t state);
 
 /** reset MTRR registers to values, was setuped by BIOS.
     @return success flag (1/0) */
-void _std hlp_mtrrbios(void);
+void  _std hlp_mtrrbios   (void);
 
 /** build MTRR batch setup buffer for DOSHLP.
     This call made a copy of current MTRR state in supplied buffer.
     @param buffer     320 bytes length (32 MSRs: dw reg, dd eax, dd edx)
     @return number of actually filled msr enties */
-u32t _std hlp_mtrrbatch(void *buffer);
+u32t  _std hlp_mtrrbatch  (void *buffer);
 
 /** apply MTRR batch buffer, recieved from hlp_mtrrbatch().
     No any checks preformed on buffer, so, be careful. With wrong buffer you
     will get trap or MTRR off entirely or PC in crazy state.
     tm_calibrate() must be called after it if MTRR om/off state is changed.
     @param buffer     320 bytes length (32 MSRs: dw reg, dd eax, dd edx) */
-void _std hlp_mtrrapply(void *buffer);
+void  _std hlp_mtrrapply  (void *buffer);
 
 /** check if MTRR changed by QSINIT API calls.
     @param state      MTRR state was modified? (1/0)
     @param fixed      fixed range MTRRs was modified? (1/0)
     @param variable   variable range MTRRs was modified? (1/0)
     @return 1 if one of asked things was modified, else 0 */
-int  _std hlp_mtrrchanged(int state, int fixed, int variable);
+int   _std hlp_mtrrchanged(int state, int fixed, int variable);
 
 /** read from PCI config space.
     @param bus        bus number
@@ -201,7 +201,7 @@ int  _std hlp_mtrrchanged(int state, int fixed, int variable);
     @param offs       data offset (aligned to size)
     @param size       data size (1,2,4). 4 will be used if size is 0 or >4
     @return readed value */
-u32t _std hlp_pciread(u16t bus, u8t slot, u8t func, u8t offs, u8t size);
+u32t  _std hlp_pciread    (u16t bus, u8t slot, u8t func, u8t offs, u8t size);
 
 /** write to PCI config space.
     @param bus        bus number
@@ -210,7 +210,8 @@ u32t _std hlp_pciread(u16t bus, u8t slot, u8t func, u8t offs, u8t size);
     @param offs       data offset (aligned to size)
     @param size       data size (1,2,4)
     @param value      data to write */
-void _std hlp_pciwrite(u16t bus, u8t slot, u8t func, u8t offs, u8t size, u32t value);
+void  _std hlp_pciwrite   (u16t bus, u8t slot, u8t func, u8t offs, u8t size,
+                           u32t value);
 
 /// dump PCI config space to log
 void _std log_pcidump(void);
@@ -235,8 +236,8 @@ typedef struct {
     @param [out] dev        device location, can be 0
     @param       nodupes    detect devices, mapped to all 8 functions of selected slot
     @return success flag (1/0) */
-int  _std hlp_pcifind(u16t vendor_id, u16t device_id, u16t index,
-                      pci_location *dev, int nodupes);
+int   _std hlp_pcifind    (u16t vendor_id, u16t device_id, u16t index,
+                           pci_location *dev, int nodupes);
 
 /** find PCI device by class code.
     @param       classcode  (class<<8|subclass) (no interface code here!)
@@ -244,7 +245,7 @@ int  _std hlp_pcifind(u16t vendor_id, u16t device_id, u16t index,
     @param [out] dev        device location, can be 0
     @param       nodupes    detect devices, mapped to all 8 functions of selected slot
     @return success flag (1/0) */
-int  _std hlp_pciclass(u32t classcode, u16t index, pci_location *dev, int nodupes);
+int   _std hlp_pciclass   (u32t classcode, u16t index, pci_location *dev, int nodupes);
 
 /** get PCI device base address list.
     @param [in,out] dev     Only bus/slot/func required, other will be filled on exit.
@@ -253,7 +254,7 @@ int  _std hlp_pciclass(u32t classcode, u16t index, pci_location *dev, int nodupe
                             type bits are usable).
     @param [out]    size    Array of six u64t for size
     @return number of filled entries */
-u32t _std hlp_pcigetbase(pci_location *dev, u64t *bases, u64t *sizes);
+u32t  _std hlp_pcigetbase (pci_location *dev, u64t *bases, u64t *sizes);
 
 /** enum PCI devices.
     Enum PCI devices. To start process - call hlp_pcigetnext(dev,1), to continue -
@@ -264,12 +265,33 @@ u32t _std hlp_pcigetbase(pci_location *dev, u64t *bases, u64t *sizes);
     @param [in]     init    Set 1 for first call, 0 for next iterations.
     @param [in]     nodupes Detect devices, mapped to all 8 functions of selected slot
     @return 1 if new entry available in dev, 0 if no more devices */
-int  _std hlp_pcigetnext(pci_location *dev, int init, int nodupes);
+int   _std hlp_pcigetnext (pci_location *dev, int init, int nodupes);
 
 /** query PCI device presence.
     @param [in,out] dev     Only bus/slot/func required, other will be filled on exit.
     @return success flag (1/0) */
-int  _std hlp_pciexist(pci_location *dev);
+int   _std hlp_pciexist   (pci_location *dev);
+
+/** try to find PCI device, who owns the specified memory address.
+    Function enums PCI devices and try to find the which one, who includes
+    "addr" value into one of used address ranges.
+    @param       addr       address to search
+    @param [out] dev        device location
+    @return 0 if failed or 1-based index of memory range and device data in
+            "dev" variable */
+u32t  _std hlp_pcifindaddr(u64t addr, pci_location *dev);
+
+/** function convert vendor:id or bus.slot.func string into pci_location data.
+    @param [out] dev        device location
+    @return PCILOC_* value (0 on error) */
+u32t  _std hlp_pciatoloc  (const char *str, pci_location *dev);
+
+/// @name hlp_pciatoloc() result code
+//@{
+#define PCILOC_ERROR      0
+#define PCILOC_VENDOR     1
+#define PCILOC_BUSSLOT    2
+//@}
 
 #ifdef __cplusplus
 }

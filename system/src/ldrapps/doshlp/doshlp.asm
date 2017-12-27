@@ -887,7 +887,7 @@ DHProtGetMessage proc   far                                     ;
                 or      ax,ax                                   ;
                 jz      @@dhgmr_loopend                         ; end of list?
                 cmp     ax,cx                                   ;
-                jz      @@dhgmr_done                            ; founded?
+                jz      @@dhgmr_done                            ; found?
                 lodsw                                           ;
                 add     si,ax                                   ; msg size
                 inc     si                                      ; term. nul

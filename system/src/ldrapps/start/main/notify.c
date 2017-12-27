@@ -23,17 +23,21 @@ static u32t         cballoc = 0;
 
 #define ALLOC_STEP  20
 #define VALID_MASK  (SECB_QSEXIT|SECB_PAE|SECB_MTMODE|SECB_CMCHANGE|SECB_IODELAY|\
-                     SECB_DISKADD|SECB_DISKREM|SECB_CPCHANGE)
+                     SECB_DISKADD|SECB_DISKREM|SECB_CPCHANGE|SECB_LOWMEM)
 #define ONCE_MASK   (SECB_QSEXIT|SECB_PAE|SECB_MTMODE)
 
-u32t _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc) {
-   u32t rc = 0;
+static qserr notifyevent(u32t eventmask, sys_eventcb cbfunc) {
+   qserr rc = E_SYS_NOTFOUND;
+   /// unknown bits
+   if (eventmask&~(VALID_MASK|SECB_GLOBAL|SECB_THREAD))
+      return E_SYS_INVPARM;
    /// unable to start thread while QSINIT exits
    if ((eventmask&(SECB_QSEXIT|SECB_THREAD))==(SECB_QSEXIT|SECB_THREAD))
-      return 0;
+      return E_SYS_INVPARM;
    /// unable to post caller pointers to threads
    if ((eventmask&(SECB_CPCHANGE|SECB_THREAD))==(SECB_CPCHANGE|SECB_THREAD))
-      return 0;
+      return E_SYS_INVPARM;
+
    if (cbfunc) {
       u32t   ii;
       s32t  pos = -1;
@@ -62,16 +66,20 @@ u32t _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc) {
          cblist[pos].cb     = cbfunc;
          cblist[pos].evmask = eventmask;
          cblist[pos].pid    = eventmask&SECB_GLOBAL?0:mod_getpid();
-         rc = 1;
+         rc = 0;
       } else
       if (pos>=0) {
          cblist[pos].cb     = 0;
          cblist[pos].evmask = 0;
-         rc = 1;
+         rc = 0;
       }
       mt_swunlock();
    }
    return rc;
+}
+
+u32t _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc) {
+   return notifyevent(eventmask, cbfunc) ? 0 : 1;
 }
 
 void sys_notifyfree(u32t pid) {
@@ -84,6 +92,58 @@ void sys_notifyfree(u32t pid) {
          if (cblist[ii].pid==pid) { cblist[ii].cb=0; cblist[ii].evmask=0; }
    mt_swunlock();
 }
+/** run notification function
+    @param   pid     0 - for direct exec, else pid of process where 
+                         to launch thread */
+void run_notify(sys_eventcb cbfunc, u32t type, u32t info, u32t info2,
+                u32t info3, u32t pid)
+{
+#if 0
+   log_it(3, "run_notify(%08X, 0x%X, %08X, %08X, %08X, %u\n", cbfunc, type,
+      info, info2, info3, pid);
+#endif
+   if (pid) {
+      int err = 0;
+      if (!in_mtmode) err = 1; else {
+         // this call should be atomic
+         qs_mtlib       mt = get_mtlib();
+         mt_ctdata      ts;
+         sys_eventinfo *ei = (sys_eventinfo*)malloc(sizeof(sys_eventinfo));
+         u32t          tid;
+
+         memset(&ts, 0, sizeof(ts));
+         ts.size = sizeof(mt_ctdata);
+         ts.stacksize  = _64KB;
+         // use QSINIT pid for SECB_GLOBAL
+         ts.pid        = pid;
+         ei->eventtype = type;
+         ei->info      = info;
+         ei->info2     = info2;
+         ei->info3     = info3;
+         // cbfunc & thread types are compatible, actually
+         tid = mt->createthread((mt_threadfunc)cbfunc, MTCT_SUSPENDED, &ts, ei);
+         if (!tid) {
+            err = 2;
+            free(ei);
+         } else {
+            // just guarantee garbage collection for this block
+            mem_threadblockex(ei, ts.pid, tid);
+            mt->resumethread(ts.pid, tid);
+         }
+      }
+      if (err) log_it(2, "%s thread notification (pid %u, %08X)\n",
+         err-1?"Error launching":"Unable to make", pid, cbfunc);
+   } else {
+      sys_eventinfo ei;
+      ei.eventtype = type;
+      ei.info      = info;
+      ei.info2     = info2;
+      ei.info3     = info3;
+      /* we can recursively walking over this point (at least exit cb
+         can cause cm reset and its notification) */
+      cbfunc(&ei);
+   }
+}
 
 void _std sys_notifyexec(u32t evtype, u32t infovalue) {
    evtype &= VALID_MASK;
@@ -95,45 +155,8 @@ void _std sys_notifyexec(u32t evtype, u32t infovalue) {
       u32t ii, once = evtype&ONCE_MASK;
       for (ii=0; ii<cballoc; ii++)
          if (cblist[ii].cb && (cblist[ii].evmask&evtype)) {
-            if (cblist[ii].evmask&SECB_THREAD) {
-               int err = 0;
-               if (!in_mtmode) err = 1; else {
-                  // this call should be atomic
-                  qs_mtlib       mt = get_mtlib();
-                  mt_ctdata      ts;
-                  sys_eventinfo *ei = (sys_eventinfo*)malloc(sizeof(sys_eventinfo));
-                  u32t          tid;
-
-                  memset(&ts, 0, sizeof(ts));
-                  ts.size = sizeof(mt_ctdata);
-                  ts.stacksize  = _64KB;
-                  // use QSINIT pid for SECB_GLOBAL
-                  ts.pid        = cblist[ii].pid ? cblist[ii].pid : 1;
-                  ei->eventtype = evtype;
-                  ei->info      = infovalue;
-                  // cbfunc & thread types are compatible, actually
-                  tid = mt->createthread((mt_threadfunc)cblist[ii].cb,
-                                         MTCT_SUSPENDED, &ts, ei);
-                  if (!tid) {
-                     err = 2;
-                     free(ei);
-                  } else {
-                     // just guarantee garbage collection for this block
-                     mem_threadblockex(ei, ts.pid, tid);
-                     mt->resumethread(ts.pid, tid);
-                  }
-               }
-               if (err) log_it(2, "%s thread notification (pid %u, %08X)\n",
-                  err-1?"Error launching":"Unable to make", cblist[ii].pid,
-                     cblist[ii].cb);
-            } else {
-               sys_eventinfo ei;
-               ei.eventtype = evtype;
-               ei.info      = infovalue;
-               /* we can recursively walking over this point (at least exit cb
-                  can cause cm reset and its notification) */
-               cblist[ii].cb(&ei);
-            }
+            run_notify(cblist[ii].cb, evtype, infovalue, 0, 0, cblist[ii].evmask&
+               SECB_THREAD?(cblist[ii].evmask&SECB_GLOBAL?1:cblist[ii].pid):0);
              // wipe signaled "once" bits and check for empty
             if (once)
                if (((cblist[ii].evmask&=~once)&VALID_MASK)==0)

@@ -14,22 +14,29 @@ extern "C" {
 /** print char to current cursor position.
     @param   ch characted to print.
     @return 1 if new line was started (\n or end of line) */
-u32t _std vio_charout(char ch);
+u32t  _std vio_charout(char ch);
 
 /** print string to the current cursor position.
     @param   str  string to print.
     @return number of new lines occured (both \n and end of line), i.e. number
     of scrolled lines. */
-u32t _std vio_strout(const char *str);
+u32t  _std vio_strout(const char *str);
 
 /// clear screen
-void _std vio_clearscr(void);
+void  _std vio_clearscr(void);
 
 /// set current cursor posistion
-void _std vio_setpos(u8t line, u8t col);
+void  _std vio_setpos(u8t line, u8t col);
 
 /// get current cursor posistion
-void _std vio_getpos(u32t *line, u32t *col);
+void  _std vio_getpos(u32t *line, u32t *col);
+
+/** get number of printed lines after last mode change.
+    Counter is zero after mode change or vio_resetmode() call.
+    @param  nval   replace counter to this value. Negative value
+                   (-1) means only query.
+    @return number of printed lines. */
+u32t  _std vio_ttylines(s32t nval);
 
 /** copy data to screen.
     @param  col    start column
@@ -39,8 +46,8 @@ void _std vio_getpos(u32t *line, u32t *col);
     @param  buf    src buffer (array of dw in text mode screen format)
     @param  pitch  length of single line in buffer (in bytes), can be 0 for
                    default value (width*2) */
-void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, 
-                       void *buf, u32t pitch);
+void  _std vio_writebuf(u32t col, u32t line, u32t width, u32t height,
+                        void *buf, u32t pitch);
 
 /** copy data from screen.
     @param  col    start column
@@ -50,17 +57,8 @@ void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height,
     @param  buf    dst buffer (array of dw in text mode screen format)
     @param  pitch  length of single line in buffer (in bytes), can be 0 for
                    default value (width*2) */
-void _std vio_readbuf (u32t col, u32t line, u32t width, u32t height, 
-                       void *buf, u32t pitch);
-
-/** set cursor shape.
-    @param start   cursor start line (bit 5 == 1 then cursor hidden)
-    @param end     cursor end line */
-void _std vio_setshape(u8t start, u8t end);
-
-/** get current cursor shape.
-    @return cursor shape word (in the same way as in BIOS and vio_setshape func). */
-u16t _std vio_getshape(void);
+void  _std vio_readbuf (u32t col, u32t line, u32t width, u32t height,
+                        void *buf, u32t pitch);
 
 #define VIO_SHAPE_FULL      0x00    ///< full-size
 #define VIO_SHAPE_HALF      0x01    ///< bottom half of character
@@ -68,9 +66,13 @@ u16t _std vio_getshape(void);
 #define VIO_SHAPE_LINE      0x03    ///< single line
 #define VIO_SHAPE_NONE      0x04    ///< no cursor
 
+/** get current cursor shape.
+    @return VIO_SHAPE_* constant. */
+u16t  _std vio_getshape(void);
+
 /** set one of default cursor shapes.
     @param shape   type (VIO_SHAPE_* const) */
-void _std vio_defshape(u8t shape);
+void  _std vio_setshape(u16t shape);
 
 #define VIO_COLOR_BLACK     0x000
 #define VIO_COLOR_BLUE      0x001
@@ -93,34 +95,84 @@ void _std vio_defshape(u8t shape);
 
 /** set output color for console mode.
     @param color   bgrd<<4|text color */
-void _std vio_setcolor(u16t color);
+void  _std vio_setcolor(u16t color);
+
+/// get current color
+u16t  _std vio_getcolor(void);
 
 /** call bios to set 80x25, 80x43 or 80x50 mode.
     @param lines   Number of lines (25,43 ot 50). */
-void _std vio_setmode(u32t lines);
+void  _std vio_setmode(u32t lines);
 
 /** set console mode.
     Actually, function can set non-80 cols modes only after loading CONSOLE
     module, but it allow to use it transparenly (without static linking).
 
-    @param cols    Number of columns cols (80).
-    @param lines   Number of lines (25,43 ot 50).
+    @param cols           Number of columns cols (80).
+    @param lines          Number of lines (25,43 ot 50).
     return success flag (1/0) */
-int  _std vio_setmodeex(u32t cols, u32t lines);
+int   _std vio_setmodeex(u32t cols, u32t lines);
 
 /** check current videomode and reset it to 80x25.
     Function checks current video and if it equal to 80x25 - clears screen,
     else resets mode to 80x25 */
-void _std vio_resetmode(void);
+void  _std vio_resetmode(void);
 
 /** get current text mode.
-    This function must be called after manual mode switch via direct int 10h
-    call to update vio_* functions internal info.
-
-    @param [out] cols    Number of columns (40,80,132)
-    @param [out] lines   Number of lines (25,43,50,etc)
+    @param [out] cols     Number of columns (80,132,etc)
+    @param [out] lines    Number of lines (25,43,50,etc)
     @return 1 on success, else current mode is not text. */
-u8t  _std vio_getmode(u32t *cols, u32t *lines);
+u8t   _std vio_getmode(u32t *cols, u32t *lines);
+
+typedef struct {
+   u32t         size;
+   u16t           mx;    ///< mode width
+   u16t           my;    ///< mode height
+   u16t        fontx;    ///< font width (in dots)
+   u16t        fonty;    ///< font height (in dots)
+   u32t        flags;    ///< mode information flags
+   u32t      mode_id;    ///< unique mode identifier over system
+   /* data starting from this point provided for graphic modes only,
+      when CONSOLE module is active */
+   u32t          gmx;
+   u32t          gmy;
+   u32t       gmbits;    ///< bits per pixel
+   u32t        rmask;    ///< red color mask (bpp>=15)
+   u32t        gmask;    ///< green color mask (bpp>=15)
+   u32t        bmask;    ///< blue color mask (bpp>=15)
+   u32t        amask;    ///< reserved bits mask (bpp>=15)
+} vio_mode_info;
+
+#define VIO_MI_SHORT   (FIELDOFFSET(vio_mode_info,gmx))
+#define VIO_MI_FULL    (sizeof(vio_mode_info))
+
+/// @name vio_mode_info.flags bits
+//@{
+#define VMF_GRAPHMODE        0x00001   ///< graphic mode
+#define VMF_VGAPALETTE       0x00002   ///< VGA palette present (8 bit graphic modes)
+//@}
+
+/** get video mode(s) information.
+    Function return information about one or more (or all of available) video
+    modes. Note, that mx, my and dev_id values are used as a filters for the
+    entire mode list.
+    @param mx             text mode width, use 0 for any available width
+    @param my             text mode height, use 0 for any available height
+    @param dev_id         use -1 for mode on any device, else - device id
+                          (0 - screen).
+    @return one or more mode information records in user`s heap buffer (must
+            be free()-ed). The end of list indicated by vio_mode_info.size
+            field = 0. */
+vio_mode_info* _std vio_modeinfo(u32t mx, u32t my, int dev_id);
+
+/** set mode using unique mode_id value.
+    Note, that mode_id is a device-specific value, this mean what if another
+    device, attached to current session has no mode with the same screen
+    resolution - it will be detached (i.e. session will lost output to this
+    device).
+    mode_id can be queried via vio_modeinfo() mode enumeration.
+    return 0 on success or error code */
+qserr _std vio_setmodeid(u32t mode_id);
 
 /** set intensity or blink for text mode background.
     After mode init INTENSITY is selected (unlike BIOS).
@@ -128,36 +180,39 @@ u8t  _std vio_getmode(u32t *cols, u32t *lines);
     have no blink support.
 
     @param value    Use 1 for intensity and 0 for blink */
-void _std vio_intensity(u8t value);
+void  _std vio_intensity(u8t value);
 
-/** read key.
-    @return pair scan-code<<8|character (int 16h ah=10h)
-    @see key_wait() */
-u16t _std key_read(void);
+/** infinite wait for a key press.
+    @return pair scan-code<<8|character (int 16h ah=10h) */
+u16t  _std key_read(void);
 
 /// is key pressed?
-u8t  _std key_pressed(void);
+u8t   _std key_pressed(void);
 
 /** wait key with timeout.
-    @param seconds Seconds to wait for.
-    @return key pressed or 0
-    @see key_read() */
-u16t _std key_wait(u32t seconds);
+    @param seconds        seconds to wait for.
+    @return pressed key code or 0 */
+u16t  _std key_wait(u32t seconds);
 
-/** allow hlt execution while key waiting.
-    @param  on  Boolean flag (1/0).
-    @return previous state. */
-int  _std key_waithlt(int on);
+/** wait key with timeout.
+    Be careful, key_wait() uses seconds, but this function - milliseconds.
+
+    @param       ms       time to wait for, ms. Value of 0xFFFFFFFF means
+                          forever.
+    @param [out] status   ptr to receive keyboard status at the moment of
+                          key press, can be 0.
+    @return key code or 0 */
+u16t  _std key_waitex(u32t ms, u32t *status);
 
 /** set keyboard rate and delay.
     @param rate    0=30 rpts/sec, 1=26...1Fh=2.
     @param delay   0=250ms, 1=500ms, 2=750ms, 3=1 second */
-void _std key_speed(u8t rate, u8t delay);
+void  _std key_speed(u8t rate, u8t delay);
 
 /** get keyboard rate and delay.
-    @param [out] rate   ptr to rate, can be 0 
-    @param [out] delay  ptr to delay, can be 0 */
-void _std key_getspeed(u8t *rate, u8t *delay);
+    @param [out] rate     ptr to rate, can be 0
+    @param [out] delay    ptr to delay, can be 0 */
+void  _std key_getspeed(u8t *rate, u8t *delay);
 
 /// @name result of key_status (bit values)
 //@{
@@ -178,23 +233,23 @@ void _std key_getspeed(u8t *rate, u8t *delay);
 //@}
 
 /// get system keys status
-u32t _std key_status(void);
+u32t  _std key_status(void);
 
 /** push key press to keyboad buffer.
     @param code    Pair scancode<<8|character
     @return 1 on success. */
-u8t  _std key_push(u16t code);
+u8t   _std key_push(u16t code);
 
 /** pc speaker sound.
-    Function is non-blocking and exit after sound start, next call will 
+    Function is non-blocking and exit after sound start, next call will
     stop previous unfinished sound.
 
     @param freq    frequency, Hz
     @param ms      beep length, ms */
-void _std vio_beep(u16t freq, u32t ms);
+void  _std vio_beep(u16t freq, u32t ms);
 
 /// is sound playing now?
-u8t  _std vio_beepactive(void);
+u8t   _std vio_beepactive(void);
 
 #ifdef __cplusplus
 }

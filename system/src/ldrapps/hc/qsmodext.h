@@ -230,6 +230,12 @@ void  _std mod_dumptree(void);
 /// dump single process context to log
 void  _std log_dumppctx(process_context* pq);
 
+/** makes a copy of process environment for mod_exec() function.
+    @param  pq          Process context
+    @param  addspace    Additional space to allocate in result memory block.
+    @return environment data in application heap block (use free() to release it). */
+char* _std env_copy    (process_context *pq, u32t addspace);
+
 #ifdef __cplusplus
 }
 #endif

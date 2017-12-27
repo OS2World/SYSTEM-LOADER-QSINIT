@@ -97,7 +97,7 @@ static void *methods_list[] = { cc_setsize, cc_setsize_str, cc_setprio,
    cc_enable, cc_invalidate, cc_invalidate_vol, cc_stat};
 
 u32t _exicc cc_setsize_str(EXI_DATA, const char *size) {
-   if (stricmp(size,"OFF")==0) { cc_setsize(0, 0, 0); return 1; }
+   if (stricmp(size,"OFF")==0) { cc_setsize(0,0,0); return 1; }
       else
    if (isdigit(size[0])) {
       char *errptr = 0;
@@ -122,6 +122,12 @@ void _std on_exit(sys_eventinfo *info) {
    unload_all();
 }
 
+// low memory handler
+void _std on_lowmem(sys_eventinfo *info) {
+   if (!lib_ready) return;
+   cc_setsize(0,0,0); 
+}
+
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
       if (mod_query(selfname, MODQ_LOADED|MODQ_NOINCR)) {
@@ -137,6 +143,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          return 0;
       }
       sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, on_exit);
+      sys_notifyevent(SECB_LOWMEM|SECB_GLOBAL, on_lowmem);
       cmd_shelladd("CACHE", shl_cache);
 
       lib_ready = 1;
@@ -147,6 +154,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       if (classid) return 0;
 
       cmd_shellrmv("CACHE",shl_cache);
+      sys_notifyevent(0, on_lowmem);
       sys_notifyevent(0, on_exit);
       on_exit(0);
    }

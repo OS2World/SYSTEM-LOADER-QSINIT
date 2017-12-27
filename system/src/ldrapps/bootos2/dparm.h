@@ -23,9 +23,6 @@ int  replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
 /// fill enulated disk parameters in oemhlp disk tables
 int  setup_ramdisk(u8t disk, struct ExportFixupData *efd, u8t *bhpart);
 
-/// read file from the root of non-FAT volume (HPFS only now)
-void* altfs_readfull(u8t vol, const char *name, u32t *bufsize);
-
 #ifdef __cplusplus
 }
 #endif

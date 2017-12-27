@@ -1,54 +1,46 @@
 ;
 ; QSINIT
-; low level vio output api
+; low level vio output definitions
 ;
 
 ;cc #ifndef QSINIT_VIO_INT
 ;cc #define QSINIT_VIO_INT
 
 ;cc #include "qstypes.h"
+;cc #include "qcl/sys/qsvioint.h"
 
 ;cc #ifdef __cplusplus
 ;cc extern "C" {
 ;cc #endif
 
-SESDATA_SIGN    equ     4D424453h  ; SDBM
-SESDATA_KBSIZE  equ     16
+SESDATA_SIGN    equ  4D424453h  ; SDBM
+SESDATA_KBSIZE  equ        16   ;/< session keyboard buffer length
+NUM_VIO_ROUTERS equ         4   ;/< number of system VIO routers
+SYS_HANDLERS    equ        32   ;/< limited by vs_devmask width in session data
 
 vio_session_s   struc
 vs_sign         dd      ?
 vs_x            dd      ?
 vs_y            dd      ?
-vs_cx           dd      ?
-vs_cy           dd      ?
-vs_color        dw      ?
-vs_shape        dw      ?
-vs_lines        dd      ?
-vs_flags        dd      ?
-;ct void *
-vs_data         dd      ?          ;/< mode handler`s data
-vs_keybuf       dw      SESDATA_KBSIZE dup (?)
-vs_keywp        db      ?          ;/< write pos
-vs_keyrp        db      ?          ;/< read pos
+vs_devmask      dd      ?                       ;/< active on devices (0..31)
+vs_flags        dd      ?                       ;/< VSF_* in qscon.h
+vs_selfno       dd      ?                       ;/< session number
+;ct qs_vh
+vs_tb           dd      ?                       ;/< text mode buffer
+;ct char*
+vs_title        dd      ?                       ;/< title, in system heap block
+vs_keybuf       dd      SESDATA_KBSIZE dup (?)
+vs_keywp        db      ?                       ;/< write pos
+vs_keyrp        db      ?                       ;/< read pos
+vs_devdata      dw      SYS_HANDLERS dup (?)    ;/< word storage for every device (mode id actually)
 vio_session_s   ends
 
-VSF_GRAPHIC     equ     1          ;/< graphic mode
-VSF_INTENSITY   equ     2          ;/< blink is off
-
-;cc typedef struct vio_session_s  vio_session_data;
+;cc typedef struct vio_session_s        se_sysdata;
 
 ;cc // process info
 vio_handler_s   struc
 ;ct char
 vh_name         db      8 dup (?)
-;cr    void  _std (*vh_init     )(u32t sesno);
-vh_init         dd      ?
-;cr    void  _std (*vh_fini     )(void);
-vh_fini         dd      ?
-;cr    vio_session_data* _std (*vh_savestate)(void);
-vh_savestate    dd      ?
-;cr    void  _std (*vh_reststate)(vio_session_data *state);
-vh_reststate    dd      ?
 ;cr    void  _std (*vh_setmode  )(u32t lines);
 vh_setmode      dd      ?
 ;cr    int   _std (*vh_setmodeex)(u32t cols, u32t lines);
@@ -62,22 +54,22 @@ vh_getmfast     dd      ?
 
 ;cr    void  _std (*vh_intensity)(u8t value);
 vh_intensity    dd      ?
-;cr    void  _std (*vh_setshape )(u8t start, u8t end);
+;cr    void  _std (*vh_setshape )(u16t shape);
 vh_setshape     dd      ?
 ;cr    u16t  _std (*vh_getshape )(void);
 vh_getshape     dd      ?
-;cr    void  _std (*vh_defshape )(u8t shape);
-vh_defshape     dd      ?
 
 ;cr    void  _std (*vh_setcolor )(u16t color);
 vh_setcolor     dd      ?
+;cr    u16t  _std (*vh_getcolor )(void);
+vh_getcolor     dd      ?
 ;cr    void  _std (*vh_clearscr )(void);
 vh_clearscr     dd      ?
 ;cr    void  _std (*vh_setpos   )(u8t line, u8t col);
 vh_setpos       dd      ?
 ;cr    void  _std (*vh_getpos   )(u32t *line, u32t *col);
 vh_getpos       dd      ?
-;cr    u32t* _std (*vh_ttylines )(void);
+;cr    u32t  _std (*vh_ttylines )(s32t newvalue);
 vh_ttylines     dd      ?
 
 ;cr    u32t  _std (*vh_charout  )(char ch);
@@ -93,8 +85,8 @@ vh_readbuf      dd      ?
 vh_kread        dd      ?
 ;cr    u8t   _std (*vh_kpressed )(void);
 vh_kpressed     dd      ?
-;cr    u16t  _std (*vh_kwait    )(u32t seconds);
-vh_kwait        dd      ?
+;cr    u16t  _std (*vh_kwaitex  )(u32t ms, u32t *status);
+vh_kwaitex      dd      ?
 ;cr    u32t  _std (*vh_kstatus  )(void);
 vh_kstatus      dd      ?
 ;cr    u8t   _std (*vh_kpush    )(u16t code);
@@ -102,6 +94,17 @@ vh_kpush        dd      ?
 vio_handler_s   ends
 
 ;cc typedef struct vio_handler_s  vio_handler;
+
+;cc extern vio_handler* VHTable[NUM_VIO_ROUTERS];
+;cc #pragma aux VHTable       "_*";
+
+VHI_ACTIVE      equ     0          ;/< active VIO handler
+VHI_CVIO        equ     1          ;/< start time plain vio output
+VHI_BVIO        equ     2          ;/< base vio (router) with session support
+
+;cc se_sysdata* _std se_dataptr(u32t sesno);
+
+SESN_DETACHED   equ     0          ;/< detached session common number
 
 ;cc #ifdef __cplusplus
 ;cc }

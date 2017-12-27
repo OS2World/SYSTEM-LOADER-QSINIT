@@ -125,7 +125,7 @@ static char* _asctime_buffer(void) {
       qs_mtlib  mt = get_mtlib();
       char    *res = (char*)(u32t)mt_tlsget(QTLS_ASCTMBUF);
       if (!res) {
-         res = (char*)malloc_thread(48);
+         res = (char*)malloc_th(48);
          mt_tlsset(QTLS_ASCTMBUF, (u32t)res);
       }
       return res;

@@ -82,7 +82,4 @@ exports = {
    _lvm_present      = { index = 192  group = "lvm"    format = "@ui"     }
    _lvm_wipeall      = { index = 193  group = "lvm"    format = "@u@u"    }
    _lvm_setvalue     = { index = 194  group = "lvm"    format = "@u@uu@u@u" }
-
-   # just for test (temporary)
-   _hpfs_freadfull   = { index = 251  group = "hpfs"   format = "p@bs&*@u" }
 }

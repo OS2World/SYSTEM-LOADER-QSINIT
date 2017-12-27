@@ -8,6 +8,9 @@ set tracepath=1:\msg;
 rem set volume label for 1:
 label vdisk
 
+rem load HPFS r/o support
+lm /q fslib
+
 rem load cache on first mount command if it wasn`t loaded before
 set LM_CACHE_ON_MOUNT = on,6%
 
@@ -28,6 +31,10 @@ if NOT %boottype%=="SINGLE" goto common1
 rem non-OS/2 boot - load disk i/o cache
 cache 6%
 :common1
+
+rem run ArcaLoader OS2LDR.CFG configuration check - AFTER qssetup.cmd, it will
+rem ignore "ramdisk" key if disk was created by shell commands in qssetup.cmd
+if exist aoscfg.exe aoscfg.exe
 
 rem menu (apps / kernel / partition - depends on "start_menu" and defaults)
 bootmenu.exe

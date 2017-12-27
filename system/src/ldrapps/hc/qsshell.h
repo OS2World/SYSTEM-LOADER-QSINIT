@@ -28,28 +28,31 @@ typedef struct {
     @param str          source string
     @param separators   string with separator characters (ex. ",-\n\t")
     @return string list, must be freed by single free() call */
-str_list* _std str_split(const char *str, const char *separators);
+str_list* _std str_split    (const char *str, const char *separators);
 
 /** split text file to items.
     @param text         source text file witn \n or \r\n EOLs
     @param len          length of "text", can be 0 for null-term. string
     @return string list, must be freed by single free() call */
-str_list* _std str_settext(const char *text, u32t len);
+str_list* _std str_settext  (const char *text, u32t len);
 
 /// create list from array of char*
-str_list* _std str_fromptr(char **list, int size);
+str_list* _std str_fromptr  (char **list, int size);
 
 /// split string by command line parsing rules (with "" support)
 str_list* _std str_splitargs(const char *str);
+
+/// copy a number of strings into new list
+str_list* _std str_copylines(str_list*list, u32t first, u32t last);
 
 /// merge list to command line (wrap "" around lines with spaces)
 char*     _std str_mergeargs(str_list*list);
 
 /// read current environment to string list
-str_list* _std str_getenv(void);
+str_list* _std str_getenv   (void);
 
 /// get text to single string (must be free() -ed).
-char*     _std str_gettostr(str_list*list, char *separator);
+char*     _std str_gettostr (str_list*list, char *separator);
 
 /** search for key value in string list.
     Function searches for key=value string, starting from *pos or 0 if pos=0.
@@ -61,25 +64,26 @@ char*     _std str_gettostr(str_list*list, char *separator);
 
     @param list          source string list
     @param key           key name to search
-    @param [in,out] pos  start position on enter, founded on exit. Can be 0
-    @return pointer to first character of "value" in founded string or 0 */
-char*     _std str_findkey(str_list *list, const char *key, u32t *pos);
+    @param [in,out] pos  start position on enter, found on exit. Can be 0
+    @return pointer to first character of "value" in found string or 0 */
+char*     _std str_findkey  (str_list *list, const char *key, u32t *pos);
 
 /** parse argument list and set flags from it.
     Example of call:
     @code
       static char *argstr   = "+r|-r|+s|-s|+h|-h";
       static short argval[] = { 1,-1, 1,-1, 1,-1};
-      str_parseargs(al, 0, argstr, argval, &a_R, &a_R, &a_S, &a_S, &a_H, &a_H);
+      str_parseargs(al, 0, 0, argstr, argval, &a_R, &a_R, &a_S, &a_S, &a_H, &a_H);
     @endcode
     @param lst      list with arguments
-    @param firstarg start position of first argument in lst
+    @param firstarg start position of first argument in the list
     @param ret_list return updated arg list (newly allocated!)
     @param args     arguments in form: "/boot|/q|/a" or "+h|-h|+a|-a"
     @param values   array of SHORT values for EVERY argument in args
     @param ...      pointers to INT variables to setup
     @return 0 if ret_list==0 else NEW list with removed known arguments,
-            this list must be released by free() call. */
+            this list must be released by free() call. Note, that list
+            returned even with str_list.count=0. */
 str_list* _std str_parseargs(str_list *lst, u32t firstarg, int ret_list,
                              char* args, short *values, ...);
 
@@ -89,7 +93,7 @@ void      _std log_printlist(char *info, str_list*list);
 /** calculate string length without embedded ANSI sequences.
     @param str      source string
     @return string length without ANSI sequences in it */
-u32t      _std str_length(const char *str);
+u32t      _std str_length   (const char *str);
 
 //===================================================================
 //  environment (shell)
@@ -405,6 +409,10 @@ u32t      _std shl_chcp   (const char *cmd, str_list *args);
 u32t      _std shl_delay  (const char *cmd, str_list *args);
 /// DETACH command.
 u32t      _std shl_detach (const char *cmd, str_list *args);
+/// START command.
+u32t      _std shl_start  (const char *cmd, str_list *args);
+/// SM command.
+u32t      _std shl_sm     (const char *cmd, str_list *args);
 
 #ifdef __cplusplus
 }

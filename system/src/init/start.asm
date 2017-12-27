@@ -618,7 +618,7 @@ INITCODE        ends
 
 DATA16          segment
 embedded_errs   dw      offset msg_loading, offset msg_no486, offset msg_notrm,
-                        offset msg_memlow, offset msg_a20, offset msg_filetab,
+                        offset msg_memlow, offset msg_softfault, offset msg_filetab,
                         offset msg_dpmierr, offset msg_unperr, offset msg_no32mb,
                         offset msg_nothing, offset msg_mcberr, offset msg_faterr,
                         offset msg_diskerr, offset msg_noextdta, offset msg_runextdta,
@@ -632,7 +632,7 @@ msg_loading     db      2, 0DBh,0DBh,' LOADING ',0DBh,0DBh,0       ; 00
 msg_no486       db      1,'no 80486DX+ detected.',0                ; 01
 msg_notrm       db      1,'system already in protected mode.',0    ; 02
 msg_memlow      db      1,'invalid low memory size.',0             ; 03
-msg_a20         db      0,0                                        ; 04
+msg_softfault   db      1,'software fault occurs.',0               ; 04
 msg_filetab     db      1,'invalid microfsd data.',0               ; 05
 msg_dpmierr     db      1,'protected mode interface error.',0      ; 06
 msg_unperr      db      1,'loader binary is damaged.',0            ; 07

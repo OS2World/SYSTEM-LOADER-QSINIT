@@ -442,14 +442,16 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
          md->start_ptr, md->stack_ptr);
    } while (false);
 
-   /* this module was first in recursive calls, so here we are done
+   /* this module was a first in recursive calls, so here we are done
       OR we`re loaded dynamically, by module init/term function below */
    if (!rc && md && ((md->flags&MOD_LOADER) || (flags&LDM_STATIC)==0)) {
          u32t rci = mod_initterm_all(md,0,FFFF);
          if (!rci) rc = E_MOD_INITFAILED; else
          if ((md->flags&MOD_LOADER)) {
-            /* this should be atomic too, as any mod_list/mod_ilist
-               modification */
+            /* this must be atomic too, as any mod_list/mod_ilist
+               modification, because timer interrupt may print "too long
+               lock" message with accessing this list. It should be
+               consistent at any time! */
             int state = sys_intstate(0);
             // drop loader flags
             mod_listflags(mod_ilist, 0, MOD_LOADING|MOD_LOADER);

@@ -1,6 +1,9 @@
 ;
 ; QSINIT
 ; text mode output
+;----------------------------------------------------------------
+; note, that code here should also support VESA text modes even it
+; cannot set them. CONSOLE module uses this.
 ;
                 include inc/segdef.inc
                 include inc/basemac.inc
@@ -34,7 +37,7 @@ _TEXT           segment
 ;
                 public  vio_init
 vio_init        proc    near                                    ;
-                SaveReg <ax,dx,gs>                              ; preserve registers
+                push    gs                                      ;
                 mov     ax, SELZERO                             ;
                 mov     gs, ax                                  ;
                 mov     ax, gs:[463h]                           ; Controller index register
@@ -48,11 +51,11 @@ vio_init        proc    near                                    ;
                 shl     ax, 1                                   ;
                 mov     _pagesize, ax                           ;
                 mov     ax, gs:[450h]                           ; current position for page 0
+                pop     gs                                      ;
                 mov     byte ptr cursor_x, al                   ;
                 mov     byte ptr cursor_y, ah                   ;
-                mov     ax, gs:[460h]                           ; cursor shape
-                mov     shape, ax                               ;
-                RestReg <gs,dx,ax>                              ;
+                push    3                                       ; VIO_SHAPE_LINE
+                call    _cvio_setshape                          ; set cursor shape
                 ret                                             ;
 vio_init        endp
 
@@ -198,14 +201,12 @@ _vio_updateinfo proc    near                                    ;
                 mov     ax, gs:[ebx+450h]                       ; current position for page 0
                 mov     byte ptr cursor_x, al                   ;
                 mov     byte ptr cursor_y, ah                   ;
-                mov     ax, gs:[ebx+460h]                       ; cursor shape
-                mov     shape, ax                               ;
                 RestReg <gs,ebx,eax>                            ;
                 ret                                             ;
 _vio_updateinfo endp
 
 ;
-; clear screen
+; set current color
 ;----------------------------------------------------------------
 ;
                 public  _cvio_setcolor                          ;
@@ -214,6 +215,16 @@ _cvio_setcolor  proc    near                                    ;
                 mov     _text_col, ax                           ;
                 ret     4                                       ;
 _cvio_setcolor  endp                                            ;
+
+;
+; get current color
+;----------------------------------------------------------------
+;
+                public  _cvio_getcolor                          ;
+_cvio_getcolor  proc    near                                    ;
+                movzx   eax, _text_col                          ;
+                ret                                             ;
+_cvio_getcolor  endp                                            ;
 
 ;
 ; clear screen
@@ -287,14 +298,7 @@ setpos          endp                                            ;
 ; IN:   AH = start line,  AL = end line
 ;       if bit D5 <AH> = 1 then cursor hidden
 ;       bit D5 D6 <AL> -> cursor disp
-                public  _cvio_setshape                          ;
-_cvio_setshape  proc    near                                    ;
-                mov     eax, [esp]                              ; get return address
-                xchg    eax, [esp+8]                            ; exchange with variable
-                mov     ah, [esp+4]                             ;
-                add     esp, 8                                  ; fix stack ptr
-vio_setshape    label   near                                    ;
-                mov     shape, ax                               ; save current shape
+setshape        proc    near                                    ;
                 SaveReg <eax,ebx,edx,gs>                        ;
                 lgs     ebx, _page0_fptr                        ; save in bios data
                 mov     gs:[ebx+460h], ax                       ;
@@ -307,12 +311,12 @@ vio_setshape    label   near                                    ;
                 out     dx, ax                                  ;
                 RestReg <gs,edx,ebx,eax>                        ;
                 ret                                             ;
-_cvio_setshape  endp
+setshape        endp
 
 ;
 ; get cursor shape
 ;----------------------------------------------------------------
-; OUT:  AH = start line,  AL = end line
+; OUT:  ax = VIO_SHAPE_* constant (0..4)
                 public  _cvio_getshape                          ;
 _cvio_getshape  proc    near                                    ;
                 movzx   eax, shape                              ; cursor shape
@@ -322,9 +326,12 @@ _cvio_getshape  endp
 ;
 ; set one of default cursor shapes
 ;----------------------------------------------------------------
-                public  _cvio_defshape                          ;
-_cvio_defshape  proc    near                                    ;
+                public  _cvio_setshape                          ;
+_cvio_setshape  proc    near                                    ;
                 mov     dl, [esp+4]                             ;
+                mov     al,dl                                   ;
+                cbw                                             ;
+                mov     shape, ax                               ; save current shape
                 sub     dl, 4                                   ;
                 jz      @@vdshape_hide                          ;
                 jnc     @@vdshape_exit                          ; > VIO_SHAPE_NONE
@@ -353,12 +360,13 @@ _cvio_defshape  proc    near                                    ;
                 xor     ah, ah                                  ;
                 jmp     @@vdshape_set                           ; VIO_SHAPE_FULL
 @@vdshape_hide:
+                mov     shape, 4                                ; fix possible wrong values
                 mov     ax, 2000h                               ; hide cursor
 @@vdshape_set:
-                call    vio_setshape                            ;
+                call    setshape                                ;
 @@vdshape_exit:
                 ret     4                                       ;
-_cvio_defshape  endp
+_cvio_setshape  endp
 
 ;
 ; get hardware cursor position

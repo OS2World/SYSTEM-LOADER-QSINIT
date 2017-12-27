@@ -374,7 +374,7 @@ static void *method_list[] = { inif_open, inif_create, inif_close, inif_fstat,
    inif_getsec, inif_keylist, inif_text, inif_secadd, inif_secerase,
    inif_erase };
 
-void register_inif(void) {
+void exi_register_inifile(void) {
    exi_register("qs_inifile", method_list, sizeof(method_list)/sizeof(void*),
       sizeof(ifldata), 0, inif_initialize, inif_finalize, 0);
 }

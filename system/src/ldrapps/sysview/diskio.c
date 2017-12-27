@@ -106,11 +106,16 @@ ul dsk_write(ul disk, uq sector, ul count, void *data) {
    return 0;
 }
 
+void opts_beep(ul freq, ul duration) {
+   Beep(freq,duration);
+}
+
 // ************************************************************************
 // qsinit i/o
 // ************************************************************************
 #elif defined(__QSINIT__)
 #include "qsdm.h"
+#include "vio.h"
 
 ul dsk_count(ul *floppies,ul *vdisks) {
    if (vdisks) *vdisks = 2;
@@ -134,6 +139,10 @@ ul dsk_read(ul disk, uq sector, ul count, void *data) {
 
 ul dsk_write(ul disk, uq sector, ul count, void *data) {
    return hlp_diskwrite(disk|QDSK_DIRECT, sector, count, data);
+}
+
+void opts_beep(ul freq, ul duration) {
+   vio_beep(freq, duration);
 }
 
 // ************************************************************************
@@ -279,4 +288,7 @@ ul dsk_write(ul disk, uq sector, ul count, void *data) {
    return 0;
 }
 
+void opts_beep(ul freq, ul duration) {
+   DosBeep(freq,duration);
+}
 #endif

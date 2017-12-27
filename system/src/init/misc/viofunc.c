@@ -15,34 +15,43 @@ void setkeymode(u32t clear);
 u8t  istextmode(void);
 void calibrate_delay(void);
 void vio_updateinfo(void);
+void _std cvio_setshape(u16t shape);
+u8t  _std cvio_getmode(u32t *cols, u32t *lines);
+void _std cvio_setpos(u8t line, u8t col);
 
-// get system keys status
-u32t ckey_status(void) {
+static u32t translate_status(u16t flags) {
    static u16t translate[16]={KEY_SHIFTRIGHT|KEY_SHIFT, KEY_SHIFTLEFT|KEY_SHIFT,
       KEY_CTRL, KEY_ALT, KEY_SCROLLLOCK, KEY_NUMLOCK, KEY_CAPSLOCK, KEY_INSERT,
       KEY_CTRLLEFT|KEY_CTRL, KEY_ALTLEFT|KEY_ALT, KEY_CTRLRIGHT|KEY_CTRL, 
       KEY_ALTRIGHT|KEY_ALT, KEY_SCROLLLOCK, KEY_NUMLOCK, KEY_CAPSLOCK, KEY_SYSREQ };
-   u16t flags=rmcall(getkeyflags,0);
-   u32t rc=0,ii;
-
-   for (ii=0;ii<16;ii++)
-      if ((flags&1<<ii)) rc|=translate[ii];
+   u32t rc=0, ii;
+   if (flags)
+      for (ii=0;ii<16;ii++)
+         if ((flags&1<<ii)) rc|=translate[ii];
    return rc;
+}
+
+// get system keys status
+u32t ckey_status(void) {
+   return translate_status(rmcall(getkeyflags,0));
 }
 
 void cvio_setmode(u32t lines) {
    u32t mode=lines==43?1:(lines==50?2:0x202);
    rmcall(settextmode,2,mode);
    // reset internal cursor pos & vio data
-   vio_getmode(0,0);
-   vio_setpos(0,0);
-   vio_defshape(VIO_SHAPE_LINE);
+   cvio_getmode(0,0);
+   cvio_setpos(0,0);
+   cvio_setshape(VIO_SHAPE_LINE);
+   cvio_ttylines = 0;
 }
 
 void _std cvio_resetmode(void) {
    rmcall(checkresetmode,2,1);
+   cvio_setpos(0,0);
    vio_updateinfo();
-   vio_defshape(VIO_SHAPE_LINE);
+   cvio_setshape(VIO_SHAPE_LINE);
+   cvio_ttylines = 0;
 }
 
 /* this is stub, it will be replaced by CONSOLE.DLL on loading to allow
@@ -50,7 +59,7 @@ void _std cvio_resetmode(void) {
 int _std cvio_setmodeex(u32t cols, u32t lines) {
    if (cols!=80) return 0;
    if (lines!=25 && lines!=43 && lines!=50) return 0;
-   vio_setmode(lines);
+   cvio_setmode(lines);
    return 1;
 }
 
@@ -86,7 +95,7 @@ void _std cvio_getmodefast(u32t *cols, u32t *lines) {
 }
 
 u8t  _std cvio_getmode(u32t *cols, u32t *lines) {
-   u8t rc=rmcall(istextmode,0);
+   u8t rc = rmcall(istextmode,0);
    cvio_getmodefast(cols,lines);
    return rc;
 }
@@ -165,6 +174,9 @@ u32t key_filter(u32t key) {
    return kc;
 }
 
-u16t _std key_read_nw(void) {
-   return key_filter(hlp_querybios(QBIO_KEYREADNW));
+u16t _std key_read_nw(u32t *status) {
+   u32t rc = hlp_querybios(QBIO_KEYREADNW);
+
+   if (status) *status = translate_status(rc>>16);
+   return key_filter((u16t)rc);
 }

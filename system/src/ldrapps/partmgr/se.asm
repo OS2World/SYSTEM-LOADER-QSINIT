@@ -50,7 +50,7 @@
 ;    * detects sector size via int 13h ah=48h call (to calc number of GPT
 ;      records per sector)
 ;    * assume 32bit sector number for 1st GPT copy
-;    * get FIRST founded UEFI in MBR as GPT main header
+;    * get FIRST found UEFI in MBR as GPT main header
 ;    * searching in GPT records for "BIOS Bootable" attribute bit, gets first
 ;    * checks bytes per sector BPB field and if it 512/1024/2048/4096 - assume
 ;      BPB in boot sector and update "Hidden Sectors" value in it.

@@ -1,7 +1,6 @@
 #include "clib.h"
 #include "vioext.h"
 #include "setjmp.h"
-#include "console.h"
 #include "qslog.h"
 #include "errno.h"
 #include "time.h"
@@ -79,10 +78,10 @@ void printDisk(u32t disk) {
 }
 
 int main(int argc,char *argv[]) {
-   u32t  ii, modes, mh;
-   time_t      now;
-   dir_t        di;
-   con_modeinfo *mi = con_querymode(&modes);
+   u32t   ii, modes, mh;
+   time_t       now;
+   dir_t         di;
+   vio_mode_info *mi = vio_modeinfo(0, 0, 0), *mp;
 
    if (argc>1) {
       if (stricmp(argv[1],"fps")==0) {
@@ -180,12 +179,35 @@ int main(int argc,char *argv[]) {
         }
         return 0;
       } else
+      if (stricmp(argv[1],"a")==0 && argc==3) {
+         u32t  size = str2ulong(argv[2]);
+         void  *ptr = hlp_memalloc(size<<10, QSMA_LOCAL|QSMA_RETERR);
+         printf("hlp_memalloc(%ukb) = %08X\npress any key to exit\n", size, ptr);
+         key_read();
+      } else
       if (stricmp(argv[1],"ct")==0 && argc==2) {
          u64t cv;
          while (!key_pressed()) {
             printf("\rclock: %Lu ms", clock()/1000LL);
          }
          printf("\n");
+      } else
+      if (stricmp(argv[1],"l")==0 && argc==3) {
+         u32t  size;
+         void   *fd = freadfull(argv[2], &size);
+         if (!fd) printf("no file \"%s\"\n", argv[2]); else {
+            vio_listref *ref = (vio_listref*)malloc(sizeof(vio_listref));
+            ref->size  = sizeof(vio_listref);
+            ref->text  = str_settext((char*)fd, size);
+            ref->items = ref->text->count-1;
+            ref->id    = ref->items?(u32t*)calloc(ref->items,4):0;
+            ref->subm  = 0;
+            hlp_memfree(fd);
+            vio_showlist("List test", ref, MSG_LIGHTBLUE);
+            if (ref->id) free(ref->id);
+            free(ref->text);
+            free(ref);
+         }
       } else
       if (stricmp(argv[1],"f")==0 && argc==3) {
          // test of module unload
@@ -279,6 +301,10 @@ int main(int argc,char *argv[]) {
          // delay x ms
          u32t delay = atoi(argv[2]);
          usleep(delay*1000);
+      } else
+      if (stricmp(argv[1],"b")==0 && argc==3) {
+         return vio_msgbox("test", argv[2], MSG_GREEN|MSG_CENTER|MSG_OKCANCEL|
+            MSG_NOSHADOW, 0);
       } else {
          u64t addr = strtoull(argv[1],0,16);
          u8t*  mem = pag_physmap(addr, 4096, 0);
@@ -295,9 +321,6 @@ int main(int argc,char *argv[]) {
       }
       return 0;
    }
-   if (argc>1)
-      return vio_msgbox("test", argv[1], MSG_GREEN|MSG_CENTER|MSG_OKCANCEL, 0);
-
 #if 0
    {
       u16t buffer[160], *bp;
@@ -315,8 +338,7 @@ int main(int argc,char *argv[]) {
 
    //printDisk(1);
 
-   con_setmode(80,43,0);
-   printf("%d modes available\n",modes);
+   vio_setmodeex(80,43);
 
    vio_setcolor(VIO_COLOR_LRED);
    printf("hello, world!\n");
@@ -331,7 +353,7 @@ int main(int argc,char *argv[]) {
 
    if (!_dos_findfirst("B:\\", _A_ARCH,&di)) {
       do {
-         printf("%15s %8d %s",di.d_name,di.d_size,ctime(&di.d_wtime));
+         printf("%15s %8Lu %s", di.d_name, di.d_size, ctime(&di.d_wtime));
       } while (!_dos_findnext(&di));
       _dos_findclose(&di);
    } else
@@ -372,23 +394,22 @@ int main(int argc,char *argv[]) {
    vio_clearscr();
 #endif
 
-   if (mi[0].infosize!=sizeof(con_modeinfo)) {
-      printf("CONSOLE.DLL version mismatch, unable to print mode table!\n");
-   } else
-   for (ii=0; ii<modes; ii++) {
-      char cch = ii<10?'0'+ii:'A'+ii-10;
+   for (mp=mi, modes=0; mp->size; mp++) {
+      char cch = ++modes<10?'0'+modes:'A'+modes-10;
 
-      if (mi[ii].flags&CON_GRAPHMODE) {
-         printf("%c. %4dx%4dx%2d bits", cch, mi[ii].width, mi[ii].height,
-            mi[ii].bits);
-         if (mi[ii].bits>8)
-            printf("(r:%08X g:%08X b:%08X a:%08X)", mi[ii].rmask, mi[ii].gmask,
-               mi[ii].bmask, mi[ii].amask);
+      if (mp->flags&VMF_GRAPHMODE) {
+         printf("%c. %4ux%-4u   in %ux%ux%u ", cch, mp->mx, mp->my,
+            mp->gmx, mp->gmy, mp->gmbits);
+         if (mp->gmbits>8)
+            printf("(r:%08X g:%08X b:%08X a:%08X)", mp->rmask, mp->gmask,
+               mp->bmask, mp->amask);
          printf("\n");
-      } else {
-         printf("%c. %4dx%4d text\n", cch, mi[ii].width, mi[ii].height);
-      }
+      } else
+         printf("%c. %4ux%-4u\n", cch, mp->mx, mp->my);
    }
+   printf("%d modes available\n", modes);
+   free(mi);
+   mi = 0;
 #if 0
    // rdmsr test
    _try_ {
@@ -404,7 +425,6 @@ int main(int argc,char *argv[]) {
    printf("play music? (Y/n, pc speaker required)");
    do {
       ii = key_wait(3);
-      if (log_hotkey(ii)) continue;
       ii&= 0xFF;
       if (ii==27||tolower(ii)=='n') return 0; else break;
    } while (1);

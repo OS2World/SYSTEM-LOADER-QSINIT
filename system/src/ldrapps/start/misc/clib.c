@@ -267,6 +267,19 @@ char *__stdcall _strspnp(const char *str, const char *charset) {
    return str[index] ? (char*)str + index : 0;
 }
 
+char* __stdcall trimleft(char *src, char *charset) {
+   u32t len = strspn(src, charset);
+   if (len) memmove(src, src+len, strlen(src+len)+1);
+   return src;
+}
+
+char* __stdcall trimright(char *src, char *charset) {
+   u32t len = strlen(src);
+   while (len--)
+      if (strchr(charset,src[len])) src[len] = 0; else break;
+   return src;
+}
+
 // do not use START_EXPORT() here (used from trap screen)
 char *__stdcall strncat(char *dst, const char *src, size_t n) {
    int lend = strlen(dst),
@@ -309,6 +322,18 @@ u32t __stdcall strccnt(const char *str, char ch) {
 char __stdcall strclast(const char *str) {
    if (!str || !*str) return 0;
    return str[strlen(str)-1];
+}
+
+u32t __stdcall replacechar(char *str, char from, char to) {
+  if (!str || from==to || !from || !to) return 0; else {
+     char  *ch = strchr(str,from);
+     u32t  res = 0;
+     while (ch) {
+        *ch++=to; res++;
+        if (*ch!=from) ch = strchr(ch,from);
+     }
+     return res;
+  }
 }
 
 void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
@@ -546,7 +571,8 @@ int __stdcall START_EXPORT(closedir)(dir_t *fp) {
    fp->d_sysdata = 0;
    si->sign      = 0;
    free(fp);
-   return err?1:0;
+   // it would be nice in trace
+   return err/*?1:0*/;
 }
 
 qserr __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
@@ -867,7 +893,7 @@ static long readtree(const char *Dir, const char *Mask, dir_t **info,
    // convert name and save it for dir_t.d_openpath
    dptr  = (char*)mem_alloc(owner, pool, QS_MAXPATH+1);
    errv  = io_fullpath(dptr, Dir, QS_MAXPATH+1);
-   if (!errv) strcat(dptr, "\\");
+   if (!errv && strclast(dptr)!='\\') strcat(dptr, "\\");
    *info = 0;
    iout  = 0;
    ii    = 0;
@@ -893,9 +919,10 @@ static long readtree(const char *Dir, const char *Mask, dir_t **info,
                      if (cbrc<0) { rc=-1; count=0; break; } else
                      if (!cbrc) continue;
                   }
-                  // alloc memory
+                  /* alloc memory (note, that with initial ii=128 it eats all
+                     3Gb ram on partition with >10000 directories ;) */
                   if (count+2>=ii) {
-                     if (!ii) iout = (dir_t*)mem_alloc(owner,pool,(ii=128)*sizeof(dir_t));
+                     if (!ii) iout = (dir_t*)mem_alloc(owner,pool,(ii=8)*sizeof(dir_t));
                         else iout = (dir_t*)mem_realloc(iout,(ii*=2)*sizeof(dir_t));
                   }
                   memcpy(iout+count,rdi,sizeof(dir_t));

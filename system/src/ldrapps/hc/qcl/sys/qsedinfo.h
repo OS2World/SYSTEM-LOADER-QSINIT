@@ -47,6 +47,7 @@ typedef struct qs_extdisk_s {
 #define EDSTATE_QUERY 0x80000000   ///< query current state flags
 #define EDSTATE_RO        0x0001   ///< disk is r/o
 #define EDSTATE_NOCACHE   0x0002   ///< disk i/o is not cached by default
+#define EDSTATE_RAM       0x0004   ///< storage is RAM
 //@}
 
 /** query additional interface for this disk.

@@ -23,7 +23,7 @@ extern "C" {
 
 /** reset disk mbr.
     @attention DSKBR_CLEARPT / DSKBR_GPTHEAD flags WIPE entire disk!
-    Function it low-level call is do not call disk rescan after changes.
+    Function is low-level call and it does not force disk rescan after changes.
     @param disk     disk number
     @param flags    DSKBR_* flags
     @return boolean (success flag) */
@@ -479,6 +479,7 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
 #define DMAP_LOGICAL   0x0008   ///< Logical partition / possibility to create it
 #define DMAP_MOUNTED   0x0010   ///< Partition mounted in QSINIT (DriveQS field is valid)
 #define DMAP_LVMDRIVE  0x0020   ///< LVM drive letter is available
+#define DMAP_BMBOOT    0x0040   ///< IBM Boot Manager bootable partition
 //@}
 
 typedef struct {
@@ -833,8 +834,8 @@ qserr _std dsk_gptactive(u32t disk, u32t index);
 /** search for partition by it`s name.
     @param [in]     guid     GUID to search.
     @param [in]     guidtype GUID type (GPTN_*).
-                             For GPTN_PARTTYPE argument first founded
-                             partition will be returned.
+                             For GPTN_PARTTYPE argument first found partition
+                             will be returned.
     @param [in,out] disk     Disk number, init it with 0xFFFFFFFF for all disks
                              or actual disk number for search. Return disk
                              number.

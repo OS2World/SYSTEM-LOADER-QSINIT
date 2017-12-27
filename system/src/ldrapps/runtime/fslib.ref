@@ -1,0 +1,37 @@
+type = dll
+name = "FSLIB"
+
+exports = {}
+
+class = {
+   name = qs_sys_hpfsio
+   entries = {
+      init      = "@uppb@up"
+      done      = "@upp"
+      avail     = "@upp"
+      volinfo   = "@upppi"
+      setlabel  = "@upps"
+      drive     = "ipp"
+      open      = "@upps@u&*@u&*u"
+      read      = "@upp@u@qp!*u"
+      write     = "@upp@u@qp!*u"
+      flush     = "@upp@u"
+      close     = "@upp@u"
+      size      = "@upp@u&*q"
+      setsize   = "@upp@uq"
+      finfo     = "@upp@up"
+      setattr   = "@upps@u"
+      getattr   = "@upps&*@u"
+      setexattr = "@uppsspu"
+      getexattr = "@uppssp&*u"
+      lstexattr = "ppps"
+      remove    = "@upps"
+      renmove   = "@uppss"
+      makepath  = "@upps"
+      rmdir     = "@upps"
+      pathinfo  = "@uppsp"
+      setinfo   = "@uppsp@u"
+      diropen   = "@upps&*@u"
+      dirnext   = "@upp@up"
+      dirclose  = "@upp@u"
+}

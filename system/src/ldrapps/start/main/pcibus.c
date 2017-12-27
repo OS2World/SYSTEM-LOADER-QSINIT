@@ -79,7 +79,7 @@ static void init_enum(void) {
     @param  offsets  array of offsets in configuration data
     @param  sizes    array of sizes in configuration data
     @param  values   array of values to compare with configuration data
-    @param  count,   number of entries in offsets/sizes/values arrays, can be 0
+    @param  count    number of entries in offsets/sizes/values arrays, can be 0
     @param  index    zero-based index of device with required parameters
     @param  dev      device data (output, optional)
     @param  usenext  flag 1 to start enumeration from dev->bus,slot,func
@@ -284,4 +284,46 @@ int  _std hlp_pciexist(pci_location *dev) {
        dev->header    = hlp_pciread(dev->bus,dev->slot,dev->func,PCI_HEADER_TYPE,1);
        return 1;
    }
+}
+
+u32t _std hlp_pcifindaddr(u64t addr, pci_location *dev) {
+   int init = 1;
+   if (!dev) return 0;
+   if (addr<(u64t)sys_endofram()) return 0;
+
+   while (def_enum(0,0,0,0,0,dev,init,1)) {
+      u64t base[6], size[6];
+      u32t cnt = hlp_pcigetbase(dev, base, size), ii;
+
+      for (ii=0; ii<cnt; ii++)
+         if ((base[ii]&PCI_ADDR_SPACE)==PCI_ADDR_SPACE_MEMORY) {
+            u64t start = base[ii] & (((u64t)FFFF<<32)+PCI_ADDR_MEM_MASK);
+            if (addr>=start && addr<start+size[ii]) return ii+1;
+         }
+      init = 0;
+   }
+   return 0;
+}
+
+u32t  _std hlp_pciatoloc(const char *str, pci_location *dev) {
+   if (!dev) return PCILOC_ERROR;
+   memset(dev, 0, sizeof(pci_location));
+   if (!str || !strlen(str)) return PCILOC_ERROR;
+
+   if (strchr(str,':') || strchr(str,'.')) {
+      char *cp = strchr(str,':');
+      if (cp) {
+         dev->vendorid = strtoul(str,0,16);
+         dev->deviceid = strtoul(cp+1,0,16);
+         return PCILOC_VENDOR;
+      } else {
+         cp = strchr(str,'.');
+         dev->bus  = str2long(str);
+         dev->slot = str2long(cp+1);
+         cp =  strchr(cp+1,'.');
+         dev->func = cp?str2long(cp+1):0;
+         return PCILOC_BUSSLOT;
+      }
+   }
+   return PCILOC_ERROR;
 }

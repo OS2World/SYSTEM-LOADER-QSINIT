@@ -47,6 +47,8 @@ extern "C" {
     Note, what if EXIC_GMUTEX was selected in class registration, EXIF_MTSAFE
     flag is void and every call in all instances will wait for global class
     mutex.
+    Function deny class names, created with EXIC_PRIVATE flag.
+
     @param  classname  Class(interface) name.
     @param  flags      Creation flags (EXIF_*)
     @return pointer to created instance or 0. */
@@ -106,6 +108,8 @@ int     _std exi_share(void *instance, int global);
 int     _std exi_mtsafe(void *instance, int enable);
 
 /** Query instance class name.
+    Function returns name for all classes, including created with EXIC_PRIVATE
+    flag.
     @param  instance   Pointer to instance.
     @return class name or 0. This string must be free()-ed after use */
 char*   _std exi_classname(void *instance);
@@ -129,6 +133,7 @@ void*   _std exi_instdata(void *instance);
 /** Query class id by name.
     @attention function not just name querying, but forces loading of module
                with requested class.
+    Function will return 0 for class name, created with EXIC_PRIVATE flag.
     @param  classname  Class(interface) name.
     @return class id or 0. */
 u32t    _std exi_queryid(const char *classname);
@@ -143,6 +148,7 @@ u32t    _std exi_query(const char *classname);
 #define EXIQ_UNKNOWN    0x0000    ///< class name unknown
 #define EXIQ_KNOWN      0x0001    ///< class known, but NOT available
 #define EXIQ_AVAILABLE  0x0003    ///< class name present and its supporting module is loaded
+#define EXIQ_PRIVATE    0x0007    ///< the same as EXIQ_AVAILABLE, but class is private!
 //@}
 
 /** Query number of "methods" in "class".
@@ -179,6 +185,15 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
 
     @attention  All "methods" _MUST_ use cdecl calling convention!
 
+    EXIC_GMUTEX flags create single global mutex for all class instances.
+
+    EXIC_PRIVATE flag disables exi_create() call for this class, but any other
+    logic is untouched, i.e. exi_query() and exi_classname() works as usual,
+    class can be traced and its name is visible in the debug dump (Ctrl-Alt-F3).
+
+    EXIC_EXCLUSIVE means that this class can have no more than ONE instance
+    per system.
+
     @param  classname   Class name. Can be 0, in this case unique random name
                         will be auto-generated.
     @param  funcs       Pointer to list of funcions.
@@ -195,7 +210,7 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
                         existing lost instances ;)).
                         Parameter can be 0 if all functions placed in the same
                         module.
-    @return instance ID or 0 (no duplicate names allowed, unregister it first). */
+    @return class ID or 0 (no duplicate names allowed, unregister it first). */
 u32t    _std exi_register(const char *classname, void **funcs, u32t funccount,
                           u32t datasize, u32t flags, exi_pinitdone constructor,
                           exi_pinitdone destructor, u32t module);
@@ -203,6 +218,8 @@ u32t    _std exi_register(const char *classname, void **funcs, u32t funccount,
 /// @name exi_register() flags
 //@{
 #define EXIC_GMUTEX     0x0001    ///< create global mutex, one for all instances
+#define EXIC_PRIVATE    0x0002    ///< class can be created by exi_createid() ONLY
+#define EXIC_EXCLUSIVE  0x0004    ///< only one instance per system is possible
 //@}
 
 /** Deregister "class" by ID.

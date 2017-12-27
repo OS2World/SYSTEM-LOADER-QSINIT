@@ -53,9 +53,10 @@ static TRefList    *refs = 0;
 static TStrings *extlist = 0;
 
 void exi_registerstd(void);
-void register_lists(void);
-extern "C" void register_bitmaps(void);
-void register_inif(void);
+void exi_register_lists(void);
+void exi_register_inifile(void);
+void exi_register_filecc(void);
+extern "C" void exi_register_bitmaps(void);
 extern "C" void exi_muxunlocka(void);      // asm stub, should not be called directly
 
 static void _std exi_muxlock(cl_header*hdr) {
@@ -115,6 +116,8 @@ void* _std exi_createid(u32t classid, u32t flags) {
 
    cl_ref    *ref = refs->Objects(classid-1);
    if (!ref->fncount) return 0;
+   // single instance per system?
+   if ((ref->flags&EXIC_EXCLUSIVE) && ref->first) return 0;
 
    u32t  ftabsize = sizeof(void*) * ref->fncount,
            algn16 = Round16(ref->datasize + ftabsize);
@@ -186,27 +189,36 @@ u32t _std exi_methods(u32t classid) {
    return ref->fncount;
 }
 
-u32t _std exi_queryid(const char *classname) {
+u32t exi_queryid_int(const char *classname, int noprivate = 1) {
    MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    int idx = refs->IndexOf(classname);
    if (idx<0) idx = exi_loadext(classname);
    if (idx<0) return 0;
+   // private class?
+   if (noprivate)
+      if (refs->Objects(idx)->flags&EXIC_PRIVATE) return 0;
+
    return idx+1;
+}
+
+u32t _std exi_queryid(const char *classname) {
+   return exi_queryid_int(classname);
 }
 
 u32t _std exi_query(const char *classname) {
    MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    int idx = refs->IndexOf(classname);
-   if (idx>=0) return EXIQ_AVAILABLE;
+   if (idx>=0) return refs->Objects(idx)->flags&EXIC_PRIVATE?EXIQ_PRIVATE:EXIQ_AVAILABLE;
    if (exi_loadext(classname,1)==0) return EXIQ_KNOWN;
    return EXIQ_UNKNOWN;
 }
 
 void* _std exi_create(const char *classname, u32t flags) {
    MTLOCK_THIS_FUNC lk;
-   u32t classid = exi_queryid(classname);
+   // will call also cause EXIC_PRIVATE to be failed
+   u32t classid = exi_queryid_int(classname);
    return classid ? exi_createid(classid, flags) : 0;
 }
 
@@ -261,8 +273,10 @@ int _std exi_printclass(u32t classid) {
    if (!ref->fncount) log_it(2,"%2d. class \"%s\" is unregistered\n", classid,
       (*refs)[classid-1]());
    else {
-      log_it(2,"%2d. class \"%s\", %d methods, %d bytes data\n", classid,
-         (*refs)[classid-1](), ref->fncount, ref->datasize);
+      log_it(2,"%2d. class \"%s\", %d methods, %d bytes data%s%s%s\n", classid,
+         (*refs)[classid-1](), ref->fncount, ref->datasize, ref->flags&EXIC_GMUTEX?
+            ", gmutex":"", ref->flags&EXIC_PRIVATE?", private":"",
+               ref->flags&EXIC_EXCLUSIVE?", exclusive":"");
       int cnt = exi_countinst((*refs)[classid-1](), ref, 1, 0);
       log_it(2,"    %i instance(s), source module \"%s\"\n", cnt,
          mod_getname(ref->module,0));
@@ -560,7 +574,8 @@ u32t _std exi_register(const char *classname, void **funcs, u32t funccount,
    u32t mh)
 {
    char rname[64];
-   if (!funcs || !funccount || (flags&~EXIC_GMUTEX)) return 0;
+   if (!funcs || !funccount || (flags&~(EXIC_GMUTEX|EXIC_PRIVATE|EXIC_EXCLUSIVE)))
+      return 0;
    MTLOCK_THIS_FUNC lk;
    if (!refs) exi_registerstd();
    int     idx, ii;
@@ -638,9 +653,10 @@ int _std exi_unregister(u32t classid) {
 void exi_registerstd(void) {
    if (refs) return;
    refs = new TRefList;
-   register_lists();
-   register_bitmaps();
-   register_inif();
+   exi_register_lists();
+   exi_register_bitmaps();
+   exi_register_inifile();
+   exi_register_filecc();
 #if 0
    spstr prereg = refs->GetTextToStr(",");
    if (prereg.lastchar()==',') prereg.dellast();

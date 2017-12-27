@@ -46,9 +46,9 @@ copy=cp
 ..\runtime\qsinit.ord
 ..\..\hc\inc\vbedata.inc ..\..\hc\inc\dpmi.inc ..\..\hc\inc\cpudef.inc
 ..\..\hc\inc\seldesc.inc inc\graphdef.inc ..\..\init\inc\qsvdata.inc
-..\..\ldrefi\inc\efnlist.inc
-console.c outvesa.c outefi.c fonts.c writegif.c viohook.c graph.asm
-txemu.c outbase.c
+..\..\ldrefi\inc\efnlist.inc ..\..\hc\inc\pci.inc 
+console.c outvesa.c outefi.c fonts.c writegif.c graph.asm
+vhvioex.c outbase.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

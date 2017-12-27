@@ -172,8 +172,6 @@ mtcb_pxcpttop   dd      ?
 ;ct process_context*
 mtcb_ctxmem     dd      ?
 mtcb_ctid       dd      ?          ;/< current thread (pid in mtcb_ctxmem)
-;ct void*
-mtcb_cvh        dd      ?          ;/< current vio handler
 mtcb_sesno      dd      ?          ;/< current session no
 ;ct mt_thrdata*
 mtcb_cfpt       dd      ?          ;/< current FPU owner thread

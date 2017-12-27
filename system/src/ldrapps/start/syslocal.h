@@ -1,6 +1,6 @@
 //
 // QSINIT "start" module
-// some local functions (not exported)
+// some local functions (non-exported)
 //
 #ifndef QSINIT_STLOCAL
 #define QSINIT_STLOCAL
@@ -28,13 +28,6 @@ typedef int __cdecl (*printf_function)(const char *fmt, ...);
     @li all <b>internal</b> rmdir calls will be linked as imports from entry
         _rmdir of this module and can be catched by trace */
 #define START_EXPORT(x) _ ## x
-
-/** make copy of process environment.
-    Heap context is default (START.DLL)
-    @param pq        Process context.
-    @param addspace  Additional space to allocate in result memory block.
-    @return environment in malloc(envlen()+addspace) buffer */
-char* _std envcopy(process_context *pq, u32t addspace);
 
 /// lock environment access mutex for this process (in MT mode)
 void       env_lock(void);
@@ -64,8 +57,7 @@ void*      hlp_freadfull_progress(const char *name, u32t *bufsize);
 
 /// free notification callbacks for specified pid
 void       sys_notifyfree(u32t pid);
-/// exec notification list (SECB_* in qssys.h)
-void _std  sys_notifyexec(u32t eventtype, u32t infovalue);
+void       sys_hotkeyfree(u32t pid);
 /// set thread owner
 int  _std  mem_threadblockex(void *block, u32t pid, u32t tid);
 /// set module owner
@@ -76,10 +68,14 @@ int _std   mem_modblockex(void *block, u32t module);
     @return direct pointer to TLS variable with thread comment */
 char*      mt_getthreadname(void);
 
-/** global printed lines counter.
-    Used for pause message calculation, updated by common vio functions and
-    CONSOLE (in virtual modes) */
-u32t*_std  vio_ttylines();
+void       run_notify(sys_eventcb cbfunc, u32t type, u32t info, u32t info2,
+                      u32t info3, u32t pid);
+
+/// panic error message without memmgr usage
+void       panic_no_memmgr(const char *msg);
+
+// reset video to CVIO, stop APIC timer, and so on... 
+void       trap_screen_prepare(void);
 
 int  _std  fptostr(double value, char *buf, int int_fmt, int prec);
 
@@ -106,6 +102,9 @@ int        trace_onoff(const char *module, const char *group, int quiet, int on)
 /// "trace list" command.
 void       trace_list(const char *module, const char *group, int pause);
 
+/// special query id, which allows to get private class by name (for the trace code)
+u32t       exi_queryid_int(const char *classname, int noprivate);
+
 /** read string from msg.ini.
     @param section      Section name
     @param key          Key name
@@ -127,6 +126,19 @@ extern u32t   no_tgates;
 /// exe delayed unpack
 extern u8t    mod_delay;
 
+/// QSINIT module handle
+extern u32t   mh_qsinit;
+
+///< "system console" session
+extern u32t     sys_con;
+
+///< timeout in seconds before reboot from the trap screen (0 to disable)
+extern u32t   reipltime;
+/// REIPL action (cad wait or reboot)
+void _std  reipl(int errcode);
+/// system memory manager panic screen
+void _std  mempanic(u32t type, void *addr, u32t info, char here, u32t caller);
+
 /// init new process std i/o handles
 void       init_stdio(process_context *pq);
 
@@ -142,6 +154,7 @@ void _std  vio_getmodefast(u32t *cols, u32t *lines);
 u32t       getcr0(void);
 u32t       getcr3(void);
 u32t       getcr4(void);
+void       cpuhlt(void);
 u32t       _lsl_(u32t sel);
 
 #ifdef __WATCOMC__
@@ -149,13 +162,17 @@ u32t       _lsl_(u32t sel);
 #pragma aux getcr3 = "mov eax,cr3" modify exact [eax];
 #pragma aux getcr4 = "mov eax,cr4" modify exact [eax];
 #pragma aux _lsl_  = "lsl eax,eax" parm [eax] value [eax] modify exact [eax];
+#pragma aux cpuhlt = \
+   "sti"             \
+   "hlt"             \
+   modify exact [];
 #endif
 
 void _std  set_xcr0(u64t value);
 u64t _std  get_xcr0(void);
 
 /** get mtlib class instance.
-    Instance is created once and shared over START module, so do not use
+    Instance created only once and shared over START module, so NEVER use
     DELETE on it.
     @return class instance or 0 if no MTLIB module */
 qs_mtlib   get_mtlib(void);
@@ -171,10 +188,20 @@ qserr _std mt_closehandle_int(qshandle handle, int force);
 
 qserr      qe_closehandle(qshandle handle);
 
-void _std  fpu_stsave   (process_context *newpq);
-void _std  fpu_strest   (void);
-void _std  fpu_rmcallcb (void);
-void _std  fpu_reinit   (void);
+/// enum sessions & close all empty of them
+void  _std se_closeempty();
+
+/** return maximum session number + 1.
+    Function returns 0 while sesmgr is not ready.
+    Session list may have holes in it, i.e. this value is NOT a number of
+    sessions.
+    Function is MT safe. */
+u32t       se_curalloc  (void);
+
+void  _std fpu_stsave   (process_context *newpq);
+void  _std fpu_strest   (void);
+void  _std fpu_rmcallcb (void);
+void  _std fpu_reinit   (void);
 
 /** set cr3 and cr4 regs.
     Function also updates internal variables of DPMI code.
@@ -254,7 +281,7 @@ cmd_state  cmd_init2(TStrings &file, TStrings &args);
     @param setup        Setup string from INI or MODE CON command.
     @param pfn          Printf function for messages (log_printf() or printf()).
     @return success flag (1/0) */
-int        shl_dbcard(const spstr &setup, int __cdecl (*pfn)(const char *fmt, ...));
+int        shl_dbcard(const spstr &setup, printf_function pfn);
 
 /// ansi state push/pop for cpp functions
 class ansi_push_set {
@@ -264,11 +291,19 @@ public:
    ~ansi_push_set() { vio_setansi(state); }
 };
 
+/// thread switching lock for cpp functions
 class MTLOCK_THIS_FUNC {
 public:
    MTLOCK_THIS_FUNC() { mt_swlock(); }
    ~MTLOCK_THIS_FUNC() { mt_swunlock(); }
 };
 
+extern "C" {
+extern mod_addfunc       *mod_secondary;
+#pragma aux mod_secondary  "_*";
+}
+#else // __cplusplus
+extern mod_addfunc* _std  mod_secondary;
 #endif // __cplusplus
+
 #endif // QSINIT_STLOCAL

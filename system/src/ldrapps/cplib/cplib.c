@@ -22,6 +22,8 @@
     869   Greek 2
 */
 
+#define DBCS_SUPPORT 0
+
 #include "stdlib.h"
 #include "qcl/cplib.h"
 #include "qsshell.h"
@@ -33,6 +35,24 @@
 #include "vio.h"
 
 #include "cptables.h"
+
+#if DBCS_SUPPORT
+#include "cptwide.h"
+#define DPAGES     (4)
+
+static wchar_t *dtables[2][DPAGES] = {{uni2oem932, uni2oem936, uni2oem949,
+   uni2oem950} , {oem2uni932, oem2uni936, oem2uni949, oem2uni950}};
+
+static u32t      dsizes[2][DPAGES] = {{sizeof(uni2oem932), sizeof(uni2oem936),
+   sizeof(uni2oem949), sizeof(uni2oem950)} , {sizeof(oem2uni932),
+   sizeof(oem2uni936), sizeof(oem2uni949), sizeof(oem2uni950)}};
+
+static u8t        *rtables[DPAGES] = { Dbsc932, Dbsc936, Dbsc949, Dbsc950 };
+static u16t         dpages[DPAGES] = { 932, 936, 949, 950 };
+#else
+#define DPAGES     (0)
+static u16t         dpages[] = { 0 };
+#endif // DBCS_SUPPORT
 
 #define CPAGES    (17)
 
@@ -59,16 +79,16 @@ static u16t cpages[CPAGES] = { 437, 720, 737, 771, 775, 850, 852, 855, 857,
 
 codepage_info  cpisys = { 0 };
 u32t          classid = 0;
-u16t            cpcur = 0;
-u32t            cpidx = 0;
 
 typedef struct {
    u32t         sign;
    u16t     codepage;
    u32t        index;
+   wchar_t   *ctable;
+   u8t       *dbctbl;
 } cpconv_data;
 
-void _std sys_notifyexec(u32t eventtype, void *info);
+cpconv_data       sys = { CPLIB_SIGN, 0, 0, 0, 0 };
 
 wchar_t _std towlower(wchar_t chr) {
   if (chr < 0x80) {
@@ -90,8 +110,9 @@ wchar_t _std towupper(wchar_t chr) {
 }
 #else
 /* UGLY thing here - towlower() uses OLD code & towupper() has many additional
-   characters, i.e. reverse convertion would fail. towlower() should be rewritten
-   too, but this complex array seems too crazy to revert ;) */
+   characters, i.e. reverse convertion would fail. towlower() should be
+   rewritten too, but this complex array (taken from FatFs) seems too crazy
+   to revert ;) */
 wchar_t _std towupper(wchar_t chr) {
    /* Compressed upper conversion table */
    static const wchar_t cvt1[] = {   /* U+0000 - U+0FFF */
@@ -175,46 +196,107 @@ wchar_t _std towupper(wchar_t chr) {
 }
 #endif
 
-static wchar_t convert(wchar_t *table, wchar_t chr, int dir) {
-   wchar_t cc;
-   if (chr<0x80) cc = chr; else {
+static wchar_t convert(cpconv_data *cd, wchar_t chr, int dir) {
+   wchar_t cc = 0;
+
+   if (chr<0x80) cc = chr; else 
+   if (cd->codepage && cd->codepage<900) {
       if (dir) { // OEMCP to Unicode
-         cc = chr>=0x100 ? 0 : table[chr-0x80];
+         cc = chr>=0x100 ? 0 : cd->ctable[chr-0x80];
       } else {   // Unicode to OEMCP
          for (cc = 0; cc<0x80; cc++)
-            if (chr==table[cc]) break;
+            if (chr==cd->ctable[cc]) break;
          cc = cc+0x80 & 0xFF;
       }
+   } else {
+#if DBCS_SUPPORT
+      wchar_t *pp = dtables[dir?1:0][cd->index];
+      u32t     hi = (dsizes[dir?1:0][cd->index]>>2) - 1;
+
+      if (pp) {
+         u32t  li = 0, ii, nn;
+         for (nn = 16; nn; nn--) {
+            ii = li + (hi - li) / 2;
+            if (chr==pp[ii<<1]) break;
+            if (chr>pp[ii<<1]) li = ii; else hi = ii;
+         }
+         if (nn) cc = pp[(ii<<1) + 1];
+      }
+#endif
    }
    return cc;
 }
 
 // note, that this and next functions called under cli!
 static u16t _std _ff_convert(u16t src, int to_unicode) {
-   if (!cpcur) return src>=0x80?0:src;
-   return convert(ctables[cpidx], src, to_unicode);
+   if (!sys.codepage) return src>=0x80?0:src;
+   return convert(&sys, src, to_unicode);
 }
 
 static u16t _std _ff_wtoupper(u16t src) {
    return towupper(src);
 }
 
-u32t _exicc cpconv_setcp(EXI_DATA, u16t cp) {
-   u16t *pos;
-   instance_ret(cpd,0);
-   pos = memchrw(cpages, cp, CPAGES);
+#if DBCS_SUPPORT
+/// test if the character is DBC 1st byte
+static int _std _ff_dbc_1st(u8t src) {
+   if (sys.dbctbl && src>=sys.dbctbl[0]) {
+      if (src<=sys.dbctbl[1]) return 1;                       // 1st byte range 1
+      if (src>=sys.dbctbl[2] && src<=sys.dbctbl[3]) return 1; // 1st byte range 2
+   }
+   return 0;
+}
+
+/// test if the character is DBC 2nd byte
+static int _std _ff_dbc_2nd(u8t src) {
+   if (sys.dbctbl && src>=sys.dbctbl[4]) {
+      if (src<=sys.dbctbl[5]) return 1;                       // 2nd byte range 1
+      if (src>=sys.dbctbl[6] && src<=sys.dbctbl[7]) return 1; // 2nd byte range 2
+      if (src>=sys.dbctbl[8] && src<=sys.dbctbl[9]) return 1; // 2nd byte range 3
+   }
+   return 0;
+}
+#endif // DBCS_SUPPORT
+
+static u32t set_cpdata(cpconv_data *cpd, u16t ncp) {
+   u16t *base = ncp<900 || !DBCS_SUPPORT ? cpages : dpages,
+         *pos = memchrw(base, ncp, ncp<900?CPAGES:DPAGES);
+
    if (!pos) return 0;
-   mt_swlock();
-   cpd->codepage = cp;
-   cpd->index    = pos - cpages;
-   mt_swunlock();
+   cpd->codepage   = ncp;
+   cpd->index      = pos - base;
+   if (ncp<900) {
+      cpd->ctable  = ctables[cpd->index];
+      cpd->dbctbl  = 0;
+   } else {
+#if DBCS_SUPPORT
+      cpd->ctable  = 0;
+      switch (ncp) {
+         case 932: cpd->dbctbl = Dbsc932; break;
+         case 936: cpd->dbctbl = Dbsc936; break;
+         case 949: cpd->dbctbl = Dbsc949; break;
+         case 950: cpd->dbctbl = Dbsc950; break;
+      }
+#else
+      return 0;
+#endif
+   }
    return 1;
+}
+
+u32t _exicc cpconv_setcp(EXI_DATA, u16t cp) {
+   u32t rc;
+   instance_ret(cpd,0);
+   mt_swlock();
+   rc = set_cpdata(cpd, cp);
+   mt_swunlock();
+   return rc;
 }
 
 wchar_t _exicc cpconv_convert(EXI_DATA, wchar_t chr, int dir) {
    instance_ret(cpd,0);
    if (!cpd->codepage) return chr;
-   return convert(ctables[cpd->index], chr, dir);
+   return convert(cpd, chr, dir);
 }
 
 char _exicc cpconv_toupper(EXI_DATA, char chr) {
@@ -244,12 +326,12 @@ u16t* _exicc cpconv_cplist(EXI_DATA) {
 }
 
 u16t _exicc cpconv_getsyscp(EXI_DATA) {
-   return cpcur;
+   return sys.codepage;
 }
 
 u8t* _exicc cpconv_uprtab(EXI_DATA, u16t cp) {
    instance_ret(cpd,0);
-   if (!cp) cp = cpcur;
+   if (!cp) cp = sys.codepage;
    if (cp) {
       u16t *pos = memchrw(cpages, cp, CPAGES);
       if (!pos) return 0;
@@ -259,19 +341,23 @@ u8t* _exicc cpconv_uprtab(EXI_DATA, u16t cp) {
 }
 
 u32t _exicc cpconv_setsyscp(EXI_DATA, u16t cp) {
-   u16t *pos = memchrw(cpages, cp, CPAGES);
-   if (!pos) return 0;
+   u32t rc;
    mt_swlock();
-   cpcur = cp;
-   cpidx = pos - cpages;
-   cpisys.cpnum    = cp;
-   cpisys.oemupr   = utables[cpidx];
-   cpisys.convert  = _ff_convert;
-   cpisys.wtoupper = _ff_wtoupper;
-   // system notify
-   sys_notifyexec(SECB_CPCHANGE, &cpisys);
+   rc = set_cpdata(&sys, cp);
+   if (rc) {
+      cpisys.cpnum    = cp;
+      cpisys.oemupr   = utables[sys.index];
+      cpisys.convert  = _ff_convert;
+      cpisys.wtoupper = _ff_wtoupper;
+#if DBCS_SUPPORT
+      cpisys.dbc_1st  = _ff_dbc_1st;
+      cpisys.dbc_2nd  = _ff_dbc_2nd;
+#endif
+      // system notify
+      sys_notifyexec(SECB_CPCHANGE, (u32t)&cpisys);
+   }
    mt_swunlock();
-   return 1;
+   return rc;
 }
 
 wchar_t _exicc cpconv_towlower(EXI_DATA, wchar_t chr) {
@@ -282,15 +368,17 @@ wchar_t _exicc cpconv_towupper(EXI_DATA, wchar_t chr) {
    return towupper(chr);
 }
 
+
 static void *methods_list[] = { cpconv_setcp, cpconv_convert, cpconv_toupper,
    cpconv_tolower, cpconv_cplist, cpconv_getsyscp, cpconv_setsyscp, cpconv_uprtab,
    cpconv_towlower, cpconv_towupper};
 
 static void _std cpconv_init(void *instance, void *data) {
    cpconv_data *cpd = (cpconv_data*)data;
-   cpd->sign     = CPLIB_SIGN;
-   cpd->codepage = cpcur;
-   cpd->index    = cpidx;
+   mt_swlock();
+   // just a copy of current system settings
+   memcpy(cpd, &sys, sizeof(cpconv_data));
+   mt_swunlock();
 }
 
 static void _std cpconv_done(void *instance, void *data) {
@@ -307,16 +395,17 @@ u32t _std shl_chcp(const char *cmd, str_list *args) {
 
    if (args->count<=1) {
       if (args->count==0) {
-         if (!cpcur) printf("There is no code page selected\n");
-            else printf("Active code page : %hd\n", cpcur);
+         if (!sys.codepage) printf("There is no code page selected\n");
+            else printf("Active code page : %hd\n", sys.codepage);
          return 0;
       } else
       if (stricmp(args->item[0],"LIST")==0) {
          char *cpstr = strdup("Supported code pages : "), buf[16];
-         int ii;
-         for (ii=0; ii<CPAGES; ii++) {
-            sprintf(buf, "%hd", cpages[ii]);
-            if (ii<CPAGES-1) strcat(buf, ", ");
+         u32t  total = CPAGES + DPAGES, ii;
+
+         for (ii=0; ii<total; ii++) {
+            sprintf(buf, "%hd", ii<CPAGES ? cpages[ii] : dpages[ii-CPAGES]);
+            if (ii<total-1) strcat(buf, ", ");
             cpstr = strcat_dyn(cpstr, buf);
          }
          cmd_printtext(cpstr,0,0,0);

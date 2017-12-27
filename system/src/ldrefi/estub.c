@@ -51,11 +51,14 @@ u32t __cdecl hlp_rmcallreg(int intnum, rmcallregs_t *regs, u32t dwcopy, ...) {
 u32t _std hlp_querybios(u32t index) {
    switch (index) {
       // simulate "APM not present" error code
-      case QBIO_APM: return 0x10086;
+      case QBIO_APM      : return 0x10086;
       /* query PCI BIOS (B101h), return bx<<16|cl<<8| al or 0 if no PCI.
          PCI scan code in START take in mind EFI host and make full scan of
          all 256 buses, instead of reading last bus from here */
-      case QBIO_PCI: return 0;
+      case QBIO_PCI      : return 0;
+      case QBIO_KEYREADNW: return call64(EFN_KEYWAIT, 0, 1, 0);
+      // return something neutral
+      case QBIO_EQLIST   : return 0x2F;
    }
    return 0;
 }

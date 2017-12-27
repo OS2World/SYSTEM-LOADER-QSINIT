@@ -6,6 +6,8 @@
                 include inc/qspdata.inc
 
                 extrn   _mt_exitthread_int:near
+                extrn   _se_newsession:near
+                extrn   _free:near
                 extrn   _mt_exechooks:mt_proc_cb_s
                 extrn   _pt_current:dword
 
@@ -24,6 +26,14 @@ _mt_exitthread  label   near                                    ;
                 mov     es,cx                                   ; ds/es
                 cld                                             ;
                 sti                                             ;
+
+                mov     eax,_pt_current                         ; onexit callback
+                xor     ecx,ecx                                 ;
+                xchg    ecx,[eax].tiCbExit                      ; call it only once
+                jecxz   @@exth_nocb                             ;
+                call    ecx                                     ;
+                jmp     _mt_exitthread                          ; restore seg regs again
+@@exth_nocb:
                 jmp     _mt_exitthread_int                      ;
 
 _pure_retn      label   near                                    ;
@@ -65,16 +75,23 @@ _mt_getfiber    endp                                            ;
 ;================================================================
 
 _mt_launch      proc    near
-                push    edx                                     ; command line ptr
-                push    ecx                                     ; environment ptr
-                push    0                                       ; 0
-                push    eax                                     ; module handle
-                push    offset _mt_exitthreada                  ; ret addr
-                push    ebx                                     ; startaddr
+                jecxz   @@mtl_notse                             ; not a session
+                push    ebx                                     ;
+                push    edx                                     ;
+                push    eax                                     ;
+                call    _se_newsession                          ; create session call
+                or      ebx,ebx                                 ;
+                jz      @@mtl_notse                             ;
+                push    ebx                                     ; free session title
+                call    _free                                   ; string
+@@mtl_notse:
                 xor     eax,eax                                 ;
                 xor     ebx,ebx                                 ;
                 xor     ecx,ecx                                 ;
                 xor     edx,edx                                 ;
+                xor     esi,esi                                 ;
+                xor     edi,edi                                 ;
+                xor     ebp,ebp                                 ;
                 ret                                             ;
 _mt_launch      endp
 

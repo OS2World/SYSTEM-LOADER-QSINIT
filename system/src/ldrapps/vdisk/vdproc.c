@@ -569,8 +569,7 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
             every boot) */
          {
             char dname[16];
-            ii = cdhphys>>PAGESHIFT;
-            sto_save(STOKEY_VDPAGE, &ii, 4, 1);
+            sto_savedword(STOKEY_VDPAGE, cdhphys>>PAGESHIFT);
 
             dsk_disktostr(chdd, dname);
             sto_save(STOKEY_VDNAME, dname, strlen(dname+1), 1);
@@ -624,7 +623,7 @@ u32t _exicc vdisk_free(EXI_DATA) {
       if (!hlp_diskremove(chdd)) rc = 0;
       chdd = 0;
       // delete disk name from storage
-      sto_save(STOKEY_VDNAME,0,0,0);
+      sto_del(STOKEY_VDNAME);
    }
    // delete lost external info class instance
    if (eiptr) { DELETE(eiptr); eiptr = 0; }
@@ -642,7 +641,7 @@ u32t _exicc vdisk_free(EXI_DATA) {
    }
    free(me);
    // delete storage key with disk header phys page number
-   sto_save(STOKEY_VDPAGE,0,0,0);
+   sto_del(STOKEY_VDPAGE);
    // return reserved block to memory manager
    if (reserved) { hlp_memfree(reserved); reserved = 0; }
    // there is no disk header, return 0
@@ -758,9 +757,9 @@ static char* _exicc dopt_getname(EXI_DATA) {
 }
 
 static u32t _exicc dopt_state(EXI_DATA, u32t state) {
-   doptdata *dp = (doptdata*)data;
+   //doptdata *dp = (doptdata*)data;
    // set r/o is not supported, cache denied for this disk
-   return EDSTATE_NOCACHE;
+   return EDSTATE_NOCACHE|EDSTATE_RAM;
 }
 
 static void *qs_vdisk_fn[] = { vdisk_init, vdisk_load, vdisk_free, vdisk_query, vdisk_setgeo, vdisk_clean };

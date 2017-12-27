@@ -5,7 +5,7 @@
 #ifndef QSINIT_HPFSFMT
 #define QSINIT_HPFSFMT
 
-#include "hpfs.h"
+#include "sys/fs/hpfs.h"
 #include "qcl/bitmaps.h"
 #include "qcl/qslist.h"
 #include "pscan.h"

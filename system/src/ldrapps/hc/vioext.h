@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 #include "qstypes.h"
+#include "qsshell.h"
 #include "vio.h"
 
 #define MSG_GRAY          0x0000
@@ -36,7 +37,9 @@ extern "C" {
 #define MSG_YESNO         0x0030
 #define MSG_YESNOCANCEL   0x0040
 
-#define MSG_WIDE          0x1000
+#define MSG_WIDE          0x1000      ///< wide message box
+#define MSG_POPUP         0x2000
+#define MSG_NOSHADOW      0x4000      ///< no shadow on the bottom and right borders
 
 #define MRES_CANCEL       0x0000
 #define MRES_OK           0x0001
@@ -47,6 +50,9 @@ extern "C" {
 #define KEY_LEAVEMBOX     0xFFFE
 
 /** callback for vio_msgbox().
+    Note, that in MT mode, with MSG_POPUP flag - this function is called from
+    another thread.
+
     @param key    Pressed key (from key_read()). In addition KEY_ENTERMBOX
                   will be sended on start and KEY_LEAVEMBOX on exit
     @return -1 to continue processing, -2 - to ignore this key, >=0 - to
@@ -54,15 +60,22 @@ extern "C" {
 typedef int _std (*vio_mboxcb)(u16t key);
 
 /** shows message box.
+    With MSG_POPUP flag function acts as normal message box in non-MT mode and
+    as "vio popup" in MT mode. This mean - it showed in the separate session
+    (from a special thread) and can be used by detached processes.
+
     @param header   Header string
     @param text     Message text. Use ^ symbol for manual EOL.
     @param flags    Message box flags (MSG_* above).
     @param cbfunc   Callback function for aditional processing, can be 0.
     @return result code (MRES_*) */
 u32t  _std vio_msgbox(const char *header, const char *text, u32t flags,
-                      vio_mboxcb *cbfunc);
+                      vio_mboxcb cbfunc);
 
 /** query/set ANSI state.
+    ANSI state is unique for every process. Child inherits current
+    value from its parent process.
+
     @param newstate   0/1 - set state, -1 - return current only
     @return previous ANSI state */
 u32t  _std vio_setansi(int newstate);
@@ -146,6 +159,37 @@ char* _std key_getstr(key_strcb cbfunc);
     @param init       Initial string value, can be 0
     @return string, need to be free() */
 char* _std key_getstrex(key_strcb cbfunc, int col, int line, int len, const char *init);
+
+typedef struct _vio_list {
+   u32t        size;     ///< struct size
+   u32t       items;     ///< # of items in the menu
+   str_list   *text;     ///< text lines
+   u32t         *id;     ///< id (menu result) for every line (if 0, then result is line number)
+   struct
+   _vio_list **subm;     ///< submenus (if present, ptr can be 0, members too)
+} vio_listref;
+
+/** execute listbox selection (with possible submenus).
+    Text can be splitted into columns in the following way:
+       "1.|column1|column2|column3"
+
+    If text list has an additional line, then 1st line acts as information
+    header in such form:
+       "<12|>30%|40"
+    where '<' - left alignment, '>' right, number - column width and number% -
+    width in percents of current screen width. Double char '>>' puts string
+    next to border line, single '>' adds a space ' ' between the string and the
+    border.
+
+    Single '-' char in line means horisontal line, '=' - double line.
+
+    @param ref        Data to show
+    @param flags      Subset of vio_msgbox() flags accepted here: MSG_POPUP
+                      and color scheme MSG_values.
+    @return 0 if ESC was pressed or value from the ref->id array (from one of
+       submenus too) or (if ref->id==0) - just a one-based line number of the
+       selected item */
+u32t  _std vio_showlist(const char *header, vio_listref *ref, u32t flags);
 
 #ifdef __cplusplus
 }

@@ -3,7 +3,6 @@
 #include "qsutil.h"
 
 #define textcolor(x) vio_setcolor(x)
-#define _setcursortype(x) vio_setshape(0x20,0);
 #define clrscr vio_clearscr
 #define gotoxy(x,y) vio_setpos(y,x)
 #define getch() (key_read()&0xFF)
@@ -65,7 +64,7 @@ void main() {
    for (i=0;i<80;i++) name[i]=' ';
    vio_strout("NOTE:\n\nThe Anaconda is not beautiful... but then... It is not meant to be either...!!!");
 
-   _setcursortype(_NOCURSOR);
+   vio_setshape(VIO_SHAPE_NONE);
 
    newgame:
    clrscr();
@@ -247,7 +246,7 @@ void main() {
    } while(1);
 //*********************** exit options **************************
 end:
-   _setcursortype(_NORMALCURSOR);
+   vio_setshape(VIO_SHAPE_LINE);
    getch();
    clrscr();
    vio_strout("\n Press ENTER : New GAME");

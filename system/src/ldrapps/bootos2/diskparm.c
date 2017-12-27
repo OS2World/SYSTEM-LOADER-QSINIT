@@ -24,12 +24,10 @@ typedef struct {
 
 typedef int   (_std *fplvm_partinfo)(u32t disk, u32t index, lvm_partition_data *info);
 typedef long  (_std *fpvol_index)(u8t vol, u32t *disk);
-typedef void* (_std *fphpfs_freadfull)(u8t vol, const char *name, u32t *bufsize);
 
 static u32t   partmgr = 0;
 static fplvm_partinfo   plvm_partinfo   = 0;
 static fpvol_index      pvol_index      = 0;
-static fphpfs_freadfull phpfs_freadfull = 0;
 // variables for switch code setup
 u32t         paeppd, swcode;
 u8t              *swcodelin;
@@ -44,7 +42,6 @@ void error_exit(int code, const char *message);
 static void dmgr_free(void) {
    if (partmgr) {
       mod_free(partmgr);
-      phpfs_freadfull = 0;
       plvm_partinfo = 0;
       pvol_index = 0;
       partmgr = 0;
@@ -59,18 +56,10 @@ static int dmgr_load(void) {
       if (partmgr) {
          plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
          pvol_index      = (fpvol_index)      mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index);
-         phpfs_freadfull = (fphpfs_freadfull) mod_getfuncptr(partmgr,ORD_PARTMGR_hpfs_freadfull);
          atexit(dmgr_free);
       }
    }
-   // hpfs_freadfull is not required
    return partmgr && plvm_partinfo && pvol_index?1:0;
-}
-
-void* altfs_readfull(u8t vol, const char *name, u32t *bufsize) {
-   dmgr_load();
-   if (partmgr && phpfs_freadfull) return phpfs_freadfull(vol,name,bufsize);
-   return 0;
 }
 
 void print_bpb(struct Disk_BPB *bpb) {
@@ -106,18 +95,18 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
    // read boot sector to get BPB data
    if (!hlp_diskread(vi.Disk, vi.StartSector, 1, br)) return 0;
 
-   if (vol_fs!=FST_NOTMOUNTED) { // FAT/FAT32/exFAT
+   *pmfsptr    = 0;
+   *pmfssize   = 0;
+   if (vol_fs!=FST_NOTMOUNTED && vol_fs<FST_OTHER) { // FAT/FAT32/exFAT
       *pbootflags = 0;
-      *pmfsptr    = 0;
-      *pmfssize   = 0;
       if (vol_fs==FST_EXFAT) return 0;
-   } else {                      // HPFS
-      // check BPB too
-      if (br->BR_BPB.BPB_BytePerSect!=512 ||
-         memcmp(br->BR_EBPB.EBPB_FSType,"HPFS",4)) return 0;
-      *pmfsptr    = altfs_readfull(vol, "OS2BOOT", pmfssize);
-      *pbootflags = BF_MINIFSD|BF_MICROFSD;
-
+   } else {                      
+      if (vol_fs==FST_OTHER) {   // this can be only HPFS now
+         char  *path = sprintf_dyn("%c:\\OS2BOOT", 'A'+vol);
+         *pmfsptr    = freadfull(path, pmfssize);
+         *pbootflags = BF_MINIFSD|BF_MICROFSD;
+         free(path);
+      }
       if (!*pmfsptr || !*pmfssize) 
          error_exit(10,"Unable to find OS2BOOT file on SOURCE volume!\n");
    }

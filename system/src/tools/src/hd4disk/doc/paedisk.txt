@@ -118,11 +118,11 @@
            (i.e. RAMDISK NOFAT32 must be used to create it).
 
            STRAT2 calls designed to be more advanced for real hardware i/o,
-           but adds additional delay on RAM disk. 
+           but adds additional delay on the RAM disk. 
            
            STRAT1 is ancient, simple and fast method - but it works only
-           with FAT and HPFS filesystems. Old versions of FAT32 just traps
-           the system on trying to mount and JFS unable to work too.
+           with FAT and HPFS filesystems. Old versions of FAT32 just trap
+           the system on trying to mount and JFS is unable to mount too.
 
   For more details QSINIT loader log must be on (driver prints some messages
 into it).
@@ -205,4 +205,4 @@ before DANIS or AHCI.
 
  10. Memory requirements for the RAM disk boot is not so much. I made a small
      bootable CD with 15Mb zip archive, which requires at least 32Mb ram disk
-     and it starts successfully on my oldest PC with 64Mb of memory.
+     and it started successfully on my oldest PPro PC with 64Mb of memory.

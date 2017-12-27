@@ -539,7 +539,7 @@ qserr _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
       if (bsf32(unitsize)!=bsr32(unitsize)) return E_DSK_CLSIZE;
       unitsize /= di.SectorSize;
       if (unitsize == 0) unitsize = 1;
-      if (unitsize > 32768) unitsize = 32768;
+      if (unitsize*di.SectorSize > _32MB) unitsize = _32MB/di.SectorSize;
    }
    fatpos     = 32;
    // align FAT to 4k
@@ -562,8 +562,8 @@ qserr _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
    cpi     = NEW(qs_cpconvert);
    if (!cpi) return E_SYS_CPLIB;
 
-   log_printf("Formatting vol %c, disk %02X, index %d to exFAT\n",
-      vol+'A', di.Disk, volidx);
+   log_printf("Formatting vol %c, disk %02X, index %d to exFAT (%u)\n",
+      vol+'A', di.Disk, volidx, unitsize);
    log_it(2, "FAT size=%u, pos %010LX, Data pos %010LX, Clusters %u\n",
       fatsize, di.StartSector+fatpos, di.StartSector+datapos, n_clusters);
 

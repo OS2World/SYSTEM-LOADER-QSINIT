@@ -224,7 +224,7 @@ static u32t _exicc bm_check(EXI_DATA, int on, u32t start, u32t length) {
     @param  on       search value (1/0)
     @param  length   number of bits to search
     @param  hint     position where to start
-    @return position of founded area or 0xFFFFFFFF if no one */
+    @return position of found area or 0xFFFFFFFF if no one */
 static u32t _exicc bm_find(EXI_DATA, int on, u32t length, u32t hint) {
    u32t  bidx, size, sbyte, step;
    u8t  *pos;
@@ -313,11 +313,21 @@ static u32t _exicc bm_find(EXI_DATA, int on, u32t length, u32t hint) {
    return FFFF;
 }
 
+// find bits for direct call
+u32t _std findbits(void *bmp, u32t bmplen, int on, u32t length, u32t hint) {
+   bitmap_data bm;
+   bm.sign   = BMPF_SIGN;
+   bm.bm     = (u8t*)bmp;
+   bm.size   = bmplen;
+   bm.extmem = 1;
+   return bm_find(&bm, 0, on, length, hint);
+}
+
 /** search and invert contiguous area.
     @param  on       search value (1/0)
     @param  length   number of bits to search
     @param  hint     position where to start
-    @return position of founded area or 0xFFFFFFFF if no one */
+    @return position of found area or 0xFFFFFFFF if no one */
 static u32t _exicc bm_findset(EXI_DATA, int on, u32t length, u32t hint) {
    u32t  pos;
    instance_ret(bm,FFFF);
@@ -329,7 +339,7 @@ static u32t _exicc bm_findset(EXI_DATA, int on, u32t length, u32t hint) {
 
 /** search for longest contiguous area.
     @param  [in]  on      search value (1/0)
-    @param  [out] start   pointer to founded position
+    @param  [out] start   pointer to found position
     @return length of area or zero if no one */
 static u32t _exicc bm_longest(EXI_DATA, int on, u32t *start) {
    u32t  size, sbyte, idx, lsize, lindex, csize, cindex;
@@ -427,7 +437,7 @@ static void _std bm_finalize(void *instance, void *data) {
    bm->size   = 0;
 }
 
-void register_bitmaps(void) {
+void exi_register_bitmaps(void) {
    exi_register("bit_map", methods_list, sizeof(methods_list)/sizeof(void*),
       sizeof(bitmap_data), 0, bm_initialize, bm_finalize, 0);
 }

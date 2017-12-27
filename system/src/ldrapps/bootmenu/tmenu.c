@@ -208,8 +208,7 @@ static int NoMenuWait(char *rcline) {
             run_onmenu();
             return 1;
          }
-      } else
-      if (log_hotkey(key)) { ii--; continue; }
+      }
       vio_charout('.');
    }
    vio_charout('\n');

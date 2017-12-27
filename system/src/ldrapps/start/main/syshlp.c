@@ -666,7 +666,7 @@ void _std hlp_mtrrbios(void) {
       resetdata = 0;
       log_it(2,"hlp_mtrrbios() done\n");
       // delete memlimit from VMTRR
-      sto_save(STOKEY_MEMLIM, 0, 0, 1);
+      sto_del(STOKEY_MEMLIM);
    }
    mt_swunlock();
 }
@@ -950,31 +950,32 @@ u32t _std sys_memhicopy(u64t dst, u64t src, u64t length) {
 }
 
 /* a bit crazy code, trying to be safe here, because it called
-   from trap screen */
+   from the trap screen */
 u32t  _std hlp_copytoflat(void* dst, u32t offs, u32t sel, u32t len) {
    struct desctab_s sd;
+   if (!len) return 0;
+   // loop over 4G?
+   if (offs+len<offs) len = 0-offs;
    // query selector and check it
    if (!sys_selquery(sel,&sd)) return 0;
    if ((sd.d_access & D_PRES)==0) return 0;
    if (sd.d_attr & D_LONG) {
       if (sd.d_attr & D_DBIG) return 0;
-      // loop over 4G?
-      if (offs+len<offs) len = 0-offs;
    } else
    if ((sd.d_access & D_SEG)==0) return 0; else {
-      int code = sd.d_access & D_CODE,
-           edn = !code && (sd.d_access&D_EXPDN),
-          base = sd.d_loaddr | (u32t)sd.d_hiaddr<<16 | (u32t)sd.d_extaddr<<24,
-          rlim = _lsl_(sel), rbase;
+      int  code = sd.d_access & D_CODE,
+            edn = !code && (sd.d_access&D_EXPDN);
+      u32t base = sd.d_loaddr | (u32t)sd.d_hiaddr<<16 | (u32t)sd.d_extaddr<<24,
+            lim = _lsl_(sel);
       if (edn) {
-         rbase = rlim+1+base;
-         rlim  = (sd.d_attr&D_DBIG? FFFF : 0xFFFF) - (rlim+1);
-      } else
-         rbase = base;
-      if (offs>rlim) return 0;
-      if (offs+len>rlim) len = rlim+1 - offs;
+         if (offs<lim+1+base) return 0;
+      } else {
+         if (offs>lim) return 0;
+         // > lim or just ends on 4Gb
+         if (offs+len>lim || offs+len==0) len = lim+1-offs;
+      }
       // flat offset
-      offs += rbase;
+      offs += base;
    }
    // have something to copy: then copy page by page, with checking page tables
    if (len) {

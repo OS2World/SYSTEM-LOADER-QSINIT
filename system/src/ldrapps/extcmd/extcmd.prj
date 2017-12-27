@@ -19,6 +19,9 @@ ld=wlink
 *inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
      inc2h $(*cur_name) $@ /p1
 
+*ord=$(outdir)\$(*cur_fp)_ord.h|$(*cur_pref).ref| @echo $(*cur_name) | \
+     ref2lbc ord $(*cur_pref).ref $@
+
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -s -mf -ox %(QS_WCCINC) \
@@ -40,7 +43,8 @@ del=rm
 copy=cp
 
 [files]
-extcmd.c mtrrmem.c pci.c ..\..\hc\inc\pci.inc
+..\runtime\partmgr.ord
+extcmd.c mtrrmem.c pci.c vhtty.c extdlg.c ..\..\hc\inc\pci.inc
 
 [make_footer]
 $(outdir) : .DIRECTORY
@@ -50,7 +54,7 @@ MAKEDIRS : $(outdir)
 hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : MAKEDIRS hello @@wait $(**inc) @@wait $(**c)
+nolink : MAKEDIRS hello @@wait $(**ord) $(**inc) @@wait $(**c)
 
 clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo Cleaning $(name)...
@@ -68,6 +72,7 @@ op togglerelocs
 op quiet
 op el
 op nod
+op statics
 op osname=%(QS_NAME)
 op de '$(name) v$(vershort). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc

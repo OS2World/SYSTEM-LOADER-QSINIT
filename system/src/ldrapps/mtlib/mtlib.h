@@ -12,6 +12,7 @@
 #include "errno.h"
 #include "qspdata.h"
 #include "qsvdata.h"
+#include "qscon.h"
 #include "seldesc.h"
 #include "efnlist.h"
 #include "qsmodext.h"
@@ -35,7 +36,6 @@ u32t _std sys_rmtstat(void);
 void*_std sys_setyield(void *func);
 
 void  init_process_data(void);
-void  init_session_data(void);
 
 void* alloc_thread_memory(u32t pid, u32t tid, u32t size);
 
@@ -65,7 +65,7 @@ void _std switch_context_timer(void *regs, int is64);
 /// common mt_yield callback
 void yield(void);
 
-/// @name mt_createthread() flags
+/// @name switch_context() reason values
 //@{
 #define SWITCH_TIMER      0x0000       ///< timer (interrupt/yield only!)
 #define SWITCH_EXEC       0x0001       ///< mod_exec call (suspend current thread)
@@ -119,6 +119,8 @@ u32t        key_available(u32t sno);
 
 void        update_wait_state(mt_prcdata *pd, u32t waitreason, u32t waitvalue);
 
+void        enum_process(qe_pdenumfunc cb, void *usrdata);
+
 /** release childs, who waits for mt_waitobject() from parent pid.
     Must be called inside lock only!
     @param        parent     launcher process pid, who should call mt_waitobject()
@@ -167,10 +169,9 @@ typedef void  _std (*pf_mtstartcb)(qs_sysmutex mproc);
 typedef void  _std (*pf_usleep)   (u32t usec);
 typedef void  _std (*pf_mtpexitcb)(mt_thrdata *td);
 typedef int   _std (*pf_selquery) (u16t sel, void *desc);
-typedef void  _std (*pf_beep)     (u16t freq, u32t ms);
+typedef se_sysdata* _std (*pf_sedataptr)(u32t sesno);
 
 int      _std sys_selquery(u16t sel, void *desc);
-void     _std v_beep(u16t freq, u32t ms);
 
 extern u32t           *apic;      ///< APIC, really - in dword addressing mode
 extern u8t   apic_timer_int;      ///< APIC timer interrupt number
@@ -183,13 +184,15 @@ extern u32t         tick_ms;      ///< timer tick in ms
 extern u16t        main_tss;
 extern int            mt_on;
 extern int            sys64;      ///< 64-bit host mode
+extern u8t      sched_trace;
 extern u32t        dump_lvl;      /// dump level from env. key
 extern u32t       mh_qsinit,
                    mh_start;
 extern pf_memset    _memset;      ///< direct memset call, without chunk
 extern pf_memcpy    _memcpy;      ///< direct memcpy call, without chunk
 extern pf_usleep    _usleep;      ///< direct original usleep call
-extern pf_beep        _beep;      ///< original vio_beep call
+extern
+pf_sedataptr    _se_dataptr;      ///< direct se_dataptr call
 extern
 pf_selquery   _sys_selquery;      ///< direct sys_selquery call, without chunk
 extern
@@ -200,6 +203,8 @@ extern
 qs_fpustate     fpu_intdata;
 extern
 mt_prcdata       *pd_qsinit;      ///< top of process tree
+extern
+process_context  *pq_qsinit;      ///< process context of pid 1
 extern volatile
 mt_thrdata      *pt_current;      ///< current active thread (!!!)
 extern
@@ -209,13 +214,15 @@ mt_proc_cb     mt_exechooks;      ///< this thing is import from QSINIT module
 #pragma aux mt_exechooks "_*";
 extern u32t      *pxcpt_top;      ///< ptr to xcpt_top in START module
 /** bit shift for TSC value.
-    This is value to shift right TSC to get value below 1ms, which
-    is used as scheduler tick */
+    This is shift right for TSC to get value (below 1ms), which used as
+    scheduler tick */
 extern u32t      tick_shift;
 extern u16t        force_ss;      ///< force this SS sel for all new threads
 extern
 u32t              *pid_list;
-extern qshandle       sys_q;      ///< system queue for special events
+/** system queue for special events.
+    Created by START module in mt_startcb() callback */
+extern qshandle       sys_q;
 extern
 mt_prcdata       **pid_ptrs;
 extern
@@ -260,6 +267,8 @@ typedef struct {
    u32t               flags;      ///< mod_execse() flags parameter
    u32t                 pid;      ///< process pid (on success)
    u32t                 sno;      ///< process ses number (on success)
+   u32t                vdev;      ///< device list for this session (or 0)
+   char              *title;      ///< title in this module`s owned heap block or 0
 } se_start_data;
 
 ///< session free list entry
@@ -283,7 +292,7 @@ attime_entry          attcb[ATTIMECB_ENTRIES];
 
 /** inform about process/thread exit and check wait lists for action.
     Must be called inside MT lock only!
-    When called from timer interrupt, both pid/tid must be zero.
+    When called from the timer interrupt, both pid/tid must be zero.
 
     @param pid         if tid==0 - pid exit, else tid exit (pid/tid pair)
                        or just 0 to skip.
@@ -304,17 +313,12 @@ void w_term(mt_thrdata *wth, u32t newstate);
 #define memset         _memset
 #define memcpy         _memcpy
 #define sys_selquery   _sys_selquery
+#define se_dataptr     _se_dataptr
 
 #define THROW_ERR_PQ(pq) \
    sys_exfunc4(xcpt_prcerr, pq->self->name, pq->pid)
 
 #define THROW_ERR_PD(pd) \
    sys_exfunc4(xcpt_prcerr, pd->piModule->name, pd->piPID)
-
-/// @name sys_q commands
-//@{
-#define SYSQ_SESSIONFREE    0x00001       ///< session free (mt_prcdata* in event.a)
-#define SYSQ_BEEP           0x00002       ///< speaker (freq in a, dur in b)
-//@}
 
 #endif // MTLIB_INTERNAL

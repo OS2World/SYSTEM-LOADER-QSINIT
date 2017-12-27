@@ -86,9 +86,13 @@ _vio_beep       endp                                            ;
 ; read cmos
 ; in : al - addr
 ; out: al - value
-cmos2bin        proc    near                                    ;
-                out     CMOS_ADDR,al                            ;
-                jmp     $+2                                     ;
+cmos2bin        proc    near                                    ; adds a delay
+                out     CMOS_ADDR,al                            ; because it fails
+                push    ecx                                     ; in very rare cases
+                mov     ecx,32                                  ;
+@@cm2b_delay:
+                loop    @@cm2b_delay                            ;
+                pop     ecx                                     ;
                 in      al,CMOS_DATA                            ;
                 xor     ah,ah                                   ;
                 shl     ax,4                                    ;

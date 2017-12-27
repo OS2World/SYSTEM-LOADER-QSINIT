@@ -11,8 +11,6 @@
 /// number of methods in list classes
 #define LIST_M_COUNT  18
 
-typedef List<u64t> TQList;
-
 struct listd_ptr {
    u32t     sign;
    TUList   list;
@@ -20,7 +18,7 @@ struct listd_ptr {
 
 struct listq_ptr {
    u32t     sign;
-   TQList   list;
+   TUQList  list;
 };
 
 #define list_ptr listd_ptr
@@ -235,7 +233,7 @@ void *f_dq_list[LIST_M_COUNT] = { lstq_value, lstq_max, lstq_count,
    lstq_setcount, lstq_indexof, lstq_sort, lstq_delvalue };
 
 // register
-void register_lists(void) {
+void exi_register_lists(void) {
    u32t check = exi_register("dd_list", f_dd_list, LIST_M_COUNT, 
                 sizeof(listd_ptr), 0, lstd_create, lstd_free, 0);
    if (check!=EXID_dd_list) {

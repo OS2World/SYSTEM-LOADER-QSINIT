@@ -1,7 +1,7 @@
 [project]
 ; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0020
+version=0x0022
 
 [config]
 0=Debug

@@ -34,6 +34,8 @@ call make.cmd cplib    %bldparm%
 call make.cmd vhdd     %bldparm%
 call make.cmd extcmd   %bldparm%
 call make.cmd mtlib    %bldparm%
+call make.cmd aoscfg   %bldparm%
+call make.cmd fslib    %bldparm%
 
 goto quit
 :single_build

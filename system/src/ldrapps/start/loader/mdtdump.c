@@ -12,7 +12,6 @@
 #include "qspdata.h"
 
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
-extern mod_addfunc* _std          mod_secondary;
 extern mt_proc_cb   _std           mt_exechooks;
 
 void log_mdtdump_int(printf_function pfn) {
@@ -92,12 +91,14 @@ void _std log_mdtdump(void) {
    log_mdtdump_int(log_printf);
 }
 
+static u32t* sv_mt = 0;
+
 // print memory control table contents (debug)
 void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
                        u32t *memsignlst, u32t memblocks, process_context **memowner)
 {
-   auto u32t*         mt =   memtable;
-   auto free_block **mft =  memftable;
+   auto u32t*         mt = sv_mt = memtable;
+   auto free_block **mft = memftable;
    auto u8t         *mhr = memheapres;
    u32t          ii, cnt;
    char        sigstr[8];
@@ -105,9 +106,9 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
 
    mt_swlock();
    log_it(2,"<=====QS memory dump=====>\n");
-   log_it(2,"Total : %d kb\n",memblocks<<6);
+   log_it(2,"Total : %d kb\n", memblocks<<6);
    log_it(2,"        addr        sign   pid         size\n");
-   for (ii=0,cnt=0;ii<memblocks;ii++,cnt++) {
+   for (ii=0,cnt=0; ii<memblocks; ii++,cnt++) {
       free_block *fb=(free_block*)((u32t)mt+(ii<<16));
       if (mt[ii]&&mt[ii]<FFFF) {
          char     buffer[80], pid[8];
@@ -133,7 +134,7 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
    log_it(2,"%5d. %08X - end\n",cnt,(u32t)mt+(memblocks<<16));
 
    log_it(2,"Free table:\n");
-   for (ii=0;ii<memblocks;ii++)
+   for (ii=0; ii<memblocks; ii++)
       if (mft[ii]) {
          free_block *fb=mft[ii];
          log_it(2,"%d kb (%d):",ii<<6,ii);
@@ -146,6 +147,84 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
          log_it(2,"\n");
       }
    mt_swunlock();
+}
+
+void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
+   u32t   object, offset;
+   u32t   px = 3, py = 3, hdt = 2;
+   module            *mi;
+   free_block        *fb = (free_block*)addr;  // just alias
+   static char       msg[77];
+   static const char *em[] = { "Memory table data damaged",
+      "Free block size error", "Trying realloc read-only block",
+      "Wrong address in call", "Free block signature damaged",
+      "Broken free block header", "Unknown error type" };
+   if (type>MEMHLT_FBHEADER+1) type = MEMHLT_FBHEADER+1;
+
+   switch (type) {
+      case MEMHLT_MEMTABLE : hdt+=1; break;
+      case MEMHLT_FBSIZEERR: hdt+=2; break;
+      case MEMHLT_FBSIGN   : hdt+=2; break;
+      case MEMHLT_FBHEADER : hdt+=2; break;
+   }
+   mt_swlock();
+   trap_screen_prepare();
+   draw_border(1, 2, 78, hdt+5, 0x4F);
+   vio_setpos(py, px); vio_strout(" \xFE SYSTEM HEAP FATAL ERROR \xFE");
+   py+=2;
+   vio_setpos(py++, px); vio_strout(em[type]); 
+   vio_strout(". Occurs in ");
+   switch (here) {
+      case 'a': vio_strout("alloc_worker");   break;
+      case 'r': vio_strout("hlp_memrealloc"); break;
+      case 'f': vio_strout("hlp_memfree");    break;
+      case 'i': vio_strout("hlp_memreserve"); break;
+      case 'm': vio_strout("hlp_memavail");   break;
+      case 'b': vio_strout("hlp_memgetsize"); break;
+      default:  
+         snprintf(msg, 77, "strange location (%c)", here);
+         vio_strout(msg);
+   }
+   vio_setpos(py++, px); 
+   snprintf(msg, 77, "Error address - %08X", addr);
+   vio_strout(msg);
+
+   vio_setpos(py++, px); 
+   mi = mod_by_eip(caller, &object, &offset, 0);
+   if (mi) snprintf(msg, 77, "Caller - %08X: \"%s\" %u:%08X", caller, mi->name,
+      object+1, offset); else
+         snprintf(msg, 77, "Caller unknown - %08X", caller);
+   vio_strout(msg);
+
+   vio_setpos(py++, px); 
+
+   switch (type) {
+      case MEMHLT_MEMTABLE :
+         if (sv_mt) snprintf(msg, 77, "Table mismatch with expected value. Found %08X at pos %u",
+            sv_mt[info], info);
+         else
+            snprintf(msg, 77, "Table mismatch with expected value at pos %u", info);
+         break;
+      case MEMHLT_FBSIZEERR:
+         snprintf(msg, 77, "Size is %ukb instead of %ukb", fb->size<<6, info<<6);
+         break;
+      case MEMHLT_FBSIGN   :
+         snprintf(msg, 77, "Value is %08X instead of %08X", fb->sign, FREE_SIGN);
+         break;
+      case MEMHLT_FBHEADER :
+         snprintf(msg, 77, "%08X<-%08X->%08X", fb->prev, fb, fb->next);
+         break;
+      default:
+         msg[0] = 0;
+   }
+   if (msg[0]) vio_strout(msg);
+
+   if (type==MEMHLT_FBSIZEERR || type==MEMHLT_FBSIGN || type==MEMHLT_FBHEADER) {
+      vio_setpos(py++, px); 
+      snprintf(msg, 77, "%08X: %16b", addr, addr);
+      vio_strout(msg);
+   }
+   reipl(QERR_MCBERROR);
 }
 
 void _std log_dumppctx(process_context* pq) {

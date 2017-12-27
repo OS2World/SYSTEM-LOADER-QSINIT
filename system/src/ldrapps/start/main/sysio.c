@@ -18,10 +18,10 @@
 #define  IOFM_REN       0x80
 // alloc increment value
 #define  SFT_INC        20
-extern
-mod_addfunc* _std    mod_secondary;
+#define  FS_COUNT       16
 static qs_sysvolume ve[DISK_COUNT];
 static u8t       fsver[DISK_COUNT];     ///< FsType cache for hlp_volinfo()
+static u32t   fs_classid[FS_COUNT];     ///< registered filesystems
 extern u32t          fatio_classid;
 
 static volatile u32t     v_mounted = 0; ///< mounted volumes (for fast check)
@@ -855,17 +855,30 @@ qserr _std io_info(io_handle ifh, io_direntry_info *info) {
    if (fe->broken) err = E_SYS_BROKENFILE; else {
       io_handle_info hi;
       qs_sysvolume  vol = fe->type==IOHT_FILE?fe->file.vol:fe->dir.vol;
+      // use finfo() function if it available
+      if (fe->type==IOHT_FILE && (vol->avail()&SFAF_FINFO))
+         err = vol->finfo(fe->file.fh, info);
+      else
+         err = E_SYS_UNSUPPORTED;
 
-      err = vol->pathinfo(fe->fpath, &hi);
-      if (err==0) {
-         strcpy(info->name, fe->fpath);
-         info->attrs  = hi.attrs;
-         info->ctime  = hi.ctime;
-         info->atime  = hi.atime;
-         info->wtime  = hi.wtime;
+      if (err==E_SYS_UNSUPPORTED) {
+         err = vol->pathinfo(fe->fpath, &hi);
+         if (err==0) {
+            strcpy(info->name, fe->fpath);
+            info->attrs  = hi.attrs;
+            info->ctime  = hi.ctime;
+            info->atime  = hi.atime;
+            info->wtime  = hi.wtime;
+            info->size   = hi.size;
+            info->vsize  = hi.size;
+         }
+      }
+      if (!err) {
          info->fileno = fe->pub_fno;
-         info->size   = hi.size;
-         if (fh->file.omode&IOFM_SECTOR_IO) info->size>>=fe->file.bshift;
+         if (fh->file.omode&IOFM_SECTOR_IO) {
+            info->size >>= fe->file.bshift;
+            info->vsize>>= fe->file.bshift;
+         }
       }
    }
    if (err) fh->lasterr = err;
@@ -1061,7 +1074,7 @@ qserr _std io_rmdir(const char *path) {
    }
 }
 
-qserr _std io_diropen(const char *path, dir_handle *pdh) {
+qserr _std START_EXPORT(io_diropen)(const char *path, dir_handle *pdh) {
    qs_sysvolume    vol;
    qserr           res;
    char            *fp;
@@ -1110,14 +1123,14 @@ qserr _std io_diropen(const char *path, dir_handle *pdh) {
    return res;
 }
 
-qserr _std io_dirnext(dir_handle dh, io_direntry_info *de) {
+qserr _std START_EXPORT(io_dirnext)(dir_handle dh, io_direntry_info *de) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
    if (!de) return E_SYS_ZEROPTR;
    // this call LOCKs us if err==0
    err = io_check_handle(dh, IOHT_DIR, &fh, &fe);
-   if (err) return E_SYS_INVPARM;
+   if (err) return err;
 
    if (!fe->broken) err = fe->dir.vol->dirnext(fh->dir.dh, de);
       else err = E_SYS_BROKENFILE;
@@ -1126,13 +1139,13 @@ qserr _std io_dirnext(dir_handle dh, io_direntry_info *de) {
    return err;
 }
 
-qserr _std io_dirclose(dir_handle dh) {
+qserr _std START_EXPORT(io_dirclose)(dir_handle dh) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
    // this call LOCKs us if err==0
    err = io_check_handle(dh, IOHT_DIR, &fh, &fe);
-   if (err) return E_SYS_INVPARM;
+   if (err) return err;
 
    if (!fe->broken) err = fe->dir.vol->dirclose(fh->dir.dh);
    dh ^= IOH_HBIT;
@@ -1348,6 +1361,50 @@ u32t _std hlp_volinfo(u8t drive, disk_volume_data *info) {
    return FST_NOTMOUNTED;
 }
 
+/* select FS handler for the volume.
+   @param drive       Volume to check
+   @param noforce     Flag to skip final FAT driver mounting with FORCE flag on.
+   @param [out] pvol  Inited instance or 0
+   @return error code or 0 */
+static qserr io_findfs(u8t drive, int noforce, qs_sysvolume *pvol) {
+   qs_sysvolume vol = 0;
+   qserr        res = 0;
+   // invalid call
+   if (!pvol) return E_SYS_SOFTFAULT;
+   *pvol = 0;
+   if (drive>=DISK_COUNT || drive==DISK_LDR) res = E_DSK_BADVOLNAME; else {
+      struct Boot_Record *br = 0;
+      vol_data         *vdta = _extvol + drive;
+      // lock MT to prevent any possible mount/unmount activity
+      mt_swlock();
+      if ((vdta->flags&VDTA_ON)==0) res = E_DSK_NOTMOUNTED; else
+      while (1) {
+         u32t ii;
+         br = (struct Boot_Record*) malloc(vdta->sectorsize);
+         if (!br) { res = E_SYS_NOMEM; break; }
+         if (!hlp_diskread(drive|QDSK_VOLUME, 0, 1, br)) { res = E_DSK_ERRREAD; break; }
+         // loop over existing FS handlers
+         for (ii=0; ii<FS_COUNT+(noforce?0:1); ii++) {
+            int force = ii==FS_COUNT;
+            u32t  cid = force ? fatio_classid : fs_classid[ii];
+            if (cid) {
+               vol = (qs_sysvolume)exi_createid(cid, EXIF_SHARED);
+               if (vol) {
+                  res = vol->init(drive, force?SFIO_FORCE:0, br);
+                  if (force && res==E_DSK_UNKFS) res = 0;
+                  if (!res) break; else { DELETE(vol); vol = 0; }
+               }
+            }
+         }
+         break;
+      }
+      mt_swunlock();
+      if (br) free(br);
+   }
+   *pvol = vol;
+   return res;
+}
+
 qserr _std io_mount(u8t drive, u32t disk, u64t sector, u64t count) {
    u32t rc = E_DSK_BADVOLNAME;
    // no curcular references allowed!!! ;)
@@ -1356,54 +1413,44 @@ qserr _std io_mount(u8t drive, u32t disk, u64t sector, u64t count) {
    if (count>=_4GBLL) return E_DSK_PT2TB;
    // mount it
    if (drive>DISK_LDR && drive<DISK_COUNT) {
-      struct Boot_Record *br = 0;
-      u32t            sectsz;
-      u64t               tsz = hlp_disksize64(disk, &sectsz);
-      vol_data         *vdta = _extvol + drive;
+      u32t      sectsz;
+      u64t         tsz = hlp_disksize64(disk, &sectsz);
+      vol_data   *vdta = _extvol + drive;
+      qs_sysvolume vol;
       // check for init, size and sector count overflow
-      if (!tsz||sector>=tsz||sector+count>tsz||sector+count<sector) return E_SYS_INVPARM;
+      if (!tsz||sector>=tsz||sector+count>tsz||sector+count<sector)
+         return E_SYS_INVPARM;
       /* lock it!
-         bad way, but at least now its guarantee atomic mount */
+         bad way, but at least now it guarantees atomic mount */
       mt_swlock();
       // unmount current
       hlp_unmountvol(drive);
-      // get buffer
-      br = (struct Boot_Record*)malloc(sectsz);
-      // read boot sector
-      if (br && hlp_diskread(disk|QDSK_DIRECT, sector, 1, br)) {
-         qs_sysvolume vol = (qs_sysvolume)exi_createid(fatio_classid, EXIF_SHARED);
-         if (vol) {
-            qserr  eres;
-            // disk parameters for fs i/o
-            vdta->disk       = disk;
-            vdta->start      = sector;
-            vdta->length     = count;
-            vdta->sectorsize = sectsz;
-            vdta->serial     = 0;
-            vdta->badclus    = 0;
-            vdta->clsize     = 1;
-            vdta->clfree     = 0;
-            vdta->cltotal    = 0;
-            // mark as mounted else disk i/o deny disk access
-            vdta->flags      = VDTA_ON;
+      // disk parameters for fs i/o
+      vdta->disk       = disk;
+      vdta->start      = sector;
+      vdta->length     = count;
+      vdta->sectorsize = sectsz;
+      vdta->serial     = 0;
+      vdta->badclus    = 0;
+      vdta->clsize     = 1;
+      vdta->clfree     = 0;
+      vdta->cltotal    = 0;
+      // mark as mounted else disk i/o deny disk access
+      vdta->flags      = VDTA_ON;
 
-            eres = vol->init(drive, SFIO_FORCE, br);
-            rc   = eres==E_DSK_UNKFS?0:eres;
-            if (!rc) {
-               mt_safedor((u32t*)&v_mounted, 1<<drive);
-               fsver[drive] = 0xFF;
-               ve[drive] = vol;
-               cache_ctrl(CC_MOUNT,drive);
-            }
-            if (eres) log_it(3, "Mount %c - rc %X\n", 'A'+drive, eres);
-         }
-      }
+      rc = io_findfs(drive, 0, &vol);
+
+      if (!rc) {
+         mt_safedor((u32t*)&v_mounted, 1<<drive);
+         fsver[drive] = 0xFF;
+         ve[drive] = vol;
+         cache_ctrl(CC_MOUNT,drive);
+      } else
+         log_it(3, "Mount %c - rc %X\n", 'A'+drive, rc);
       // clear state
       if (rc) vdta->flags = 0;
       // unlock it!
       mt_swunlock();
-      // sector buffer
-      if (br) free(br);
    }
    return rc;
 }
@@ -1426,7 +1473,7 @@ qserr _std io_unmount(u8t drive, u32t flags) {
                char *emsg = sprintf_dyn("Volume %c is in use, removing it will "
                   "broke %u open file(s).^Do you want to continue?", drive+'A', numc);
                efl = vio_msgbox("SYSTEM WARNING!", emsg,
-                  MSG_LIGHTRED|MSG_DEF2|MSG_YESNO, 0)==MRES_YES?0:1;
+                  MSG_POPUP|MSG_LIGHTRED|MSG_DEF2|MSG_YESNO, 0)==MRES_YES?0:1;
                free(emsg);
             }
             if (!efl) sft_volumebroke(drive, 0); else
@@ -1613,6 +1660,45 @@ void _std io_dumpsft(void) {
    log_it(2,"====================\n");
 }
 
+qserr _std io_registerfs(u32t classid) {
+   u32t ncnt = exi_methods(classid), *pos, ii;
+   // check number of methods
+   if (ncnt!=sizeof(_qs_sysvolume)/sizeof(void*)) return E_SYS_INVOBJECT;
+
+   mt_swlock();
+   pos = memchrd(fs_classid, 0, FS_COUNT);
+   if (pos) *pos = classid;
+   mt_swunlock();
+
+   // enum volumes and try to remount every one this unknown filesystem 
+   if (pos)
+      for (ii=0; ii<DISK_COUNT; ii++) {
+         vol_data  *vdta = _extvol + ii;
+         qs_sysvolume vl = ve[ii], vn;
+
+         if (ii!=DISK_LDR && (vdta->flags&VDTA_ON) && exi_classid(vl)==fatio_classid) {
+            // lock it here to prevent changes in disk configuration
+            mt_swlock();
+
+            if (hlp_volinfo(ii,0)==FST_NOTMOUNTED)
+               if (!io_findfs(ii,1,&vn)) {
+                  u32t nbrk = sft_volumebroke(ii,0);
+                  /* should never occur, because FAT handler was forced here
+                     and FS is unknown for it */
+                  if (nbrk) log_it(3, "Re-mount %c - %u handles lost", 'A'+ii, nbrk);
+
+                  fsver[ii] = 0xFF;
+                  ve[ii]    = vn;
+                  // delete forced FAT handler
+                  vl->done();
+                  DELETE(vl);
+               }
+            mt_swunlock();
+         }
+      }
+   return pos?0:E_SYS_FILES;
+}
+
 void setup_fio() {
    u32t      ii;
    memset(&ve, 0, sizeof(ve));
@@ -1620,6 +1706,7 @@ void setup_fio() {
    register_fatio();
 
    memset(&fsver, 0xFF, sizeof(fsver));
+   memset(&fs_classid, 0, sizeof(fs_classid));
    v_mounted = 0;
    _extvol   = (vol_data*)sto_data(STOKEY_VOLDATA);
 

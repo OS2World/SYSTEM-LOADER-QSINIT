@@ -9,21 +9,27 @@ QSINIT is a some kind of boot loader ;) Basically it load OS/2 kernel ;), but
 suitable for many other things - like playing tetris or writing boot time
 disk editor.
 
-Common idea of this loader - creating a small 32 bit protected mode environment
-with runtime and module executing support. It looks like old good DOS/4GW apps,
+Common idea was creating of a small 32 bit protected mode environment with
+runtime and module executing support. It looks like old good DOS/4GW apps,
 but without DOS at all ;)
 
-Package contain of two parts: loader (OS2LDR) and zip archive with apps
-and data (QSINIT.LDI). During init this archive unpacked to the small virtual
-disk in memory and "system" operates with data in it as normal files.
+Next, it was extended to (optional) multithreading (UNIprocessor only, sorry -
+just because BIOS is used as driver for everything).
+
+It has now disk sector editor, partition management, text and binary file
+editors, tetris :) and so on.
+
+Binary package composed from two parts - starting binary (OS2LDR) and zip
+archive with applications and data (QSINIT.LDI). During init this archive
+unpacked to the small virtual disk in memory and "system" operates with data
+in it.
 
 So, common boot process is:
 @li partition boot code (FAT or micro-FSD on HPFS/JFS) loads OS2LDR (it looks
-like common kernel loader).
-@li this init part (named QSINIT below) init protected mode, create a small
-virtual disk (for self usage only, this memory will be available for OS/2) and
-unpack QSINIT.LDI to it.
-@li next, it launch second part of code from this disk (START module).
+like common OS/2 kernel loader for OS/2 micro-FSDs).
+@li this binary (named QSINIT below) starts protected mode, create a small
+virtual disk and unpack QSINIT.LDI to it.
+@li next, it launch second part of own code from this disk (START module).
 @li START module can launch any other modules. One of it named "bootos2.exe" ;)
 
 @section sec_apiinfo Some general information
@@ -42,6 +48,9 @@ unpack QSINIT.LDI to it.
 @defgroup CODE6 VDISK source code (PAE ram disk)
 @defgroup CODE7 CPLIB source code (code pages support)
 @defgroup CODE8 MTLIB source code (threads support)
+@defgroup CODE9 CONSOLE source code (mode command and graphic console)
+@defgroup CODE10 VHDD source code (own format filedisk).
+@defgroup CODE11 EXTCMD source code (optional system/shell functionality).
 
 @file mtlib.c
 @ingroup CODE8
@@ -83,9 +92,9 @@ CPLIB module main file
 @ingroup CODE7
 CPLIB shared class interface
 
-@file qsvdisk.h
+@file qsvdmem.h
 @ingroup CODE6
-VDISK module interface
+VDISK module shared class interface
 
 @file vdisk.c
 @ingroup CODE6
@@ -272,6 +281,14 @@ OS/4 boot loader interface (autoconverted from .inc)
 @ingroup CODE3
 OS/4 boot loader vesa data (autoconverted from .inc)
 
+@file loadmsg.c 
+@ingroup CODE3
+OS2LDR.MSG loading code.
+
+@file diskparm.c 
+@ingroup CODE3
+BPB replacement magic (for ramdisk boot and switch boot partition).
+
 @file vio.h
 @ingroup API1
 Text mode output and keyboard support routines.
@@ -313,8 +330,7 @@ LE/LX module handling.
 
 Module handling code - loading, launching, import/export resolving.
 
-Some functions located in lxmisc.c file in "start" module and available
-only after it start.
+Some functions located in lxmisc.c file of START module.
 
 @file membase.c
 @ingroup CODE1
@@ -326,7 +342,7 @@ Common memory allocating functions.
 
 @file print.c
 @ingroup CODE1
-Printf implementation.
+Base implementation of all printf fuinctions.
 
 @file init32.c
 @ingroup CODE1
@@ -338,7 +354,7 @@ Virtual disk creation.
 
 @file meminit.c
 @ingroup CODE1
-System memory tables parse code.
+System memory tables parse code (16-bit real mode code!).
 
 @file fileio.c
 @ingroup CODE1
@@ -357,7 +373,7 @@ Ini file first time read.
 I/o requests processor for FAT code.
 
 @file ff.c
-@ingroup CODE1
+@ingroup CODE2
 FAT code by ChaN.
 
 @file console.h
@@ -411,6 +427,71 @@ Disk management internal definitions.
 @file ptmgr.c
 @ingroup CODE4
 Partition management code.
+
+@file console.c
+@ingroup CODE9
+CONSOLE module main file.
+
+@file conint.h
+@ingroup CODE9
+CONSOLE module internal header.
+
+@file fonts.c
+@ingroup CODE9
+Binary fonts support.
+
+@file outbase.c
+@ingroup CODE9
+Base (common) functions for graphic output.
+
+@file outefi.c
+@ingroup CODE9
+UEFI based console support.
+
+@file outvesa.c
+@ingroup CODE9
+VESA based console support.
+
+@file vhvioex.c 
+@ingroup CODE9
+System code for graphic console output (internal shared class).
+
+@file writegif.c 
+@ingroup CODE9
+Screenshot writing code (GIF file).
+
+@file rwdisc.c
+@ingroup CODE10
+File disk shared class implementation.
+
+@file vhdd.c
+@ingroup CODE10
+VHDD module main file
+
+@file qsvdimg.h
+@ingroup CODE10
+File disk shared class interface.
+
+@file extcmd.c
+@ingroup CODE11
+EXTCMD module main file
+
+@file extdlg.c
+@ingroup CODE11
+Additional system dialog(s) shared class implementation.
+
+@file mtrrmem.c
+@ingroup CODE11
+MTRR shell command
+
+@file pci.c
+@ingroup CODE11
+PCI shell command
+
+@file vhtty.c 
+@ingroup CODE11
+System code for serial port console output (internal shared class).
+
 */
 
 /** @page pg_apiref API notes and reference.
@@ -427,11 +508,11 @@ Partition management code.
 /** @page pg_shell Shell
 
 @section shdt_about Common information
-Shell is simulate to default DOS / Windows / OS/2 family command processor. There are
-many differences in command implementation and, naturally, QSINIT shell is not
-equal to "large OS" shells.
+Shell is simulate to default DOS / Windows / OS/2 family command processor.
+There are many differences in command implementation and, naturally, QSINIT
+shell is not equal to "large OS" shells.
 
-There are no i/o redirection, filters and "con" file, at least.
+There are no full i/o redirection, filters and "con" file, at least.
 
 Shell have a support for installing new commands and replacing the default ones.
 Only internal commands like GOTO, FOR, IF, EXIT and so on cannot be overloaded. See
@@ -444,7 +525,8 @@ can call batch files internally, in own process context, with affecting own
 environment.
 
 But, be careful with side effects of this (ability of shell commands to open
-and write to a file, which is locked by the current process, for example).
+and write to a file, which is locked by the current process, for example). You
+can use "cmd /c ..." to avoid this, of course.
 
 Embedded help is supported for all installed commands (and can be implemended
 for a new ones by calling cmd_shellhelp()). Messages located in msg.ini file.
@@ -461,7 +543,7 @@ BOOTTYPE - current boot type. Values are: FAT, FSD, PXE and SINGLE. SINGLE
 
 HOSTTYPE - current host type. Values are: BIOS and EFI.
 
-Some other can be accessed from shell as part of SET command syntax: "%TIME%",
+Many other can be accessed from shell as part of SET command syntax: "%TIME%",
 "%DATE%", "%DBPORT%", etc.
 */
 
@@ -470,8 +552,11 @@ Some other can be accessed from shell as part of SET command syntax: "%TIME%",
 @section pgscr_text Text modes
 Though, direct writing to text mode memory is possible in easy way, it
 highly not recommended, because of "graphic console" presence (text mode
-simulation in VESA graphic modes) and because of DETACH command presence, which
-is switches any console output of detached command to the void.
+simulation in VESA graphic modes) and because of EFI version, where no VGA
+text modes at all.
+
+AND because of session support when multitasking is active (i.e. current
+session can be at the background).
 
 So, in addition to common vio_strout(), vio_writebuf() and vio_readbuf() was
 designed to read/write text mode memory contents.
@@ -479,11 +564,7 @@ designed to read/write text mode memory contents.
 Common text mode and keyboard functions referenced in @ref vio.h.
 
 Addititional processing also available: read string from console (with callback),
-message box: @ref vioext.h.
-
-@section pgscr_graph Graphic modes
-This functionailty still not finished, but some initial code is availabile in
-console.dll (@ref console.h). */
+message box and more: @ref vioext.h.
 
 /** @page pg_fileio File and disk i/o.
 
@@ -529,6 +610,10 @@ close.\n
 And PXE API is even more limited ;) It unable to return size of file on open,
 so support only single read operation.
 
+In multitasking mode opening of file via micro-FSD locks system global mutex
+until its close by the same thread (or thread exit). I.e. any other process/thread
+will be stopped on boot disk I/O functions until their availability.
+
 FAT/FAT32/exFAT can be accessed instantly, as normal partition with full
 access.
 
@@ -542,8 +627,8 @@ QSSETUP.CMD files (if exist one) from the root of boot disk to virtual drive (pa
 and then operates with it. This occur on any type of boot (FAT, mini-FSD, PXE).
 
 @section fdio_diskio Disk I/O
-Disk I/O can operate with all drives reported by BIOS. It detect drive type and
-size and provide API to read and write it (@ref qsutil.h).
+Disk I/O can operate with all drives reported by BIOS. It detects drive type
+and size and provides API to read and write it (@ref qsutil.h).
 
 Own virtual disk can be accessed at low level at the same way as real disks.
 
@@ -551,14 +636,13 @@ Any part of disk can be mounted as QSINIT volume. If any type of FAT will be
 detected - it becomes available for use, else mounted volume can be formatted
 (for example) or accessed via sector level i/o from appilcation.
 
-Advanced functions is available in @ref sec_partmgr, which can be loaded
-by apps or QSINIT initialization code.
+Advanced functions are available in @ref sec_partmgr.
 */
 
 /** @page pg_xcpt Exception handling.
-A C++ like exception handling supported, code must look as defined below. The
-order of sections are important, first catch section must be named _catch_ and
-any of following - _alsocatch_.
+Exception handling supported in C code, to use this code must looks as defined
+below. The order of sections are important, first catch section must be named
+_catch_ and any of following - _alsocatch_.
 
 For returning from inside of _try_ section, _ret_in_try_ or _retvoid_in_try_
 macroses <b>must</b> be used.
@@ -604,9 +688,9 @@ Provided by hlp_memalloc(), hlp_memallocsig(), hlp_memrealloc() and hlp_memfree(
 functions.
 @li allocated memory is zero-filled (additional space after realloc call - too).
 @li any allocation is rounded up to 64kb internally. So if you ask 1 byte, it
-get 64k from system.
+gets 64k from system.
 @li if you do NOT specify QSMA_RETERR flag - QSINIT hang to panic if no free
-memory was founded.
+memory was found.
 @li any damage of memory headers will produce panic.
 @li you can print memory table to log by hlp_memprint() (in debug build).
 @li hlp_memallocsig() allows to set 4 chars signature to block, which is
@@ -619,7 +703,7 @@ All of data are global too.
 @attention Allocated memory is NOT zero filled.
 
 Features:
-@li 4 types of allocation - process owned, thread owned and DLL owned and
+@li 4 types of allocation - process owned, thread owned, DLL owned and
 shared over system.
 @li full dump list of blocks (mem_dumplog())
 @li for shared memory file and line information is available in log dump.
@@ -656,14 +740,17 @@ option is terribly slow, but it catches any heap damage on next alloc/free call.
 There is no debugger, but sys_errbrk() can help on random memory damages, it
 allow to set DR0..DR3 debug registers to catch memory read/write on specified
 address. Catched violation will produce INT 1 exception.
+
+Also, log_dumpregs() and hlp_dumpregs() functions dumps CPU registers into 
+the debug serial port and log without affect to it and CPU flags.
 */
 
 /** @page pg_common Common topics.
 
 @section comm_addrspace Address space
 Address space is physical-zero based. In previous versions of QSINIT it was
-non-zero based, and actually zero of FLAT selectors was placed at 9100 or
-9000 real mode segment (may be a much lower on PXE boot).
+non-zero based, and zero of FLAT selectors was placed at 9100 or 9000 real
+mode segment (may be a much lower on PXE boot).
 
 But now FLAT is classic zero-based, with linear==physical mapping.
 
@@ -684,7 +771,7 @@ can be used to access it in all modes.
 QSINIT can be switched to PAE paging mode to get access to memory above 4Gb
 limit. This can be done by pag_enable() API function or "mode sys pae" shell
 command. Switching is permanent, returning back to non-paged mode is not
-possible.
+supported.
 
 In this mode QSINIT itself still operates in "FLAT" mode, without using
 of page mapping. I.e. entire PC RAM below 4Gb is directly mapped "one-in-one",
@@ -694,9 +781,9 @@ But new option available: possibility of mapping physical memory above the end
 RAM in first 4th GBs / above 4GB limit.
 
 @section comm_stack Using stack
-Real mode part of QSINIT designed in TINY 16 bit model and assume DS==ES==SS
-way of living. Real mode call helpers like hlp_rmcall() are always switch
-to its stack duaring call.
+Real mode callbacks of QSINIT are designed in TINY 16 bit model and assume
+DS==ES==SS way of living. Real mode call helpers like hlp_rmcall() are always
+switch to its stack duaring call.
 
 The size of this stack is printed to log before "start" module init:
 <b>"stack for rm calls: xx bytes"</b>. It vary on size from build to build
@@ -710,6 +797,9 @@ in stack for one sector reading. Buffer for main() argv's array data is
 allocated <b>from stack</b> too.
 
 DLLs does not have own stack and uses stack of calling module.
+
+Threads allocate stack from the system heap (i.e. it independent from the
+common process stack).
 */
 
 /** @page pg_apps Apps and modules.
@@ -720,10 +810,10 @@ Loader features and disadvantages:
 @li does not load LE with iterated pages (who can link it?)
 @li imports/exports/forwards by name is not supported at all
 @li module <b>must</b> contain internal fixups! This is <b>required</b> because
-of lack of 4k paging.
-@li 32bit module ordinals is not supported (and again - who can link it?)
+of lack of real page mapping.
+@li 32bit module ordinals is not supported (and again - who able link with it?)
 @li up to 32 imported modules per module (this can be changed in code).
-@li 16 bit objects can be used, but cannot be start or stack object.
+@li 16 bit objects can be used, but cannot be start or stack objects.
 @li "chaining fixups" can be used to optimize fixup table size.
 @li data cannot be exported from 32-bit CODE objects! The source of problem
 is creation of small thunk for every CODE export entry, this thunk required
@@ -743,8 +833,8 @@ size without any compression.
 
 More details:
 @li FLAT 32 bit DOS. No threads, no paging, shared address space - by default.
-@li threads still available, but optionally ;)
-@li switching to PAE paging mode is available to, but only for mapping memory
+@li threads abd sessions still available, but optionally ;)
+@li switching to PAE paging mode is available too, but only for mapping memory
 above 4Gb limit.
 @li launching "process" (module) gets parameters and environment in the same
 way as in OS/2. The one diffrence is: FS == 0 (no TIB).
@@ -759,8 +849,8 @@ after process termination.
 imports from each other, but it is better to not use this feature (DLLs are
 global and DLL will be cross-linked with <b>first</b> EXE module, which load
 it. Second copy of the same EXE can hang).
-@li module can import functions from self (this can be used to trace internal
-module calls).
+@li module can import functions from self (usable to trace internal module
+calls, at least).
 @li forward entries resolved at the moment of first import. So, you can load
 DLL with forward to missing index in presented module. But this forward can't
 be used.
@@ -768,8 +858,7 @@ be used.
 Environment is not global, child process inherit it in current state. Any
 changes was made by setenv() affect current process and it's childs only.
 
-Dump of currently loaded modules can be printed to log by Ctrl-Alt-F10 in cmd
-shell or duaring pause "press any key..." waiting.
+Dump of all loaded modules can be printed to log by Ctrl-Alt-F10 hotkey.
 
 @ref pg_runtime "Runtime functions".
 
@@ -791,8 +880,8 @@ Default C library has a short list of functions, but it's extending from time
 to time.
 
 DPMI available, but "unofficially" ;) - in BIOS hosted version only and without
-memory allocation functions. And there is no any support for allocating memory
-in 1st meg now.
+memory allocation functions. And there is no any support for allocation of
+memory in 1st meg now.
 
 All available runtime and C library functions linked to app as imports
 from modules QSINIT ans START. As result - EXE sizes on pure C are very small ;)
@@ -814,7 +903,6 @@ This is limitation of micro-FSD, available at boot time.
 Any call to int 21h will return CF=1 and do nothing. QSINIT is not DOS! ;)
 
 DLL LibMain can be replaced by custom one.
-
 */
 
 /** @page pg_sysapp System modules.
@@ -827,27 +915,41 @@ for partition boot code.
 Internally it contain:
 @li PMODE (from famous free protected mode extender sources)
 @li zlib (inflate part only) with tiny unzip support
-@li FAT code by ChaN (best FAT code I ever seen ;))
 @li LE/LX module loading/launching
 @li a bit of C runtime functions
-@li system functions (keyboard, text video modes, file i/o, memory management)
+@li system functions (keyboard, text video modes, file i/o, global memory handler)
+
+EFI version (QSINIT.EFI) contains the same things, but EFI specific. I.e. this
+is 64-bit EFI executable, which has linked in 32-bit part. 64-bit part
+provides system services for QSINIT as well as real mode 16-bit code in BIOS
+version provides the same services.
 
 @section sec_start START module
 
-This module is a special case. It containing some LX/LE loading functionality, so
-it cannot use DLLs (except QSINIT), cannot be compressed and cannot be unloaded.
+This module is a special case. It containing some LX/LE loading functionality,
+so it cannot use DLLs (except QSINIT) and cannot be compressed.
 
-Contain:
+Actually this is main part of QSINIT "kernel".
+
+It contains:
 @li heap memory manager (memmgr.cpp)
 @li LE/LX code (lxmisc.c, mdtdump.c)
-@li exception handler (trapscrn.c)
+@li exception handling (trapscrn.c)
 @li C lib (clib.c, clibio.c, time.c)
-@li working with environment (envmgr.c)
-@li ini files support (ldrini.cpp)
-@li shell functions (shell.cpp)
-@li exportable to C "classes" support (exi.cpp) and lists based on it.
+@li environment functions (envmgr.c)
+@li ini files support (pubini.cpp)
+@li FAT code by ChaN (ff.c)
+@li shell functions (shell.cpp, extcmd.cpp)
+@li "shared classes for C" implementation (exi.cpp).
+@li trace support (trace.cpp)
+@li PCI bus functions (pcibus.c) and CPU specific functions (syshlp.c)
+@li system file i/o (sysio.c)
+@li queue, tls and other process/thread related (sysmt.c, sysque.cpp)
+@li internal log (log.c)
 @li final PC memory parsing code (meminit.cpp). Initial code located in QSINIT binary.
 @li PAE paging management (pages.c)
+@li system VIO handler - sessions/devices support and so on (viobase.cpp, vhvio.cpp)
+@li additional VIO functions (mbox.cpp, viofunc.c)
 and many other ...
 
 @section sec_boot Boot process (outdated!)
@@ -858,74 +960,127 @@ and many other ...
 @li if micro-FSD present - it header checked for various errors
 @li memory allocated for protected mode data (GDT, etc)
 @li copying self to the top of low memory (9xxx:0000) and saving
-mini-FSD (binary file) in 1000:0 (temporary)
-@li make some real mode task: i/o delay calculation, query PC memory,
+mini-FSD (binary file)
+@li makes some real mode task: i/o delay calculation, query PC memory,
 remap low 8 ints to 50h
-@li going to 16 bit PM
-@li init minor things and going to 32 bit PM (init32.c)
+@li going to 16 bit PM, unpack 32-bit part and launch it (init32.c).
 @li init own memory management and get for self all memory above 16Mb until
 the end of whole block
-@li save mini-fsd/fat root in available high memory (clearing 1st Mb)
-@li load qsinit.ldi zip file, calculate unpacked size, create virtual
-disk and format it with FAT. Unpack zip file here - this will be "1:\" drive
-(disk1.c).
-@li load module "start" from this disk and start it.
+@li loads QSINIT.LDI zip file, calculate unpacked size, creates virtual
+disk and format it with FAT. This will be "1:\" drive (disk1.c).
+@li load module START from this zip and start it.
 
-@subsection sec_bootstep2 Step 2: START module
-@li initing exception handlers
-@li initing heap manager (memmgr.cpp)
-@li initing internal log
+@subsection sec_bootstep2 Step 2: START module continue initialization in this order:
+@li exception handlers
+@li heap manager (memmgr.cpp)
+@li internal log and key storage (micro-registry).
+@li session management
+@li file i/o
+@li unpack QSINIT.LDI to the ramdisk
 @li exporting functions for QSINIT
-@li deleting self from RAM disk (to save space)
-@li reading minor options from os2ldr.ini
+@li clib file i/o initialization
+@li reading minor options from OS2LDR.INI
+@li more advanced memory setup
+@li CPU detection
+@li shell commands initialization
+@li version match check between OS2LDR binary and QSINIT.LDI (yes, too late,
+but usually it helps ;))
 @li launching start.cmd - shell is ready
 
 @section sec_partmgr PARTMGR module
 
-This module is an optional resident DLL, which add a support for advanced disk
+This module is an optional resident DLL, which adds a support of advanced disk
 management and appropriate shell commands: mount, dmgr, format, etc.
 
 By default, it loaded automaticaly by start.cmd or bootmenu.exe, but also can
 be loaded by any process, linked with it.
 
-When DLL became resident (loaded by LM command) - it adds shell commands to the
-list of available commands.
+When DLL stays resident - it adds shell commands to the list of available
+commands.
 
-Most of available functions defined in qsdm.h. Some of them allow more, than shell
-commands and contain much less checks, so be carefull in direct use.
+Most of available functions defined in qsdm.h. Some of them allow more, than
+shell commands and contain much less checks, so be carefull in direct use.
 
-@section sec_cachemod CACHE module
+@ref CODE4
 
-This module is an optional resident DLL, which add a support of read-ahead disk
-cache on a sector i/o level. FAT system areas have a priority in caching, if this
-FAT/FAT32 partition is mounted to QSINIT.
+@section sec_modcache CACHE module
 
-By default module loaded by PARTMGR on first mount command, or loaded by start.cmd
+This module is an optional resident DLL, which addS a support of read-ahead
+disk cache on a sector i/o level. FAT system areas have a priority in caching,
+if this FAT/FAT32/exFAT partition is mounted to QSINIT.
+
+By default module loaded by PARTMGR on first mount command, or by start.cmd
 in non-OS/2 boot mode, there no reasons to speed up boot time.
 
 Cache can use up to 50% of memory, available to QSINIT. Cache is non-destructive,
 i.e. all writings will direct to HDD immediately.
 
-When module is loaded - "cache" command is available in shell, it allow to setup
-shell and include/exclude disks for caching.
+When module is loaded - "cache" command is available in shell, it allows to
+setup shell and include/exclude disks for caching.
 
-@section sec_consolemod CONSOLE module
+@ref CODE5
 
-This module provide support for "graphic console" and VESA graphic modes.
-"Mode con" command loads it permanently on first use. */
+@section sec_modconsole CONSOLE module
+
+This module provides support for "graphic console" and VESA/EFI graphic modes.
+"Mode con" command loads it permanently on first use (@ref CODE9).
+
+@ref CODE9
+
+@section sec_modcplib CPLIB module
+
+This module adds code pages and CHCP command into the system. It supports a
+short number of SBCS code pages. No DBCS now, sorry.
+
+Without this code any FAT partitions unable to manage names with national
+charactes and HPFS format is unavailable.
+
+@ref CODE7
+
+@section sec_modvdisk VDISK module
+
+This is "PAE ramdisk" supporting module (disk creation, RAMDISK shell command
+and disk i/o functions for QSINIT itself).
+
+@ref CODE6
+
+@section sec_modvhdd VHDD module
+
+A primitive file-disk implementation. Too slow to be a real filedisk, but
+usable for disk structure backup and PARTMGR module testing.
+
+@ref CODE10
+
+@section sec_modmtlib MTLIB module
+
+System module, which provides multithreading. Scheduler, context saving,
+thread/process creation in MT mode, wait objects implementation - this is it.
+
+@ref CODE8
+
+@section sec_modextcmd EXTCMD module
+
+The collection of optional code, which is just removed from the START module,
+because it optional. MTTR and PCI commands here, as well as serial port
+console support.
+
+@ref CODE11
+*/
 
 /** @page pg_deblog Log and COM port output
 
 @section sec_intlog System log
-QSINIT supply internal 256k buffer for logging. Log output is routed also
-to COM port, if address available in INI file.
+QSINIT creates internal 256k buffer (64k on a small amount of memory) for
+logging. Log output is routed also to COM port, if address available in INI
+file.
 
-Every log message have time label and log level value (0..3) attached.
+Every log message have a time label and log level value (0..3) attached.
 
-This log can be viewed in sysview.exe app and can be copied to OS/4 kernel
+This log can be viewed in sysview.exe app and can be copied to boot time
 log by adding key "LOGLEVEL" to kernel options.
 
-Some dumps are available in cmd shell or while pause message is active:
+Some dumps are available during keyboard wait (in MT mode - at any time):
+@li Ctrl-Alt-F2 - session list
 @li Ctrl-Alt-F3 - installed shared class list
 @li Ctrl-Alt-F4 - file/object table dump
 @li Ctrl-Alt-F5 - process list dump (+ threads in MT mode)
@@ -936,10 +1091,6 @@ Some dumps are available in cmd shell or while pause message is active:
 @li Ctrl-Alt-F10 - module table dump
 @li Ctrl-Alt-F11 - system memory table dump
 @li Ctrl-Alt-F12 - pool block list (very long)
-
-These keys also available in MT mode, if system idle thread receives too
-much time to execute (possible cross-lock or something). This can be detected
-by periodical '~' symbols in log (com port output).
 
 @section sec_comport COM port output.
 COM port address and baud rate can be changed "on fly", by "mode sys"

@@ -180,7 +180,7 @@ qserr _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags) {
             but ignore error code - its not critical */
          if (firstused>=(u64t)hS->lvm_spt)
             dsk_copysector(dstdisk, 1, srcdisk, 1, hS->lvm_spt-1, 0, 0, 0, 0);
-         /* wipe any founded LVM sectors (we can get it from source at line
+         /* wipe any found LVM sectors (we can get it from source at line
             above or from original disk data */
          lvm_wipeall(dstdisk);
          /* init LVM in common way (to calc valid CHS), then copy some fields
@@ -350,7 +350,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
       if (rc) return rc;
       rc = dsk_ptrescan(srcdisk, 1);
       if (rc) {
-         // ignore source disk scan errors (this allow to copy founded partitions)
+         // ignore source disk scan errors (this allow to copy found partitions)
          log_printf("warning! source disk scan = %d\n", rc);
          rc = 0;
       }

@@ -15,22 +15,52 @@
                 extrn   _BaudRate:dword                         ;
                 extrn   _logrmbuf:dword                         ;
                 extrn   _logrmpos:word                          ;
+                extrn   _mod_secondary:dword                    ;
 
                 extrn   _strlen:near                            ;
                 extrn   _vio_charout:near                       ;
                 extrn   _tm_getdate:near                        ;
                 extrn   _mt_swlock:near                         ;
                 extrn   _mt_swunlock:near                       ;
+                extrn   _checkbaudrate:near                     ;
 
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
 
+;----------------------------------------------------------------
+; void  _std  hlp_serialout(u16t port, u8t chr);
+                public  _hlp_serialout                          ;
+_hlp_serialout  proc    near                                    ;
+                mov     dx,[esp+4]                              ;
+                or      dx,dx                                   ;
+                jz      @@soch_exit                             ;
+                add     dx,COM_LSR                              ;
+@@soch_state:
+                in      al,dx                                   ;
+                test    al,20h                                  ;
+                jz      @@soch_state                            ;
+                mov     dx,[esp+4]                              ;
+                mov     al,[esp+8]                              ;
+                out     dx,al                                   ;
+@@soch_exit:
+                ret     8                                       ;
+_hlp_serialout  endp                                            ;
+
+;----------------------------------------------------------------
+; void  _std  hlp_seroutchar(u32t symbol);
                 public  _hlp_seroutchar                         ;
 _hlp_seroutchar proc    near                                    ;
 @@outchar       =  4                                            ;
                 mov     dx,cs:_ComPortAddr                      ;
                 or      dx,dx                                   ;
                 jz      @@outch_exit                            ;
+
+                mov     eax,_mod_secondary                      ; check dbport_lock
+                or      eax,eax                                 ; field in mod_secondary
+                jz      @@outch_ok                              ;
+                test    dword ptr [eax+4],-1                    ; !!!
+                jnz     @@outch_exit                            ;
+@@outch_ok:
                 add     dx,COM_LSR                              ;
 @@outch_state:
                 in      al,dx                                   ;
@@ -98,59 +128,94 @@ _hlp_seroutinfo endp                                            ;
 
 ; set debug port baud rate (from BaudRate variable)
 ;----------------------------------------------------------------
-; void setbaudrate(void);
-                public  _setbaudrate
-_setbaudrate    proc    near                                    ;
-                push    ebx                                     ;
-                mov     ecx,_BaudRate                           ; ECX = new baud rate
+; int _std hlp_serialrate(u16t port, u32t baudrate);
+
+                public  _hlp_serialrate
+_hlp_serialrate proc    near                                    ;
+                xor     eax,eax                                 ;
+                or      ax,[esp+4]                              ; port is non-zero
+                jz      @@setbr_exit                            ;
+                push    [esp+8]                                 ;
+                call    _checkbaudrate                          ; validate in rate table
+                or      eax,eax                                 ;
+                jz      @@setbr_exit                            ;
+
+                call    _mt_swlock                              ;
+                mov     ecx,[esp+8]                             ; new baud rate
                 mov     ax,CLOCK_RATEL                          ;
                 shl     eax,16                                  ;
                 mov     ax,CLOCK_RATEH                          ;
-                xor     edx,edx                                 ; EDX:EAX = clock rate
+                xor     edx,edx                                 ; edx:eax = clock rate
                 div     ecx                                     ;
-                mov     bx,ax                                   ; BX = clock rate / baud rate
+                mov     cx,ax                                   ; cx = clock rate / baud rate
 
-                mov     dx,_ComPortAddr                         ;
-                or      dx,dx                                   ; IF port not found
-                jz      @@setbr_exit                            ; THEN exit
-                add     dx,COM_LCR                              ; DX -> LCR
-                in      al,dx                                   ; AL = current value of LCR
+                mov     dx,[esp+4]                              ;
+                add     dx,COM_LCR                              ; dx -> LCR (+3)
+                in      al,dx                                   ; al = current value of LCR
                 or      al,LC_DLAB                              ; Turn on DLAB
                 out     dx,al                                   ;
 
-                add     dx,COM_DLM-COM_LCR                      ; DX -> MSB of baud latch
-                mov     al,bh                                   ; AL = divisor latch MSB
+                add     dx,COM_DLM-COM_LCR                      ; dx -> MSB of baud latch (+1)
+                mov     al,ch                                   ; al = divisor latch MSB
                 out     dx,al                                   ;
-                dec     dx                                      ; DX -> LSB of baud latch
-                mov     al,bl                                   ; AL = divisor latch LSB
+                dec     dx                                      ; dx -> LSB of baud latch
+                mov     al,cl                                   ; al = divisor latch LSB
                 out     dx,al                                   ; Set LSB of baud latch
 
-                add     dx,COM_LCR-COM_DLL                      ; DX -> LCR
-                mov     al,3                                    ; AL = same mode as in main
+                add     dx,COM_LCR-COM_DLL                      ; dx -> LCR (+3)
+                mov     al,3                                    ; al = same mode as in main
                 out     dx,al                                   ;
+                dec     dx                                      ; dx -> FCR (+2)
+                mov     al,0C7h                                 ; clear & enable FIFO, 14 chars
+                out     dx,al                                   ;
+                and     eax,1                                   ; result code
+                call    _mt_swunlock                            ;
 @@setbr_exit:
-                pop     ebx                                     ;
-                ret                                             ;
-_setbaudrate    endp                                            ;
+                ret     8                                       ;
+_hlp_serialrate endp                                            ;
+
+;----------------------------------------------------------------
+; u8t   _std  hlp_serialin(u16t port);
+                public  _hlp_serialin                           ;
+_hlp_serialin   proc    near                                    ;
+                xor     eax,eax                                 ; no char
+                mov     dx,[esp+4]                              ;
+                or      dx,dx                                   ; port present?
+                jz      @@in_ch_exit                            ;
+                add     dx,COM_LSR                              ; data ready?
+                in      al,dx                                   ;
+                test    al,1                                    ;
+                setnz   al                                      ; al = 0
+                jz      @@in_ch_exit                            ; exit
+                mov     dx,[esp+4]                              ;
+                in      al,dx                                   ;
+@@in_ch_exit:
+                ret     4                                       ;
+_hlp_serialin   endp                                            ;
 
 ; init debug com port
 ;----------------------------------------------------------------
-; void earlyserinit(void);
-                public  _earlyserinit                           ;
-_earlyserinit   proc    near                                    ;
-                mov     dx,_ComPortAddr                         ;
+; void _std serial_init(u16t port);
+                public  _serial_init                            ;
+_serial_init    proc    near                                    ;
+                mov     dx,[esp+4]                              ;
                 or      dx,dx                                   ;
                 jz      @@esi_exit                              ;
                 push    edx                                     ;
-                call    _setbaudrate                            ;
+                push    _BaudRate                               ;
+                push    edx                                     ;
+                call    _hlp_serialrate                         ;
                 pop     edx                                     ;
                 add     dx,COM_MCR                              ;
                 in      al,dx                                   ;
                 or      al,3                                    ; RTS/DSR set
                 out     dx,al                                   ;
+                add     dx,COM_IEN-COM_MCR                      ;
+                xor     al,al                                   ; disable interrupts
+                out     dx,al                                   ;
 @@esi_exit:
-                ret                                             ;
-_earlyserinit   endp                                            ;
+                ret     4                                       ;
+_serial_init    endp                                            ;
 
 ;----------------------------------------------------------------
 ; void log_buffer(int level, const char* msg);

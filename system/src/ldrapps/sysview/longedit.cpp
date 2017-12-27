@@ -690,14 +690,18 @@ void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
          int  lpos = size.y,
              cldec = 0;
          if (newCluster()) lpos-=uinfo.showtitles?2:1;
-         if (uinfo.clusters && lpos>0) { lpos-=Round16(uinfo.lcbytes)>>4; cldec++; }
+         if (uinfo.clusters && lpos>0) {
+            lpos-=Round16(uinfo.lcbytes)>>4;
+            if (uinfo.showtitles) lpos--;
+            cldec++; 
+         }
          while (cldec<uinfo.clusters && lpos>0) { lpos-=lines; cldec++; }
 
          clstart_n  = uinfo.clusters - cldec;
          cursor_n.x = pos10;
          cursor_n.y = size.y-1;
          if (lpos>0) { clline_n=0; cursor_n.y-=lpos; }
-            else clline_n=-lpos-clline_min;
+            else clline_n=-lpos+clline_min;
          break;
       }
       case posSet:
@@ -713,7 +717,7 @@ void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
             cursor_n.y+= (cluster-clstart_n)*lines;
             break;
          }
-         // number of lines from new position to the end of screen
+         // number of lines from the new position to the end of screen
          int until_end = untilEOV(cluster,clline_n);
          // it fits?
          if (size.y<=until_end) break;
@@ -721,11 +725,14 @@ void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
          until_end = size.y - until_end;
          while (until_end>0) {
             if (clstart_n) clstart_n--; else break;
-            cursor_n.y = until_end;
-            until_end -= lines-clline_n;
+            cursor_n.y = until_end-clline_n;
+            until_end -= lines;
          }
-         cursor_n.y += (cluster-clstart_n-1)*(lines-clline_n);
+         cursor_n.y += (cluster-clstart_n-1)*lines;
          clline_n    = -until_end+clline_n;
+#if 0 //def __QSINIT__
+         log_printf("clline_n=%i cursor_n.y=%i\n", clline_n, cursor_n.y);
+#endif
          break;
    }
    // changed would be allocated when only new data present too

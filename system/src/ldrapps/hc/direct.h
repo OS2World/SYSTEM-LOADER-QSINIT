@@ -95,7 +95,7 @@ typedef int _std (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
     @param callback     Callback to process data immediatly while reading.
                         One of info or callback can be 0.
     @param cbinfo       User data for callback proc.
-    @return total number of founded files (with subdirectories). */
+    @return total number of found files (with subdirectories). */
 u32t   _std _dos_readtree(const char *dir, const char *mask,
                           dir_t **info, int subdirs,
                           _dos_readtree_cb callback, void *cbinfo);

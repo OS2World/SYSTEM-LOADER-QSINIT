@@ -331,7 +331,7 @@ s32t _std hlp_diskadd(struct qs_diskinfo *qdi, u32t flags) {
 }
 
 /* since we returning disk data here, function is unsafe in any way, so
-   let caller care about this */
+   let the caller will care about it */
 struct qs_diskinfo *_std hlp_diskstruct(u32t disk, struct qs_diskinfo *qdi) {
    struct qs_diskinfo *qe = 0;
    u8t  idx = disk&QDSK_DISKMASK;
@@ -447,7 +447,6 @@ u32t _std hlp_diskbios(u32t disk, int qs2bios) {
    return rc;
 }
 
-
 void init_vol1(void) {
    vol_data *vdta = extvol+DISK_LDR;
    if (!vdta->length) {
@@ -476,8 +475,10 @@ void check_disks(void) {
    }
 }
 
-static u16t _std (*ext_convert)(u16t src, int to_unicode) = 0;
+static u16t _std (*ext_convert )(u16t src, int to_unicode) = 0;
 static u16t _std (*ext_wtoupper)(u16t src) = 0;
+static int  _std (*ext_dbc_1st )(u8t c) = 0;
+static int  _std (*ext_dbc_2nd )(u8t c) = 0;
 
 /* OEM-Unicode bidirectional conversion */
 u16t _std ff_convert(u16t src, unsigned int to_unicode) {
@@ -501,16 +502,35 @@ u16t _std ff_wtoupper(u16t src) {
    return toupper(src);
 }
 
+int _std ff_dbc_1st(u8t src) {
+   // cp_num is zero for dbcs! (see cb_codepage)
+   if (ext_dbc_1st && !cp_num) return ext_dbc_1st(src);
+   return 0;
+}
+
+int _std ff_dbc_2nd(u8t src) {
+   // cp_num is zero for dbcs! (see cb_codepage)
+   if (ext_dbc_2nd && !cp_num) return ext_dbc_2nd(src);
+   return 0;
+}
+
 /** codepage changing callback.
     All notifications are called in MT lock, so it should be safe. */
 void _std cb_codepage(sys_eventinfo *cbinfo) {
    codepage_info *info = (codepage_info*)cbinfo->data;
    if (!info) {
       ext_convert  = 0;
+      ext_wtoupper = 0;
+      ext_dbc_1st  = 0;
+      ext_dbc_2nd  = 0;
       cp_num       = 0; 
    } else {
-      memcpy(ExCvt, info->oemupr, 128);
+      if (info->oemupr) memcpy(ExCvt, info->oemupr, 128);
       ext_convert  = info->convert;
-      cp_num       = info->cpnum;
+      ext_wtoupper = info->wtoupper;
+      ext_dbc_1st  = info->dbc_1st;
+      ext_dbc_2nd  = info->dbc_2nd;
+      // set zero page to prevent stricmp from digging into ExCvt table on DBCS
+      cp_num       = cp_num>900 ? 0 : info->cpnum;
    }
 }

@@ -296,6 +296,10 @@ exports = {
    __chsizei64       = { index =477  group = "stdio"   format = "ipq"   }
    _strspn           = { index =478  group = "string"  format = "uss"   }
    __strspnp         = { index =479  group = "string"  format = "sss"   }
+   _findbits         = { index =480  group = "clib"    format = "upuiuu" }
+   _trimleft         = { index =481  group = "string"  format = "sss"   }
+   _trimright        = { index =482  group = "string"  format = "sss"   }
+   _replacechar      = { index =483  group = "string"  format = "uscc"  }
 
    # memory manager
 
@@ -324,7 +328,7 @@ exports = {
    # string lists and ini
    # ordinals 130-134 removed (ini functions)
    _str_split        = { index =140  group = "strlist" format = "pss"   }
-   # ordinal 141 removed (ini functions)
+   _str_copylines    = { index =141  group = "strlist" format = "ppuu"  }
    _str_splitargs    = { index =142  group = "strlist" format = "ps"    }
    _str_getenv       = { index =143  group = "strlist" format = "pv"    }
    # ordinals 144-145 removed (ini functions)
@@ -364,6 +368,7 @@ exports = {
    _env_istrue       = { index =492  group = "shell"   format = "is"    }
    _env_setvar       = { index =493  group = "shell"   format = "vsi"   }
    _env_getvar       = { index =494  group = "shell"   format = "ss"    }
+   _env_copy         = { index =495  group = "shell"   format = "ppu"   }
 
    # modules
 
@@ -432,7 +437,7 @@ exports = {
    _shl_restart      = { index =224  group = "shell"   format = "usp"   }
    _shl_mkdir        = { index =225  group = "shell"   format = "usp"   }
    _shl_chdir        = { index =226  group = "shell"   format = "usp"   }
-   # ordinal 227 reserved (moved to EXTCMD)
+   _shl_sm           = { index =227  group = "shell"   format = "usp"   }
    _shl_del          = { index =228  group = "shell"   format = "usp"   }
    _shl_beep         = { index =229  group = "shell"   format = "usp"   }
    _shl_rmdir        = { index =230  group = "shell"   format = "usp"   }
@@ -458,13 +463,15 @@ exports = {
 
    # log support
 
-   _log_hotkey       = { index =240  }
+   # ordinal 240 removed (log_hotkey)
    _log_it           = { index =241  }
    _log_query        = { index =242  }
    _log_gettext      = { index =243  }
    _log_push         = { index =244  }
    _log_clear        = { index =245  }
    _log_pushtm       = { index =246  }
+   _log_dumpregs     = { index =247  }
+   _hlp_dumpregs     = { index =248  }
 
    # additional vio funcs
 
@@ -473,6 +480,9 @@ exports = {
    _vio_msgbox       = { index =253  group = "vio"     format = "uss@u" }
    _key_getstrex     = { index =254  group = "vio"     format = "spiiis" }
    _vio_setansi      = { index =255  group = "vio"     format = "ui"    }
+   _vio_modeinfo     = { index =256  group = "vio"     format = "puui"  }
+   _vio_setmodeid    = { index =257  group = "vio"     format = "@u@u"  }
+   _vio_showlist     = { index =258  group = "vio"     format = "usp@u" }
 
    # storage
 
@@ -481,6 +491,8 @@ exports = {
    _sto_size         = { index =262  group = "storage" format = "us"    }
    _sto_save         = { index =263  group = "storage" format = "vspui" }
    _sto_flush        = { index =264  group = "storage" format = "vv"    }
+   _sto_datacopy     = { index =265  group = "storage" format = "ps&*u" }
+   _sto_savedword    = { index =266  group = "storage" format = "vsu"   }
 
    # sys helpers
 
@@ -506,20 +518,20 @@ exports = {
    _hlp_mtrrchanged  = { index =280  group = "system"  format = "iiii"  }
    _hlp_mtrrbatch    = { index =281  group = "system"  format = "up"    }
    _hlp_mtrrapply    = { index =282  group = "system"  format = "vp"    }
-   _hlp_pciread      = { index =283  group = "system"  format = "uhbbbb" }
-   _hlp_pciwrite     = { index =284  group = "system"  format = "vhbbbbu" }
-   _log_pcidump      = { index =285  group = "system"  format = "vv"    }
+   _hlp_pciread      = { index =283  group = "pci"     format = "uhbbbb" }
+   _hlp_pciwrite     = { index =284  group = "pci"     format = "vhbbbbu" }
+   _log_pcidump      = { index =285  group = "pci"     format = "vv"    }
    _hlp_pcifind      = { 
-                         index =286  group = "system"  format = "i@h@hhpi"
+                         index =286  group = "pci"     format = "i@h@hhpi"
                          expname = "__hlp_pcifind"
                        }
-   _hlp_pciclass     = { index =287  group = "system"  format = "i@uhpi" }
-   _hlp_pcigetbase   = { index =288  group = "system"  format = "u*@upp" }
+   _hlp_pciclass     = { index =287  group = "pci"     format = "i@uhpi" }
+   _hlp_pcigetbase   = { index =288  group = "pci"     format = "u*@upp" }
    _hlp_pcigetnext   = { 
-                         index =289  group = "system"  format = "i*@uii" 
+                         index =289  group = "pci"     format = "i*@uii" 
                          expname = "__hlp_pcigetnext"
                        }
-   _hlp_pciexist     = { index =370  group = "system"  format = "i*@u"  }
+   _hlp_pciexist     = { index =370  group = "pci"     format = "i*@u"  }
    _hlp_memcpy       = { index =371  group = "system"  format = "uppui" }
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
    _hlp_setupmem     = { index =373  group = "system"  format = "@uu*!up@u" }
@@ -530,6 +542,8 @@ exports = {
                          expname = "__hlp_cmsetstate"
                        }
    _hlp_mtrrsum      = { index =377  group = "system"  format = "u@q@q" }
+   _hlp_pciatoloc    = { index =378  group = "pci"     format = "usp"   }
+   _hlp_pcifindaddr  = { index =379  group = "pci"     format = "u@qp"  }
 
    # additional shell
 
@@ -552,7 +566,7 @@ exports = {
    _hlp_mountvol     = { index =330  group = "disk"    format = "u@c@u@qq" }
    _hlp_unmountvol   = { index =331  group = "disk"    format = "u@c"   }
    _hlp_volinfo      = { index =332  group = "disk"    format = "u@cp"  }
-   # ordinal 333 removed (hlp_vollabel)
+   _hlp_disktype     = { index =333  group = "disk"    format = "u@u"   }
    _dsk_strtodisk    = { index =334  group = "disk"    format = "@us"   }
    # ordinal 335 reserved (moved to QSINIT)
    _dsk_disktostr    = { index =336  group = "disk"    format = "s@up"  }
@@ -580,10 +594,15 @@ exports = {
    _sys_isavail      = { index =387  group = "system"  format = "@u@u"  }
    _sys_getlapic     = { index =388  group = "system"  format = "pv"    }
    _sys_queryinfo    = { index =389  group = "system"  format = "uup"   }
-   # time functions (390..394 was moved back to QSINIT)
+   _sys_sethotkey    = { index =390  group = "system"  format = "@u@h@u@up" }
+   _sys_dcenew       = { index =391  group = "system"  format = "@up@uup" }
+   _sys_dcedel       = { index =392  group = "system"  format = "@up"   }
+   _sys_dccommit     = { index =393  }
+
+   # mt functions
 
    _mt_initialize    = { index =500  group = "mt"      format = "uv"    }
-   _mt_active        = { index =501  group = "mt"      format = "uv"    }
+   _mt_active        = { index =501  }
    _mt_getthread     = { 
                          index =502  group = "mt"      format = "uv"    
                          expname = "__mt_getthread"
@@ -607,6 +626,50 @@ exports = {
    _mt_tlsget        = { index =517  group = "tls"     format="@qu"     }
    _mt_tlsset        = { index =518  group = "tls"     format="@uu@q"   }
    _mt_tlsaddr       = { index =519  group = "tls"     format="@uu@&*p" }
+
+   _se_dataptr       = { index =550  group = "sesmgr"  format="pu"      }
+   _se_stat          = { index =551  group = "sesmgr"  format="pu"      }
+   _se_sesno         = { index =552 }
+   _se_keypush       = { index =553  group = "sesmgr"  format="@uu@h@u" }
+   _log_sedump       = { index =554 }
+   _se_foreground    = { index =555  group = "sesmgr"  format="uv"      }
+   _se_deviceenum    = { index =556  group = "sesmgr"  format="pv"      }
+   _se_clone         = { 
+                         index =557  group = "sesmgr"  format="@upph"
+                         expname = "__se_clone" 
+                       }
+   _se_deviceadd     = { 
+                         index =558  group = "sesmgr"  format="@us&*@us" 
+                         expname = "__se_deviceadd" 
+                       }
+   _se_attach        = { 
+                         index =559  group = "sesmgr"  format="@uuu"    
+                         expname = "__se_attach"
+                       }
+   _se_detach        = { 
+                         index =560  group = "sesmgr"  format="@uuu"    
+                         expname = "__se_detach"
+                       }
+   _se_newsession    = { index =561  group = "sesmgr"  format="@u@u@us" }
+   _se_switch        = { 
+                         index =562  group = "sesmgr"  format="@uu@u"   
+                         expname = "__se_switch"
+                       }
+   _hlp_serconsole   = { index =563  group = "sesmgr"  format="@uu"     }
+   _se_devicedel     = {
+                         index =564  group = "sesmgr"  format="@uu" 
+                         expname = "__se_devicedel"
+                       }
+   _se_devicemask    = { index =565  group = "sesmgr"  format="uv"      }
+   _se_selectnext    = { 
+                         index =566  group = "sesmgr"  format="@uu"
+                         expname = "__se_selectnext"
+                       }
+   _se_settitle      = { index =567  group = "sesmgr"  format="@uus"    }
+   _se_deviceswap    = { index =568  group = "sesmgr"  format="@uup&*p" }
+   _se_screenshot    = { index =569  group = "sesmgr"  format="pu"      }
+   _se_setstate      = { index =570  group = "sesmgr"  format="@uu@u@u" }
+   _se_enum          = { index =571  group = "sesmgr"  format="p@u"     }
 
    # new i/o functions
 
@@ -643,9 +706,18 @@ exports = {
    _io_remove        = { index =625  group = "io"      format = "@us"   }
    _io_pathinfo      = { index =626  group = "io"      format = "@usp"  }
    _io_setinfo       = { index =627  group = "io"      format = "@usp@u" }
-   _io_diropen       = { index =628  group = "io"      format = "@us&*@u" }
-   _io_dirnext       = { index =629  group = "io"      format = "@u@up" }
-   _io_dirclose      = { index =630  group = "io"      format = "@u@u"  }
+   _io_diropen       = { 
+                         index =628  group = "io"      format = "@us&*@u" 
+                         expname = "__io_diropen"
+                       }
+   _io_dirnext       = {
+                         index =629  group = "io"      format = "@u@up"
+                         expname = "__io_dirnext"
+                       }
+   _io_dirclose      = {
+                         index =630  group = "io"      format = "@u@u"
+                         expname = "__io_dirclose"
+                       }
    _io_lock          = { index =631  group = "io"      format = "@u@u@q@q" }
    _io_unlock        = { index =632  group = "io"      format = "@u@u@q@q" }
    _io_move          = { index =633  group = "io"      format = "@uss"  }
@@ -662,6 +734,7 @@ exports = {
    _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@ui" }
    _io_dumpsft       = { index =642  group = "io"      format = "vv"    }
    _io_blocksize     = { index =643  group = "io"      format = "u@u"   }
+   _io_registerfs    = { index =644  group = "io"      format = "@u@u"  }
 
    # FatFs.
    # every new version of FatFs has bugs in exFAT, so ALL of functions
@@ -778,5 +851,45 @@ class = {
       secadd   = "vppsp"
       secerase = "vpps"
       erase    = "vppss"
+   }
+}
+
+class = {
+   name = "qs_viobuf"
+   entries = {
+      init     = "@upps"
+      input    = "@upp"
+      graphic  = "@upp"
+      info     = "@upp&*p&s"
+      setmode  = "@uppuup"
+      setmodeid= "@upph"
+      reset    = "@upp"
+      clear    = "@upp"
+      getmode  = "@upp&*u&*u&*h"
+      setcolor = "vpp@h"
+      setpos   = "vppuu"
+      setopts  = "@upp@u"
+      state    = "@uppp"
+      charout  = "uppc"
+      strout   = "upps"
+      writebuf = "@uppuuuupu"
+      readbuf  = "@uppuuuupu"
+      memory   = "ppp"
+      fillrect = "vppuuuu@c@h"
+   }
+}
+
+class = {
+   name = "qs_filecc"
+   entries = {
+      setdisk  = "@upppppp@u@q@ub"
+      init     = "@upppp@u"
+      flush    = "@upp"
+      close    = "@upp"
+      chsize   = "@uppq"
+      stat     = "@uppp"
+      size     = "@qpp"
+      read     = "@upp@qpu&*u"
+      write    = "@upp@qpu&*u"
    }
 }

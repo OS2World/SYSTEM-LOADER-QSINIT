@@ -57,13 +57,14 @@ static void nametocname(const char *name) {
    int ii;
    strncpy(mfsd_openname, name, MFSD_NAME_LEN-1);
    mfsd_openname[MFSD_NAME_LEN-1]=0;
-   // micro-FSD does not uppercase requested names
+   /* at least HPFS micro-FSD does not uppercase requested names, so do it
+      here, but leave original case for the Moveton`s PXE stream i/o */
    for (ii=0; ii<MFSD_NAME_LEN-1; ii++) {
-      char ch=toupper(mfsd_openname[ii]);
-      mfsd_openname[ii]=ch;
+      char ch = streamio?mfsd_openname[ii]:toupper(mfsd_openname[ii]);
+      mfsd_openname[ii] = ch;
       if (!ch) { // remove trailing dot
          if (ii--)
-            if (mfsd_openname[ii]=='.') mfsd_openname[ii]=0;
+            if (mfsd_openname[ii]=='.') mfsd_openname[ii] = 0;
          break;
       }
    }

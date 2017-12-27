@@ -29,7 +29,7 @@ uchar   *TDisplay::crtRows = (uchar *)MK_FP(0, 0x484);
 
 #ifdef __QSINIT__
 #include <qsutil.h>
-#include <vio.h>
+#include <vioext.h>
 #endif
 
 ushort TScreen::startupMode    = 0xFFFF;
@@ -52,13 +52,25 @@ Boolean TScreen::clearOnSuspend = True;
 
 static void checksize(int height, int width) {
    if (height > maxViewHeight) {
+#ifdef __QSINIT__
+      char emsg[128];
+      snprintf(emsg, 128, "The window is too high (max %u rows)!\n", maxViewHeight);
+      vio_msgbox("Fatal Error!", emsg, MSG_RED|MSG_OK, 0);
+#else
       fprintf(stderr,
               "\n\n\nFatal error: the window is too high (max %d rows)!\n", maxViewHeight);
+#endif
       _exit(0);
    }
    if (width > maxViewWidth) {
+#ifdef __QSINIT__
+      char emsg[128];
+      snprintf(emsg, 128, "The window is too wide (max %u columns)!\n", maxViewWidth);
+      vio_msgbox("Fatal Error!", emsg, MSG_RED|MSG_OK, 0);
+#else
       fprintf(stderr,
               "\n\n\nFatal error: the window is too wide (max %d columns)!\n", maxViewWidth);
+#endif
       _exit(0);
    }
 }
@@ -614,12 +626,15 @@ void TScreen::setCrtData() {
 extern "C"
 void _std vio_getmodefast(u32t *cols, u32t *lines);
 
-ushort TDisplay::getCursorType() {
-   return vio_getshape();
-}
+/* A bit incompatible way - send QSINIT`s internal constants to TV code
+   and get it back to setCursorType().
+   Any other platforms simulate CGA cursor bytes */
+ushort TDisplay::getCursorType() { return vio_getshape(); }
 
 void TDisplay::setCursorType(ushort ct) {
-   vio_setshape(ct>>8,ct&0xFF);
+   // this should be eliminated, but who knows - just recode
+   if (ct==0x2000) ct = VIO_SHAPE_NONE;
+   vio_setshape(ct);
 }
 
 void TDisplay::clearScreen(int w, int h) {
@@ -654,7 +669,7 @@ void TDisplay::setCrtMode(ushort mode) {
 
    vio_setmodeex(cols, lines);
 
-   if (getRows() > 25) vio_setshape(0x06,0x07);
+   //if (getRows() > 25) vio_setshape(VIO_SHAPE_LINE);
 }
 
 ushort TScreen::fixCrtMode(ushort mode) {
@@ -678,7 +693,7 @@ void TScreen::setCrtData() {
    }
    checkSnow    = False;
    cursorLines  = getCursorType();
-   vio_setshape(0x20,0x00);
+   vio_setshape(VIO_SHAPE_NONE);
 }
 
 TScreen::~TScreen() {

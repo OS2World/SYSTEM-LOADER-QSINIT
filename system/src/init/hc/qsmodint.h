@@ -142,7 +142,9 @@ process_context* _std mod_context(void);
 /// external functions located in "start" module
 typedef struct {
    /// number of entries in this table
-   u32t         entries;
+   u32t           entries;
+   /// must be the second entry! (asm code uses it by direct offset)
+   int        dbport_lock;
    /// build export table
    int     _std (*mod_buildexps)(module *mh, lx_exe_t *eh);
    /// search and loading imported module
@@ -259,7 +261,19 @@ typedef struct {
        @return FFFF if no bit found */
    u32t    _std (*bitfind)(void *data, u32t size, int on, u32t len, u32t hint);
    void    _std (*setbits)(void *dst, u32t pos, u32t count, u32t flags);
+   /// go to system memory manager panic screen
+   void    _std (*mempanic)(u32t type, void *addr, u32t info, char here, u32t caller);
 } mod_addfunc;
+
+/// @name mod_addfunc.mempanic type value
+//@{
+#define MEMHLT_MEMTABLE    0   ///< memtable data damaged
+#define MEMHLT_FBSIZEERR   1   ///< free block size error
+#define MEMHLT_REALLOCRO   2   ///< trying realloc read-only block
+#define MEMHLT_WRONGADDR   3   ///< wrong address (yes, it is fatal!)
+#define MEMHLT_FBSIGN      4   ///< free block signature damaged
+#define MEMHLT_FBHEADER    5   ///< free block header damaged
+//@}
 
 /// extreq parameter for mod_unpackobj()
 typedef struct {

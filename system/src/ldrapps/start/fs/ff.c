@@ -3077,7 +3077,7 @@ FRESULT find_volume (	/* FR_OK(0): successful, !=0: any error occurred */
 		if (fs->n_fats != 1) return FR_NO_FILESYSTEM;	/* (Supports only 1 FAT) */
 
 		fs->csize = 1 << fs->win[BPB_SecPerClusEx];		/* Cluster size */
-		if (fs->csize == 0)	return FR_NO_FILESYSTEM;	/* (Must be 1..32768) */
+		if (fs->csize == 0 || fs->csize>65536) return FR_NO_FILESYSTEM;	/* (Must be 1..32768) */
 
 		nclst = ld_dword(fs->win + BPB_NumClusEx);		/* Number of clusters */
 		if (nclst > MAX_EXFAT) return FR_NO_FILESYSTEM;	/* (Too many clusters) */
