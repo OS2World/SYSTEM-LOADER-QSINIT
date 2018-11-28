@@ -2,7 +2,6 @@
 #include "qslog.h"
 #include "qslocal.h"
 #include "qsutil.h"
-#include "qstime.h"
 #include "qecall.h"
 #include "qshm.h"
 #include "qssys.h"

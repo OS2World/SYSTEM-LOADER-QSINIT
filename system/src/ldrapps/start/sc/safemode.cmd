@@ -4,9 +4,12 @@ rem during boot. Also, there is no debug COM port output in this mode.
 rem
 
 rem search path
-set libpath=1:\dll;
-set path=1:\;
-set tracepath=1:\msg;
+set libpath=b:\dll;
+set path=b:\;
+set tracepath=b:\msg;
+rem temp dir
+md temp
+set tmp=b:\temp
 
 rem Verbose build of QSINIT binary sets 80x50 on init and uses console for
 rem debug output. Avoid cls/echo on it to keep boot log on screen:

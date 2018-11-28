@@ -19,6 +19,7 @@
                 extrn   _mt_exit      :near                     ;
                 extrn   _clockint     :near                     ;
                 extrn   _ExCvt        :dword                    ;
+                extrn   _safeMode     :byte                     ;
 ifndef EFI_BUILD
                 extrn   _syscr3       :dword                    ;
                 extrn   _syscr4       :dword                    ;
@@ -1265,8 +1266,9 @@ __setjmp        endp
 ;----------------------------------------------------------------
 ; void  __stdcall _longjmp (jmp_buf env, int return_value);
 ;
-; note, that task gate exception handler uses TARGET esp as stack
-; pointer. I.e. entry stack will be overwritten after esp change.
+; note, that both task gate exception handler and siglongjmp() use
+; TARGET esp as a stack pointer. I.e. entry stack will be overwritten
+; after esp change.
 ;
                 public  __longjmp
 __longjmp       proc    near
@@ -1519,18 +1521,18 @@ _sys_setcr3     proc    near                                    ;
                 pushfd                                          ;
                 cli                                             ;
                 mov     eax,[esp+8]                             ;
-                inc     eax                                     ;
-                jz      @@spgr_nocr3                            ;
+                inc     eax                                     ; set register first
+                jz      @@spgr_nocr3                            ; and variable next!!
                 dec     eax                                     ;
-                mov     _syscr3,eax                             ;
-                mov     cr3,eax                                 ;
+                mov     cr3,eax                                 ; this skip var update in
+                mov     _syscr3,eax                             ; case of catched exception
 @@spgr_nocr3:
                 mov     eax,[esp+12]                            ;
                 inc     eax                                     ;
                 jz      @@spgr_nocr4                            ;
                 dec     eax                                     ;
-                mov     _syscr4,eax                             ;
                 mov     cr4,eax                                 ;
+                mov     _syscr4,eax                             ;
 @@spgr_nocr4:
                 popfd                                           ;
                 ret     8
@@ -1591,10 +1593,15 @@ _mt_yield       endp                                            ;
 ; preserve all, but flags
                 public  _mt_swlock
 _mt_swlock      proc    near                                    ;
-                xchg    eax,[esp]                               ;
-                mov     _mt_exechooks.mtcb_llcaller,eax         ;
+                push    eax                                     ;
+                mov     eax,-1                                  ;
+                add     eax,_mt_exechooks.mtcb_glock            ; CF on non-zero
            lock inc     _mt_exechooks.mtcb_glock                ;
-                xchg    eax,[esp]                               ;
+                jc      @@mtswlock_nocaller                     ;
+                mov     eax,[esp+4]                             ;
+                mov     _mt_exechooks.mtcb_llcaller,eax         ;
+@@mtswlock_nocaller:
+                pop     eax                                     ;
                 ret                                             ;
 _mt_swlock      endp                                            ;
 
@@ -1703,6 +1710,14 @@ _mod_context    proc    near                                    ;
                 popfd                                           ;
                 ret                                             ;
 _mod_context    endp                                            ;
+
+;----------------------------------------------------------------
+; mt_thrdata* _std mt_curthread(void);
+                public  _mt_curthread
+_mt_curthread   proc    near                                    ;
+                mov     eax,_mt_exechooks.mtcb_cth              ;
+                ret                                             ;
+_mt_curthread   endp                                            ;
 
 ;----------------------------------------------------------------
 ; u32t _std hlp_hosttype(void);
@@ -1821,6 +1836,26 @@ fp_rmcallcbf    proc    far                                     ;
 @@fp_rmc_exit:
                 ret                                             ;
 fp_rmcallcbf    endp                                            ;
+
+;----------------------------------------------------------------
+; check/reset BIOS Ctrl-Break flag in 040:0071h
+;int   _std check_cbreak(void);
+                public  _check_cbreak                           ;
+_check_cbreak   proc    near                                    ;
+                xor     eax,eax                                 ;
+                test    _safeMode,0FFh                          ; ignore it in safe mode!
+                jnz     @@ccb_exit                              ;
+                test    byte ptr ss:[471h],80h                  ; only read! ss is always FLAT
+                jz      @@ccb_exit                              ; and page 0 readable in PAE mode
+                push    gs                                      ;
+                lgs     ecx,_page0_fptr                         ; to write the page 0 we need
+                and     byte ptr gs:[ecx+471h],7Fh              ; to use far32 ptr
+                pop     gs                                      ;
+                stc                                             ; eax = 1
+@@ccb_exit:
+                adc     eax,eax                                 ;
+                ret                                             ;
+_check_cbreak   endp                                            ;
 endif
 ;----------------------------------------------------------------
 

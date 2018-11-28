@@ -7,6 +7,8 @@
 
                 extrn   _mt_exitthread_int:near
                 extrn   _se_newsession:near
+                extrn   _mt_switchfiber:near
+                extrn   _mod_start_cb:near
                 extrn   _free:near
                 extrn   _mt_exechooks:mt_proc_cb_s
                 extrn   _pt_current:dword
@@ -14,7 +16,7 @@
 _TEXT           segment dword public USE32 'CODE'
 
                 public  _mt_exitthreada, _mt_exitthread         ;
-                public  _pure_retn, _mt_launch                  ;
+                public  _pure_retn, _mt_launch, _fiberexit_apc  ;
                 public  _regs32to64, _regs64to32                ;
 _mt_exitthreada label   near                                    ;
                 push    eax                                     ;
@@ -38,6 +40,13 @@ _mt_exitthread  label   near                                    ;
 
 _pure_retn      label   near                                    ;
                 ret
+
+_fiberexit_apc  label   near                                    ;
+                push    1                                       ;
+                push    0                                       ;
+                call    _mt_switchfiber                         ; should never return
+                mov     eax,255                                 ;
+                jmp     _mt_exitthreada                         ;
 
 ; u32t _std mt_gettid(void);
 ;----------------------------------------------------------------
@@ -75,7 +84,11 @@ _mt_getfiber    endp                                            ;
 ;================================================================
 
 _mt_launch      proc    near
+                pushad                                          ;
+                call    _mod_start_cb                           ;
+                popad                                           ;
                 jecxz   @@mtl_notse                             ; not a session
+                push    0                                       ;
                 push    ebx                                     ;
                 push    edx                                     ;
                 push    eax                                     ;
@@ -85,6 +98,8 @@ _mt_launch      proc    near
                 push    ebx                                     ; free session title
                 call    _free                                   ; string
 @@mtl_notse:
+                sti                                             ;
+                cld                                             ;
                 xor     eax,eax                                 ;
                 xor     ebx,ebx                                 ;
                 xor     ecx,ecx                                 ;

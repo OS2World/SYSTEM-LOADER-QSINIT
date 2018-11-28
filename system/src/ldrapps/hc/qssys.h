@@ -57,8 +57,8 @@ u16t     _std sys_tssalloc(void *tssdata, u16t limit);
 
 /** free TSS selector.
     If next selector have the same base and limit - it will be
-    freed too.
-    Function will fail if TSS is current task or linked to current task.
+    released too.
+    Function will fail if TSS is current task or linked to the current task.
     @param   sel           TSS selector
     @return success flag (1/0) */
 int      _std sys_tssfree(u16t sel);
@@ -67,7 +67,7 @@ int      _std sys_tssfree(u16t sel);
     This function get ready descriptor data (unlike hlp_selsetup()), but
     accept only QSINIT's selectors too (i.e. you cannot change selectors
     of EFI BIOS by this call).
-    @param  selector  GDT offset (i.e. selector with 0 RPL field)
+    @param  sel       GDT offset (i.e. selector with 0 RPL field)
     @param  desc      Descriptor data (8 bytes)
     @return bool - success flag. */
 int      _std sys_seldesc(u16t sel, void *desc);
@@ -75,7 +75,7 @@ int      _std sys_seldesc(u16t sel, void *desc);
 /** read GDT descriptor to supplied buffer.
     Function return actual GDT data and fail only on reaching GDT limit.
 
-    @param  selector  GDT offset (i.e. selector with 0 RPL field)
+    @param  sel       GDT offset (i.e. selector with 0 RPL field)
     @param  desc      Buffer for Descriptor data (8 bytes)
     @return bool - success flag. */
 int      _std sys_selquery(u16t sel, void *desc);
@@ -104,8 +104,13 @@ int      _std sys_is64mode(void);
 /** get Local APIC address.
     Despite to constant LAPIC address, this function still usable, because
     it guarantee check for LAPIC presence and its mapping in paging mode.
-    @return address or 0 */
+    @return address or 0 on error */
 void*    _std sys_getlapic(void);
+
+/** query ACPI RSDP physical address.
+    Note, that in UEFI result will point to the top of RAM.
+    @return physicall address or 0 on error */
+u32t     _std sys_acpiroot(void);
 
 /// query FPU state buffer size
 u32t     _std fpu_statesize(void);
@@ -131,6 +136,8 @@ void     _std fpu_staterest(void *buffer);
 #define SFEA_LAPIC   0x00000100            ///< Local APIC available
 #define SFEA_FXSAVE  0x00000200            ///< FXSAVE available
 #define SFEA_XSAVE   0x00000400            ///< XSAVE available
+#define SFEA_SSE1    0x00000800            ///< SSE available
+#define SFEA_SSE2    0x00001000            ///< SSE2 available
 #define SFEA_INTEL   0x10000000            ///< CPU is Intel
 #define SFEA_AMD     0x20000000            ///< CPU is AMD
 //@}
@@ -220,7 +227,7 @@ u32t     _std sys_memhicopy(u64t dst, u64t src, u64t length);
     @param   index      Parameter index (QSQI_*).
     @param   outptr     Ptr to buffer for string values, can be 0
                         to query size only.
-    @return size of parameter in "outptr" or parameter value 
+    @return size of parameter in "outptr" or parameter value
             (depends on index) or 0 on invalid index */
 u32t     _std sys_queryinfo(u32t index, void *outptr);
 
@@ -257,6 +264,11 @@ typedef struct {
          SECB_DISKREM  - disk handle of removing disk
          SECB_CPCHANGE - codepage_info*
          SECB_HOTKEY   - key code in low word and keyboard status in high word.
+         SECB_SESTART  - session number
+         SECB_SEEXIT   - session number
+         SECB_DEVADD   - device id
+         SECB_DEVDEL   - device id
+         SECB_SETITLE  - session number
       info2 field value:
          SECB_HOTKEY   - device number, where key was pressed */
       struct {
@@ -273,15 +285,20 @@ typedef struct {
 } sys_eventinfo;
 
 /** callback procedure for sys_notifyevent().
-    Callback called asynchronously, in other process/thread context and
-    with locked MT state! */
+    Without SECB_THREAD flag - callback called asynchronously, in other
+    process/thread context and in locked MT state! 
+
+    With SECB_THREAD flag - callback called in separate thread (with 16k
+    stack). Note, that for deletion events (SECB_DISKREM, SECB_DEVDEL) -
+    instance will be removed already at the moment of thread activation.
+    Only absence of SECB_THREAD guarantee it presence during call. */
 typedef void _std (*sys_eventcb)(sys_eventinfo *info);
 
 /** register callback procedure for selected system events.
     By default, callback function marked as "current process" owned. After
     process exit it will be removed automatically.
     To use it in global modules (DLLs) - SECB_GLOBAL bit should be added.
- 
+
     SECB_QSEXIT, SECB_PAE and SECB_MTMODE are single-shot events - all
     such notification types will be unregistered automatically after call.
     I.e., if mask combines SECB_PAE|SECB_MTMODE (for example), function
@@ -293,12 +310,16 @@ typedef void _std (*sys_eventcb)(sys_eventinfo *info);
 
     SECB_THREAD flag cannot be combined with SECB_QSEXIT or SECB_CPCHANGE.
     For SECB_DISKREM only absence of SECB_THREAD flag guarantee disk presence
-    at the time of call.
+    at the time of call. The same is true for device in SECB_DEVDEL.
 
     SECB_HOTKEY bit is not accepted here, use sys_sethotkey().
 
     Note, that single-shot notifications like SECB_PAE & SECB_MTMODE are
     never called if event was signaled before sys_notifyevent() call.
+
+    Thread (with SECB_THREAD) will be created in caller process context,
+    unless SECB_GLOBAL is used. For global notifications thread created in
+    pid 1 (system process) context. Thread stack size is fixed to be 16k.
 
     @param   eventmask  Bit mask of events to call cbfunc (SECB_*).
     @param   cbfunc     Callback function, one address can be specified only
@@ -318,10 +339,15 @@ u32t     _std sys_notifyevent(u32t eventmask, sys_eventcb cbfunc);
 #define SECB_DISKREM  0x00000040    ///< disk removing (disk handle in info field)
 #define SECB_CPCHANGE 0x00000080    ///< code page changed (codepage_info* in data)
 #define SECB_LOWMEM   0x00000200    ///< insufficient of memory
+#define SECB_SESTART  0x00000400    ///< new session start (sesno in info)
+#define SECB_SEEXIT   0x00000800    ///< session has finished (sesno in info)
+#define SECB_DEVADD   0x00001000    ///< vio device added (dev id in info)
+#define SECB_DEVDEL   0x00002000    ///< vio device deleting (dev id in info)
+#define SECB_SETITLE  0x00004000    ///< session title changed (sesno in info)
 
 #define SECB_HOTKEY   0x00000100    ///< sys_sethotkey() callback (key code in info field)
 
-#define SECB_THREAD   0x40000000    ///< callback is new thread in process context
+#define SECB_THREAD   0x40000000    ///< run callback in a new thread
 #define SECB_GLOBAL   0x80000000    ///< global callback (see sys_notifyevent())
 //@}
 

@@ -8,6 +8,7 @@
 ;cc #include "qsmodint.h"
 
 EXIT_STACK_SIZE = 128
+EXIT_SIGN       = 6B6F6F48h
 
 exit_stack_s    struc
 es_sign         dd      ?
@@ -16,6 +17,8 @@ es_ebp          dd      ?
 es_userdata     dd      ?
 es_address      dd      ?
 es_retpoint     dd      ?
+;ct void*
+es_owner        dd      ?          ;// executing thread info
 exit_stack_s    ends
 
 ordinal_data_s  struc

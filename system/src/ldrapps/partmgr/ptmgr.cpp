@@ -134,7 +134,7 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t pts, u32t afl,
    *size  = 0;
    if (dsk_ptgetfree(disk,0,0) <= freeidx) return E_PTE_FINDEX;
 
-   fi = (dsk_freeblock*)malloc((freeidx+1)*sizeof(dsk_freeblock));
+   fi = (dsk_freeblock*)malloc_thread((freeidx+1)*sizeof(dsk_freeblock));
    sz = dsk_ptgetfree(disk, fi, freeidx+1);
    // second get free space failed?
    if (sz<=freeidx) {
@@ -301,7 +301,7 @@ qserr dsk_extmerge(u32t disk) {
       }
    }
    // merge neighbouring free slices
-   ucnt = (u32t*)malloc(sizeof(u32t) * (hi->pt_size>>2));
+   ucnt = (u32t*)malloc_thread(sizeof(u32t) * (hi->pt_size>>2));
    ucnt[0] = FFFF;
 
    for (ii=4; ii<hi->pt_size; ii+=4) {

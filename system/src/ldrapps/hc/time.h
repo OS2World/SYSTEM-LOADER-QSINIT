@@ -46,6 +46,13 @@ char*   _std asctime_r(const struct tm *timeptr, char* buffer);
 #define asctime(tme) asctime_r(tme,0)
 #define _asctime     asctime_r
 
+/** time and date format.
+    Function supports all of watcom runtime format directives and some
+    additional posix ones, like %C, %e, %F, %k, %l, %R, %s.
+    Since no locale in QSINIT, %Z(%z) is always empty and %x/%c fixed
+    to be dd/mm/yy 24h */
+u32t    _std strftime(char *dst, u32t len, const char *fmt, const struct tm *tmv);
+
 /// convert DOS time to struct tm value
 void    _std dostimetotm(u32t dostime, struct tm *dt);
 

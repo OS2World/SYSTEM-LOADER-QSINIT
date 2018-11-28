@@ -17,12 +17,13 @@
 #define FIXED_RANGE_REGS    11
 #define MTRR_SAVE_BUFFER    32
 #define MAX_VAR_RANGE_REGS  10
+#define ACPI_RSDP_LENGTH    20
 
 /** disable interrupts, cache and turn off MTRRs.
     @param [out]     state  State to save - for hlp_mtrrmend() call */
 void _std hlp_mtrrmstart(volatile u32t *state);
 /** enable interrupts, cache and turn on MTRRs.
-    @param [in][out] state  State, returned from hlp_mtrrmstart(),
+    @param [in,out]  state  State, returned from hlp_mtrrmstart(),
                             clear it on exit to prevent second call */
 void _std hlp_mtrrmend  (volatile u32t *state);
 
@@ -37,6 +38,7 @@ static u32t       mtrr_regs = 0,
 static u64t  PHYS_ADDR_MASK = 0,        // supported addr mask for this CPU
                   apic_phys = 0;
 static u32t      *apic_data = 0;
+static u32t      acpi_table = 0;        // EFI host only
 qshandle             mhimux = 0;        // mutex for sys_memhicopy()
 u8t            fpu_savetype = 0;
 
@@ -153,7 +155,7 @@ static void init_baseinfo(void) {
       fpu_savesize = fpu_savetype?512:108;
    }
    // turn on SSE support!
-   if (sys_isavail(SFEA_FXSAVE)) {
+   if (sys_isavail(SFEA_FXSAVE|SFEA_SSE1)==(SFEA_FXSAVE|SFEA_SSE1)) {
       // actually, it is on EFI already
       _try_ {
          sys_setcr3(FFFF, getcr4()|CPU_CR4_OSFXSR|CPU_CR4_OSXMMEXCPT);
@@ -805,6 +807,8 @@ u32t _std sys_isavail(u32t flags) {
       if (idbuf[3]&CPUID_FI2_ACPI)  sflags|=SFEA_CMODT;
       if (idbuf[3]&CPUID_FI2_APIC)  sflags|=SFEA_LAPIC;
       if (idbuf[3]&CPUID_FI2_FXSR)  sflags|=SFEA_FXSAVE;
+      if (idbuf[3]&CPUID_FI2_SSE)   sflags|=SFEA_SSE1;
+      if (idbuf[3]&CPUID_FI2_SSE2)  sflags|=SFEA_SSE2;
       if (idbuf[2]&CPUID_FI1_XSAVE) sflags|=SFEA_XSAVE;
 
       family   = idbuf[0]>>8&0xF;
@@ -1080,6 +1084,43 @@ static void _std cm_restore(sys_eventinfo *info) {
 #endif
 }
 
+/* we have 2 variants of memory location: 1st MB in BIOS host and top of ram
+   in UEFI host. In both cases area must be mapped and readable */
+static int check_rsdp(u32t mem) {
+   static const char *sig = "RSD PTR ";
+   u8t *ptr = (u8t*)mem;
+   u32t  ii;
+   if (!ptr) return 0;
+   if (!memcmp(ptr,sig,8)) {
+      u8t sum = 0, ii = 0;
+      // check standard checksum only, this is well enough for us
+      while (ii<ACPI_RSDP_LENGTH) sum += ptr[ii++];
+      if (sum==0) return 1;
+   }
+   return 0;
+}
+
+u32t _std sys_acpiroot(void) {
+   if (acpi_table) return acpi_table; else {
+      u32t xbda = 0;
+      // do it in intel way
+      if (!hlp_memcpy(&xbda, (void*)(0x40E), 2, MEMCPY_PG0)) xbda = 0; else
+         if (xbda<0x400) xbda = 0;
+
+      while (1) {
+         u32t addr, len, ofs;
+         if (xbda) { addr = xbda<<PARASHIFT; len = _1KB; } else
+            { addr = 0xE0000; len = _128KB; }
+
+         for (ofs=0; ofs<len; ofs+=16)
+            if (check_rsdp(addr+ofs)) return acpi_table = addr+ofs;
+
+         if (!xbda) break; else xbda = 0;
+      }
+      return 0;
+   }
+}
+
 void* malloc_local(u32t size) {
    void *rc = malloc(size);
    if (rc) mem_localblock(rc);
@@ -1106,6 +1147,10 @@ u32t _std sys_queryinfo(u32t index, void *outptr) {
 }
 
 void setup_hardware(void) {
+   // take address, saved by EFI host
+   acpi_table = sto_dword(STOKEY_ACPIADDR);
+   if (acpi_table) log_it(3, "ACPI table at %X\n", acpi_table);
+
    if (!sys_isavail(SFEA_CMODT)) log_it(3, "no cm\n"); else {
       u32t cmv = hlp_cmgetstate();
       if (!cmv) log_it(3, "failed to read cm\n"); else {

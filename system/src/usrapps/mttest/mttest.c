@@ -16,7 +16,8 @@
 #define TEST_SCHEDULES    4
 
 mt_tid        ta[TEST_THREADS];
-qshandle   mutex;
+qshandle   mutex,
+           event;
 u32t     threads,
           tlsvar;
 
@@ -98,6 +99,13 @@ static u32t _std threadfunc4(void *arg) {
    return 0;
 }
 
+static u32t _std threadfunc5(void *arg) {
+   mt_waithandle(event, FFFF);
+   //usleep(16000);
+   log_printf("I'm event thread %2u and I got it!\n", (u32t)arg);
+   return 0;
+}
+
 void main(int argc, char *argv[]) {
    mt_tid       tid;
    mt_waitentry  we[TEST_THREADS+1];
@@ -167,6 +175,21 @@ void main(int argc, char *argv[]) {
 
    res = mt_closehandle(mutex);
    if (res) { cmd_shellerr(EMSG_QS, res, "Mutex free error: "); return; }
+
+   res = mt_eventcreate(0, "test_event", &event);
+   if (res) { cmd_shellerr(EMSG_QS, res, "Event creation error: "); return; }
+
+   /* just a test of QEVA_PULSEONE event handling: create 20 threads and wait for
+      an event in all of them.
+      Then, in loop - call pulse one and wait for any thread 20 times */
+   for (ii=1; ii<=TEST_THREADS; ii++) mt_createthread(threadfunc5, 0, 0, (void*)ii);
+   /* let threads above to reach mt_waithandle() string - else first pulse will be
+      lost and code stopped on mt_waitthread() forever */
+   usleep(32000);
+   for (ii=0; ii<TEST_THREADS; ii++) {
+      mt_eventact(event, QEVA_PULSEONE);
+      mt_waitthread(0);
+   }
 
    // this test will fail on PXE (no hlp_fopen())
    log_printf("boot file i/o sync test\n", tid);

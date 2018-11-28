@@ -6,14 +6,13 @@
 
                 MINIMAL_STACK = 4096
 
-CODE32          segment byte public USE32 'CODE'
-                extrn   _main:near
-                extrn   _strlen:near
-                extrn   _vio_strout:near
-                extrn   __parse_cmdline:near
-                extrn   __wc_static_fini:near
-                extrn   __process_exit_list:near
-                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
+CODE32          segment byte public USE32 'CODE'                ;
+                extrn   _main:near                              ;
+                extrn   _strlen:near                            ;
+                extrn   _vio_strout:near                        ;
+                extrn   __parse_cmdline:near                    ;
+                extrn   __rt_process_exit_list:near             ;
+                assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT      ;
 start:
                 mov     eax, [esp+4]                            ;
                 mov     __Module, eax                           ;
@@ -44,19 +43,14 @@ start:
                 call    _main                                   ;
                 add     esp, 8                                  ;
 
-                call    __process_exit_list                     ;
-                call    __wc_static_fini                        ;
+                call    __rt_process_exit_list                  ;
                 mov     esp, cs:exit_esp                        ;
                 ret
 ;----------------------------------------------------------------
-; void exit(int);                                               ;
-;----------------------------------------------------------------
-                public  _exit                                   ;
-                public  __exit                                  ;
-_exit:
-                call    __process_exit_list                     ;
-                call    __wc_static_fini                        ;
-__exit:
+; _exit() for the main thread
+
+                public  __rt__exit                              ;
+__rt__exit:
                 mov     eax, [esp+4]                            ;
                 mov     esp, cs:exit_esp                        ;
                 ret                                             ;
@@ -64,7 +58,7 @@ args_error:
                 push    offset argerr_msg                       ; use vio_ instead of
                 call    _vio_strout                             ; printf() here to prevent
                 push    -1                                      ; of linking START
-                call    __exit                                  ; module to all apps.
+                call    __rt__exit                              ; module to all apps.
 ;----------------------------------------------------------------
 next_random:
                 mov     eax,8088405h                            ;

@@ -1,0 +1,98 @@
+[project]
+name=vpcfcopy
+version=0x0001
+
+[config]
+0=Debug
+1=Release
+
+[vars]
+aa=wasm
+cc=wcc386
+ld=wlink
+
+*c=$(outdir)\$(*cur_fp).obj|$(*cur_name)| @echo $(*cur_name) | \
+     $(cc) $(cflags)$*.obj $(*cur_name)
+
+*inc=$(outdir)\$(*cur_fp).h|$(*cur_name)| @echo $(*cur_name) | \
+     inc2h $(*cur_name) $@ /p1
+
+*sec=$(outdir)\$(*cur_fp).h|$(secsrc)| @echo $(*cur_fp).h | \
+     bin2h $(secsrc) $@ -an=bsdata -cn=bsdata_size -lxo=3 -ofs=0x0 \
+       -size=0x600 -check=510,0x55 -check=511,0xAA -check=1022,0x55 \
+       -check=1023,0xAA -check=1534,0x55 -check=1535,0xAA
+
+cflags=-4s -zri -zq -fp5 -fpi87 -s -mf -ox $(oskey) \
+       -i=$(outdir) -i=..\..\..\ldrapps\fsfat\fatfs -i=..\..\..\ldrapps\partmgr \
+       -i%(QS_BASE)\hc -i%(QS_APPINC)\sys\fs $(dbtype) -fo=
+
+bld_dir=bld
+outdir=$(bld_dir)\$(config)_$(build_osc)
+outname=$(name).exe
+&lnk=$(outdir)\$(name).lnk
+secsrc=..\..\..\ldrapps\partmgr\partmgr.dll
+
+; common for os/2 & win, but absent in linux
+cp=copy
+moddesc=op de '$(name) v$(vershort). $(config) build, $(timestr)'
+wipeold=if EXIST $(exedir)\$(outname) del $(exedir)\$(outname) >%(DEVNUL)
+
+[vars.*.0]
+dbgkey=debug watcom all
+dbtype=-d3s -hw -of
+
+[vars.*.1]
+dbgkey=
+dbtype=-d0
+
+[vars.os/2]
+target=os2v2
+oskey=-bt=os2 -DSP_OS2
+exedir=..\..\t_os2
+
+[vars.win32]
+target=nt
+oskey=-bt=nt -DSP_WIN32
+exedir=..\..\t_nt
+
+[vars.linux]
+target=linux
+oskey=-bt=linux -DSP_LINUX
+exedir=..\..\t_unx
+cp=cp
+moddesc=
+outname=$(name)
+wipeold=
+
+[files]
+bsdata.sec
+..\..\..\hc\inc\parttab.inc
+vpcfcopy.c fmkfs.c
+
+[make_footer]
+$(outdir) : .DIRECTORY
+
+MAKEDIRS : $(outdir)
+
+hello : .SYMBOLIC
+    @echo Building $(name)...
+
+nolink : MAKEDIRS hello @@wait $(**sec) $(**inc) @@wait $(**c)
+
+clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
+    @echo Cleaning $(name)...
+
+[&lnk]
+sys $(target)
+name $(outname)
+$(dbgkey)
+file /[[$(**c)! !,]]
+op quiet
+op st=32768
+$(moddesc)
+
+[config.0,1]
+*out=$(outname) | nolink | \
+     echo Linking ... | \
+     $(ld) @$(&lnk) | $(wipeold) | \
+     $(cp) $(outname) $(exedir) >%(DEVNUL)

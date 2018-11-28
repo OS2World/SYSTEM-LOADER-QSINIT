@@ -56,7 +56,7 @@ copy=cp
 ..\..\hc\inc\qsconst.inc
 partmgr.c mount.c pboot.c pscan.c phlp.cpp format.c pclone.cpp
 se.asm lvm.cpp ptmgr.cpp gptmgr.cpp hpfs\formatfs.c hpfs\boot.asm
-hpfs\fshelp.c
+hpfs\fshelp.c chkbm.cpp
 
 [make_footer]
 $(outdir) : .DIRECTORY

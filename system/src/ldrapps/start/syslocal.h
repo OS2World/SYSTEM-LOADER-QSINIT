@@ -51,6 +51,10 @@ FILE*      get_stdin(void);
 
 int        fcloseall_as(u32t pid);
 void       exi_free_as(u32t pid);
+void       chain_thread_free(mt_thrdata *th);
+
+/// init signal handler for a new process
+void       init_signals(void);
 
 /// hlp_freadfull() with progress printing in form "caching name    x mb|x %"
 void*      hlp_freadfull_progress(const char *name, u32t *bufsize);
@@ -59,9 +63,9 @@ void*      hlp_freadfull_progress(const char *name, u32t *bufsize);
 void       sys_notifyfree(u32t pid);
 void       sys_hotkeyfree(u32t pid);
 /// set thread owner
-int  _std  mem_threadblockex(void *block, u32t pid, u32t tid);
+int  _std  mem_threadblockex(void *block, mt_thrdata *th);
 /// set module owner
-int _std   mem_modblockex(void *block, u32t module);
+int  _std  mem_modblockex(void *block, u32t module);
 /** get thread comment.
     note, what result is up to 16 chars & NOT terminated by zero if
     length is full 16 bytes.
@@ -77,6 +81,7 @@ void       panic_no_memmgr(const char *msg);
 // reset video to CVIO, stop APIC timer, and so on... 
 void       trap_screen_prepare(void);
 
+/// floating point to str conversion (for printf and other)
 int  _std  fptostr(double value, char *buf, int int_fmt, int prec);
 
 // free pushd stack
@@ -96,13 +101,21 @@ void _std  mt_getdata(mt_prcdata **ppd, mt_thrdata **pth);
     No any changes in chain lists, only thunk reset. Used by trap screen. */
 void       mod_resetchunk(u32t mh, u32t ordinal);
 
+/** return process context for the specified process id.
+    Function exported, but unpublished in headers because it dangerous.
+    It TURNS ON MT lock if MT mode active and returned value is non-zero */
+process_context* _std mod_pidctx(u32t pid);
+
 /// "trace on/off" command.
 int        trace_onoff(const char *module, const char *group, int quiet, int on);
 
 /// "trace list" command.
 void       trace_list(const char *module, const char *group, int pause);
 
-/// special query id, which allows to get private class by name (for the trace code)
+/// "trace pidlist" command.
+void       trace_pid_list(int pause);
+
+/// special query id, which allows to get private class by name (used in trace)
 u32t       exi_queryid_int(const char *classname, int noprivate);
 
 /** read string from msg.ini.
@@ -114,23 +127,22 @@ char*      msg_readstr(const char *section, const char *key);
 /// draw colored box
 void       draw_border(u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
-/// QSINIT is in the page mode (flag = 1/0)
+/// PAE page mode active (flag = 1/0)
 extern u8t  in_pagemode;
-
-/// QSINIT in MT mode (flag = 1/0)
+/// MT mode active (flag = 1/0)
 extern u8t    in_mtmode;
-
 /// disable task gate usage for exceptions
 extern u32t   no_tgates;
-
+/// allow Ctrl-N on display device as a task switch key
+extern u32t    ctrln_d0;
 /// exe delayed unpack
 extern u8t    mod_delay;
-
 /// QSINIT module handle
 extern u32t   mh_qsinit;
-
 ///< "system console" session
 extern u32t     sys_con;
+/// service thread system queue
+extern qshandle   sys_q;
 
 ///< timeout in seconds before reboot from the trap screen (0 to disable)
 extern u32t   reipltime;
@@ -180,6 +192,9 @@ qs_mtlib   get_mtlib(void);
 /// custom dump mdt
 void       log_mdtdump_int(printf_function pfn);
 
+/// dump file systems
+void       fs_list_int(printf_function pfn);
+
 /// internal i/o fullpath for clib implementation
 char* _std io_fullpath_int(char *dst, const char *path, u32t size, qserr *err);
 
@@ -221,6 +236,9 @@ str_list*  str_getlist_local(TStringVector &lst);
 /// call external shell command directly
 u32t       shl_extcall(spstr &cmd, TStrings &plist);
 
+/// "trace pid" command.
+int        trace_pid(TList &pid, int lnot, int lnew);
+
 /// change file ext
 spstr      changeext(const spstr &src, const spstr &newext);
 
@@ -245,8 +263,11 @@ void       splitfname(const spstr &fname, spstr &dir, spstr &name);
 void       dir_to_list(spstr &Dir, dir_t *info, d exclude_attr,
                        TStrings &rc, TStrings *dirs);
 
+#define SplitText_NoAnsi   1    ///< disable ansi line length calculation
+#define SplitText_HelpMode 2    ///< help printing, with & as soft-cr
+
 /// split text with carry and eol (^) support.
-void       splittext(const char *text, u32t width, TStrings &lst);
+void       splittext(const char *text, u32t width, TStrings &lst, u32t flags=0);
 
 /** waiting for Y/N/A/Esc key.
     @param allow_all  Allow 'A' key press.

@@ -10,27 +10,28 @@ suitable for many other things - like playing tetris or writing boot time
 disk editor.
 
 Common idea was creating of a small 32 bit protected mode environment with
-runtime and module executing support. It looks like old good DOS/4GW apps,
-but without DOS at all ;)
+runtime and module executing support. Initially it looked like old good
+DOS/4GW apps, but without DOS at all ;)
 
 Next, it was extended to (optional) multithreading (UNIprocessor only, sorry -
-just because BIOS is used as driver for everything).
+just because BIOS is used as a driver for everything). So, now it is more
+in os-like style, because of existing sessions, threads and other nice things.
 
-It has now disk sector editor, partition management, text and binary file
-editors, tetris :) and so on.
+Common apps include disk sector editor, partition management tools, text and
+binary file editors, tetris :) and so on.
 
 Binary package composed from two parts - starting binary (OS2LDR) and zip
 archive with applications and data (QSINIT.LDI). During init this archive
 unpacked to the small virtual disk in memory and "system" operates with data
-in it.
+in it (it always mounted as drive B:).
 
 So, common boot process is:
 @li partition boot code (FAT or micro-FSD on HPFS/JFS) loads OS2LDR (it looks
 like common OS/2 kernel loader for OS/2 micro-FSDs).
-@li this binary (named QSINIT below) starts protected mode, create a small
+@li this binary (named QSINIT below) enters protected mode, creates a small
 virtual disk and unpack QSINIT.LDI to it.
 @li next, it launch second part of own code from this disk (START module).
-@li START module can launch any other modules. One of it named "bootos2.exe" ;)
+@li START module able to launch any other modules. One of it named "bootos2.exe" ;)
 
 @section sec_apiinfo Some general information
 - @ref pg_apps "Apps and modules"
@@ -296,6 +297,10 @@ Text mode output and keyboard support routines.
 All output functions update BIOS cursor position, but BIOS called only for
 mode changing (vio_setmode(), vio_resetmode()) and keyboard.
 
+In addition, no any assumes may be used on BIOS, because this is may be an EFI
+host or graphic console modes or, even, COM port terminal session. I.e. direct
+access to the screen is prohibited.
+
 @file qsutil.h
 @ingroup API1
 API: utils
@@ -328,7 +333,8 @@ API: C library
 @ingroup CODE1
 LE/LX module handling.
 
-Module handling code - loading, launching, import/export resolving.
+Module handling code - loading, launching (in non-MT mode), import/export
+resolving.
 
 Some functions located in lxmisc.c file of START module.
 
@@ -354,11 +360,19 @@ Virtual disk creation.
 
 @file meminit.c
 @ingroup CODE1
-System memory tables parse code (16-bit real mode code!).
+System memory tables parsing code (the only one 16-bit real mode C file).
 
 @file fileio.c
 @ingroup CODE1
 Boot system file i/o.
+
+@file fatio.c 
+@ingroup CODE1
+Lightweight implementation of r/o FAT/FAT32/exFAT file i/o. It simulates
+missing FAT micro-FSD for QSINIT binary code and used to load initial
+files (QSINIT.LDI and INI file(s)) from the root directory.
+
+After START module initialization all these calls replaced by FatFs code.
 
 @file process.c
 @ingroup CODE1
@@ -514,13 +528,13 @@ shell is not equal to "large OS" shells.
 
 There are no full i/o redirection, filters and "con" file, at least.
 
-Shell have a support for installing new commands and replacing the default ones.
-Only internal commands like GOTO, FOR, IF, EXIT and so on cannot be overloaded. See
-cmd_shelladd() for more details.
+Shell have a support for installing new commands and replacing default ones.
+Only internal commands like GOTO, FOR, IF, EXIT and so on cannot be overloaded.
+See cmd_shelladd() for more details.
 
 Shell commands can be called directly, from C code, without invoking command
 processor. Actually, cmd.exe is a stub, which implements only searching modules
-in path and determining its type. This mean, in addition, what any application
+in path and determining its type. This mean, in addition, that any application
 can call batch files internally, in own process context, with affecting own
 environment.
 
@@ -615,24 +629,26 @@ until its close by the same thread (or thread exit). I.e. any other process/thre
 will be stopped on boot disk I/O functions until their availability.
 
 FAT/FAT32/exFAT can be accessed instantly, as normal partition with full
-access.
+access. HPFS now has r/o driver which also provides normal read access.
 
-There are 3 possible variants of boot file i/o:
+I.e. there are 3 possible variants of boot file i/o:
 @li <b>FSD</b> - @ref hlp_fopen, @ref hlp_fread, @ref hlp_fclose, @ref hlp_freadfull functions.
 @li <b>PXE</b> - only @ref hlp_freadfull
 @li <b>FAT</b> - hlp_f* functions as in FSD (emulated) and normal file i/o as 0:\\ drive.
 
 As example of more comfortable access - QSINIT copies QSINIT.INI/OS2LDR.INI and
-QSSETUP.CMD files (if exist one) from the root of boot disk to virtual drive (path 1:\\)
+QSSETUP.CMD files (if exist one) from the root of boot disk to virtual drive
 and then operates with it. This occur on any type of boot (FAT, mini-FSD, PXE).
 
 @section fdio_diskio Disk I/O
 Disk I/O can operate with all drives reported by BIOS. It detects drive type
 and size and provides API to read and write it (@ref qsutil.h).
 
+Sometimes it able to show boot CD/DVD too (on rare types of BIOS).
+
 Own virtual disk can be accessed at low level at the same way as real disks.
 
-Any part of disk can be mounted as QSINIT volume. If any type of FAT will be
+Any part of disk can be mounted as QSINIT volume. If FAT/HPFS file systems is
 detected - it becomes available for use, else mounted volume can be formatted
 (for example) or accessed via sector level i/o from appilcation.
 
@@ -811,7 +827,7 @@ Loader features and disadvantages:
 @li imports/exports/forwards by name is not supported at all
 @li module <b>must</b> contain internal fixups! This is <b>required</b> because
 of lack of real page mapping.
-@li 32bit module ordinals is not supported (and again - who able link with it?)
+@li 32bit ordinal values is not supported (and again - who able link with it?)
 @li up to 32 imported modules per module (this can be changed in code).
 @li 16 bit objects can be used, but cannot be start or stack objects.
 @li "chaining fixups" can be used to optimize fixup table size.
@@ -833,7 +849,7 @@ size without any compression.
 
 More details:
 @li FLAT 32 bit DOS. No threads, no paging, shared address space - by default.
-@li threads abd sessions still available, but optionally ;)
+@li threads and sessions still available, but optional ;)
 @li switching to PAE paging mode is available too, but only for mapping memory
 above 4Gb limit.
 @li launching "process" (module) gets parameters and environment in the same
@@ -852,13 +868,14 @@ it. Second copy of the same EXE can hang).
 @li module can import functions from self (usable to trace internal module
 calls, at least).
 @li forward entries resolved at the moment of first import. So, you can load
-DLL with forward to missing index in presented module. But this forward can't
+DLL with forward to missing index in existing module. But this forward can't
 be used.
 
-Environment is not global, child process inherit it in current state. Any
-changes was made by setenv() affect current process and it's childs only.
+Environment is not global, child process inherits it in current state. Any
+changes was made by setenv() affect current process only.
 
-Dump of all loaded modules can be printed to log by Ctrl-Alt-F10 hotkey.
+Dump of all loaded modules can be printed to log by Ctrl-Alt-F10 hotkey and
+process tree - Ctrl-Alt-F5.
 
 @ref pg_runtime "Runtime functions".
 
@@ -895,9 +912,9 @@ Static variables and classes initialization is supported.
 @ref pg_xcpt "Exception handling" supported.
 
 On FAT boot you can access entire boot partition and, even, write to it by
-standard fopen() functions.
+standard fopen() functions. On HPFS partition access is read-only.
 
-On HPFS/JFS/RIPL boot only root dir files can be accessed via hlp_fopen() API.
+On JFS/RIPL boot only root dir files can be accessed via hlp_fopen() API.
 This is limitation of micro-FSD, available at boot time.
 
 Any call to int 21h will return CF=1 and do nothing. QSINIT is not DOS! ;)
@@ -922,7 +939,7 @@ Internally it contain:
 EFI version (QSINIT.EFI) contains the same things, but EFI specific. I.e. this
 is 64-bit EFI executable, which has linked in 32-bit part. 64-bit part
 provides system services for QSINIT as well as real mode 16-bit code in BIOS
-version provides the same services.
+version provides the same.
 
 @section sec_start START module
 
@@ -935,7 +952,7 @@ It contains:
 @li heap memory manager (memmgr.cpp)
 @li LE/LX code (lxmisc.c, mdtdump.c)
 @li exception handling (trapscrn.c)
-@li C lib (clib.c, clibio.c, time.c)
+@li C lib (clib.c, clibio.c, time.c, signals.c)
 @li environment functions (envmgr.c)
 @li ini files support (pubini.cpp)
 @li FAT code by ChaN (ff.c)
@@ -959,15 +976,14 @@ and many other ...
 @li save register values on init (for exit_restart() code), zero own bss, etc
 @li if micro-FSD present - it header checked for various errors
 @li memory allocated for protected mode data (GDT, etc)
-@li copying self to the top of low memory (9xxx:0000) and saving
-mini-FSD (binary file)
+@li copy self to the top of low memory (9xxx:0000) and saves mini-FSD (binary file)
 @li makes some real mode task: i/o delay calculation, query PC memory,
 remap low 8 ints to 50h
 @li going to 16 bit PM, unpack 32-bit part and launch it (init32.c).
 @li init own memory management and get for self all memory above 16Mb until
 the end of whole block
 @li loads QSINIT.LDI zip file, calculate unpacked size, creates virtual
-disk and format it with FAT. This will be "1:\" drive (disk1.c).
+disk and format it with FAT. This will be B:\ (1:\) drive (disk1.c).
 @li load module START from this zip and start it.
 
 @subsection sec_bootstep2 Step 2: START module continue initialization in this order:

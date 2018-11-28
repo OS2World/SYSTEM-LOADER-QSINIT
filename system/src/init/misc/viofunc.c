@@ -175,8 +175,13 @@ u32t key_filter(u32t key) {
 }
 
 u16t _std key_read_nw(u32t *status) {
-   u32t rc = hlp_querybios(QBIO_KEYREADNW);
-
-   if (status) *status = translate_status(rc>>16);
-   return key_filter((u16t)rc);
+   if (check_cbreak()) {
+      if (status) *status = KEY_CTRL|KEY_SHIFTRIGHT;
+      return KEYC_CTRLBREAK;
+   } else {
+      u32t rc = hlp_querybios(QBIO_KEYREADNW);
+      
+      if (status) *status = translate_status(rc>>16);
+      return key_filter((u16t)rc);
+   }
 }

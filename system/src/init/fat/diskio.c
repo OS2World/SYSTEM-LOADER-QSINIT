@@ -11,9 +11,6 @@ extern struct   Disk_BPB BootBPB;
 
 #define QDSK_VALID    (QDSK_FLOPPY|QDSK_VOLUME|QDSK_DISKMASK|QDSK_DIRECT|\
                        QDSK_IAMCACHE|QDSK_IGNACCESS)
-
-extern void           *Disk1Data;
-extern u32t            Disk1Size;
 extern
 struct qs_diskinfo      qd_array[MAX_QS_DISK];
 extern u8t      qd_fdds, qd_hdds;
@@ -26,9 +23,6 @@ cache_extptr        *cache_eproc;
 u8t   _std raw_io(struct qs_diskinfo *di, u64t start, u32t sectors, u8t write);
 int   _std sys_intstate(int on);
 qserr      format_vol1();
-
-// cache control
-void _std cache_ctrl(u32t action, u8t vol);
 
 u32t _std hlp_diskcount(u32t *floppies) {
    u32t rc = 0, ii;
@@ -187,9 +181,6 @@ u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data) {
    if (disk & QDSK_VOLUME) {
       u8t drv = disk&QDSK_DISKMASK;
       switch (drv) {
-         case 1:
-            memcpy(data, (char*)Disk1Data+(sector<<LDR_SSHIFT), count<<LDR_SSHIFT);
-            return count;
          case 0: 
             if (!bootio_avail) return 0;
          default:
@@ -197,8 +188,9 @@ u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data) {
                vol_data *vdta = extvol + drv;
                u32t       res = 0;
                mt_swlock();
-               if (vdta->flags) res = hlp_diskread(vdta->disk|QDSK_IGNACCESS,
-                  vdta->start+sector, count, data);
+               if (vdta->flags&VDTA_VFS) res = 0; else
+                  if (vdta->flags&VDTA_ON) res = hlp_diskread(vdta->disk|
+                     QDSK_IGNACCESS, vdta->start+sector, count, data);
                mt_swunlock();
                return res;
             }
@@ -221,9 +213,6 @@ u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
    if (disk & QDSK_VOLUME) {
       u8t drv = disk&QDSK_DISKMASK;
       switch (drv) {
-         case 1:
-            memcpy((char*)Disk1Data+(sector<<LDR_SSHIFT), data, count<<LDR_SSHIFT);
-            return count;
          case 0: 
             if (!bootio_avail) return 0;
          default:
@@ -231,8 +220,9 @@ u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
                vol_data *vdta = extvol + drv;
                u32t       res = 0;
                mt_swlock();
-               if (vdta->flags) res = hlp_diskwrite(vdta->disk|QDSK_IGNACCESS,
-                  vdta->start+sector, count, data);
+               if (vdta->flags&VDTA_VFS) res = 0; else
+                  if (vdta->flags&VDTA_ON) res = hlp_diskwrite(vdta->disk|
+                     QDSK_IGNACCESS, vdta->start+sector, count, data);
                mt_swunlock();
                return res;
             }
@@ -447,24 +437,6 @@ u32t _std hlp_diskbios(u32t disk, int qs2bios) {
    return rc;
 }
 
-void init_vol1(void) {
-   vol_data *vdta = extvol+DISK_LDR;
-   if (!vdta->length) {
-      qserr    res;
-      vdta->length = Disk1Size>>LDR_SSHIFT;
-      vdta->start  = 0;
-      vdta->disk   = QDSK_VOLUME + DISK_LDR;
-      vdta->sectorsize = LDR_SSIZE;
-      vdta->flags  = VDTA_ON;
-
-      res = format_vol1();
-      if (res) {
-         log_printf("fmt err %X\n", res);
-         exit_pm32(QERR_FATERROR);
-      }
-   }
-}
-
 void check_disks(void) {
    u32t ii;
    // locate boot disk in qd_array for easy access
@@ -493,13 +465,16 @@ u16t _std ff_convert(u16t src, unsigned int to_unicode) {
 
 /* Unicode upper-case conversion */
 u16t _std ff_wtoupper(u16t src) {
-   if (ext_wtoupper) {
-      int state = sys_intstate(0);
-      src = ext_wtoupper(src);
-      sys_intstate(state);
+   if (src < 0x80) {
+      return src>=0x61 && src<=0x7A ? src-0x20 : src;
+   } else {
+      if (ext_wtoupper) {
+         int state = sys_intstate(0);
+         src = ext_wtoupper(src);
+         sys_intstate(state);
+      }
       return src;
    }
-   return toupper(src);
 }
 
 int _std ff_dbc_1st(u8t src) {

@@ -64,7 +64,7 @@ struct TraceInfo {
 /** List of trace file contents.
     Contain groups/names/format for every loaded TRC file. And group
     selection flag in groups.Objects() */
-static TPtrStrings      *lti = 0;  
+static TPtrStrings      *lti = 0;
 
 static volatile int listlock = 0;  ///< lists in changing state flag
 
@@ -73,7 +73,10 @@ static u32t     *ordlist[MAX_TRACE_MOD];  ///< list of ordinal lists
 static char    **fmtlist[MAX_TRACE_MOD];  ///< list of format string lists
 static char   **namelist[MAX_TRACE_MOD];  ///< list of function names lists
 static u32t     ordinals[MAX_TRACE_MOD];  ///< number of ordinals
-static u32t      modules = 0;             ///< number of modules
+static u32t      modules = 0,             ///< number of modules
+              filter_not = 0,
+              filter_new = 0;
+static TList     *filter = 0;
 
 /// load trace file for module
 static TraceInfo *trace_load(const char *module, int quiet) {
@@ -383,6 +386,73 @@ int trace_onoff(const char *module, const char *group, int quiet, int on) {
    return trace_common(module, group, quiet, on);
 }
 
+int trace_pid(TList &lpid, int lnot, int lnew) {
+   MTLOCK_THIS_FUNC lk;
+
+   listlock++;
+   if (!filter) filter = new TList(lpid); else *filter = lpid;
+   filter_not = lnot;
+   filter_new = lnew;
+   listlock--;
+
+   return 1;
+}
+
+/** process start/exit callback.
+    Both calls in tid 1 context with nothing locked in caller. */
+static void trace_pid_changed(int add) {
+   MTLOCK_THIS_FUNC lk;
+   if (filter) {
+      mt_prcdata   *pd;
+      mt_getdata(&pd, 0);
+      listlock++;
+      // modify pid filter list
+      if (add && filter_new) {
+         if (filter->IndexOf(pd->piPID)<0) filter->Add(pd->piPID);
+      } else
+      if (!add && (pd->piMiscFlags&PFLM_CHAINEXIT)==0) {
+         int idx = filter->IndexOf(pd->piPID);
+         if (idx>=0) filter->Delete(idx);
+      }
+      listlock--;
+   }
+}
+
+extern "C" void trace_pid_start(void) { trace_pid_changed(1); }
+extern "C" void trace_pid_done (void) { trace_pid_changed(0); }
+
+void trace_pid_list(int pause) {
+   if (filter) {
+      TList lcopy;
+      mt_swlock();
+      listlock++;
+      u32t lnot = filter_not,
+           lnew = filter_new;
+      lcopy = *filter;
+      listlock--;
+      mt_swunlock();
+
+      spstr ss, prn;
+      for (int ii=0; ii<lcopy.Count(); ii++) ss+=spstr(lcopy[ii])+',';
+
+      if (ss.length()) {
+         ss.dellast();
+         prn.sprintf("Trace active for %sprocess%s %s%s", lnot?"all except ":"",
+            lcopy.Count()==1?"":"es", ss(), lnew?" and any new process.":".");
+      } else {
+         static const char *msg[4] = { "Active filter disables any trace output.",
+            "Trace will be active for any new process.",
+            "Trace active for any existing and new process.",
+            "Trace active for any existing process only.",
+          };
+         prn = msg[(lnot?2:0)+(lnew?1:0)];
+      }
+      cmd_printseq(0, PRNSEQ_INIT, 0);
+      cmd_printseq(prn(), pause?0:-1, 0);
+   } else
+      printf("There is no PID filter in use.\n");
+}
+
 void trace_list(const char *module, const char *group, int pause) {
    TStrings out;
    spstr     st;
@@ -484,8 +554,8 @@ static u32t printarg(int idx, int fidx, char *buf, mod_chaininfo *info, int in) 
         outpcnt = 0;
    u32t    *esp = (u32t*)(info->mc_regs->pa_esp + 4),
                  // buffer for/with output values
-         *ehbuf = in && outs? (u32t*)mem_alloc(TRACE_OWNER, activelist[idx], 
-                  sizeof(u32t)*outs) : (u32t*)info->mc_userdata;
+         *ehbuf = in && outs ? (u32t*)malloc_thread(sizeof(u32t)*outs) :
+                               (u32t*)info->mc_userdata;
 
    if (in_mtmode) {
       sprintf(buf, "<<%u:%u>> %s : ", mod_getpid(), mt_getthread(), in?"In":"Out");
@@ -653,11 +723,16 @@ static int _std hookmain(mod_chaininfo *info) {
    int enable = 1;
    u32t   opt = 0;
 
-   if (in_mtmode) {
+   if (in_mtmode || filter) {
+      mt_prcdata *pd;
       mt_thrdata *th;
       // hook called in MT lock, we`re safe to call mt_getdata here
-      mt_getdata(0, &th);
-      if (th->tiMiscFlags&TFLM_NOTRACE) enable = 0;
+      mt_getdata(&pd, &th);
+      if (th->tiMiscFlags&TFLM_NOTRACE) enable = 0; else
+      if  (filter) {
+         int idx = filter->IndexOf(pd->piPID);
+         enable  = Xor(idx>=0,filter_not);
+      }
    }
    if (enable) {
       // reset debug check for own alloc/free time

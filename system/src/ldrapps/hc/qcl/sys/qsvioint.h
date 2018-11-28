@@ -16,11 +16,14 @@ extern "C" {
 
 /// keyboard handler template class.
 typedef struct qs_kh_s {
+   /** first call after constructor.
+       This class creation must be used only by video handlers now, never call
+       them directly.
+       Setup format: empty string or 0 both for qs_kh_tty and qs_kh_vio.
+       @return error code or 0 */
    qserr _exicc (*init     )(const char *setup);
    /// output device for this instance (or 0)
    void* _exicc (*output   )(void);
-
-   u8t   _exicc (*avail    )(void);
    u16t  _exicc (*read     )(int wait, u32t *status);
    u32t  _exicc (*status   )(void);
 } _qs_kh, *qs_kh;
@@ -86,8 +89,7 @@ typedef struct qs_vh_s {
    /** first call after constructor.
        setup string format:
          qs_vh_tty:  "port;rate" or "port" for default 115200.
-         qs_kh_tty:  empty or 0, because should created by qs_vh_tty only.
-         qs_vh_vio, qs_kh_vio, qs_viobuf : empty or 0.
+         qs_vh_vio, qs_viobuf : empty or 0.
        @return error code or 0 */
    qserr _exicc (*init     )(const char *setup);
    /** input device for this instance.
@@ -97,9 +99,15 @@ typedef struct qs_vh_s {
    qs_kh _exicc (*input    )(void);
    /// graphic device for this instance (if available)
    qs_gh _exicc (*graphic  )(void);
-   /** information about this output handler.
-       Note, that mode_id field has no high part with a device nunber
-       here, but mode number itself (low word) must be a constant value.
+   /** information about this handler.
+       Note, that mode_id field has no high part with device number here,
+       but mode number itself (low word) must be a constant value.
+
+       If VHI_SLOW flag returned here, vio system starts to optimize
+       vio_writebuf() call on the device, handled by this class. It scans for
+       memory changes (in shadow copy of device memory) and then write only
+       mismatched data.
+       Now this logic used on TTY and native UEFI consoles.
 
        @param   modes   List of available modes in system heap (caller
                         must release it via free()), pointer can be 0.
@@ -149,13 +157,13 @@ typedef struct qs_vh_s {
    /** print string to the current cursor position.
        Note, that this is "low level" function and it ignore ANSI sequences!
        @param   str     string to print.
-       @return number of new lines occured (both \n and end of line), i.e. number
-               of scrolled lines. */
+       @return number of new lines occured (both \n and end of line), i.e.
+               number of scrolled lines. */
    u32t  _exicc (*strout   )(const char *str);
    /** write rect buffer to the screen.
        @return error code or 0 */
    qserr _exicc (*writebuf )(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch);
-   /** read rect from screen to a buffer.
+   /** copy rect from screen to buffer.
        @return error code or 0 */
    qserr _exicc (*readbuf  )(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch);
    /** return direct pointer to text memory.
@@ -163,12 +171,12 @@ typedef struct qs_vh_s {
        @return text buffer or zero */
    u16t* _exicc (*memory   )(void);
    /** draws a rectangle.
-       @param   col     Column
-       @param   line    Line
-       @param   width   Border width
-       @param   height  Border height
-       @param   ch      Character, use 0 for default (space)
-       @param   color   Color value */
+       @param   col     start column
+       @param   line    start line
+       @param   width   rectangle width
+       @param   height  rectangle height
+       @param   ch      character, use 0 for default (space)
+       @param   color   color value */
    void  _exicc (*fillrect )(u32t col, u32t line, u32t width, u32t height, char ch, u16t color);
 } _qs_vh, *qs_vh;
 
@@ -179,7 +187,7 @@ typedef struct qs_vh_s {
 #define VHSET_WRAPX   0x00010000   ///< move cursor to col 0 instead of new line
 #define VHSET_BLINK   0x00020000   ///< blink instead of intensity (vga only)
 #define VHSET_SHAPE   0x00040000   ///< low word contain cursor shape value
-#define VHSET_LINES   0x80000000   ///< bit mean that remain 31 is the line counter value
+#define VHSET_LINES   0x80000000   ///< bit means that remain 31 is a line counter value
 //@}
 
 /// @name qs_vh abilities
@@ -187,7 +195,7 @@ typedef struct qs_vh_s {
 #define VHI_ANYMODE       0x0001   ///< class MAY accept not only listed modes
 #define VHI_MEMORY        0x0002   ///< memory() function supported
 #define VHI_BLINK         0x0004   ///< blink supported
-#define VHI_SLOW          0x0008   ///< slow output: out on writebuf optimization
+#define VHI_SLOW          0x0008   ///< slow output: writebuf optimization
 //@}
 
 /** clone entire state of src.
@@ -198,7 +206,7 @@ typedef struct qs_vh_s {
                       will force setmode call and any other assumed as mode id
                       for setmodeid call. Mode id should be valid value for
                       dst instance.
-                      For zero value funtion will return error on mode mismatch.
+                      For the zero value function returns error on mode mismatch.
     @return  error code or 0 */
 qserr     _std se_clone(qs_vh src, qs_vh dst, u16t mode_id);
 
@@ -207,6 +215,7 @@ qserr     _std se_clone(qs_vh src, qs_vh dst, u16t mode_id);
 /** internal call for device substitution.
     Function checks new handler and enum existing sessions to verify - is new
     device able to support all of them?
+    Crazy code, actually, but called on every CONSOLE load/unload.
     @return 0 on success or error code. */
 qserr     _std se_deviceswap(u32t dev_id, qs_vh np, qs_vh *op);
 

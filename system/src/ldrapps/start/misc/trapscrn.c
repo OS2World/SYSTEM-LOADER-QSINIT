@@ -39,7 +39,7 @@ static char *trapinfo1 = "EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfo2 = "ESI=%08X EDI=%08X EBP=%08X ESP=%08X DR7=%08X",
             *trapinfo3 = "DS=%04X ES=%04X SS=%04X GS=%04X FS=%04X TR=%04X Error Code: %04X",
             *trapinfo3a= "DS=%04X ES=%04X SS=%04X GS=%04X FS=%04X TR=%04X",
-            *trapinfo4 = "CS:EIP=%04X:%08X      PID=%04d  TID=%04d    %s",
+            *trapinfo4 = "CS:EIP=%04X:%08X      PID=%03u  TID=%03u.%02u  %s",
             *trapinfo5 = "Unhandled exception in file %s, line %d",
             *trapinfoA = "RAX=%016LX  RBX=%016LX  RCX=%016LX",
             *trapinfoB = "RDX=%016LX  RSI=%016LX  RDI=%016LX",
@@ -48,7 +48,7 @@ static char *trapinfo1 = "EAX=%08X EBX=%08X ECX=%08X EDX=%08X DR6=%08X",
             *trapinfoE = "R14=%016LX  R15=%016LX  RBP=%016LX",
             *trapinfoF = "DR6=%08X DR7=%08X ",
             *trapinfoG = "CR0=%016LX  CR2=%016LX  CR3=%016LX",
-            *trapinfoH = "RIP=%016LX  RSP=%016LX     PID=%04d  TID=%04d",
+            *trapinfoH = "RIP=%016LX  RSP=%016LX     PID=%03u  TID=%03u.%02u",
             *trapinfoI = "Check failure for module \"%s\", PID %d",
             *trapinfoJ = "CR4=%016LX  GS.=%016LX  FS.=%016LX";
 
@@ -60,7 +60,7 @@ static char *trapname[20] = {"Divide Error Fault", "Step Fault", "",
    "Alignment Check Fault", "Machine Check Abort", "SIMD Floating-Point Error"};
 
 static char *softname[7] = {"Exception stack broken", "Exit hook failed",
-   "Unsupported exit() in dll module", "Shared class list damaged",
+   "exit() in system module", "Shared class list damaged",
    "Process data structures damaged", "Internal data is broken",
    "System error" };
 
@@ -239,6 +239,12 @@ static void dump_more(struct tss_s *ti, int level) {
    }
 }
 
+static u32t getfiber(void) {
+   mt_thrdata *th = mt_exechooks.mtcb_cth;
+   if ((u32t)th>=0x1000 && th->tiSign==THREADINFO_SIGN) return th->tiFiberIndex;
+   return 99;
+}
+
 /** system trap screen.
     file & line will be filled only on catched trap */
 void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
@@ -274,7 +280,8 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    trap_out(buffer);
    memcpy(th_rem, mt_getthreadname(), 16); th_rem[16] = 0;
    snprintf(buffer, PRNBUF_SIZE, trapinfo4, ti->tss_cs, ti->tss_eip,
-      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid, th_rem);
+      mt_exechooks.mtcb_cth->tiPID, mt_exechooks.mtcb_cth->tiTID,
+         ti->tss_reservdbl==8?99:getfiber(), th_rem);
    vio_setpos(9,3);
    trap_out(buffer);
    vio_setshape(VIO_SHAPE_NONE);
@@ -360,7 +367,8 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
    vio_setpos(14,3);
    trap_out(buffer);
    snprintf(buffer, PRNBUF_SIZE, trapinfoH, xd->x64_rip, xd->x64_rsp,
-      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid);
+      mt_exechooks.mtcb_cth->tiPID, mt_exechooks.mtcb_cth->tiTID,
+         ti->tss_reservdbl==8?99:getfiber());
    vio_setpos(16,3);
    trap_out(buffer);
 
@@ -417,7 +425,9 @@ void __stdcall log_dumpregs_int(struct tss_s *ti, int level) {
 
    memcpy(th_rem, mt_getthreadname(), 16); th_rem[16] = 0;
    snprintf(buffer, PRNBUF_SIZE, trapinfo4, ti->tss_cs, ti->tss_eip,
-      mt_exechooks.mtcb_ctxmem->pid, mt_exechooks.mtcb_ctid, th_rem);
+      mt_exechooks.mtcb_cth->tiPID, mt_exechooks.mtcb_cth->tiTID,
+         mt_exechooks.mtcb_cth->tiFiberIndex, th_rem);
+
    strncat(buffer, "\n", PRNBUF_SIZE);
    hlp_seroutstr(buffer); if (level>=0) log_push(level, buffer);
 

@@ -51,7 +51,7 @@ typedef enum {
            xcpt_intbrk  = 0xFFF9,           ///< internal data is broken
            xcpt_prcerr  = 0xFFFA,           ///< process data structs damaged
            xcpt_exierr  = 0xFFFB,           ///< shared class stack damaged
-           xcpt_interr  = 0xFFFC,           ///< exit called in dll module
+           xcpt_interr  = 0xFFFC,           ///< exit called in QSINIT module
            xcpt_hookerr = 0xFFFD,           ///< ebp changed in chained call
            xcpt_invalid = 0xFFFE,           ///< invalid call to _currentexception_
            xcpt_all     = 0xFFFF

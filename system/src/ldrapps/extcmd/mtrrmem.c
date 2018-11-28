@@ -2,6 +2,7 @@
 #include "qsbase.h"
 #include "qsint.h"
 #include "errno.h"
+#include "vioext.h"
 
 void shl_printmtrr(int nopause) {
    u32t flags, state, addrbits, idx,
@@ -212,43 +213,111 @@ u32t _std shl_mtrr(const char *cmd, str_list *args) {
 }
 
 u32t _std shl_mem(const char *cmd, str_list *args) {
-   static char *argstr   = "/a|/o|/m|/np|/log|hide";
-   static short argval[] = { 1, 1, 1,  1,   2,   1};
-   int   acpitable=0, os2table=0, nopause=0, idx, tolog=0, mtrr=0, hide=0;
+   static char *argstr   = "/a|/o|/m|/np|/log|hide|save";
+   static short argval[] = { 1, 1, 1,  1,   2,   1,   1 };
    u32t  maxblock, total, avail;
-   // help is in priority
+   int  acpitable = 0, os2table = 0, nopause = 0, idx, tolog = 0, mtrr = 0,
+             hide = 0, save = 0;
+   qserr      res = E_SYS_INVPARM;
+   int      nomsg = 0;
+   // help is in the priority
    if (str_findkey(args, "/?", 0)) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
    args = str_parseargs(args, 0, 1, argstr, argval, &acpitable, &os2table, 
-                        &mtrr, &nopause, &tolog, &hide);
-   if (hide) {
-      int    ii, rc = -1;
+                        &mtrr, &nopause, &tolog, &hide, &save);
+
+   if (save && !hide && (args->count==3 || args->count==2 &&
+      stricmp(args->item[1],"ALL")==0) && !acpitable && !os2table && !mtrr)
+   {
+      u64t   start = args->count==3 ? strtoull(args->item[1], 0, 16) : 0,
+               len = args->count==3 ? strtoull(args->item[2], 0, 16) : sys_endofram();
+      if (len)
+         if (start + len < start) {
+            printf("Address range cannot cross 0.\n");
+            nomsg++;
+         } else
+         if (start<_4GBLL && start + len>_4GBLL) {
+            printf("Address range cannot cross 4Gb border.\n");
+            nomsg++;
+         } else {
+            io_handle fh = 0;
+            res = io_open(args->item[0], IOFM_CREATE_NEW|IOFM_WRITE|IOFM_SHARE, &fh, 0);
+            if (!res) res = io_setsize(fh, len);
+            if (!res) {
+               void *mem = hlp_memalloc(_64KB, QSMA_RETERR|QSMA_NOCLEAR|QSMA_LOCAL);
+               if (!mem) res = E_SYS_NOMEM; else {
+                  while (len) {
+                     u32t towr = len>_64KB?_64KB:len, succ;
+                     u16t  key = key_wait(0);
+                     void *src = mem;
+                     if ((key&0xFF)==27) {
+                        char msg[64];
+                        snprintf(msg, 64, "Break process?^Current position is %LX", start);
+                        if (vio_msgbox("mem save", msg, MSG_LIGHTRED|MSG_DEF2|
+                           MSG_YESNO, 0)==MRES_YES) { res = E_SYS_UBREAK; break; }
+                     }
+                     /* both disk i/o buffer & page 0 located in 1st Mb, so
+                        copy it via buffer, as well as memory above 4Gb.
+                        For memory above 1st Mb use hlp_memcpy() just as
+                        test for exception */
+                     if (start>=_4GBLL)
+                        succ = sys_memhicopy((u32t)mem, start, towr);
+                     else {
+                        succ = hlp_memcpy(mem, (u8t*)(u32t)start, towr, MEMCPY_PG0);
+                        if (succ && start>=_1MB) src = (void*)(u32t)start;
+                     }
+
+                     if (!succ) {
+                        printf("Memory access error at pos %LX.\n", start);
+                        nomsg++; res = E_SYS_SOFTFAULT;
+                        break; 
+                     }
+                     if (io_write(fh, src, towr)<towr) {
+                        printf("Disk write error at pos %LX.\n", start);
+                        nomsg++; res = E_DSK_ERRWRITE;
+                        break; 
+                     }
+                     start += towr;
+                     len   -= towr;
+                  }
+                  hlp_memfree(mem);
+               }
+            }
+            if (fh)
+               if (!res) res = io_close(fh); else {
+                  io_close(fh);
+                  io_remove(args->item[0]);
+               }
+         }   
+   } else
+   if (hide && !save && !mtrr) {
+      int        ii;
       // merge it back to get comma separated list
       char    *line = str_gettostr(args, " ");
       str_list *cml = str_split(line, ",");
       free(line);
 
-      for (ii=0; ii<cml->count && rc<=0; ii++) {
+      for (ii=0, res=0; ii<cml->count && res==0; ii++) {
          str_list *crange = str_split(cml->item[ii], " ");
          if (crange->count!=2) {
             printf("Invalid range argument at pos %i (%s).\n", ii+1, cml->item[ii]);
-            rc = EINVAL;
+            nomsg++; res = E_SYS_INVPARM;
          } else {
             u64t addr = strtoull(crange->item[0],0,16),
                   len = strtoull(crange->item[1],0,16);
             if (!addr || !len) {
                printf("Start address and length cannot be zero.\n");
-               rc = EINVAL;
+               nomsg++; res = E_SYS_INVPARM;
             } else
             if ((addr&PAGEMASK)!=0 || (len&PAGEMASK)!=0) {
                printf("Both start address and length must be aligned to page size (4kb).\n");
-               rc = EINVAL;
+               nomsg++; res = E_SYS_INVPARM;
             } else
             if (addr>=(u64t)sys_endofram()) {
                printf("Start address beyond the end of physical memory.\n");
-               rc = EINVAL;
+               nomsg++; res = E_SYS_INVPARM;
             } else {
                u32t      pages = len>>PAGESHIFT, errcnt = 0,
                         staddr = addr;
@@ -279,29 +348,33 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                if (errcnt)
                   printf("%d error(s) occured while hiding range %08X..%08X.\n",
                      errcnt, staddr, staddr+len-1);
-               rc = errcnt?EACCES:0;
+               res = errcnt?E_SYS_ACCESS:0;
             }
          }
          free(crange);
       }
-      free(cml); free(args);
-      if (rc<0) cmd_shellerr(EMSG_CLIB, rc=EINVAL, 0);
-      // continue mem on /o or /a without error
-      if (rc || !os2table && !acpitable) return rc;
+      free(cml);
    } else 
-   if (args->count>0) {
-      // uncknown args in source string
-      cmd_shellerr(EMSG_CLIB, EINVAL, 0); free(args);
-      return EINVAL;
+   if (args->count>0 || hide || save) {
+      // unknown / invalid combination of arguments in source string
+      res = E_SYS_INVPARM;
    } else
-      free(args);
-   args = 0;
+      res = 0;
 
+   free(args);
+   args = 0;
+   if (res) {
+      if (!nomsg) cmd_shellerr(EMSG_QS, res, 0);
+      return qserr2errno(res);
+   }
+   if (save) return 0;
+   // continue with /o or /a even after hide/save command
+   if (hide && !os2table && !acpitable) return 0;
 
    cmd_printseq(0, 1+tolog, 0);
    avail = hlp_memavail(&maxblock, &total);
 
-   cmd_printseq("Total memory: %dkb, available %dkb\n"
+   cmd_printseq("Loader memory: %dkb, available %dkb\n"
       "Maximum available block size: %d kb", 0, 0, total>>10, avail>>10,
          maxblock>>10);
 
@@ -312,14 +385,19 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       cmd_printseq("\nPhysical memory, available for OS/2:", 0, 0);
       for (idx=0;idx<phm_count;idx++)
          if (cmd_printseq("%2d. Address:%08X Size:%7u kb", nopause?-1:0, 0,
-            idx+1, phm[idx].startaddr, phm[idx].blocklen>>10)) return EZERO;
+            idx+1, phm[idx].startaddr, phm[idx].blocklen>>10)) return 0;
    }
    if (acpitable) {
       AcpiMemInfo *tbl = hlp_int15mem();
+      u32t       memsz = 0;
       // copying data from disk buffer first
       idx = 0;
-      while (tbl[idx].LengthLow||tbl[idx].LengthHigh) idx++;
-      cmd_printseq("\nPC physical memory table:", 0, 0);
+      while (tbl[idx].LengthLow||tbl[idx].LengthHigh) {
+         if (tbl[idx].AcpiMemType==1)
+            memsz += (tbl[idx].LengthHigh<<22) + (tbl[idx].LengthLow>>10);
+         idx++;
+      }
+      cmd_printseq("\nPC physical memory table (%ukb available):", 0, 0, memsz);
       if (idx) {
          int  ii;
          for (ii=0; ii<idx; ii++) {
@@ -327,10 +405,11 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
             u32t  szk = tbl[ii].LengthHigh<<22;
             int btidx = tbl[ii].AcpiMemType;
             static char *btype[] = { "usable", "reserved", "reserved (ACPI)",
-               "reserved (NVS)", "unuseable", "unknown" };
-            static u8t color[] = { 0x0A, 0x0C, 0x0E, 0x0E, 0x08, 0x06 };
-
-            btidx = btidx>5||!btidx?5:btidx-1;
+               "reserved (NVS)", "unusable", "used by UEFI", "unknown" };
+            static u8t color[] = { 0x0A, 0x0C, 0x0E, 0x0E, 0x08, 0x0E, 0x06 };
+            /* types 5 & 6 are custom, added by our`s EFI host, common BIOS
+               should never return it */
+            btidx = btidx>6||!btidx ? 6 : btidx-1;
 
             if (cmd_printseq("%2d. Address:%02X%08X  Size:%10d kb - %s",
                nopause?-1:0, color[btidx], ii+1, tbl[ii].BaseAddrHigh,
@@ -341,5 +420,5 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       free(tbl);
    }
    if (mtrr) shl_printmtrr(nopause);
-   return EZERO;
+   return 0;
 }

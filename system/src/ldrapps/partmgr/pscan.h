@@ -85,20 +85,20 @@ qserr     dsk_flushquad(u32t disk, u32t quadpos);
 
 /** is pt sector contain only empty records?
     @param info     disk info table
-    @param quadidx  index (0 for primary, 1..x - extended)
+    @param quadpos  index (0 for primary, 1..x - extended)
     @param ign_ext  ignore extended partition records
     @return boolean (1/0) */
 u32t      dsk_isquadempty(hdd_info *info, u32t quadpos, int ign_ext);
 
 /** find index of extended record in sector`s partition table.
     @param info     disk info table
-    @param quadidx  index (0 for primary, 1..x - extended)
+    @param quadpos  index (0 for primary, 1..x - extended)
     @return 0..3 for index of -1 on error */
 int       dsk_findextrec(hdd_info *info, u32t quadpos);
 
 /** find index of logical partition record in sector`s partition table.
     @param info     disk info table
-    @param quadidx  index (0 for primary, 1..x - extended)
+    @param quadpos  index (0 for primary, 1..x - extended)
     @return 0..3 for index of -1 on error */
 int       dsk_findlogrec(hdd_info *info, u32t quadpos);
 
@@ -200,7 +200,7 @@ u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value);
 
 /** scan sectors for DLAT record.
     @param  disk        disk number
-    @param  start       start sector (zero is NOT accepted)
+    @param  sector      start sector (zero is NOT accepted)
     @param  count       number of sectors to scan
     @return 0 if not found or error occured, else sector number. */
 u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count);

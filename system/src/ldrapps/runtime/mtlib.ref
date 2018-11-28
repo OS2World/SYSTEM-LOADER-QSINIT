@@ -2,22 +2,32 @@ type = dll
 name = "MTLIB"
 
 exports = {
-   _shl_detach          = { index = 1   group = "shell" format="usp"     }
-   _shl_start           = { index = 2   group = "shell" format="usp"     }
-
+   _shl_detach          = { index = 1   group="shell"   format="usp"     }
+   _shl_start           = { index = 2   group="shell"   format="usp"     }
+   _shl_stop            = { index = 3   group="shell"   format="usp"     }
+   
    _mt_createthread     = { index = 10  group="mt"      format="up@upp"  }
    _mt_exitthread       = { index = 11  group="mt"      format="Vu"      }
-   _mt_termthread       = { index = 12  group="mt"      format="Vuu"     }
+   _mt_termthread       = { index = 12  group="mt"      format="Vuuu"    }
    _mt_getfiber         = { index = 14  group="mt"      format="uv"      }
-   _mt_setfiber         = { index = 15  group="mt"      format="uuu"     }
+   _mt_switchfiber      = { index = 15  group="mt"      format="@uui"    }
    _mt_resumethread     = { index = 16  group="mt"      format="@uuu"    }
-   _mt_threadname       = { index = 17  group="mt"      format="@us"     }
+   # _mt_threadname moved to START
+   _mt_suspendthread    = { index = 18  group="mt"      format="@uuuu"   }
+   _mt_createfiber      = { index = 19  group="mt"      format="up@upp"  }
 
    _mt_dumptree         = { index = 30  group="misc"    format="vv"      }
+   _mt_checkpidtid      = { index = 31  group="misc"    format="@uuu"    }
 
    _mt_waitobject       = { index = 40  group="sync"    format="@upu@u&*u" }
 
    _mod_execse          = { index = 50  group="exec"    format="@u@uss@u@u&*us" }
+   _mod_stop            = { index = 51  group="exec"    format="@uuiu"   }
+
+   _mt_setsignal        = { index = 60  group="signal"  format="pp"      }
+   _mt_sendsignal       = { index = 61  group="signal"  format="@uuuu@u" }
+
+   _se_tasklist         = { index = 70  group="signal"  format="@u@u"    }
 }
 
 class = {
@@ -25,11 +35,21 @@ class = {
    entries = {
       initialize   = "upp"
       active       = "upp"
-      getmodpid    = "uppp"
+      getmodpid    = "uppp&*u"
       waitobject   = "@upppu@u&*u"
-      createthread = "uppp@upp"
-      resumethread = "@uppuu"
-      threadname   = "@upps"
+      thcreate     = "uppp@upp"
+      thsuspend    = "@uppuuu"
+      thresume     = "@uppuu"
+      thstop       = "@uppuuu"
+      thname       = "@upps"
+      thexit       = "Vppu"
       execse       = "@upp@uss@u@u&*us"
+      createfiber  = "uppp@upp"
+      switchfiber  = "@uppui"
+      sendsignal   = "@uppuuu@u"
+      setsignal    = "pppp"
+      stop         = "@uppuiu"
+      checkpidtid  = "@uppuu"
+      tasklist     = "@upp@u"
    }
 }

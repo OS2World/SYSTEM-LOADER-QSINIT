@@ -36,10 +36,14 @@ u32t TSysApp::GetDiskDialog(int floppies, int vdisks, int dlgtype) {
    u32t         ii, dcnt = 0;
    if (!floppies) fdd_cnt = 0;
    if (!vdisks) vdsk_cnt = 0;
-
+#if 0
    for (ii=0; ii<vdsk_cnt; ii++)
       if (add_str(dl, disknum[dcnt] = DSK_VIRTUAL|ii^1, ii?
          "Boot partition       ":"Virtual disk         ")) dcnt++;
+#else
+   if (vdsk_cnt>=1)
+      add_str(dl, disknum[dcnt++] = DSK_VIRTUAL, "Boot partition       ");
+#endif
    // floppies
    for (ii=0; ii<fdd_cnt; ii++) {
       char stb[48];

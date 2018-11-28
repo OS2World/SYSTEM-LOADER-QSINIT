@@ -193,22 +193,70 @@ str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
 #define AllowSet " ^\r\n"
 #define CarrySet "-"
 
-u32t _std cmd_printtext(TStrings res, int pause, int init, u8t color) {
-   if (init) pause_println(0,1);
-   for (int ln=0; ln<res.Count(); ln++)
-      if (pause_println(res[ln](), pause?0:-1, color)) return 1;
+static u32t cmd_printtext(TStrings &res, int flags, u8t color) {
+   if (flags!=0 && flags!=-1 && (flags&PRNSEQ_INIT)) {
+      pause_println(0, flags);
+      flags = flags&PRNSEQ_NP?-1:0;
+   }
+   if (pause_println(res.GetTextToStr().dellast()(), flags, color)) return 1;
    return 0;
 }
 
-u32t _std cmd_printtext(const char *text, int pause, int init, u8t color) {
+u32t _std cmd_printtext(const char *text, int flags, u8t color) {
    if (!text) return 0;
-   TStrings res;
-   u32t     dX, ln;
+   TStrings  res;
+   u32t   dX, ln;
+   int        np = flags==-1,
+        helpmode = !np && (flags&PRNTXT_HELPMODE);
+   /* "flags" is a bit crazy arg: -1 here is a special value, but bit flags are
+      used too. Dumb way, but pause_println() used too often to change it */
+   if (helpmode) flags &= ~PRNTXT_HELPMODE;
 
    vio_getmode(&dX,0);
-   splittext(text, dX, res);
-   return cmd_printtext(res, pause, init, color);
+
+   splittext(text, dX, res, helpmode?SplitText_HelpMode:0);
+   return cmd_printtext(res, flags, color);
 }
+
+qserr _std cmd_printfile(qshandle handle, long len, int flags, u8t color) {
+   if (!len) return E_SYS_INVPARM;
+   // query file first
+   u64t  fsz;
+   qserr res = io_size(handle, &fsz);
+   if (res) return res;
+   u64t fpos = io_pos(handle);
+   if (fpos==FFFF64) return io_lasterror(handle);
+   // the same note as in cmd_printtext() above
+   int split = flags!=-1 && (flags&PRNFIL_SPLITTEXT);
+   if (split) flags &= ~PRNFIL_SPLITTEXT;
+   // validate data length
+   if (len<0) len = fsz-fpos>x7FFF ? x7FFF : fsz - fpos; else
+      if (fsz-fpos < len) len = fsz-fpos;
+   if (!len) return E_SYS_EOF;
+
+   char *txbuf = (char*)hlp_memalloc(len+1, QSMA_RETERR|QSMA_NOCLEAR|QSMA_LOCAL);
+   if (!txbuf) return E_SYS_NOMEM;
+
+   if (io_read(handle, txbuf, len) < len) res = E_DSK_ERRREAD; else {
+      if (txbuf[len-1]=='\n') len--;
+      if (len && txbuf[len-1]=='\r') len--;
+      if (len) {
+         txbuf[len] = 0;
+         if (split) {
+            if (cmd_printtext(txbuf, flags, color)) res = E_SYS_UBREAK;
+         } else {
+            if (flags!=0 && flags!=-1 && (flags&PRNSEQ_INIT)) {
+               pause_println(0, flags);
+               flags = flags&PRNSEQ_NP?-1:0;
+            }
+            if (pause_println(txbuf, flags, color)) res = E_SYS_UBREAK;
+         }
+      }
+   }
+   hlp_memfree(txbuf);
+   return res;
+}
+
 
 static void _std freadfull_callback(u32t percent, u32t readed) {
    char *cp = (char*)mt_tlsget(QTLS_SFINT1);
@@ -233,7 +281,6 @@ static void _std freadfull_callback(u32t percent, u32t readed) {
 void* hlp_freadfull_progress(const char *name, u32t *bufsize) {
    char *srcname = 0;
    mt_tlsset(QTLS_SFINT1, (u32t)(srcname = strdup(name)));
-//                            printf("caching %s ",al[idx]());
    void *ptr = hlp_freadfull(name, bufsize, freadfull_callback);
    free(srcname);
    printf("\n");
@@ -270,8 +317,9 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
             if (al.Count()>0) {
                u8t  *is_boot = new u8t [al.Count()],
                       sfattr = _A_ARCH;
-               u32t *bt_len  = frombp?new u32t[al.Count()]:0,
-                     bt_type = hlp_boottype(), opena;
+               u32t  *bt_len = frombp? new u32t[al.Count()] : 0,
+                     bt_type = hlp_boottype(), opena,
+                       bt_vi = frombp? hlp_volinfo(DISK_BOOT, 0) : FST_NOTMOUNTED;
                time_t sftime = 0,
                       sctime = 0;
                // zero source pointers/handles
@@ -279,12 +327,13 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                rc = 0;
                for (idx=0;idx<al.Count();idx++) {
                   is_boot[idx] = 0;
+                  // try to allow directories in micro-FSD
                   if (frombp)
-                     if (al[idx][1]!=':' && al[idx].cpos('\\')<0 &&
-                        al[idx].cpos('/')<0) is_boot[idx] = 1;
-                  // switch it to normal file i/o on FAT
-                  if (is_boot[idx] && (bt_type==QSBT_FAT || bt_type==QSBT_SINGLE)) {
-                     al[idx].insert("0:\\",0);
+                     if (al[idx][1]!=':' /*&& al[idx].cpos('\\')<0 &&
+                        al[idx].cpos('/')<0*/) is_boot[idx] = 1;
+                  // switch it to normal file i/o on FAT (if mounted one)
+                  if (is_boot[idx] && bt_vi>=FST_FAT12 && bt_vi<=FST_EXFAT) {
+                     al[idx].insert("A:\\",0);
                      is_boot[idx] = 0;
                   }
                   // from boot partition?
@@ -294,15 +343,11 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                                           hlp_freadfull_progress(al[idx](), bt_len+idx);
                         if (!ptr) { rc=ENOENT; break; }
                         al.Objects(idx) = ptr;
-                     } else
-                     if (bt_type==QSBT_FSD) {
+                     } else {
                         // only check presence here
                         if (hlp_fopen(al[idx]())==FFFF) { rc=ENOENT; break; }
                         hlp_fclose();
                         al.Objects(idx) = 0;
-                     } else {
-                        // unknown boot type or no partition
-                        rc=ENODEV; break;
                      }
                   } else {
                      // get time of first source for target
@@ -427,7 +472,7 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                delete is_boot;
             }
          }
-         if (rc>0) log_it(3, "copy err %d, file \"%s\"\n", rc, dst());
+         if (rc>0) log_it(3, "copy err %X, file \"%s\"\n", rc, dst());
          if (beep) {
             vio_beep(rc>0?200:700,40);
             while (vio_beepactive()) usleep(5000);
@@ -458,7 +503,7 @@ u32t _std shl_type(const char *cmd, str_list *args) {
 
       al.TrimEmptyLines();
       if (al.Count()>=1) {
-         u32t bt_type = hlp_boottype();
+         u32t bt_vi = frombp? hlp_volinfo(DISK_BOOT, 0) : FST_NOTMOUNTED;
          // init "paused" output
          pause_println(0, nopause?PRNSEQ_INITNOPAUSE:PRNSEQ_INIT);
          // print files
@@ -470,17 +515,14 @@ u32t _std shl_type(const char *cmd, str_list *args) {
             if (frombp)
                if (name[1]!=':' && name.cpos('\\')<0 && name.cpos('/')<0)
                   is_boot = 1;
-            if (is_boot) {
-               if (bt_type==QSBT_FAT) {
-                  name.insert("0:\\",0);
+            if (is_boot)
+               if (bt_vi!=FST_NOTMOUNTED) {
+                  name.insert("A:\\",0);
                   is_boot = 0;
-               } else {
-                  if (bt_type==QSBT_PXE||bt_type==QSBT_FSD)
-                     f_data = (char*)hlp_freadfull(name(),&f_size,0);
-                        else { rc=ENODEV; break; }
-               }
-            }
-            if (!is_boot) f_data = (char*)freadfull(name(),&f_size);
+               } else
+                  f_data = (char*)hlp_freadfull(name(), &f_size, 0);
+            // non-boot source
+            if (!is_boot) f_data = (char*)freadfull(name(), &f_size);
             if (!f_data) { rc=ENOENT; break; }
 
             if (al.Count()>1) {
@@ -510,6 +552,7 @@ struct dir_cbinfo {
    int      shortfmt;
    int       mask_on;
    long     file_cnt;
+   u32t      dir_cnt;
    int        inited;
    int        crtime;
    int     check_esc;
@@ -582,9 +625,12 @@ static void dir_total(unsigned drive, dir_cbinfo *cbi) {
    if (!cbi->shortfmt && cbi->inited) {
       spstr sum;
       if (cbi->file_cnt) {
-         sum.sprintf("\n%s in %d files", dsk_formatsize(1024,cbi->sizetotal,10,0),
-            cbi->file_cnt);
-         pause_println(sum(),cbi->dir_npmode);
+         u32t fcnt = cbi->file_cnt-cbi->dir_cnt,
+              dcnt = cbi->dir_cnt+1;
+         sum.sprintf(dcnt>1 ? "\n%s in %u file%s and %u director%s" : 
+            "\n%s in %u file%s", dsk_formatsize(1024,cbi->sizetotal,10,0),
+               fcnt, fcnt>1?"s":"", dcnt, dcnt>1?"ies":"y");
+         pause_println(sum(), cbi->dir_npmode);
       }
       diskfree_t df;
       if (!_dos_getdiskfree(drive+1,&df)) {
@@ -606,10 +652,10 @@ static void dir_wide(dir_t *pd, dir_cbinfo *cbi, TPtrStrings &dstack) {
       // +2 for []
       if ((pd[ii].d_attr&_A_SUBDIR)!=0) {
          ln+=2;
-         if (pd[ii].d_sysdata) {
+         if (pd[ii].d_subdir) {
             spstr dirname;
             dir_mkrelpath(cbi, pd+ii, dirname);
-            dstack.AddObject(dirname, pd[ii].d_sysdata);
+            dstack.AddObject(dirname, pd[ii].d_subdir);
          }
       }
       if (ln>maxlen) maxlen = ln;
@@ -684,6 +730,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
       cbi.sizetotal  = 0;
       cbi.shortfmt   = shortfmt;
       cbi.file_cnt   = 0;
+      cbi.dir_cnt    = 0;
       cbi.inited     = 0;
       cbi.crtime     = crtime;
       cbi.check_esc  = nopause && isatty(fileno(stdo));
@@ -715,8 +762,9 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
             }
             // print header on dir mismatch only
             if (!cbi.shortfmt && (!idx||stricmp(drive(),al[idx-1]())!=0)) {
-               spstr head;
                disk_volume_data vinf;
+               spstr            head;
+               int           needeol = cbi.inited; // eol beteen total & next dir header
                dir_total(ldrive, &cbi);
 
                hlp_volinfo(drive[0]-'A', &vinf);
@@ -730,6 +778,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                                   drive[0], lbon?"i":"ha", lbon?vinf.Label:"no label",
                                   vinf.SerialNum>>16,vinf.SerialNum&0xFFFF);
                }
+               if (needeol) head.insert("\n",0);
                if (pause_println(head(),cbi.dir_npmode)) return EINTR;
                if (vinf.FsVer==0) continue;
             }
@@ -740,7 +789,7 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
                * in normal mode - one by one, via callback
                * in wide mode - read all, then print */
             u32t count = _dos_readtree(drive(), name(), wide?&fdl:0, subdirs,
-                                       wide?0:readtree_cb, &cbi);
+                                       &cbi.dir_cnt, wide?0:readtree_cb, &cbi);
             if (wide && count>0) {
                TPtrStrings dstack;
                dstack.AddObject("", fdl);
@@ -810,13 +859,10 @@ int _std cmd_shellhelp(const char *cmd, u8t color) {
    char *msg = cmd_shellgetmsg(cmd);
    if (!msg) return 0;
    // enable ANSI for the time of help message printing...
-   u32t state = vio_setansi(1);
+   ansi_push_set a_on(1);
 
-   cmd_printseq(0,1,color);
-   cmd_printtext(msg,1,1,color);
+   cmd_printtext(msg, PRNSEQ_INIT|PRNTXT_HELPMODE, color);
    free(msg);
-
-   if (!state) vio_setansi(0);
 
    return 1;
 }
@@ -831,11 +877,11 @@ u32t _std shl_help(const char *cmd, str_list *args) {
       char    *list = str_gettostr(lst,", "),
               *cend = strrchr(list,',');
       if (cend) *cend = 0;
-      cmd_printtext("Help:\n\nHELP [command]\n",1,1,CLR_HELP);
+      cmd_printtext("Help:\n\nHELP [command]\n", PRNSEQ_INIT, CLR_HELP);
       spstr cmlist(list);
       free(list);
       cmlist.insert("available commands: ",0);
-      cmd_printtext(cmlist(),1,0,CLR_HELP);
+      cmd_printtext(cmlist(), 0, CLR_HELP);
       return 0;
    }
 
@@ -850,7 +896,7 @@ u32t _std shl_help(const char *cmd, str_list *args) {
          if (!cmd_shellhelp(cmh(),CLR_HELP)) {
             spstr msg;
             msg.sprintf("\nThere is no help entry for \"%s!\"\n",cmh());
-            cmd_printtext(msg(),1,1,CLR_HELP);
+            cmd_printtext(msg(), PRNSEQ_INIT, CLR_HELP);
          }
          rc = 0;
       }
@@ -937,8 +983,8 @@ void dir_to_list(spstr &Dir, dir_t *info, d exclude_attr, TStrings &rc, TStrings
          if ((di->d_attr&exclude_attr)==0) rc.AddObject(cname,di->d_attr);
          // add dir to stack
          if ((di->d_attr&_A_SUBDIR) && strcmp(di->d_name,"..")) {
-            stack.AddObject(cname,di->d_sysdata);
-            if (dirs) dirs->AddObject(cname,di->d_attr);
+            stack.AddObject(cname, di->d_subdir);
+            if (dirs) dirs->AddObject(cname, di->d_attr);
          }
          di++;
       }
@@ -1012,7 +1058,7 @@ u32t _std shl_del(const char *cmd, str_list *args) {
             if (mask || subdir) {
                // read tree
                dir_t *info = 0;
-               u32t cnt = _dos_readtree(dir(), name(), &info,subdir, 0, 0);
+               u32t cnt = _dos_readtree(dir(), name(), &info, subdir, 0, 0, 0);
                if (info) {
                   if (cnt) dir_to_list(dir, info, (force?0:_A_RDONLY)|
                      _A_SUBDIR|_A_VOLID, dellist, edirs?&dirlist:0);
@@ -1178,24 +1224,57 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
          pause_println(0, nopause?PRNSEQ_INITNOPAUSE:PRNSEQ_INIT);
 
          if (list) {
-            if (verb) log_mdtdump_int(cmd_printf); else {
+            if (verb) {
+               FILE   *ts = tmpfile();
+               qserr perr = 0;
+               if (ts) {
+                  /* save MDT dump into a temporary file and then print it.
+                     This is mandatory way, because LDR mutex locked during
+                     log_mdtdump_int() call and using "pause" on it will stop
+                     any module related activity in other processes */
+                  mt_tlsset(QTLS_TPRINTF, (ptrdiff_t)ts);
+                  log_mdtdump_int(tprintf);
+                  mt_tlsset(QTLS_TPRINTF, 0);
+                  rewind(ts);
+                  qserr perr = cmd_printfile(_os_handle(fileno(ts)), -1, 0, 0);
+                  if (perr==E_SYS_UBREAK) perr = 0;
+                  // auto-delete is on for tmpfile()
+                  fclose(ts);
+               }
+               if (perr || !ts) cmd_printf("Unable to create temporary file.\n");
+            } else {
                module_information *mi = 0;
                u32t  cmi = mod_enum(&mi), ii;
+
+               cmd_printf(" Nø  module name               spec   pid   parent  code sz   data sz\n"
+                          "--- --------------------- --- ------ ------ ------ --------- ---------\n");
 
                for (ii=0; ii<cmi; ii++) {
                   int islib = mi[ii].flags&MOD_LIBRARY,
                       issys = mi[ii].flags&MOD_SYSTEM;
-                  char pstr[32];
+                  char pstr[48], cstr[24], dstr[24];
 
                   if (mi[ii].flags & MOD_EXECPROC) {
-                     snprintf(pstr, 32, "pid:%u", mod_getmodpid(mi[ii].handle));
+                     u32t ppid = 0,
+                           pid = mod_getmodpid(mi[ii].handle, &ppid);
+                     snprintf(pstr, 48, ppid?"%6u %6u ":"%6u        ", pid, ppid);
                   } else 
-                     pstr[0] = 0;
+                     strcpy(pstr, "              ");
 
-                  cmd_printf("%3u. " ANSI_WHITE "%-20s" ANSI_RESET " %s %s%s\n",
-                     ii+1, mi[ii].name, islib?ANSI_YELLOW "DLL" ANSI_RESET:
+                  u32t dsz = 0, csz = 0, obj, osz, ofl;
+                  for (obj=0; obj<mi[ii].objects; obj++)
+                     if (!mod_objectinfo(mi[ii].handle, obj, 0, &osz, &ofl, 0))
+                        if (ofl&4) csz+=osz; else // OBJEXEC
+                           if ((ofl&0x88)==0) dsz+=osz; // all except OBJRSRC & OBJINVALID
+                  if (csz<1024) strcpy(cstr, csz?"    <1 kb ":"          "); else
+                     snprintf(cstr, 24, " %8s ", dsk_formatsize(1,csz,0,0));
+                  if (dsz<1024) strcpy(dstr, dsz?"    <1 kb ":"          "); else
+                     snprintf(dstr, 24, " %8s ", dsk_formatsize(1,dsz,0,0));
+
+                  cmd_printf("%3u  " ANSI_WHITE "%-20s" ANSI_RESET " %s %s%s%s%s\n",
+                     ii+1, mi[ii].name, islib?ANSI_YELLOW "lib" ANSI_RESET:
                         ANSI_LGREEN "EXE" ANSI_RESET, issys?
-                           ANSI_LRED "system " ANSI_RESET:"", pstr);
+                           ANSI_LRED "system" ANSI_RESET:"      ", pstr, cstr, dstr);
                }
             }
             rc = 0;
@@ -1381,6 +1460,29 @@ u32t _std shl_trace(const char *cmd, str_list *args) {
          if (al[0]=="LIST") {
             trace_list(al.Count()>1?al[1]():0,al.Count()>2?al[2]():0,!nopause);
             rc = 0;
+         } else
+         if (al[0]=="PIDLIST") {
+            if (al.Count()==1) {
+               trace_pid_list(!nopause);
+               rc = 0;
+            }
+         } else {
+            int lnot = 0, lnew = 0;
+            if (al[0][0]=='!') { lnot=1; al[0].del(0); }
+            if (al[0].lastchar()=='+') { lnew=1; al[0].dellast(); }
+
+            if (al[0]=="PID") {
+               TList lpid;
+               for (int ii=1; ii<al.Count(); ii++) {
+                  u32t pv = al[ii].Dword();
+                  if (!pv || !mod_checkpid(pv)) { rc=ESRCH; break; }
+                  lpid.Add(pv);
+               }
+               if (rc<0) {
+                  rc = 0;
+                  trace_pid(lpid, lnot, lnew);
+               }
+            }
          }
       }
    }
@@ -1532,10 +1634,11 @@ u32t _std shl_date(const char *cmd, str_list *args) {
    }
    if (al.Count()==0 || al.Count()==1 && !setd) {
       if (al.Count()==0 && !quiet) {
+         char str[32];
          time(&tmv);
          localtime_r(&tmv,&tme);
-         printf("The current date is: %02d.%02d.%04d\n", tme.tm_mday, tme.tm_mon+1,
-            tme.tm_year+1900);
+         strftime(str, sizeof(str), "%A, %d.%m.%Y", &tme);
+         printf("The current date is %s\n", str);
       }
 
       if (setd) {
@@ -1769,7 +1872,8 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
          rc = 0;
       } else
       if (al[1]=="LIST") {
-         printf("Unsupported for this device.\n");
+         if (al.Count()==3 && al[2].upper()=="FS") fs_list_int(printf);
+            else printf("Unsupported for this device.\n");
          rc = 0;
       } else {
          int ii;
@@ -2022,7 +2126,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
          if (mask || subdir) {
             // read tree
             dir_t *info = 0;
-            u32t cnt = _dos_readtree(drive(),name(),&info,subdir,0,0);
+            u32t cnt = _dos_readtree(drive(),name(),&info,subdir,0,0,0);
             if (info) {
                if (cnt) dir_to_list(drive, info, (idirs?0:_A_SUBDIR)|
                   _A_VOLID, flist, 0);

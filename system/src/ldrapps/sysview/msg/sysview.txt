@@ -35,10 +35,12 @@ To run a batch file use command processor:
 [X] Pause on Exit - will make pause after program exit.
 
 Be careful, shell commands executed in THIS process context. This mean
-some side effects like ability of open and write to a file, which is
-editing in binary file editor. Another example is SET command, which
-affects this process environent, when executed directly (i.e. without
-command processor).
+some side effects like ability to open and write into a file, which is
+in editing in binary file editor, as well as missing reaction on Ctrl-C
+in MT mode.
+
+Another example is SET command, which affects this process environment,
+when executed directly (i.e. without command processor).
 
 .topic ViewLog=2030
  System≥View log ‹
@@ -208,7 +210,7 @@ Physical sector/memory/binary file editor window.
 Be careful, if you will press "Yes" in confirmation dialog - all changes in
 the current block will be written to the destination (disk/memory location)!
 
-All actual changes is marked by red color.
+All actual changes are marked by red color.
 
 Available keys:
 
@@ -216,7 +218,7 @@ Available keys:
 
 * Arrows/PageUp/PageDown - navigation
 
-* Tab or Shift-Tab - switch between hex/asc editing
+* Tab or Shift-Tab - switch between hex/asc columns
 
 * Backspace - undo changes in byte, left to cursor position
 
@@ -400,7 +402,7 @@ must add this partition into your boot manager, of course. Option available
 for any type of FAT only, because QSINIT unable to write to HPFS/JFS volumes.
 
 .topic DmgrDlg=2077
- Disk management ‹
+ Disk management ‹    (Ctrl-P)
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 This dialog allow to manage hard disks and partitions. 
 
@@ -481,7 +483,7 @@ like update after manual partition table editing in sector editor.
 .topic Calculator=2100
  Calculator ‹
   ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
-This calculator operates only by signed 64-bit integer values.
+This calculator operates only with signed 64-bit integer values.
 
  * ESC - clear
  * "_" - sign change (+/-), decimal mode only
@@ -557,8 +559,8 @@ It, also, updates bootsector files, listed in NTLDR`s boot.ini on FAT
 partition.
 
 .topic FileDlgCommon=2124
- Open/Save dialog‹
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ Open/Save dialog ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 To change disk just type A: or B: (and so on) in file name`s edit line.
 This is QSINIT internal drive letter, not OS/2.
 
@@ -571,8 +573,8 @@ This is QSINIT internal drive letter, not OS/2.
 To go directly to the existing directory - type full path in this line too.
 
 .topic SetCodepage=2125
- Select codepage dialog‹
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ Select codepage dialog ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 You can select code page from a short list of supported by QSINIT here.
 
 Code page affects on some things over system:
@@ -597,8 +599,8 @@ To use decimal value - you can convert is first in {·alculator:Calculator} windo
 See also: {Binary file editor:BinEdit}
 
 .topic BinEdit=2136
- Binary file editor‹
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ Binary file editor ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 View/edit file data in binary mode.
 
 Also see {binary edit window:SectEdit} for details.
@@ -611,8 +613,8 @@ All time, while this window is open - file is locked by SYSVIEW and any write
 access to it from another process is prohibited.
 
 .topic LVMOptionsDlg=2139
- LVM options‹
-  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+ LVM options ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
 Here you can update some minor LVM options for current partition and entire
 disk.
 
@@ -634,3 +636,44 @@ the IBM`s attempt to resolve drive letter conflicts, not sure is it used at all.
 * "Boot manager" - volume/partition is on the Boot Manager Menu. Note, that
 this option is only a flag in LVM information record, you need to update the
 Boot Manager to include this partition into its list.
+
+.topic SesNew=2144
+ System|New session ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Command starts a new shell in a separate screen session. This, also, mean
+activation of MT mode (multitasking) in QSINIT.
+
+To switch between sessions use Alt-Esc key on the keyboard and Ctrl-N in
+serial port console.
+
+.topic SesList=2145
+ System|Session list ‹    (Ctrl-F9)
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Session list dialog window. Note, that session list content has no dynamic
+update and may be outdated.
+
+Session and device numbers here are equal to used in SM shell command.
+
+Asterisk on device number mean that session is active on this device.
+
+Device 0 is always a display, 1 and further - serial port console.
+
+
+.topic ProcInfo=2147
+ System|Process information ‹
+  ﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂﬂ
+Dialog window with process list and detailed information. Note, that
+window has no dynamic update and may be outdated. Use "Refresh" button to
+force window update.
+
+Thread CPU time data is available in MT mode only. Also, when MT mode started,
+there is no any time information about thread life before.
+
+Process or process tree can be killed here (including this running process).
+
+Trying to kill pid 1 tree will kill all except it with launching of a new command
+shell as result.
+
+Killing process in the middle of the tree may cause screen distortion, because
+both parent and child of it will start to share screen and keyboard in the same
+session.

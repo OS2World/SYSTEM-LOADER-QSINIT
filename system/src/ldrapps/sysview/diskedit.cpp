@@ -2,8 +2,8 @@
  *  QSINIT: big TV app                                               *
  *-------------------------------------------------------------------*
  *  Note  : this code looks like a garbage and was created only for  *
- *          speed up QSINIT testing... in addition this is still a   *
- *          GUI (some kind of it ;))                                 *
+ *          speed up of QSINIT testing... in addition this is still  *
+ *          a GUI (some kind, at least ;))                           *
  *-------------------------------------------------------------------*/
 #include <stdlib.h>
 #include <stdio.h>
@@ -77,11 +77,11 @@
 #define cmPowerOff     119
 #define cmBootMBR      120
 #define cmCpuInfo      121
-//#define cmNew          122
+#define cmSesNew       122
 #define cmShowClipbrd  123
 #define cmSaveLog      124
 #define cmWindowList   125
-//#define cmCloseAll     126
+#define cmSesList      126
 #define cmScrnRefresh  127
 #define cmCalendar     128
 #define cmBmgrMenu     129
@@ -104,6 +104,7 @@
 #define cmMemSave      146
 #define cmBinNew       147
 #define cmBinLoad      148
+#define cmProcInfo     150
 
 #define cmHelpIndex    200
 #define cmHelpCont     201
@@ -294,7 +295,8 @@ int TSysApp::askDlg(int MsgType, u32t arg) {
                                "\3""Codepage selection failed. Continue format?\n", // 11
                                "\3""A device space is a part of saving range. This can cause troubles. "
                                    "Continue?\n",                        // 12
-                               "\3""Value: %08X?\n"                      // 13
+                               "\3""Value: %08X?\n",                     // 13
+                               "\3""MT mode is not active. Turn it on?"  // 14
                               };
    char *mptr = askMsgArray[MsgType];
 
@@ -633,6 +635,15 @@ void TSysApp::handleEvent(TEvent& event) {
          DiskChanged();
          break;
       }
+      case cmSesNew:
+         SessionNew();
+         break;
+      case cmSesList:
+         SessionListDlg();
+         break;
+      case cmProcInfo:
+         ProcInfoDlg();
+         break;
       case cmWindowList: {
          TWinListDialog *wld=new TWinListDialog();
          execView(wld);
@@ -682,12 +693,12 @@ TMenuBar *CreateMenuBar( TRect r ) {
   return new TMenuBar(r,
    *new TSubMenu("~Q~S",hcNoContext)+
       *new TMenuItem("~R~un command",cmRunCmdLine,kbF4,hcRunExecute,"F4")+
-      *new TMenuItem("System ~l~og",kbNoKey,
+      *new TMenuItem("~P~rocess information",cmProcInfo,kbNoKey,hcProcInfo,"")+
+      *new TMenuItem("Session",kbNoKey,
           new TMenu(
-         *new TMenuItem("~V~iew",cmViewLog,kbNoKey,hcViewLog,"",
-          new TMenuItem("~S~ave",cmSaveLog,kbNoKey,hcSaveLog,"",
-          new TMenuItem("Save ~P~ure",cmPureLog,kbNoKey,hcPureLog,""
-         )))))+
+         *new TMenuItem("S~w~itch to",cmSesList,kbCtrlF9,hcSesList,"Ctrl-F9",
+          new TMenuItem("~N~ew",cmSesNew,kbNoKey,hcSesNew,""
+         ))))+
       *new TMenuItem("~B~oot",kbNoKey,
           new TMenu(
          *new TMenuItem("OS/2 ~k~ernel",cmBootSetup,kbNoKey,hcNoContext,"",
@@ -695,10 +706,16 @@ TMenuBar *CreateMenuBar( TRect r ) {
           new TMenuItem("~M~aster boot record (MBR)",cmBootMBR,kbNoKey,hcBootMBR,"",
           new TMenuItem("~B~oot Manager menu",cmBmgrMenu,kbNoKey,hcBootMGR,""
          ))))))+
+      *new TMenuItem("System ~l~og",kbNoKey,
+          new TMenu(
+         *new TMenuItem("~V~iew",cmViewLog,kbNoKey,hcViewLog,"",
+          new TMenuItem("~S~ave",cmSaveLog,kbNoKey,hcSaveLog,"",
+          new TMenuItem("Save ~P~ure",cmPureLog,kbNoKey,hcPureLog,""
+         )))))+
       *new TMenuItem("~S~elect codepage",cmSetCodepage,kbNoKey,hcSetCodepage,"")+
       newLine()+
       *new TMenuItem( "E~x~it", cmQuit, kbCtrlW, hcExit, "Ctrl-W" )+
-      *new TMenuItem("~P~ower off",cmPowerOff,kbNoKey,hcPowerOff,"")+
+      *new TMenuItem("Po~w~er off",cmPowerOff,kbNoKey,hcPowerOff,"")+
    *new TSubMenu("~S~ystem",hcNoContext)+
       *new TMenuItem("~D~isk management",cmDmgr,kbCtrlP,hcDmgrDlg,"Ctrl-P")+
       newLine()+
@@ -785,6 +802,7 @@ void TSysApp::idle() {
       disableCommand(cmSetCodepage);
       disableCommand(cmBmgrMenu);
       disableCommand(cmPowerOff);
+      disableCommand(cmSesNew);
 #else
       if (hlp_hosttype()==QSHT_EFI) {
          disableCommand(cmBmgrMenu);

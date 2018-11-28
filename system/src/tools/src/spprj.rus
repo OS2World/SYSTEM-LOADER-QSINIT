@@ -24,7 +24,8 @@ build=1                   ; билд, переводится в десятичное число
 ;$(verint)   - номер (0x00900001) (hex число, но версия/билд десятичные)
 ;$(verishort)- короткий номер (0x0090)
 ;$(config)   - config name
-;$(timestr)  - build time
+;$(timestr)  - build time (в виде "hh:mm:ss dd.mm.yyyy")
+;$(timestr2) - build time (в виде "dd Mon yyyy hh:mm:ss")
 ;$(buildnum) - номер билда
 ;$(build_os) - Win32, OS/2, Linux, DOS (DOS - только при -od ключе).
 ;$(build_osc)- текущая OS одним символом: w, o, l, d

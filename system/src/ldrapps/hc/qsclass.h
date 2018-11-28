@@ -45,17 +45,17 @@ extern "C" {
 
 /** Create "class" instance with specified name.
     Note, what if EXIC_GMUTEX was selected in class registration, EXIF_MTSAFE
-    flag is void and every call in all instances will wait for global class
+    flag is void and every call in all instances will wait for a global class
     mutex.
     Function deny class names, created with EXIC_PRIVATE flag.
 
-    @param  classname  Class(interface) name.
+    @param  classname  Class name.
     @param  flags      Creation flags (EXIF_*)
     @return pointer to created instance or 0. */
 void*   _std exi_create(const char *classname, u32t flags);
 
 /** Create "class" instance by ID.
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @param  flags      Creation flags (EXIF_*)
     @return pointer to created instance or 0. */
 void*   _std exi_createid(u32t classid, u32t flags);
@@ -86,12 +86,12 @@ void    _std exi_free(void *instance);
     @param  global     Instance type (process owned(0) or global(1) or just
                        query current type(-1)). Local instances will be
                        deleted by process exit code.
-    @param return previous state or -1 on error */
+    @return previous state or -1 on error */
 int     _std exi_share(void *instance, int global);
 
 /** enable/disable per-instance mutex usage in MT mode.
-    This function switches thread-safe state for single instance. By default
-    all instances have no any synchronization (i.e. unsafe). Enable call
+    This function switches thread-safe state for the single instance. By
+    default instances have no any synchronization (i.e. unsafe). Enable call
     creates individual mutex, which will block every call of class methods.
 
     This functionality is supported for all classes automatically.
@@ -104,7 +104,7 @@ int     _std exi_share(void *instance, int global);
 
     @param  instance   Pointer to instance.
     @param  enable     New state (enable=1 / disable=0 / query=-1)
-    @param return previous state or -1 on error. */
+    @return previous state or -1 on error. */
 int     _std exi_mtsafe(void *instance, int enable);
 
 /** Query instance class name.
@@ -115,8 +115,8 @@ int     _std exi_mtsafe(void *instance, int enable);
 char*   _std exi_classname(void *instance);
 
 /** Query instance class ID.
-    Call is safe with any pointer (checking protected by exception handler) -
-    i.e. function can be used as IsItClass(ptr). This note includes
+    Call is safe with any pointer (verification is protected by exception
+    handler) - i.e. function can be used as IsItClass(ptr). This note includes
     exi_classname() above.
 
     @param  instance   Pointer to instance.
@@ -134,12 +134,12 @@ void*   _std exi_instdata(void *instance);
     @attention function not just name querying, but forces loading of module
                with requested class.
     Function will return 0 for class name, created with EXIC_PRIVATE flag.
-    @param  classname  Class(interface) name.
+    @param  classname  Class name.
     @return class id or 0. */
 u32t    _std exi_queryid(const char *classname);
 
 /** Query class name presence.
-    @param  classname  Class(interface) name.
+    @param  classname  Class name.
     @return EXIQ_* value */
 u32t    _std exi_query(const char *classname);
 
@@ -152,9 +152,14 @@ u32t    _std exi_query(const char *classname);
 //@}
 
 /** Query number of "methods" in "class".
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @return number of methods or 0. */
 u32t    _std exi_methods(u32t classid);
+
+/** Query handle of the module, who implements class code.
+    @param  classid    Class ID.
+    @return module handle or 0 if no such class id */
+u32t    _std exi_provider(u32t classid);
 
 /** Constructor/destruction function for "class".
     Constructor (if present) called at the end of exi_create call.
@@ -185,7 +190,7 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
 
     @attention  All "methods" _MUST_ use cdecl calling convention!
 
-    EXIC_GMUTEX flags create single global mutex for all class instances.
+    EXIC_GMUTEX flag creates single global mutex for all class instances.
 
     EXIC_PRIVATE flag disables exi_create() call for this class, but any other
     logic is untouched, i.e. exi_query() and exi_classname() works as usual,
@@ -194,10 +199,13 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
     EXIC_EXCLUSIVE means that this class can have no more than ONE instance
     per system.
 
+    Namespace for classes is *global*. Even for class, which marked private -
+    no duplicate name allowed.
+
     @param  classname   Class name. Can be 0, in this case unique random name
                         will be auto-generated.
     @param  funcs       Pointer to list of funcions.
-    @param  funcscount  Number of funcions.
+    @param  funccount   Number of funcions.
     @param  datasize    Size of user data in instance, can be 0. If data size
                         is 0 - both constructor/destructor and method functions
                         will recieve 0 in data pointer field.
@@ -224,17 +232,17 @@ u32t    _std exi_register(const char *classname, void **funcs, u32t funccount,
 
 /** Deregister "class" by ID.
     Class cannot be deregistered if class instances still present.
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @return success indicator. */
 int     _std exi_unregister(u32t classid);
 
 /** Print "class" info to log.
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @return success indicator. */
 int     _std exi_printclass(u32t classid);
 
 /** check consistency.
-    Function walk over all existing instances and checks signature and class
+    Function walks over all existing instances and checks signature and class
     id match. Called automatically on module exit.
     Note, that existing structure damage can cause exception xcpt_exierr
     (trap screen), but this function returns to user with error instead of it.
@@ -272,7 +280,7 @@ int     _std exi_instenum(u32t classid, exi_pinstenumcb efunc, u32t etype);
     Function called internally by trace code to rebuild calling thunks.
     Also can be called to use chaining on class methods.
     Operation is not reversable.
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @return success indicator. */
 int     _std exi_chainon(u32t classid);
 
@@ -280,13 +288,13 @@ int     _std exi_chainon(u32t classid);
     Call is safe with any pointer.
     @param  instance   Pointer to instance.
     @param  enable     New chaining state (enable=1 / disable=0 / query=-1)
-    @param return previous state or -1 on error */
+    @return previous state or -1 on error */
 int     _std exi_chainset(void *instance, int enable);
 
 /** return list of thunks for all methods of class.
     Thunks are pointers, returned by mod_buildthunk(). These pointers can
     be used in mod_fnchain() to set chaining functions on class methods.
-    @param  classid    Class(interface) ID.
+    @param  classid    Class ID.
     @return list of thunk pointers or 0. */
 pvoid*  _std exi_thunklist(u32t classid);
 

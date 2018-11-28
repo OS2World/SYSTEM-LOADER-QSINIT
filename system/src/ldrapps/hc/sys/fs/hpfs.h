@@ -1,5 +1,5 @@
 //
-// QSINIT "partmgr" module
+// QSINIT "fslib" module
 // HPFS structs
 //
 #ifndef QSINIT_HPFSINFO

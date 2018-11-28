@@ -22,6 +22,7 @@ u32t          mfs_rmcmode = 0;
 stoinit_entry   storage_w[STO_BUF_LEN];
 struct Disk_BPB   BootBPB; // empty BPB (for now)
 extern u32t         sel64;
+extern u32t     acpitable;
 
 void get_idt(struct lidt64_s *idt);
 #ifdef __WATCOMC__
@@ -29,6 +30,10 @@ void get_idt(struct lidt64_s *idt);
 #endif
 
 int _std sys_intstate(int on);
+
+void init_host(void) {
+   sto_save(STOKEY_ACPIADDR, &acpitable, 4, 1);
+}
 
 void memmove64(u64t dst, u64t src, u64t length, int usecli) {
    call64(EFN_MEMMOVE, 7, 4, dst, src, length, usecli);

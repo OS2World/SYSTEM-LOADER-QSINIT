@@ -727,6 +727,22 @@ int __cdecl START_EXPORT(printf)(const char *fmt, long args) {
       return _prt_common(0, fmt, &args, vioprn);
 }
 
+int __cdecl START_EXPORT(tprintf)(const char *fmt, long args) {
+   FILE *tf = (FILE*)mt_tlsget(QTLS_TPRINTF);
+   if (tf) {
+      FileInfo *ff = (FileInfo*)tf;
+      // check it first!
+      if (ff->sign!=ALIAS_SIGN && ff->sign!=FILE_SIGN) {
+         set_errno(EBADFD);
+         return 0;
+      }
+   }
+   if (tf || stdout)
+      return START_EXPORT(vfprintf)(tf?tf:stdout, fmt, &args);
+   else
+      return _prt_common(0, fmt, &args, vioprn);
+}
+
 typedef struct {
    char       *rc;
    u32t       len;
@@ -905,6 +921,26 @@ char* __stdcall tmpnam(char *buffer) {
    if (buffer) strcpy(buffer, name);
 
    return buffer?buffer:name;
+}
+
+FILE* __stdcall tmpfile(void) {
+   u32t   pass;
+   char prefix[24];
+   snprintf(prefix, 24, "tmpfile_%06X_", mod_getpid());
+   // try it three times
+   for (pass=0; pass<3; pass++) {
+      char *name = _tempnam(0, prefix);
+      if (name) {
+         FILE *res = fopen(name, "w+");
+         free(name);
+
+         if (res) {
+            io_setstate(_os_handle(fileno(res)), IOFS_DELONCLOSE, 1);
+            return res;
+         }
+      }
+   }
+   return 0;
 }
 
 u32t __stdcall hlp_isdir(const char *dir) {

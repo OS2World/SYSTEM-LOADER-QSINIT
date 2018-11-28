@@ -391,7 +391,7 @@ u32t _std shl_chcp(const char *cmd, str_list *args) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
-   cmd_printseq(0,1,0);
+   cmd_printseq(0,PRNSEQ_INIT,0);
 
    if (args->count<=1) {
       if (args->count==0) {
@@ -408,7 +408,7 @@ u32t _std shl_chcp(const char *cmd, str_list *args) {
             if (ii<total-1) strcat(buf, ", ");
             cpstr = strcat_dyn(cpstr, buf);
          }
-         cmd_printtext(cpstr,0,0,0);
+         cmd_printtext(cpstr,0,0);
          free(cpstr);
          return 0;
       } else {

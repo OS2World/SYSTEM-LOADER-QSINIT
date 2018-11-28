@@ -22,7 +22,7 @@
 static qs_sysvolume ve[DISK_COUNT];
 static u8t       fsver[DISK_COUNT];     ///< FsType cache for hlp_volinfo()
 static u32t   fs_classid[FS_COUNT];     ///< registered filesystems
-extern u32t          fatio_classid;
+static u32t     fs_avail[FS_COUNT];     ///< avail() function result
 
 static volatile u32t     v_mounted = 0; ///< mounted volumes (for fast check)
 sft_entry* volatile       *sftable = 0;
@@ -30,10 +30,14 @@ io_handle_data* volatile   *ftable = 0;
 static volatile u32t sftable_alloc = 0,
                       ftable_alloc = 0;
 vol_data                  *_extvol = 0; ///< const pointer from QSINIT binary
+u32t                 ramfs_classid = 0, ///< ram fs class for volume b:
+                     nulfs_classid = 0; ///< null fs class (fs stub)
 
 #define is_mounted(vol) (v_mounted&1<<(u8t)vol?1:0)
 
 void register_fatio(void);
+void register_ramfs(void);
+void register_nulfs(void);
 
 /** volume by full path.
     Must be called in locked state (volume array access) */
@@ -267,13 +271,14 @@ qserr _std io_chdir(const char *path) {
                dir_handle_int  dh;
                res = vol->diropen(fp, &dh);
                if (!res) {
-                  if (!pd->piCurDir[volnum]) {
-                     pd->piCurDir[volnum] = fp;
-                     fp = 0;
-                  } else
-                     strcpy(pd->piCurDir[volnum], fp);
-
+                  /* always do realloc here, because original piCurDir buffer
+                     has space only for path in it */
+                  char *prev = pd->piCurDir[volnum];
+                  pd->piCurDir[volnum] = fp;
                   pd->piCurDrive = volnum;
+                  fp = 0;
+                  if (prev) free(prev);
+
                   vol->dirclose(dh);
                }
             }
@@ -431,7 +436,7 @@ qserr _std START_EXPORT(io_open)(const char *name, u32t mode, io_handle *pfh, u3
 
 /** check user io_handle handle and return pointers to objects.
     @attention if no error returned, then MT lock IS ON!
-    @param [in]  fh            handle to check
+    @param [in]  ifh           handle to check
     @param [in]  accept_types  IOHT_* combination (allowed handle types)
     @param [out] pfh           pointer to io_handle_data, can be 0
     @param [out] pfe           pointer to sft_entry, can be 0
@@ -748,8 +753,8 @@ qserr _std io_setstate(qshandle ifh, u32t flags, u32t value) {
    if ((flags&~(IOFS_DETACHED|IOFS_DELONCLOSE|IOFS_RENONCLOSE|IOFS_SECTORIO)))
       return E_SYS_INVPARM;
    // this call LOCKs us if err==0
-   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_MUTEX|IOHT_QUEUE,
-                         &fh, &fe);
+   err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_MUTEX|
+                         IOHT_QUEUE|IOHT_EVENT, &fh, &fe);
    if (err) return E_SYS_INVPARM;
    // some options is for file only
    if ((flags&(IOFS_DELONCLOSE|IOFS_RENONCLOSE|IOFS_SECTORIO)) && fe->type!=IOHT_FILE)
@@ -784,7 +789,7 @@ qserr _std io_getstate(qshandle ifh, u32t *flags) {
    if (!flags) return E_SYS_ZEROPTR;
    // this call LOCKs us if err==0
    err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_MUTEX|
-                         IOHT_QUEUE, &fh, &fe);
+                         IOHT_QUEUE|IOHT_EVENT, &fh, &fe);
    if (err) return E_SYS_INVPARM;
 
    *flags = 0;
@@ -818,7 +823,7 @@ qserr _std io_duphandle(qshandle src, qshandle *dst, int priv) {
    qserr           err;
    if (!dst) return E_SYS_ZEROPTR;
    // this call LOCKs us if err==0
-   err = io_check_handle(src, IOHT_FILE|IOHT_MUTEX|IOHT_QUEUE, &fho, &fe);
+   err = io_check_handle(src, IOHT_FILE|IOHT_MUTEX|IOHT_EVENT|IOHT_QUEUE, &fho, &fe);
    if (err) return E_SYS_INVPARM;
 
    if (fe->broken) err = E_SYS_BROKENFILE; else {
@@ -892,7 +897,7 @@ u32t _std io_handletype(qshandle ifh) {
    u32t           res;
    // this call LOCKs us if err==0
    err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STDIO|IOHT_DIR|
-                         IOHT_MUTEX|IOHT_QUEUE, 0, &fe);
+                         IOHT_MUTEX|IOHT_QUEUE|IOHT_EVENT, 0, &fe);
    if (err) return IOFT_BADHANDLE;
 
    switch (fe->type) {
@@ -901,6 +906,7 @@ u32t _std io_handletype(qshandle ifh) {
       case IOHT_DIR  : res = IOFT_DIR;   break;
       case IOHT_MUTEX: res = IOFT_MUTEX; break;
       case IOHT_QUEUE: res = IOFT_QUEUE; break;
+      case IOHT_EVENT: res = IOFT_EVENT; break;
       default:
          res = IOFT_UNKNOWN;
    }
@@ -1222,7 +1228,7 @@ qserr _std io_move(const char *src, const char *dst) {
 
 /** process open files and directories on removing volume.
 
-    Function close all internal qs_sysvolume handles and mark SFT entries
+    Function closes all internal qs_sysvolume handles and mark SFT entries
     as "broken", but leave all user handles in usable mode (i.e. user should
     close it in common way).
 
@@ -1274,7 +1280,7 @@ u32t sft_volumebroke(u8t vol, int enumonly) {
 
 u32t io_close_as(u32t pid, u32t htmask) {
    u32t ccnt = 0;
-   htmask   &= IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE;
+   htmask   &= IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE|IOHT_EVENT;
    if (htmask && pid) {
       dd_list clist = 0;
       u32t       ii,
@@ -1308,6 +1314,7 @@ u32t io_close_as(u32t pid, u32t htmask) {
                                 break;
                case IOHT_FILE : io_close(fhidx);
                                 break;
+               case IOHT_EVENT:
                case IOHT_MUTEX: mt_closehandle_int(fhidx,1);
                                 break;
                case IOHT_QUEUE: qe_close(fhidx);
@@ -1361,12 +1368,15 @@ u32t _std hlp_volinfo(u8t drive, disk_volume_data *info) {
    return FST_NOTMOUNTED;
 }
 
+#define FINDFS_NOFORCE    1   /// skip NUL driver mounting
+#define FINDFS_NOLIB      2   /// skip FS library loading
+
 /* select FS handler for the volume.
    @param drive       Volume to check
-   @param noforce     Flag to skip final FAT driver mounting with FORCE flag on.
+   @param flags       FINDFS_* flags
    @param [out] pvol  Inited instance or 0
    @return error code or 0 */
-static qserr io_findfs(u8t drive, int noforce, qs_sysvolume *pvol) {
+static qserr io_findfs(u8t drive, u32t flags, qs_sysvolume *pvol) {
    qs_sysvolume vol = 0;
    qserr        res = 0;
    // invalid call
@@ -1382,15 +1392,32 @@ static qserr io_findfs(u8t drive, int noforce, qs_sysvolume *pvol) {
          u32t ii;
          br = (struct Boot_Record*) malloc(vdta->sectorsize);
          if (!br) { res = E_SYS_NOMEM; break; }
-         if (!hlp_diskread(drive|QDSK_VOLUME, 0, 1, br)) { res = E_DSK_ERRREAD; break; }
+         if (!hlp_diskread(drive|QDSK_VOLUME, 0, 1, br)) {
+            res = E_DSK_ERRREAD;
+            break;
+         } else
+         if ((flags&FINDFS_NOLIB)==0) {
+            // try to load even more FS handlers ;)
+            fs_detect_list *dl = ecmd_readfsdetect(), *dp;
+            if (dl) {
+               for (dp=dl; dp->cmpdata; dp++)
+                  if (dp->offset + dp->size <= vdta->sectorsize)
+                     if (!memcmp((u8t*)br+dp->offset, dp->cmpdata, dp->size))
+                        ecmd_loadfslib(dp->fsname);
+               free(dl);
+            }
+         }
          // loop over existing FS handlers
-         for (ii=0; ii<FS_COUNT+(noforce?0:1); ii++) {
+         for (ii=0; ii<FS_COUNT + (flags&FINDFS_NOFORCE?0:1); ii++) {
             int force = ii==FS_COUNT;
-            u32t  cid = force ? fatio_classid : fs_classid[ii];
+            u32t  cid = force ? nulfs_classid : fs_classid[ii];
+            // virtual fs cannot be mounted to a volume
+            if (!force && cid && (fs_avail[ii]&SFAF_VFS)) cid = 0;
+
             if (cid) {
                vol = (qs_sysvolume)exi_createid(cid, EXIF_SHARED);
                if (vol) {
-                  res = vol->init(drive, force?SFIO_FORCE:0, br);
+                  res = vol->init(drive, 0, br);
                   if (force && res==E_DSK_UNKFS) res = 0;
                   if (!res) break; else { DELETE(vol); vol = 0; }
                }
@@ -1444,7 +1471,7 @@ qserr _std io_mount(u8t drive, u32t disk, u64t sector, u64t count) {
          mt_safedor((u32t*)&v_mounted, 1<<drive);
          fsver[drive] = 0xFF;
          ve[drive] = vol;
-         cache_ctrl(CC_MOUNT,drive);
+         hlp_cachenotify(drive, CC_MOUNT);
       } else
          log_it(3, "Mount %c - rc %X\n", 'A'+drive, rc);
       // clear state
@@ -1466,35 +1493,40 @@ qserr _std io_unmount(u8t drive, u32t flags) {
       if (_extvol[drive].flags&VDTA_ON) {
          u32t efl = flags&IOUM_FORCE?0:1,
              numc = sft_volumebroke(drive, efl);
+         rc = 0;
          // we have open files on volume
          if (efl && numc) {
             efl = flags&IOUM_NOASK?1:0;
             if (!efl) {
                char *emsg = sprintf_dyn("Volume %c is in use, removing it will "
                   "broke %u open file(s).^Do you want to continue?", drive+'A', numc);
+               /* vio_msgbox() will unlock it any way, because of keyboard waiting.
+                  but we should check if volume still mounted after popup */
+               mt_swunlock();
                efl = vio_msgbox("SYSTEM WARNING!", emsg,
                   MSG_POPUP|MSG_LIGHTRED|MSG_DEF2|MSG_YESNO, 0)==MRES_YES?0:1;
                free(emsg);
+               mt_swlock();
+               if ((_extvol[drive].flags&VDTA_ON)==0) rc = E_DSK_NOTMOUNTED;
             }
-            if (!efl) sft_volumebroke(drive, 0); else
-               return E_SYS_ACCESS;
+            if (!efl) sft_volumebroke(drive, 0); else rc = E_SYS_ACCESS;
          }
+         if (rc==0) {
+            // change current disk to 1: (for current process only!)
+            if (io_curdisk()==drive) io_setdisk(DISK_LDR);
 
-         // change current disk to 1: (for current process only!)
-         if (io_curdisk()==drive) io_setdisk(DISK_LDR);
+            mt_safedand((u32t*)&v_mounted, ~(1<<drive));
+            fsver[drive] = 0xFF;
 
-         mt_safedand((u32t*)&v_mounted, ~(1<<drive));
-         fsver[drive] = 0xFF;
-
-         if (ve[drive]) {
-            qserr eres = ve[drive]->done();
-            if (eres) log_it(3, "Unmount %c - rc %X", 'A'+drive, eres);
-            DELETE(ve[drive]);
-            ve[drive] = 0;
+            if (ve[drive]) {
+               qserr eres = ve[drive]->done();
+               if (eres) log_it(3, "Unmount %c - rc %X\n", 'A'+drive, eres);
+               DELETE(ve[drive]);
+               ve[drive] = 0;
+            }
+            hlp_cachenotify(drive, CC_UMOUNT);
+            _extvol[drive].flags = 0;
          }
-         cache_ctrl(CC_UMOUNT,drive);
-         _extvol[drive].flags = 0;
-         rc = 0;
       }
       mt_swunlock();
       return rc;
@@ -1596,17 +1628,17 @@ void _std io_dumpsft(void) {
          if (sftable[ii]) {
 #define ASTRLEN 96
             static const char *tname[] = { "FILE", "DISK", "STD", "DUMMY",
-                                           "DIR", "MUTEX", "QUEUE" };
+                                           "DIR", "MUTEX", "QUEUE", "EVENT" };
             char          astr[ASTRLEN];
             sft_entry      *fe = sftable[ii];
             int           tpos = bsf32(fe->type);
             u32t           idx;
-            if (tpos > sizeof(tname)/sizeof(char*)) tpos = -1;
+            if (tpos >= sizeof(tname)/sizeof(char*)) tpos = -1;
             astr[0] = 0;
 
             if (fe->type==IOHT_MUTEX) {
                qs_sysmutex_state  mx;
-               int   mstate = mtmux->state(fe->mux.mh, &mx);
+               int   mstate = mtmux->state(fe->muxev.mh, &mx);
                if (mstate<=0) snprintf(astr, ASTRLEN, mstate<0?"broken":"free"); else
                   snprintf(astr, ASTRLEN, "pid %u, tid %u, cnt %i, wait %u",
                      mx.pid, mx.tid, mx.state, mx.waitcnt);
@@ -1670,69 +1702,104 @@ qserr _std io_registerfs(u32t classid) {
    if (pos) *pos = classid;
    mt_swunlock();
 
-   // enum volumes and try to remount every one this unknown filesystem 
-   if (pos)
+   if (pos) {
+      // create test instance & get avail() result from it
+      u32t   fs_index = pos - fs_classid, avail;
+      qs_sysvolume ci = (qs_sysvolume)exi_createid(classid, 0);
+      if (!ci) {
+         *pos = 0;
+         return E_SYS_INVOBJECT;
+      }
+      fs_avail[fs_index] = avail = ci->avail();
+#if 0
+      log_it(3, "%s %sfs handler installed (%u)\n", exi_classname(ci),
+         avail&SFAF_VFS?"virtual ":"", classid);
+#endif
+      DELETE(ci);
+      /* enum volumes and try to remount every one this unknown filesystem,
+         but only if installed FS is not a VFS */
+      if ((avail&SFAF_VFS)==0)
       for (ii=0; ii<DISK_COUNT; ii++) {
          vol_data  *vdta = _extvol + ii;
          qs_sysvolume vl = ve[ii], vn;
 
-         if (ii!=DISK_LDR && (vdta->flags&VDTA_ON) && exi_classid(vl)==fatio_classid) {
+         if (ii!=DISK_LDR && (vdta->flags&VDTA_ON) && exi_classid(vl)==nulfs_classid) {
             // lock it here to prevent changes in disk configuration
             mt_swlock();
 
             if (hlp_volinfo(ii,0)==FST_NOTMOUNTED)
-               if (!io_findfs(ii,1,&vn)) {
+               if (!io_findfs(ii, FINDFS_NOFORCE|FINDFS_NOLIB, &vn)) {
                   u32t nbrk = sft_volumebroke(ii,0);
-                  /* should never occur, because FAT handler was forced here
-                     and FS is unknown for it */
+                  // should never occur, because NUL handler was forced
                   if (nbrk) log_it(3, "Re-mount %c - %u handles lost", 'A'+ii, nbrk);
 
                   fsver[ii] = 0xFF;
                   ve[ii]    = vn;
-                  // delete forced FAT handler
+                  // delete NUL handler
                   vl->done();
                   DELETE(vl);
                }
             mt_swunlock();
          }
       }
+   }
    return pos?0:E_SYS_FILES;
+}
+
+qserr io_mount_ramfs(u8t vol) {
+   u32t res = E_DSK_BADVOLNAME;
+   if (!ramfs_classid) return E_DSK_MOUNTERR;
+
+   if (vol>=DISK_LDR && vol<DISK_COUNT) {
+      vol_data *vdta;
+      mt_swlock();
+      vdta = _extvol + vol;
+      if (vdta->flags&VDTA_ON) res = E_DSK_UMOUNTERR; else {
+         qs_sysvolume  vl;
+         u32t       total,
+                    msize = hlp_memavail(0,&total);
+         vdta->sectorsize = 512;
+         vdta->length     = total>>9;
+         vdta->start      = 0;
+         vdta->disk       = FFFF;
+         vdta->flags      = VDTA_ON|VDTA_VFS;
+         vdta->serial     = tm_getdate();
+         vdta->badclus    = 0;
+         vdta->clsize     = 1;
+         vdta->label[0]   = 0;
+         vdta->clfree     = msize - (msize>>3) >> 9;
+         vdta->cltotal    = vdta->length;
+
+         vl  = (qs_sysvolume)exi_createid(ramfs_classid, EXIF_SHARED);
+         res = vl->init(vol, 0, 0);
+         if (res) {
+            vdta->flags = 0;
+            DELETE(vl);
+         } else {
+            ve[vol]    = vl;
+            v_mounted |= 1<<vol;
+            fsver[vol] = 0xFF;
+            hlp_cachenotify(vol, CC_MOUNT);
+         }
+      }
+      mt_swunlock();
+   }
+   return res;
 }
 
 void setup_fio() {
    u32t      ii;
    memset(&ve, 0, sizeof(ve));
-   // FAT i/o class
-   register_fatio();
+   // nulfs must be 1st of all
+   register_nulfs();
 
    memset(&fsver, 0xFF, sizeof(fsver));
    memset(&fs_classid, 0, sizeof(fs_classid));
    v_mounted = 0;
    _extvol   = (vol_data*)sto_data(STOKEY_VOLDATA);
 
-   for (ii=0; ii<DISK_COUNT; ii++) {
-      vol_data *vdta = _extvol+ii;
-      // for disk 0 we checks VDTA_ON too (this can be PXE, at least)
-      if (ii==DISK_LDR || (vdta->flags&VDTA_ON)!=0) {
-         qs_sysvolume vl = (qs_sysvolume)exi_createid(fatio_classid, EXIF_SHARED);
-
-         if (vl) {
-            // get buffer (zero-filled)
-            void      *bs = calloc(1, vdta->sectorsize);
-            u32t mntflags = SFIO_FORCE;
-            // just ignore read error
-            hlp_diskread(vdta->disk|QDSK_DIRECT, vdta->start, 1, bs);
-            // disable FAT mounting on EFI host
-            if (ii==DISK_BOOT && hlp_hosttype()==QSHT_EFI) mntflags|=SFIO_NOMOUNT;
-
-            vl->init(ii, mntflags, bs);
-            free(bs);
-
-            ve[ii]    = vl;
-            v_mounted|= 1<<ii;
-         }
-      }
-   }
+   register_ramfs();
+   io_mount_ramfs(DISK_LDR);
    // reserve zero indices in both arrays - this allows using 0 as error code
    ii = sft_alloc();
    if (ii) log_it(0, "SFT init error!\n"); else {
@@ -1748,6 +1815,66 @@ void setup_fio() {
    }
 }
 
+/* this is smart mount, which called at the end of initialization.
+   here we have extcmd.ini & ready module support so we can try to detect
+   FS by signature and load FS lib for it */
+void mount_vol0(void) {
+   vol_data *vdta = _extvol + DISK_BOOT;
+   // disable EFI boot volume mount on EFI host
+   if ((vdta->flags&VDTA_ON)!=0 && hlp_hosttype()!=QSHT_EFI) {
+      qs_sysvolume vol = 0;
+      qserr        res = io_findfs(DISK_BOOT, 0, &vol);
+
+      if (res) log_it(3, "v0 findfs = %X\n", res); else {
+         v_mounted       |= 1<<DISK_BOOT;
+         fsver[DISK_BOOT] = 0xFF;
+         ve[DISK_BOOT]    = vol;
+         hlp_cachenotify(DISK_BOOT, CC_MOUNT);
+
+         /* replace MFS functions for FAT only, but leave HPFS as it is.
+            It is more safe to have two copies of kernel read code */
+         if (vdta->flags&VDTA_FAT) mod_secondary->mfs_replace = 1;
+      }
+   }
+}
+
 void setup_fio_mt(dsk_access_cbf *rcb, dsk_access_cbf *wcb) {
    *wcb = dsk_chkwrite;
+}
+
+/** query list of installed file systems.
+    @return list of qwords with class id in low dword and result of
+    class avail() function in high dword. */
+dq_list io_fslist(void) {
+   if (!nulfs_classid) return 0; else {
+      dq_list rc = NEW(dq_list);
+      u32t    ii;
+      mt_swlock();
+      rc->add(nulfs_classid);
+
+      for (ii=0; ii<FS_COUNT; ii++)
+         if (fs_classid[ii]) rc->add((u64t)fs_avail[ii]<<32 | fs_classid[ii]);
+      mt_swunlock();
+      return rc;
+   }
+}
+
+void fs_list_int(printf_function pfn) {
+   dq_list fslist = io_fslist();
+   u32t        ii;
+   pfn(" id  name              opts     module\n"
+       "--- ---------------- --------- -----------\n");
+   for (ii=0; ii<fslist->count(); ii++) {
+      u64t    id = fslist->value(ii);
+      void *inst = exi_createid(id,0);
+      if (inst) {
+         char *cname = exi_classname(inst), mname[129];
+         DELETE(inst);
+         mod_getname(exi_provider(id), mname);
+         pfn("%3u %-16s %9s  %s\n", (u32t)id, cname, id>>32&SFAF_VFS?
+            " virtual ":"", mname);
+         free(cname);
+      }
+   }
+   DELETE(fslist);
 }

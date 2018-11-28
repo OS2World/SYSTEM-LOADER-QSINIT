@@ -60,7 +60,7 @@ struct _filedata {
    TPtrList          *fcl;   ///< cache block list
    u8t           secshift;   ///< disk sector size shift
    u8t            clshift;
-   u8t                emb;   ///< cache uses bf buffer itself (for sz <4k)
+   u8t                emb;   ///< cache uses bf buffer itself (for sz <8k)
    u8t              valid;   ///< file is opened
    u32t              opts;
    u32t         nwpresent;   ///< # of non-written sectors (1 when emb=1)
@@ -765,7 +765,7 @@ static qserr rwaction(filedata *fd, u64t pos, void *buf, u32t size, u32t *act,
              } else {
                 u64t p_end = pos+size;
                 /* take valid file data size in mind (it can be 64-bit, but
-                   with 4k of valid data) */
+                   with 8k of valid data) */
                 if (pos<fd->nzsize) {
                    memcpy(bp, ca+pd, p_end<=fd->nzsize?size:fd->nzsize-pd);
                    if (p_end>fd->nzsize)
@@ -996,8 +996,8 @@ void exi_register_filecc(void) {
       _throwmsg_("qs_filecc: size mismatch");
    id = exi_register("qs_filecc", m_list, sizeof(m_list)/sizeof(void*),
       sizeof(filedata), 0, fc_new, fc_del, 0);
-#endif
    if (!id) log_printf("qs_filecc registration error!\n");
+#endif
    // use 1/8 of memory for the file cache
    cc_max_blocks = hlp_memavail(0,0)>>CACHE_SHIFT+3;
 }

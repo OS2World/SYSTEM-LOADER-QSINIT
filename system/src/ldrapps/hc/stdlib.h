@@ -90,13 +90,17 @@ char*  __stdcall strncat(char *dst, const char *src, size_t n);
 char*  __stdcall strcat_dyn(char *dst, const char *src);
 
 /** exit function.
-    @param errorcode  Error code
-    @attention using this function in DLL will cause immediate panic screen */
+    exit() called in DLL will terminate current process, but may leave DLL
+    loaded, because DLL modules are global.
+
+    @param errorcode  Error code */
 void   __stdcall exit   (int errorcode);
 
-/** immediatly exit function.
-    @param errorcode  Error code
-    @attention using this function in DLL will cause immediate panic screen */
+/** immediate exit function.
+    _exit() called in DLL will terminate current process, but may leave DLL
+    loaded, because DLL modules are global.
+
+    @param errorcode  Error code */
 void   __stdcall _exit  (int errorcode);
 
 /** install exit proc.
@@ -105,9 +109,21 @@ void   __stdcall _exit  (int errorcode);
     @return zero on success */
 int    __stdcall atexit (void (*func)(void));
 
-#define abort() (exit(255))
+void   __stdcall abort  (void);
+
+#define EXIT_SUCCESS    0
+#define EXIT_FAILURE    0xFF
+
+int    __stdcall getpid (void);
 
 void   __stdcall perror (const char *prefix);
+
+/** special printf version.
+    Function acts as normal printf() as long as QTLS_TPRINTF TLS variable
+    value is zero (default). FILE* pointer may be written into it to redirect
+    output to another file.
+    Function designed to replace printf() transparently. */
+int    __cdecl   tprintf(const char *fmt, ...);
 
 int    __cdecl   sprintf(char *buf, const char *format, ...);
 
@@ -243,6 +259,8 @@ char*  __stdcall _tempnam(char *dir, char *prefix);
     @param  buffer  buffer with full name size (_MAX_PATH+1) or 0 for static.
     @return path in buffer/static buffer or 0 if no such variable/dir */
 char*  __stdcall tmpdir(char *buffer);
+
+FILE*  __stdcall tmpfile(void);
 
 #define fileno(fp) ((int)(fp))
 
@@ -423,6 +441,9 @@ u16t   __stdcall bswap16(u16t value);
 u32t   __stdcall bswap32(u32t value);
 u64t   __stdcall bswap64(u64t value);
 
+/// swap order of "len" datas with size "size"
+void   __stdcall bswap  (void*mem, size_t size, size_t len);
+
 #define SBIT_ON       0x0001        ///< set bit, clear if omitted
 #define SBIT_STREAM   0x0002        ///< array is a bit stream (dword access used by default)
 
@@ -466,18 +487,18 @@ char*  __stdcall trimleft (char *src, char *charset);
 char*  __stdcall trimright(char *src, char *charset);
 
 /** replace one character to another.
-    zero is not accepted as a character parameter.
+    zero is not accepted as "from" parameter.
     @return number of processed replacements. */
-u32t  __stdcall replacechar(char *str, char from, char to);
+u32t   __stdcall replacechar(char *str, char from, char to);
 
 /** string to uint.
     Unlike strtol() it makes only hex & dec convertions, but not octal.
     Pair str2long() function available in clib.h for int values */
-u32t  __stdcall str2ulong(const char *str);
+u32t   __stdcall str2ulong(const char *str);
 /// string to int64. The same as str2ulong()
-s64t  __stdcall str2int64(const char *str);
+s64t   __stdcall str2int64(const char *str);
 /// string to uint64. The same as str2ulong()
-u64t  __stdcall str2uint64(const char *str);
+u64t   __stdcall str2uint64(const char *str);
 
 /** safe memcpy.
     Function makes a memmove(), but protected by exception handler.
@@ -490,13 +511,13 @@ u64t  __stdcall str2uint64(const char *str);
     @param flags  Flags (MEMCPY_PG0 to allow page 0 be a part of source
                   and/or destination and MEMCPY_DI to copy memory under cli)
     @return 1 on success, 0 if exception occur */
-u32t  __stdcall hlp_memcpy(void *dst, const void *src, u32t length, u32t flags);
+u32t   __stdcall hlp_memcpy(void *dst, const void *src, u32t length, u32t flags);
 
 #define MEMCPY_PG0   0x0001         ///< page 0 can be a part of src or dst
 #define MEMCPY_DI    0x0002         ///< disable interrupts during copying
 
 /// convert QSINIT error to nearest errno value
-int   __stdcall qserr2errno(qserr errv);
+int    __stdcall qserr2errno(qserr errv);
 
 #ifdef __cplusplus
 }

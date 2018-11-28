@@ -120,7 +120,7 @@ _BSS16          ends                                            ;
 ;    (DS:SI) = address of BOOT MEDIA'S bpb
 ;
 ;  exFAT boot sector:
-;    (DH)    = 0x40
+;    (DH)    = 0x40 (BF_NEWBPB)
 ;    (DL)    = drive number for the boot disk
 ;    (DS:SI) = address of Disk_NewPB structure (see ioint13.inc)
 ;
@@ -189,12 +189,14 @@ _aboutstr       label   near                                    ;
 ;
 ; here we have cleared bss & own stack
 ;
+                push    ds                                      ;
                 mov     ax,1003h                                ; blink off
-                xor     bl,bl                                   ;
+                xor     bx,bx                                   ;
                 int     10h                                     ;
                 mov     ah,2                                    ; check left shift state
                 int     16h                                     ;
                 and     al,2                                    ;
+                pop     ds                                      ;
                 setnz   _safeMode                               ;
                 add     byte ptr mhdr_about,al                  ; change color of |LOADING|
 ifdef INITDEBUG
@@ -207,7 +209,9 @@ endif
                 mov     dx,ax                                   ; left corner
                 call    init_print                              ; hello world!
 
+                push    ds                                      ;
                 int     12h                                     ; get int 12 value
+                pop     ds                                      ;
                 mov     _int12size,ax                           ;
 ifdef INITDEBUG
                 dbg16print <10,"lowmem: %d kb",10>,<ax>         ;
@@ -257,7 +261,7 @@ endif
                 movzx   cx,ah                                   ;
                 mov     es,bx                                   ;
 ifdef INITDEBUG
-                dbg16print <"boot flags: %x",10>,<cx>           ;
+                dbg16print <"boot flags: %x, ds: %x",10>,<bx,cx> ;
 endif
                 cmp     dh,al                                   ; FSD mode?
                 jc      @@init_noft                             ;
@@ -295,18 +299,16 @@ endif
                 jz      panic_initpm                            ;
                 shr     cx,PARASHIFT                            ;
                 mov     dx,_filetable.ft_museg                  ;
-                add     cx,dx                                   ; microfsd use memory
+                mov     lo_used_seg,dx                          ; lowest used seg on FSD boot
+                add     cx,dx                                   ; cx = microfsd end
                 mov     bx,_int12size                           ;
                 shl     bx,10-PARASHIFT                         ;
                 sub     bx,_64KB SHR PARASHIFT                  ;
                 cmp     cx,bx                                   ; end above lowmem - 64k?
-                jg      panic_initpm                            ;
+                ja      panic_initpm                            ;
                 sub     bx,_64KB SHR PARASHIFT                  ;
                 cmp     dx,bx                                   ; start below lowmem - 128k?
                 jc      panic_initpm                            ;
-
-                mov     cx,[_filetable.ft_museg]                ; lowest used mem
-                mov     lo_used_seg,cx                          ; on FSD boot
 
                 mov     cx,[_filetable.ft_cfiles]               ; check ft_cfiles
                 cmp     cx,8                                    ;
@@ -489,8 +491,8 @@ init_alloc_nohigh:
 ; IN: al = message number
 ;     dx = pos
 ;
-                public init_print
-init_print      proc  near                                      ;
+                public  init_print
+init_print      proc    near                                    ;
                 xor     ah,ah                                   ; save pos & msg
                 push    ax                                      ;
                 push    dx                                      ;

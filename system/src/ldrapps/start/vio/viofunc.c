@@ -365,8 +365,11 @@ static char *ansi_out(ansi_state *st, char *src) {
 
 void ansi_strout(char *str) {
    ansi_state *st = ansi_getstate();
+   u32t       thf = mt_tlsget(QTLS_FORCEANSI);
+   // thread local forced state?
+   if (thf) thf--; else thf = st->in_use;
    // ansi off? nice!
-   if (!st->in_use) vio_strout(str); else {
+   if (!thf) vio_strout(str); else {
       // flush unfinished ESC sequence
       if (st->seq) str = ansi_out(st, str);
       if (!*str) return;
@@ -412,5 +415,21 @@ u32t _std str_length(const char *str) {
             return len; // truncated ANSI seq, ignore it
       }
       return len + strlen(cs);
+   }
+}
+
+void _std vio_fillrect(u32t col, u32t line, u32t width, u32t height, char ch, u16t color) {
+   u32t mx, my;
+   vio_getmodefast(&mx, &my);
+   if (col>=mx || line>=my) return;
+   if (col+width>mx) width = mx - col;
+   if (line+height>my) height = my - line;
+
+   if (!width || !height) return; else {
+      u16t *vb = (u16t*)malloc_th(width*2);
+      if (!ch) ch = ' ';
+      memsetw(vb, color<<8|ch, width);
+      while (height--) vio_writebuf(col, line++, width, 1, vb, 0);
+      free(vb);
    }
 }

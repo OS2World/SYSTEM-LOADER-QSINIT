@@ -5,10 +5,8 @@
 #include "qslocal.h"
 #include "vio.h"
 
-static const char *strList[]={"DBPORT", "DISKSIZE", "BAUDRATE", "RESETMODE",
-   "NOAF", "MFSPRINT", 0};
+static const char *strList[]={"DBPORT", "BAUDRATE", "RESETMODE", "NOAF", "MFSPRINT", 0};
 
-extern u32t     Disk1Size;
 extern u16t   mfs_rmcmode;
 extern u8t    useint13ext,
                   useAFio;
@@ -62,23 +60,21 @@ void get_ini_parm(void) {
                      case 1:
                         if (rc>0 && !safeMode) hlp_seroutset(rc,0);
                         break;
-                     // "DISKSIZE"
-                     case 2: if (rc>0) Disk1Size=(u32t)rc<<10; break;
                      // "BAUDRATE"
-                     case 3: 
+                     case 2: 
                         hlp_seroutset(0,rc);
                         break;
                      // "RESETMODE"
-                     case 4:
+                     case 3:
                         if (rc) {
                            if (rc!=43 && rc!=50) rc=25;
                            vio_setmode(rc);
                         }
                         break;
                      // "NOAF"
-                     case 5: useAFio=0; break;
+                     case 4: useAFio=0; break;
                      // "MFSPRINT"
-                     case 6: if (rc>0) mfs_rmcmode=0; break;
+                     case 5: if (rc>0) mfs_rmcmode=0; break;
                   }
                   strln=0; value=0;
                }

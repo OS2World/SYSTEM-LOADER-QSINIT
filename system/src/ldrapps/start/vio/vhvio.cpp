@@ -284,11 +284,9 @@ static u16t _exicc kh_vio_read(EXI_DATA, int wait, u32t *status) {
    return rc;
 }
 
-static u8t _exicc kh_vio_avail(EXI_DATA) { return cvio->vh_kpressed(); }
 static u32t _exicc kh_vio_status(EXI_DATA) { return cvio->vh_kstatus(); }
 
-static void *kh_methods_list[] = { kh_vio_init, kh_vio_link, kh_vio_avail,
-   kh_vio_read, kh_vio_status };
+static void *kh_methods_list[] = { kh_vio_init, kh_vio_link, kh_vio_read, kh_vio_status };
 
 static void _std kh_vio_initialize(void *instance, void *data) {
    khi_data *kd = (khi_data*)data;

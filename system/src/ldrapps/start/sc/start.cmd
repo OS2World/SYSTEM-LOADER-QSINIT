@@ -1,15 +1,15 @@
 rem echo is off by default
 
 rem search path
-set libpath=1:\dll;
-set path=1:\;
-set tracepath=1:\msg;
+set libpath=b:\dll;
+set path=b:\;
+set tracepath=b:\msg;
+rem temp dir
+md temp
+set tmp=b:\temp
 
-rem set volume label for 1:
+rem set volume label for b:
 label vdisk
-
-rem load HPFS r/o support
-lm /q fslib
 
 rem load cache on first mount command if it wasn`t loaded before
 set LM_CACHE_ON_MOUNT = on,6%

@@ -41,7 +41,7 @@ qserr _std sys_dcenew(void *usr, u32t flags, u32t maxtime, dc_notify cb) {
    fc->flags = flags;
    fc->usr   = usr;
    fc->cb    = cb;
-   fc->exp   = sys_clock() + (u64t)maxtime * CLOCKS_PER_SEC / 1000;
+   fc->exp   = sys_clock() + (u64t)maxtime * CLOCKS_PER_SEC;
 
    /* add function is safe to be called from sys_dccommit() callback,
       because it modify only "first" variable */

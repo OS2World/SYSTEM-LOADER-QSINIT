@@ -85,7 +85,7 @@ u32t _std lvm_finddlat(u32t disk, u32t sector, u32t count) {
            bufsize = count<sper32k ? count : sper32k,
                 rc = 0;
       // allocate buffer
-      u8t    *zbuf = (u8t*)malloc(bufsize * sectsz);
+      u8t    *zbuf = (u8t*)malloc_thread(bufsize * sectsz);
       // read by 32k
       while (count) {
          u32t toread = count<sper32k ? count : sper32k, ii;

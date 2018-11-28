@@ -7,7 +7,6 @@
 
 #include "qstypes.h"
 #include "qslog.h"
-#include "qstime.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -101,6 +100,13 @@ void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason);
     @return total available memory in bytes */
 u32t  _std hlp_memavail(u32t *maxblock, u32t *total);
 
+/** query used memory size.
+    @param pid       Process id for process owned memory or 0 for global
+                     allocations.
+    @return used memory size in bytes (rounded up to 64k because of
+            system memory manager alignment). */
+u32t  _std hlp_memused (u32t pid);
+
 /// dump global memory table to log/serial port
 void  _std hlp_memprint(void);
 
@@ -115,13 +121,14 @@ void  _std hlp_memcprint(void);
 /** open file from the boot partition via micro-FSD.
     Only one file in read-only mode can be opened, this is IBM`s micro-FSD
     design limitation.
-    In EFI build function read files from \EFI\BOOT dir of EFI system volume.
+    In EFI build this function read files from \EFI\BOOT directory of the EFI
+    system volume.
 
     In MT mode - this call captures internal mutex and any other thread will
     be blocked on hlp_fopen(), hlp_fread(), hlp_fclose(), hlp_freadfull() and
     hlp_fexist() until this thread`s hlp_fclose() call.
 
-    Note, that zip_openfile() from boot volume/TFTP will also grab this mutex
+    Also note, that zip_openfile() from boot volume/TFTP will grab this mutex
     until zip_close().
 
     During PXE boot this call is unavailable (even more limitations) - and
@@ -131,7 +138,7 @@ void  _std hlp_memcprint(void);
     @return -1 on no file, else file size */
 u32t  _std hlp_fopen(const char *name);
 
-/** read file from boot partition via micro-FSD.
+/** read file from the boot partition via micro-FSD.
     @param  offset        Offset on file.
     @param  buf           Target buffer
     @param  bufsize       Size to read
@@ -149,7 +156,7 @@ void  _std hlp_fclose();
 
     @param  name  File name (boot disk root only), up to 63 chars.
     @return 0 if file is not exist, 0xFFFFFFFF - if size is zero or unknown
-            (always occurs on PXE), else size of this file. */
+            (always occurs on PXE), else size of the file. */
 u32t  _std hlp_fexist(const char *name);
 
 /** callback for hlp_freadfull.
@@ -220,8 +227,8 @@ u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
 
 /** write to physical disk.
-    Be careful with QDSK_VOLUME flag! 0x100 value mean boot partition, 0x101 -
-    virtual disk with QSINIT apps!
+    Be careful with QDSK_VOLUME flag! 0x100 value mean boot partition, 0x102 -
+    volume C: (if mounted one) and so on!
 
     @param  disk      Disk number.
     @param  sector    Start sector
@@ -269,19 +276,19 @@ u32t _std hlp_diskmode(u32t disk, u32t flags);
 #define HDT_INVALID     0       ///< Invalid disk number
 #define HDT_REGULAR     1       ///< Regular disk device (HDD or flash drive)
 #define HDT_FLOPPY      2       ///< Floppy disk
-#define HDT_CDROM       3       ///< CD-ROM (rare case, when BIOS maps it as HDD)
+#define HDT_CDROM       3       ///< CD-ROM (rare case, when BIOS maps it as a HDD)
 #define HDT_RAMDISK     4       ///< Ram disk
 #define HDT_EMULATED    5       ///< Other emulated device (VHDD)
 //@}
 
 /** query disk type.
     Note, that for volume handles (QDSK_VOLUME) function returns type of
-    disk, where volume placed!
+    disk, where volume is placed!
     @param  disk      Disk number.
     @return HDT_* value */
 u32t _std hlp_disktype(u32t disk);
 
-/** try to mount a part of disk as FAT/FAT32/exFAT partition.
+/** try to mount a part of disk as a known filesystem (any FAT type or HPFS).
     This is low level mount function, use vol_mount() for partition based
     mounting.
     @param  drive     Drive number: 2..9 only, remounting of 0,1 is not allowed.
@@ -292,15 +299,17 @@ u32t _std hlp_disktype(u32t disk);
 u32t _std hlp_mountvol(u8t drive, u32t disk, u64t sector, u64t count);
 
 typedef struct {
-   u32t      SerialNum;         ///< Volume serial (from BPB)
+   u32t      SerialNum;         ///< Volume serial
    u32t         ClSize;         ///< Sectors per FS allocation unit (cluster)
-   u32t    RootDirSize;         ///< Number of root directory entries (FAT12/16)
-   u16t     SectorSize;         ///< Bytes per sector
-   u16t      FatCopies;         ///< Number of FAT copies
-   u32t           Disk;         ///< Disk number
-   u64t    StartSector;         ///< Start sector of volume (partition)
-   u32t   TotalSectors;         ///< Total sectors on volume
-   u32t     DataSector;         ///< First data sector on volume (volume-relative)
+   u16t     SectorSize;         ///< Bytes per sector (virtual fs should emulate this)
+   u16t      InfoFlags;         ///< Volume inormation flags (VIF_* below)
+
+   u32t           Disk;         ///< Disk number (invalid if VIF_VFS)
+   u64t    StartSector;         ///< Start sector of volume (not valid for VIF_VFS)
+   u32t   TotalSectors;         ///< Total sectors on volume (no support for >2Tb volumes now)
+   u32t       Reserved;         ///< Just zero
+   u32t     DataSector;         ///< First data sector on volume (volume-relative, not valid for VIF_VFS)
+
    u32t          ClBad;         ///< Bad clusters (not supported, non-zero only after format)
    u32t        ClAvail;         ///< Clusters available
    u32t        ClTotal;         ///< Clusters total
@@ -308,6 +317,7 @@ typedef struct {
    char      Label[12];         ///< Volume Label
    char      FsName[9];         ///< File system readable name (empty if not recognized)
    u8t           FsVer;         ///< File system version (0 - not recognized)
+   u16t        OemData;         ///< File system defined information
 } disk_volume_data;
 
 /// @name hlp_volinfo() result
@@ -320,6 +330,13 @@ typedef struct {
 #define FST_OTHER       5       ///< other filesystem
 //@}
 
+/// @name hlp_volinfo() InfoFlags bits
+//@{
+#define VIF_READONLY    0x0001  ///< read-only volume
+#define VIF_VFS         0x0002  ///< virtual fs (no disk data)
+//@}
+
+
 /** mounted volume info.
     Actually function is bad designed, it returns FST_NOTMOUNTED both
     on non-mounted volume and mounted non-FAT volume. To check volume
@@ -327,8 +344,13 @@ typedef struct {
     is not mounted.
     Also, io_volinfo() available in i/o API, with the same functionality.
 
+    For VIF_VFS file system type Disk, StartSector and DataSector fields
+    are invalid and SectorSize, ClSize, ClAvail and ClTotal just emulate
+    "block" allocation.
+
+    @param  drive     Drive number
     @param  info      Buffer for data to fill in, can be 0.
-    @return FAT_* constant */
+    @return FST_* constant */
 u32t _std hlp_volinfo(u8t drive, disk_volume_data *info);
 
 /** unmount previously mounted partition.
@@ -341,6 +363,19 @@ u32t _std hlp_unmountvol(u8t drive);
     @param  disk      Disk number
     @return number of unmounted volumes. */
 u32t _std hlp_unmountall(u32t disk);
+
+//===================================================================
+//  date/time
+//-------------------------------------------------------------------
+
+/// return timer counter value (18.2 times per sec, for randomize, etc)
+u32t _std tm_counter(void);
+
+/// return time/date in dos format. flag CF is set for 1 second overflow
+u32t _std tm_getdate(void);
+
+/// set current time (with 2 seconds granularity)
+void _std tm_setdate(u32t dostime);
 
 //===================================================================
 //  other
@@ -383,7 +418,9 @@ u32t  _std hlp_selbase(u32t Sel, u32t *Limit);
 u32t  _std hlp_selfree(u32t selector);
 
 /** copy Length bytes from Sel:Offset to FLAT:Destination.
-    Function check Sel,Offset & Length, but does not check Destination.
+    Function checks Sel, Offset, Length and page access for the source, but
+    does not check the Destination.
+
     @param Destination   Destination buffer
     @param Offset        Source offset
     @param Sel           Source selector
@@ -392,13 +429,13 @@ u32t  _std hlp_selfree(u32t selector);
 u32t  _std hlp_copytoflat(void* Destination, u32t Offset, u32t Sel, u32t Length);
 
 /** convert real mode segment to flat address.
-    QSINIT FLAT space is zero-based since version 0.12 (rev.281), so this
-    function is void.
+    QSINIT FLAT space is zero-based since version 0.12 (rev 281), so this
+    function is void now and may be removed.
 
-    BUT! To use any memory above the end of RAM in first 4GBs (call
-    sys_endofram() to query it) - pag_physmap() MUST be used. This is the
-    only way to preserve access to this memory when QSINIT will be switched
-    into PAE paging mode (can occur at any time by single API call).
+    BUT! To use memory above the end of RAM in first 4GBs (call sys_endofram()
+    to query this border) - pag_physmap() MUST be used. This is the only way
+    to preserve access to this memory when QSINIT will be switched into PAE
+    paging mode (can occur at any time by single API call).
 
     @param Segment       Real mode segment
     @return flat address */
@@ -410,8 +447,8 @@ u32t  _std hlp_segtoflat(u16t Segment);
 /** real mode function call with arguments.
     @param rmfunc  16 bit far pointer / FLAT addr,
                    if high word (segment) < 10, then this is FLAT addr in
-                   first 640k
-    @param dwcopy  number of words to copy to real mode stack. RMC_* flags can
+                   first 640k. Use hlp_rmcallreg() to skip this crazy logic.
+    @param dwcopy  number of words to copy to the real mode stack. RMC_* can
                    be ORed here (note, that absence of RMC_EXITCALL in final
                    QSINIT`s exit can cause REAL troubles for feature code).
     @param ...     arguments. Be careful with 32bit push and 16bit args! ;)
@@ -434,7 +471,7 @@ u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
                             ss:sp can be 0 to use DPMI stack.
     @param [in]     dwcopy  number of words to copy to real mode stack,
                             RMC_* flags can be ORed here. RMC_IRET assumed for
-                            interrupt call.
+                            the interrupt call.
     @param [in]     ...     arguments, be careful with 32bit push and 16bit args.
 
     @return real mode dx:ax and OF, SF, ZF, AF, PF, CF flags, modified real
@@ -525,10 +562,14 @@ u32t _std hlp_insafemode(void);
 //@}
 
 /** abort execution and stop.
+    This is complete exit from QSINIT to the real mode in BIOS host and
+    back to the UEFI (on EFI host). Call is used by load process, mainly.
+
     @param rc  Error code for text message */
 void _std exit_pm32(int rc);
 
 /** exit and restart another os2ldr.
+    This is "RESTART" shell command API analogue.
     @param loader  OS2LDR file name */
 void _std exit_restart(char *loader);
 
@@ -541,7 +582,7 @@ void _std exit_restart(char *loader);
 /** boot from specified HDD.
     exit_bootvbr() should be used to boot from floppy.
     @param  disk      Disk number (QDSK_*)
-    @param  ownmbr    Flag 1 to replace disk MBR code to self-provided
+    @param  flags     Options (EMBR_*)
     @retval EINVAL    invalid disk handle
     @retval ENODEV    empty partition table
     @retval EIO       i/o error occured
@@ -594,8 +635,8 @@ void _std exit_reboot(int warm);
     already and using it will cause unpredicted results.
 
     Any exit API functions make this call internally, i.e. it must be
-    called only in custom exit ways, like direct jumping to real mode code
-    (as in the example above).
+    called only in custom exit ways, like direct jump to the real mode code
+    (example above).
 
     @see exit_handler() */
 void _std exit_prepare(void);

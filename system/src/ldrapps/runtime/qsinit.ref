@@ -35,6 +35,7 @@ exports = {
   _hlp_memrealloc  = { index=22 }                                 # global realloc
   _hlp_memavail    = { index=23 }                                 # query available memory
   _hlp_memqconst   = { index=24 }                                 # internal
+  _hlp_memused     = { index=25 group="sysmem"  format="uu" }     # query memory usage
   _hlp_memprint    = { index=26 }                                 # print tables to log
   _hlp_memgetsize  = { index=27 }                                 # query block size
   _hlp_memreserve  = { index=28 group="sysmem"  format="ppu&*u" } # reserve mem at phys addr
@@ -55,6 +56,7 @@ exports = {
   _hlp_serialin    = { index=46 group="serial"  format="@b@h"   } # serial port char in
   _hlp_serialout   = { index=47 group="serial"  format="v@hc"   } # serial port char out
   _hlp_serialset   = { index=48 group="serial"  format="i@hu"   } # serial port init
+  _hlp_cachenotify = { index=49 }                                 # cache ioctl call
 
   _snprintf        = { index=70 group="string"  format="i&sus." } # clib
   _memset          = { index=72 group="clib"    format="pp@cu" }  #
@@ -155,7 +157,8 @@ exports = {
   _mod_secondary   = { index=165 offset = yes }                   # internal variables and
   _mod_list        = { index=166 offset = yes }                   # functions
   _mod_ilist       = { index=167 offset = yes }                   #
-  # 168..172 removed (mod_list* functions)
+  _mod_chain       = { index=168 group="module" format="@u@ups" } # chain module
+  # 169..172 is free (mod_list* was here)
   _mod_context     = { index=173 }                                # query module context
   _mod_query       = { index=174 }                                # is module loaded?
   _mod_apidirect   = { index=175 group="module" format="p@uu" }   #

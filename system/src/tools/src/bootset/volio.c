@@ -35,11 +35,12 @@ Bool volume_open (char letter, volh *handle) {
          FILE_FLAG_NO_BUFFERING|FILE_FLAG_WRITE_THROUGH, NULL);
    *handle = 0;
    if (rc==INVALID_HANDLE_VALUE) return False;
-   /** this is not required by FAT32 driver, but exFAT switches volume to r/o
-       after writing below, FSCTL_LOCK_VOLUME can`t help too.
+   /** dismount is not required for FAT32 driver, but exFAT switches volume
+       to r/o after writing below, FSCTL_LOCK_VOLUME can`t help too.
        GetLogicalDrives() after close should mount it back as MSDN says - and
-       it looks true */
-   if (!DeviceIoControl(rc, FSCTL_DISMOUNT_VOLUME, 0, 0, 0, 0, &Count, 0)) return False;
+       it works ;) */
+   if (!DeviceIoControl(rc, FSCTL_DISMOUNT_VOLUME, 0, 0, 0, 0, &Count, 0))
+      return False;
 
    vh = (voldata*)malloc(sizeof(voldata));
    vh->dh      = rc;
@@ -107,7 +108,6 @@ static Bool volume_seek(volh handle, u32 sector) {
       DWORD  err;
       SetFilePointer(vh->dh, dpos, ((PLONG)&dpos)+1, FILE_BEGIN);
       err = GetLastError();
-      // if (err) printf("Error %d (%X)\n",err,err);
       if (err!=NO_ERROR) {
          if (!sector) { // position 0 - re-open it ;)
             CloseHandle(vh->dh);
@@ -212,7 +212,10 @@ Bool volume_open (char letter, volh *handle) {
       memset(vh, 0, sizeof(voldata));
       vh->dh   = dh;
 
-      DriveRequest.Infotype =0;
+      /* good news is that real BPB returned with REAL sectors per track value,
+         not written into FAT spt field. This is actual for 127/255 spt disks,
+         formatted to FAT in Windows (where FAT spt is 63) */
+      DriveRequest.Infotype =1; //0;
       DriveRequest.DriveUnit=0;
 
       if (DosDevIOCtl(dh,IOCTL_DISK,DSK_GETDEVICEPARAMS,(PVOID)&DriveRequest,

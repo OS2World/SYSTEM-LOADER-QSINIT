@@ -21,7 +21,7 @@ But there are four types of allocation available:
     realloc() and free() inside DLL module code. It works as shared until
     DLL unload - then all such blocks will be released.
 
-    @attention Note, what such type is returned by this 3 functions only,
+    @attention Note, that such type is returned by this 3 functions only,
     other clib and APIs still returns process owned memory when called from
     DLL!
 

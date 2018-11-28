@@ -25,7 +25,6 @@ void biostest(void);
 
 // some externals
 int  _std _snprint(char *buf, u32t count, const char *fmt, long *argp);
-void _std cache_ctrl(u32t action, u8t vol);
 void _std cpuhlt(void);
 u16t _std key_read_int(void);
 void _std cvio_getmodefast(u32t *cols, u32t *lines);
@@ -38,7 +37,6 @@ void _std cvio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf,
 void _std cvio_readbuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch);
 int  _std cvio_setmodeex(u32t cols, u32t lines);
 void _std cvio_intensity(u8t value);
-u8t  _std ckey_pressed(void);
 void _std cb_codepage(sys_eventinfo *info);
 
 /// put message to real mode log delay buffer
@@ -64,7 +62,6 @@ void _std exit_prepare(void) {
       return;
    } else {
       in_exit_call = 1;
-      cache_ctrl(CC_FLUSH, DISK_LDR);
       // process exit list
       if (mod_secondary) mod_secondary->sys_notifyexec(SECB_QSEXIT, 0);
 #ifndef EFI_BUILD
@@ -145,6 +142,8 @@ u32t _std exit_poweroff(int suspend) {
 void int15mem_int(void) {
    rmcall(getfullSMAP,0);
 }
+
+void init_host(void) {}
 #else
 void int15mem_int(void);
 #endif
@@ -306,12 +305,14 @@ u16t _std key_wait(u32t seconds) {
 }
 
 u16t _std ckey_read() {
-#ifdef EFI_BUILD
-   return ckey_waitex(FFFF,0);
-#else
-   // goes to real mode for a while until MTLIB start
-   return mt_exechooks.mtcb_yield ? ckey_waitex(FFFF,0) : key_read_int();
+#ifndef EFI_BUILD
+   // goes into the real mode for a while - until MTLIB activation
+   if (!mt_exechooks.mtcb_yield) {
+      if (check_cbreak()) return KEYC_CTRLBREAK;
+      return key_read_int();
+   }
 #endif
+   return ckey_waitex(FFFF,0);
 }
 
 /// trap screen on missing function in active VIO handler

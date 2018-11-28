@@ -1104,7 +1104,7 @@ void load_miscfiles(const char *kernel, int dbcs) {
       check_size(&dbcsfnt, &dbcsfnsize, _256KB-_16KB, "Dbcs font");
       
       if (dbcsfnt)
-         if (dbcsfnsize<16 || memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)) {
+         if (dbcsfnsize<16 /*|| memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)*/) {
             log_printf("Warning! Wrong DBCS font file!\n");
             hlp_memfree(dbcsfnt); dbcsfnt=0;
          }

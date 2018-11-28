@@ -7,6 +7,7 @@
 #include "qsinit_ord.h"
 #include "start_ord.h"
 #include "mtlib.h"
+#include "qcl/qsmt.h"
 
 #define INT_TIMER       206
 #define INT_SPURIOUS    207
@@ -79,7 +80,8 @@ static void _std notify_callback(sys_eventinfo *info) {
 static u32t catch_functions(void) {
    if (!mod_apichain(mh_start, ORD_START_mod_dumptree, APICN_REPLACE, mt_dumptree) ||
       !mod_apichain(mh_start, ORD_START_mt_getthread, APICN_REPLACE, mt_gettid) ||
-         !mod_apichain(mh_qsinit, ORD_QSINIT_usleep, APICN_REPLACE, mt_usleep))
+         !mod_apichain(mh_start, ORD_START_mod_pidlist, APICN_REPLACE, mt_pidlist) ||
+            !mod_apichain(mh_qsinit, ORD_QSINIT_usleep, APICN_REPLACE, mt_usleep))
    {
       log_it(2, "unable to replace api!\n");
       return E_MOD_NOORD;
@@ -221,42 +223,74 @@ static qserr mt_start(void) {
    return 0;
 }
 
-qserr _exicc cmt_initialize(void *data) {
+/* MTLIB shared class */
+
+static qserr _exicc cmt_initialize  (void *data) {
    if (mt_on) return E_SYS_DONE;
    return mt_start();
 }
 
-u32t  _exicc cmt_state(EXI_DATA) { return mt_on?1:0; }
+static u32t  _exicc cmt_state       (EXI_DATA) { return mt_on?1:0; }
 
-qserr _exicc cmt_waitobject(EXI_DATA, mt_waitentry *list, u32t count, u32t glogic,
-                          u32t *signaled)
-{
-   return mt_waitobject(list, count, glogic, signaled);
-}
+static qserr _exicc cmt_waitobject  (EXI_DATA, mt_waitentry *list, u32t count,
+                                     u32t glogic, u32t *signaled)
+{  return mt_waitobject(list, count, glogic, signaled); }
 
-mt_tid _exicc cmt_createthread(EXI_DATA, mt_threadfunc thread, u32t flags,
-                          mt_ctdata *optdata, void *arg)
-{
-   return mt_createthread(thread, flags, optdata, arg);
-}
+static mt_tid _exicc cmt_thcreate   (EXI_DATA, mt_threadfunc thread, u32t flags,
+                                     mt_ctdata *optdata, void *arg)
+{  return mt_createthread(thread, flags, optdata, arg); }
 
-qserr _exicc cmt_resumethread(EXI_DATA, u32t pid, u32t tid) { return mt_resumethread(pid, tid); }
+static qserr _exicc cmt_thsuspend   (EXI_DATA, mt_pid pid, mt_tid tid, u32t ms)
+{  return mt_suspendthread(pid, tid, ms); }
 
-qserr _exicc cmt_threadname(EXI_DATA, const char *str) { return mt_threadname(str); }
+static qserr _exicc cmt_thresume    (EXI_DATA, u32t pid, u32t tid)
+{  return mt_resumethread(pid, tid); }
 
-qserr _exicc cmd_execse(EXI_DATA, u32t module, const char *env, const char *params,
-                        u32t flags, u32t vdev, mt_pid *ppid, const char *title)
-{ 
-   return mod_execse(module, env, params, flags, vdev, ppid, title);
-}
+static qserr _exicc cmt_thstop      (EXI_DATA, mt_pid pid, mt_tid tid, u32t rc)
+{  return mt_termthread(pid, tid, rc); }
 
-u32t  _exicc cmt_getmodpid(EXI_DATA, u32t mh) {
+static void  _exicc cmt_thexit      (EXI_DATA, u32t rc)
+{  mt_exitthread(rc); }
+
+static qserr _exicc cmt_execse      (EXI_DATA, u32t module, const char *env,
+                                     const char *params, u32t flags, u32t vdev,
+                                     mt_pid *ppid, const char *title)
+{  return mod_execse(module, env, params, flags, vdev, ppid, title); }
+
+static u32t _exicc cmt_getmodpid    (EXI_DATA, u32t mh, u32t *parent) {
    if (!mh) return 0;
-   return pid_by_module((module*)mh);
+   return pid_by_module((module*)mh, parent);
 }
+
+static u32t _exicc cmt_createfiber  (EXI_DATA, mt_threadfunc fiber, u32t flags,
+                                     mt_cfdata *optdata, void *arg)
+{  return mt_createfiber(fiber, flags, optdata, arg); }
+
+static qserr _exicc cmt_switchfiber (EXI_DATA, u32t fiber, int free)
+{  return mt_switchfiber(fiber, free); }
+
+static qserr _exicc cmt_sendsignal  (EXI_DATA, u32t pid, u32t tid, u32t signal,
+                                     u32t flags) 
+{  return mt_sendsignal (pid, tid, signal, flags); }
+
+static mt_sigcb _exicc cmt_setsignal(EXI_DATA, mt_sigcb cb)
+{  return mt_setsignal(cb); }
+
+static qserr _exicc cmt_stop        (EXI_DATA, mt_pid pid, int tree, u32t result)
+{  return mod_stop(pid, tree, result); }
+
+static qserr _exicc cmt_checkpidtid (EXI_DATA, mt_pid pid, mt_tid tid)
+{  return mt_checkpidtid(pid, tid); }
+
+static qserr _exicc cmt_tasklist    (EXI_DATA, u32t devmask)
+{  return se_tasklist(devmask); }
 
 static void *methods_list[] = { cmt_initialize, cmt_state, cmt_getmodpid,
-   cmt_waitobject, cmt_createthread, cmt_resumethread, cmt_threadname, cmd_execse };
+   cmt_waitobject, cmt_thcreate, cmt_thsuspend, cmt_thresume, cmt_thstop,
+   cmt_thexit, cmt_execse, cmt_createfiber, cmt_switchfiber, cmt_sendsignal,
+   cmt_setsignal, cmt_stop, cmt_checkpidtid, cmt_tasklist };
+
+/* Shell commands */
 
 qserr new_session(str_list *args, u32t flags, u32t devlist, const char *taskname) {
    qserr err = 0;
@@ -360,12 +394,53 @@ u32t _std shl_start(const char *cmd, str_list *args) {
    return EINVAL;
 }
 
+u32t _std shl_stop(const char *cmd, str_list *args) {
+   int rc=-1, tree=1, quiet=0;
+   if (args->count>0) {
+      static char *argstr   = "/s|/q";
+      static short argval[] = {  0, 1};
+      // help overrides any other keys
+      if (str_findkey(args, "/?", 0)) {
+         cmd_shellhelp(cmd,CLR_HELP);
+         return 0;
+      }
+      args = str_parseargs(args, 0, 1, argstr, argval, &tree, &quiet);
+
+      if (args->count>0) {
+         u32t ii;
+         for (ii=0; ii<args->count; ii++) {
+            u32t pid = str2ulong(args->item[ii]);
+            if (!pid) {
+               if (!quiet) break;
+            } else {
+               rc = mod_stop(pid, tree, EXIT_FAILURE);
+               if (!quiet)
+                  if (rc) break; else
+                     printf("pid %u stopped\n", pid);
+            }
+         }
+         if (quiet) rc = 0;
+      }
+      // free args clone, returned by str_parseargs() above
+      free(args);
+      if (rc>=0) {
+         if (rc) cmd_shellerr(EMSG_QS, rc, 0);
+         return 0;
+      }
+   }
+   cmd_shellerr(EMSG_CLIB, EINVAL, 0);
+   return EINVAL;
+}
+
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
       if (mod_query(mod_getname(hmod,0), MODQ_LOADED|MODQ_NOINCR)) {
          log_printf("%s already loaded!\n", mod_getname(hmod,0));
          return 0;
       }
+      if (sizeof(_qs_mtlib)!=sizeof(methods_list))
+         _throwmsg_("mtlib class: size mismatch");
+
       mh_qsinit = mod_query(MODNAME_QSINIT, MODQ_NOINCR),
       mh_start  = mod_query(MODNAME_START, MODQ_NOINCR);
       if (!mh_qsinit || !mh_start) {
@@ -390,6 +465,8 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          log_printf("unable to import APIs!\n");
          return 0;
       }
+      memset(&tasklists, 0, sizeof(tasklists));
+
       pxcpt_top   = mt_exechooks.mtcb_pxcpttop;
       // shared class for indirect import of MTLIB functions by side code
       classid     = exi_register("qs_mtlib", methods_list,
@@ -403,6 +480,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       // some nice commands ;)
       cmd_shelladd("DETACH", shl_detach);
       cmd_shelladd("START", shl_start);
+      cmd_shelladd("STOP", shl_stop);
    }
    return 1;
 }

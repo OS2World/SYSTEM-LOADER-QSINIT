@@ -75,7 +75,12 @@ char& spstr::operator[] (l __pos) {
   assert(!Lock);
 #endif
   _unique();
-  return __pos>=0&&__pos<data->chars?data->buf[__pos]:data->buf[data->chars-1];
+  if (__pos>=0&&__pos<data->chars) return data->buf[__pos];
+  /* return a _safe_ pointer to the zero char/any char after the last.
+     Al least, overwrite here will be lost, but will be safe too */
+  unique(data->chars+2);
+  data->buf[data->chars+1] = 0;
+  return data->buf[data->chars+1];
 }
 
 spstr & spstr::operator = (spstr const &from) {

@@ -1536,7 +1536,7 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
                   case E_DSK_ERRREAD : res = rest?MSGE_READERR:MSGE_WRITEERR; break;
                   case E_SYS_ACCESS  : res = MSGE_ACCESSDENIED; break;
                   case E_SYS_EXIST   : res = MSGE_FILECREATERR; break;
-                  case E_DSK_UNKFS   : res = MSGE_NOTVHDDFILE; break;
+                  case E_SYS_BADFMT  : res = MSGE_NOTVHDDFILE; break;
                   default            : res = MSGE_FILEOPENERR;
                }
          }

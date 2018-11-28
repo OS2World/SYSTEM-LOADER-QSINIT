@@ -24,7 +24,8 @@ build=1                   ; build, converted to decimal value on use
 ;$(verint)   - version int (0x00900001) (hex version, decimal build!)
 ;$(verishort)- short version int (0x0090)
 ;$(config)   - config name
-;$(timestr)  - build time
+;$(timestr)  - build time (in form "hh:mm:ss dd.mm.yyyy")
+;$(timestr2) - build time (in form "dd Mon yyyy hh:mm:ss")
 ;$(buildnum) - build number
 ;$(build_os) - Win32, OS/2, Linux, DOS (DOS - only with -od key, no native DOS app).
 ;$(build_osc)- one char OS: w, o, l, d
@@ -166,7 +167,7 @@ defs.h= defs.obj |$(vvv) $(vvv2)|cmdline
 ; Q: what the ... is it? :)
 ; It was made for own big project, which used IBM VAC for OS/2 & Windows.
 ; 8 build configurations for 2 platforms finally made me ill and this primitive
-; converter was written. A simple .prj file as source for different makefiles.
+; converter was written. A simple .prj file as a source for different makefiles.
 ;
 ; Since ages, makefile processing became internal, with SMP support.
 ; The same thing can be done by GNU "make -j", but makefiles for 8 build

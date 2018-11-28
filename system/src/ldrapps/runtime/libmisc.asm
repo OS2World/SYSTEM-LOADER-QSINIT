@@ -12,8 +12,8 @@ CODE32          segment byte public USE32 'CODE'
 _free           label   near                                    ;
                 jmp     _mem_free                               ;
 
-; both bsr32 & bsf32 are too small to care about size and too
-; annoying in trace output when linked dynamically.
+; both bsr32 & bsf32 are too small to care about size and too annoying
+; in trace output when linked dynamically (as well as bswapX)
 ;----------------------------------------------------------------
 ;int  __stdcall bsr32(u32t value);
                 public  _bsr32
@@ -41,6 +41,34 @@ _bsf32          endp                                            ;
                 public  _call64l                                ;
 _call64l:
                 jmp     _call64                                 ;
+;----------------------------------------------------------------
+;u16t   __stdcall bswap16(u16t value);
+                public  _bswap16                                ;
+_bswap16        proc    near                                    ;
+                movzx   eax,word ptr [esp+4]                    ;
+                xchg    ah,al                                   ;
+                ret     4                                       ;
+_bswap16        endp
+
+;----------------------------------------------------------------
+;u32t   __stdcall bswap32(u32t value);
+                public  _bswap32                                ;
+_bswap32        proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                bswap   eax                                     ;
+                ret     4                                       ;
+_bswap32        endp
+
+;----------------------------------------------------------------
+;u64t   __stdcall bswap64(u64t value);
+                public  _bswap64                                ;
+_bswap64        proc    near                                    ;
+                mov     edx,[esp+4]                             ;
+                mov     eax,[esp+8]                             ;
+                bswap   edx                                     ;
+                bswap   eax                                     ;
+                ret     8                                       ;
+_bswap64        endp
 ;----------------------------------------------------------------
 
 CODE32          ends

@@ -10,13 +10,27 @@
 
 #define PERCENTS_PER_DISKCHECK   90
 #define WRITE_CODEPAGES           1
+/* unsuccess try to prevent autocheck on HPFS386.
+   Still can be used to write single small file to a formatted partition */
+#define WRITE_CHKDSKLOG           0
 
-extern char hpfs_bsect[];          ///< HPFS partition boot sector + micro-FSD code
-extern u32t hpfs_bscount;          ///< number of sectors in array above
+extern char  hpfs_bsect[];  ///< HPFS partition boot sector + micro-FSD code
+extern u32t  hpfs_bscount;  ///< number of sectors in array above
+
+#if WRITE_CHKDSKLOG
+const u8t   chkdsk_data[] = { 0x10,0,0x2D,1,2,0,0,0,0,0,0,0,0,0,0,0,8,0,0xB5,4,
+                              0,0,0,0 };
+const char   *chkdsk_name = "chkdsk.log";
+#endif
 
 static void free_fmt_info(fmt_info *fd) {
    if (fd->bmp) { DELETE(fd->bmp); fd->bmp = 0; }
    if (fd->bslist) { DELETE(fd->bslist); fd->bslist = 0; }
+   if (fd->mwlist) { 
+      if (fd->mwlist->count()) fd->mwlist->freeitems(0,fd->mwlist->max());
+      DELETE(fd->mwlist);
+      fd->mwlist = 0; 
+   }
    if (fd->mapidx) { free(fd->mapidx); fd->mapidx = 0; }
    if (fd->bblist) { free(fd->bblist); fd->bblist = 0; }
    if (fd->dbbmp) { DELETE(fd->dbbmp); fd->dbbmp = 0; }
@@ -84,7 +98,7 @@ static int prepare_bb_list(fmt_info *fd) {
       fd->bbidxlen = nbb/(512-1);
       if (nbb%(512-1)) fd->bbidxlen++;
    }
-   fd->bblist = (hpfs_badlist*)malloc(fd->bbidxlen*sizeof(hpfs_badlist));
+   fd->bblist = (hpfs_badlist*)malloc_thread(fd->bbidxlen*sizeof(hpfs_badlist));
    if (!fd->bblist) return 0;
    mem_zero(fd->bblist);
 
@@ -114,6 +128,43 @@ static int prepare_bb_list(fmt_info *fd) {
    return 1;
 }
 
+#if WRITE_CHKDSKLOG
+static void add_chkdsk_log(fmt_info *fd, hpfs_dirent *pd) {
+   fmt_mwrite *fn_data = (fmt_mwrite*)calloc_thread(1,sizeof(fmt_mwrite)+512),
+              *fl_data = (fmt_mwrite*)calloc_thread(1,sizeof(fmt_mwrite)+512);
+   hpfs_fnode      *fn = (hpfs_fnode*)&fn_data->data;
+
+   fn_data->nsec   = 1;
+   fl_data->nsec   = 1;
+   fn_data->sector = allocate_early(fd->bmp, 2, 1);
+   fl_data->sector = fn_data->sector + 1;
+   memcpy(&fl_data->data, &chkdsk_data, sizeof(chkdsk_data));
+
+   pd->fnode       = fn_data->sector;
+   pd->time_mod    = pd->time_access = pd->time_create = time(0);
+   pd->fsize       = sizeof(chkdsk_data);
+   pd->namelen     = strlen(chkdsk_name);
+   pd->recsize     = Round4(sizeof(hpfs_dirent) + pd->namelen);
+   memcpy(&pd->name, chkdsk_name, pd->namelen);
+
+   push_writelist(fd, fn_data);
+   push_writelist(fd, fl_data);
+
+   fn->header      = HPFS_FNODE_SIG;
+   fn->aclofs      = offsetof(hpfs_fnode,rspace[0]);
+   fn->pdir        = fd->sup.rootfn;
+   fn->fst.vdlen          = pd->fsize;
+   fn->fst.alb.free       = HPFS_LEAFPERFNODE - 1;
+   fn->fst.alb.used       = 1;
+   fn->fst.alb.freeofs    = 0x14;
+   fn->fst.aall[0].phys   = fl_data->sector;
+   fn->fst.aall[0].runlen = 1;
+   fn->fst.aall[1].log    = FFFF;
+   fn->name[0]            = pd->namelen;
+   memcpy(&fn->name[1], chkdsk_name, pd->namelen>15?15:pd->namelen);
+}
+#endif
+
 /** allocate directory structures & root dir.
     @return success flag (1/0) */
 static int prepare_dirblk(fmt_info *fd) {
@@ -127,7 +178,7 @@ static int prepare_dirblk(fmt_info *fd) {
    fd->sup.dbsectors     = dbsize*SEC_PER_DIRBLK;
    // pos to the middle
    fd->sup.dirblk_start  = allocate_sectors(fd->bmp, fd->sup.dbsectors, SPB,
-                          dirband * 8 * SPB * 512);
+                           dirband * 8 * SPB * 512);
    fd->sup.dirblk_end    = fd->sup.dirblk_start+fd->sup.dbsectors-1;
    // dirblk bitmap and root dirblk
    if (!dirband) {
@@ -158,11 +209,11 @@ static int prepare_dirblk(fmt_info *fd) {
    fd->dbbmp->set(1,0,fd->sup.dbsectors/SEC_PER_DIRBLK);
 
    // fill only non-zero FNODE fields
-   fd->rootfn.header     = HPFS_FNODE_SIG;
-   fd->rootfn.flag       = HPFS_FNF_DIR;
-   fd->rootfn.aclofs     = offsetof(hpfs_fnode,rspace[0]);
-   fd->sup.rootfn        = allocate_sectors(fd->bmp, 1, 1, fd->rootdir.self);
-   fd->rootfn.pdir       = fd->sup.rootfn;
+   fd->rootfn.header   = HPFS_FNODE_SIG;
+   fd->rootfn.flag     = HPFS_FNF_DIR;
+   fd->rootfn.aclofs   = offsetof(hpfs_fnode,rspace[0]);
+   fd->sup.rootfn      = allocate_sectors(fd->bmp, 1, 1, fd->rootdir.self);
+   fd->rootfn.pdir     = fd->sup.rootfn;
    fd->rootfn.fst.alb.free     = HPFS_LEAFPERFNODE - 1;
    fd->rootfn.fst.alb.used     = 1;
    fd->rootfn.fst.alb.freeofs  = 0x14;
@@ -170,9 +221,9 @@ static int prepare_dirblk(fmt_info *fd) {
    fd->rootfn.fst.aall[1].log  = FFFF;
 
    // fill root DIRBLK
-   fd->rootdir.sig       = HPFS_DNODE_SIG;
-   fd->rootdir.change    = 1;
-   fd->rootdir.parent    = fd->sup.rootfn;
+   fd->rootdir.sig     = HPFS_DNODE_SIG;
+   fd->rootdir.change  = 1;
+   fd->rootdir.parent  = fd->sup.rootfn;
 
    // build ".." & closing dir entries
    pd = (hpfs_dirent*)&fd->rootdir.startb;
@@ -185,7 +236,10 @@ static int prepare_dirblk(fmt_info *fd) {
    pd->namelen  = 2;
    pd->name[0]  = 1;
    pd->name[1]  = 1;
-
+#if WRITE_CHKDSKLOG
+   pd = (hpfs_dirent*)((u8t*)pd + pd->recsize);
+   add_chkdsk_log(fd, pd);
+#endif
    pd = (hpfs_dirent*)((u8t*)pd + pd->recsize);
    pd->recsize  = sizeof(hpfs_dirent);
    pd->flags    = HPFS_DF_END;
@@ -209,6 +263,12 @@ u32t hpfs_cpdatacrc(u8t *data, u32t cnt) {
    u32t rc=0;
    while (cnt--) { rc+=*data++; rc = (rc<<7) + (rc>>25); }
    return rc;
+}
+
+static void push_writelist(fmt_info *fd, fmt_mwrite *mw) {
+   if (!mw || !mw->nsec) return;
+   if (!fd->mwlist) fd->mwlist = NEW(ptr_list);
+   fd->mwlist->add(mw);
 }
 
 static int prepare_codepage(fmt_info *fd) {
@@ -327,6 +387,14 @@ static int write_volume(fmt_info *fd, read_callback cbprint) {
    if (hlp_diskwrite(dsk, v0+fd->sup.bitmaps.main, fd->mapidxlen * SPB,
       fd->mapidx) != fd->mapidxlen * SPB)
          return E_DSK_ERRWRITE;
+   // write minor data (it exist one)
+   if (fd->mwlist)
+      if (fd->mwlist->count())
+         for (ii=0; ii<fd->mwlist->count(); ii++) {
+            fmt_mwrite *we = (fmt_mwrite*)fd->mwlist->value(ii);
+            if (hlp_diskwrite(dsk, v0+we->sector, we->nsec, &we->data)!=we->nsec)
+               return E_DSK_ERRWRITE;
+         }
    if (cbprint) cbprint(95,0);
    // bitmaps
    step = fd->nfreemaps/4;
@@ -362,6 +430,8 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    hlp_volinfo(vol, &di);
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
    if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
+   if (di.InfoFlags&VIF_VFS) return E_DSK_NOTPHYS;
+
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
    if (volidx<0 && di.StartSector) return E_PTE_PINDEX;
@@ -402,7 +472,7 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
       geo.SectOnTrack =  63;
    }
 
-   fd = (fmt_info*)malloc(sizeof(fmt_info));
+   fd = (fmt_info*)malloc_thread(sizeof(fmt_info));
    mem_zero(fd);
    /* create BPB.
       Native format uses "recommended BPB" as base, so some FAT-specific
@@ -454,7 +524,7 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
          // turn off common trace for this instance
          exi_chainset(fd->bmp,0);
          // allocate space for bitmap index
-         fd->mapidx = (u32t*)malloc(fd->mapidxlen*512*SPB);
+         fd->mapidx = (u32t*)malloc_thread(fd->mapidxlen*512*SPB);
          if (fd->mapidx) mem_zero(fd->mapidx);
       }
    }

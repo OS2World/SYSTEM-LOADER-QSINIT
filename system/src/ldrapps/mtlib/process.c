@@ -24,17 +24,6 @@ u32t          tls_prealloc = 0;
 /// process exec entry point (has a special args list and stack)
 void mt_launch(void);
 
-/// stack, as it filled by launch32() code in QSINIT.
-typedef struct {
-   void      *retaddr;
-   module     *module;
-   u32t      reserved;
-   char       *envptr;
-   char      *cmdline;
-   u32t     startaddr;
-   u32t    parent_esp;
-} launch32_stack;
-
 /// replace fiber regs by supplied one.
 void mt_setregs(mt_fibdata *fd, struct tss_s *regs) {
    struct tss_s *rd = &fd->fiRegs;
@@ -60,9 +49,16 @@ mt_thrdata* get_by_tid(mt_prcdata *pd, u32t tid) {
 
 // must be called inside lock only!
 mt_prcdata* get_by_pid(u32t pid) {
-   u32t *pos = memchrd(pid_list, pid, pid_alloc);
-   if (!pos) return 0;
-   return pid_ptrs[pos-pid_list];
+   u32t       *pos = pid_list;
+   mt_prcdata *res;
+   /* ignore process with PFLM_CHAINEXIT flag ON */
+   do {
+      pos = memchrd(pos, pid, pid_alloc - (pos-pid_list));
+      if (!pos) return 0;
+      res = pid_ptrs[pos++-pid_list];
+   } while (res->piMiscFlags&PFLM_CHAINEXIT);
+
+   return res;
 }
 
 /* must be called only inside lock!
@@ -76,6 +72,7 @@ static void pidlist_add(u32t pid, mt_prcdata *pd) {
          if (pos) {
             pid_ptrs[pos-pid_list] = pd;
             *pos = pid;
+            pid_changes++;
             return;
          }
       }
@@ -87,12 +84,15 @@ static void pidlist_add(u32t pid, mt_prcdata *pd) {
    }
 }
 
-// must be called inside lock only!
-static void pidlist_del(u32t pid) {
-   u32t *pos = memchrd(pid_list, pid, pid_alloc);
+/** delete entry from the pid list.
+    must be called inside lock only!
+    Arg is process data because pid may be duplicated because of mod_chain() call */
+static void pidlist_del(mt_prcdata *pd) {
+   u32t *pos = memchrd((u32t*)pid_ptrs, (u32t)pd, pid_alloc);
    if (!pos) return;
    *pos = 0;
-   pid_ptrs[pos-pid_list] = 0;
+   pid_list[pos-(u32t*)pid_ptrs] = 0;
+   pid_changes++;
 }
 
 // enum processes
@@ -120,22 +120,61 @@ static void _std pageson(sys_eventinfo *info) {
 
 /* searches pid by exe module handle.
    actually used in "lm list" only! */
-u32t pid_by_module(module* handle) {
+u32t pid_by_module(module* handle, u32t *parent) {
    u32t ii = 0, rc = 0;
    mt_swlock();
    while (ii<pid_alloc)
-      if (pid_list[ii] && pid_ptrs[ii]->piModule==handle)
-         { rc = pid_list[ii]; break; } else ii++;
+      if (pid_list[ii] && pid_ptrs[ii]->piModule==handle) {
+         rc = pid_list[ii];
+         if (parent) *parent = pid_ptrs[ii]->piParentPID;
+         break;
+      } else ii++;
    mt_swunlock();
    return rc;
 }
 
-void* alloc_thread_memory(u32t pid, u32t tid, u32t size) {
-   return mem_allocz(QSMEMOWNER_COTHREAD+tid-1, pid, size);
+static int __stdcall pid_compare(const void *b1, const void *b2) {
+   u32t *pid1 = (u32t*)b1,
+        *pid2 = (u32t*)b2;
+   // sort by value, but zero - to the end
+   if (*pid1 == *pid2) return 0;
+   if (!*pid1 && *pid2) return 1;
+   if (*pid2 && *pid1 > *pid2) return 1;
+   return -1;
+}
+
+u32t* _std mt_pidlist(void) {
+   u32t *rc, size;
+   mt_swlock();
+   size = sizeof(u32t)*pid_alloc;
+   rc   = malloc(size + sizeof(u32t));
+   mem_localblock(rc);
+   memcpy(rc, pid_list, size);
+   rc[pid_alloc] = 0;
+   /* here we have unsorted pid list with zeros in it, but guaranteed zero
+      at the end. Sort it specially to get linear array */
+   qsort(rc, pid_alloc, sizeof(u32t), pid_compare);
+   mt_swunlock();
+   return rc;
+}
+
+qserr _std mt_checkpidtid(mt_pid pid, mt_tid tid) {
+   qserr rc = E_MT_BADPID;
+   mt_swlock();
+   if (pid) {
+      mt_prcdata *pd = get_by_pid(pid);
+      if (pd) {
+         mt_thrdata *th = get_by_tid(pd, tid?tid:1);
+         if (!th) rc = E_MT_BADTID; else
+            rc = th->tiState==THRD_FINISHED?E_MT_GONE:0;
+      }
+   }
+   mt_swunlock();
+   return rc;
 }
 
 /** function just _throw_ trap screen on error.
-    This is version for pre-MTLIB structs, it checks, what structures,
+    This is version for pre-MTLIB structs, it checks, that structures,
     was allocated by QSINIT`s process.c still is in the same totalitary
     state (single thread, single fiber, ... ;) */
 static void check_prcdata_early(process_context *pq, mt_prcdata *pd) {
@@ -177,7 +216,7 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
       pl = ppd->piFirstChild;
       while (pl)
          if (pl==pd) break; else pl = pl->piNext;
-      if (!pl) err = 4;                         // is it in parent list?
+      if (!pl) err = 4;                         // is it in the parent list?
          else
       if (ppd->piPID!=pd->piParentPID) err = 5;
    }
@@ -208,16 +247,20 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
          // check fibers
          for (fii=0; !err && fii<tl->tiListAlloc; fii++) {
             mt_fibdata *fd = tl->tiList + fii;
-            if (fd->fiSign!=FIBERSTATE_SIGN) err = 9;
+            if (fd->fiSign!=FIBERSTATE_SIGN) {
+               log_it(0, "tid %u, la %d, l %X, #fb %u, fb %u, %7lb\n", tl->tiTID,
+                  tl->tiListAlloc, tl->tiList, tl->tiFibers, fii, fd);
+               err = 9;
+            }
             // FPU state buffer should be aligned to 64
-            if (fd->fiFPURegs)
+            if (fd->fiType!=FIBT_AVAIL && fd->fiFPURegs)
                if ((ptrdiff_t)fd->fiFPURegs&0x3F) err = 11;
          }
          thcnt++;
       }
    }
    // check number of threads match
-   if (thcnt!=pd->piThreads) {
+   if (!err && thcnt!=pd->piThreads) {
       log_it(0, "%u<>%u\n", thcnt, pd->piThreads);
       err = 10;
    }
@@ -230,14 +273,50 @@ static int check_prcdata(process_context *pq, mt_prcdata *pd, int throwerr) {
    return 1;
 }
 
+static void mt_linktree(mt_prcdata *parent, mt_prcdata *pd) {
+   mt_prcdata *cpd = parent->piFirstChild;
+   if (cpd) {
+      while (cpd->piNext) cpd = cpd->piNext;
+      cpd->piNext = pd;
+   } else
+      parent->piFirstChild = pd;
+   // update it again
+   pd->piParentPID = parent->piPID;
+   pd->piParent    = parent;
+}
+
+static void mt_unlinktree(mt_prcdata *pd) {
+   mt_prcdata *ppd = pd->piParent,
+              *cpd = ppd->piFirstChild;
+   if (cpd==pd) {
+      ppd->piFirstChild = pd->piNext;
+   } else {
+      while (cpd->piNext!=pd) cpd = cpd->piNext;
+      cpd->piNext = pd->piNext;
+   }
+}
+
+// re-link process to QSINIT and mark it as a session
+static void mt_switchtosession(mt_prcdata *cpd) {
+   mt_unlinktree(cpd);
+   mt_linktree(pd_qsinit, cpd);
+   cpd->piContext->parent = (module*)mh_qsinit;
+   cpd->piContext->pctx   = pq_qsinit;
+   cpd->piParentTID       = 0;
+   cpd->piMiscFlags      |= PFLM_NOPWAIT;
+}
+
 mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    struct tss_s   rd;
    u32t        *sptr;
-   mt_prcdata    *pd = org_mtnew(pq,0), *cpd,
+   int      is_chain = pt_current->tiPID==pq->pid;
+   mt_prcdata    *pd = org_mtnew(pq,0),
                 *ppd = pt_current->tiParent;
    mt_thrdata    *td = pd->piList[0];
    mt_fibdata    *fd = td->tiList;
    se_start_data *sd = (se_start_data*)mtdata;
+   // parent in chain mode is the same with current replacing process
+   if (is_chain) ppd = ppd->piParent;
 
    pd->piNext        = 0;
    pd->piFirstChild  = 0;
@@ -251,7 +330,7 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
       pd->piParentTID = 0;
       pd->piMiscFlags|= PFLM_NOPWAIT;
       if (sd->flags&QEXS_DETACH) td->tiSession = SESN_DETACHED; else {
-         // flag to launch code about to create a new session
+         // flag to the launch code about to create a new session
          rd.tss_ecx    = 1;
          rd.tss_edx    = sd->flags&QEXS_BACKGROUND?0:FFFF;
          rd.tss_eax    = sd->vdev;
@@ -262,7 +341,7 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
       // report it back to the caller (mod_execse())
       sd->pid         = pd->piPID;
       sd->sno         = td->tiSession;
-      // set QSINIT (pid 1) as parent process
+      // set QSINIT (pid 1) as a parent process
       pd->piParentPID = 1;
       pd->piParent    = pd_qsinit;
       pq->parent      = pq_qsinit->self;
@@ -272,8 +351,10 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
          mt_waitobject() for it */
       if (sd->flags&QEXS_WAITFOR) pd->piMiscFlags|=PFLM_LWAIT;
    } else {
-      pd->piParentTID  = pt_current->tiTID;
+      pd->piParentTID  = is_chain? pt_current->tiParent->piParentTID: pt_current->tiTID;
       td->tiSession    = pt_current->tiSession;
+      // copy session flag if exists
+      if (is_chain) pd->piMiscFlags|= pt_current->tiParent->piMiscFlags&PFLM_NOPWAIT;
    }
    td->tiState      = THRD_SUSPENDED;
    td->tiTime       = 0;
@@ -293,18 +374,23 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    *--sptr    = (u32t)&mt_exitthreada;
    *--sptr    = pq->self->start_ptr;
    rd.tss_esp = (u32t)sptr;
-
+   /* mark current process as "invisible" for search, unlink it from parent
+      and save mt_prcdata replacement for the parent exit */
+   if (is_chain) {
+      if (pd->piParentTID) {
+         mt_thrdata *th = get_by_tid(ppd, pd->piParentTID);
+         /// leave it to trap here on error
+         if (!th) _throwmsg_("Missing parent in chain call!");
+         mt_tlssetas(th, QTLS_CHAININFO, (u32t)pd);
+      }
+      mt_switchtosession(pt_current->tiParent);
+      pt_current->tiParent->piMiscFlags |= PFLM_CHAINEXIT;
+   }
    //log_it(2, "%04X:%08X: %6lb\n", rd.tss_ss, rd.tss_esp, rd.tss_esp);
-
    rd.tss_eflags = CPU_EFLAGS_IOPLMASK|CPU_EFLAGS_IF;
    mt_setregs(fd, &rd);
    // insert process into tree
-   cpd = ppd->piFirstChild;
-   if (cpd) {
-      while (cpd->piNext) cpd = cpd->piNext;
-      cpd->piNext = pd;
-   } else
-      ppd->piFirstChild = pd;
+   mt_linktree(ppd, pd);
    // and into index for search
    pidlist_add(pq->pid, pd);
 
@@ -317,6 +403,14 @@ u32t _std mt_exec(process_context *pq) {
       we just _throw_ immediately */
    check_prcdata_early(pq, (mt_prcdata*)pd);
 
+   if (pt_current->tiParent->piMiscFlags&PFLM_CHAINEXIT) {
+      /* replacement start - SYSQ_SESSIONFREE handling in START will RESUME
+         it, this prevent handle mixing between two processes with same PID */
+      // pd->piList[0]->tiState = THRD_RUNNING;
+      // nobody able to query exit code of replaced process (current)
+      mod_stop(0,0,0);
+      return 0;
+   } else
    if (pd->piMiscFlags&PFLM_NOPWAIT) {
       mt_thrdata *th0 = pd->piList[0];
 
@@ -325,7 +419,7 @@ u32t _std mt_exec(process_context *pq) {
          th0->tiWaitReason = THWR_WAITLNCH;
          th0->tiWaitHandle = mod_getpid();
       } else
-         th0->tiState      = THRD_RUNNING; 
+         th0->tiState      = THRD_RUNNING;
       return 0;
    } else {
       /* exec module (this thread will be stopped until exit, new thread
@@ -337,7 +431,7 @@ u32t _std mt_exec(process_context *pq) {
 }
 
 u32t _std mt_exit(process_context *pq) {
-   mt_prcdata *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT], *ppd, *cpd;
+   mt_prcdata *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
    u32t        ii;
    // lock it!
    mt_swlock();
@@ -351,21 +445,13 @@ u32t _std mt_exit(process_context *pq) {
       return 0;
    }
    // remove process from tree & index
-   ppd = pd->piParent;
-   cpd = ppd->piFirstChild;
-
-   if (cpd==pd) {
-      ppd->piFirstChild = pd->piNext;
-   } else {
-      while (cpd->piNext!=pd) cpd = cpd->piNext;
-      cpd->piNext = pd->piNext;
-   }
-   pidlist_del(pq->pid);
+   mt_unlinktree(pd);
+   pidlist_del(pd);
    // all threads except main should be free here!
    for (ii=0; ii<pd->piListAlloc; ii++) {
       mt_thrdata *th = pd->piList[ii];
       if (th)
-         if (!ii) mt_freethread(th,1); else {
+         if (!ii) mt_freethread(th); else {
             log_it(0, "exit pid %u, but tid %u = %X\n", pd->piPID, ii+1, th);
             THROW_ERR_PD(pd);
          }
@@ -380,6 +466,12 @@ u32t _std mt_exit(process_context *pq) {
    return org_exit(pq);
 }
 
+// called from main thread launch code
+void mod_start_cb(void) {
+   mod_secondary->start_cb();
+}
+
+/* interception of current process tree when we entering MT mode */
 void init_process_data(void) {
    mt_prcdata *current;
    // top module context
@@ -404,10 +496,10 @@ void init_process_data(void) {
       struct tss_s      rd;
 
       check_prcdata_early(ppq, ppd);
-      // build tree
-      pd->piNext        = 0;
+      // build tree (moved to QSINIT)
+/*      pd->piNext        = 0;
       pd->piParent      = ppd;
-      ppd->piFirstChild = pd;
+      ppd->piFirstChild = pd; */
       // and index
       pidlist_add(ppd->piPID, ppd);
 
@@ -428,7 +520,7 @@ void init_process_data(void) {
       rd.tss_es  = rd.tss_ds;
       rd.tss_esp = pst->parent_esp;
       rd.tss_ss  = get_flatss();
-      // these flags are void, popfd is second cpu command to execute after retn
+      // these flags are void, popfd is a second cpu command to execute after retn
       rd.tss_eflags = CPU_EFLAGS_IOPLMASK|CPU_EFLAGS_IF|CPU_EFLAGS_CPUID;
       // set parent process thread registers
       mt_setregs(fd, &rd);
@@ -490,68 +582,77 @@ void update_lwait(u32t parent, u32t child) {
 mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata, void *arg) {
    mt_prcdata  *where = 0;
    u32t     stacksize = _64KB;
-   u32t        rstack = 0, rc;
+   u32t        rstack = 0;
    mt_thrdata     *th;
-   // ...
-   if (!mt_on || !thread) return 0;
-   // the only valid flags value now
-   if (flags&~(MTCT_NOFPU|MTCT_NOTRACE|MTCT_SUSPENDED)) return 0;
-
-   if (optdata) {
-      u32t maxsize;
-      hlp_memavail(&maxsize,0);
-      if (optdata->size!=sizeof(mt_ctdata)) return 0;
-      if (optdata->stacksize>maxsize) return 0;
-      if (optdata->stacksize) stacksize = optdata->stacksize;
-      // we must add stacksize to stack to make esp value, so check it!
-      if (optdata->stack)
-         if (!optdata->stacksize) return 0; else rstack = (u32t)optdata->stack;
-      mt_swlock();
-      if (optdata->pid)
-         if ((where = get_by_pid(optdata->pid))==0) { mt_swunlock(); return 0; }
-   } else
-      mt_swlock();
-   if (!where) where = pt_current->tiParent;
-
-   th = mt_allocthread(where, (u32t)thread, rstack?0:stacksize);
-   if (!th) rc = 0; else {
-      u32t *stackptr;
-      // ready stack esp setup
-      if (rstack) th->tiList[0].fiRegs.tss_esp = rstack + stacksize;
-      // callbacks
+   mt_tid         tid = 0;
+   qserr          res = 0;
+   // just filter out wrong optdata with minimal damage
+   if (optdata)
+      if (optdata->size!=sizeof(mt_ctdata)) res = E_SYS_INVPARM; else
+         if (optdata->stack && optdata->stacksize==0) res = E_SYS_INVPARM;
+   // check args
+   if (!res)
+      if (!mt_on) res = E_MT_DISABLED; else
+         if (!thread) res = E_SYS_ZEROPTR; else
+            if (flags&~(MTCT_NOFPU|MTCT_NOTRACE|MTCT_SUSPENDED)) res = E_SYS_INVPARM;
+   if (!res) {
       if (optdata) {
-         th->tiCbStart = optdata->onenter;
-         th->tiCbExit  = optdata->onexit;
-         th->tiCbTerm  = optdata->onterm;
+         if (optdata->stacksize) stacksize = optdata->stacksize;
+         // we must add stacksize to stack to make esp value, so it was checked above
+         if (optdata->stack) rstack = (u32t)optdata->stack;
+         mt_swlock();
+         if (optdata->pid)
+            if ((where = get_by_pid(optdata->pid))==0) res = E_MT_BADPID;
+      } else
+         mt_swlock();
+
+      if (!res) {
+         if (!where) where = pt_current->tiParent;
+
+         res = mt_allocthread(where, (u32t)thread, rstack?0:stacksize, &th);
+         if (!res) {
+            u32t *stackptr;
+            // ready stack esp setup
+            if (rstack) th->tiList[0].fiRegs.tss_esp = rstack + stacksize;
+            // callbacks
+            if (optdata) {
+               th->tiCbStart = optdata->onenter;
+               th->tiCbExit  = optdata->onexit;
+               th->tiCbTerm  = optdata->onterm;
+            }
+            // create stack
+            if (th->tiCbStart) {
+               th->tiList[0].fiRegs.tss_eip = (u32t)th->tiCbStart;
+               th->tiList[0].fiRegs.tss_esp -= 20;
+               stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
+               // stack for tiCbStart
+               stackptr[0] = (u32t)thread;
+               stackptr[1] = (u32t)thread;
+               stackptr[2] = (u32t)arg;
+               // stack for the thread function
+               stackptr[3] = (u32t)&mt_exitthreada;
+               stackptr[4] = (u32t)arg;
+            } else {
+               th->tiList[0].fiRegs.tss_esp -= 8;
+               stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
+               stackptr[0] = (u32t)&mt_exitthreada;
+               stackptr[1] = (u32t)arg;
+            }
+            if (flags&MTCT_NOFPU) th->tiMiscFlags |= TFLM_NOFPU;
+            if (flags&MTCT_NOTRACE) th->tiMiscFlags |= TFLM_NOTRACE;
+            if ((flags&MTCT_SUSPENDED)==0) th->tiState = THRD_RUNNING;
+            tid = th->tiTID;
+         }
       }
-      // create stack
-      if (th->tiCbStart) {
-         th->tiList[0].fiRegs.tss_eip = (u32t)th->tiCbStart;
-         th->tiList[0].fiRegs.tss_esp -= 20;
-         stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
-         // stack for tiCbStart
-         stackptr[0] = (u32t)thread;
-         stackptr[1] = (u32t)thread;
-         stackptr[2] = (u32t)arg; 
-         // stack for thread function
-         stackptr[3] = (u32t)&mt_exitthreada;
-         stackptr[4] = (u32t)arg;
-      } else {
-         th->tiList[0].fiRegs.tss_esp -= 8;
-         stackptr    = (u32t*)th->tiList[0].fiRegs.tss_esp;
-         stackptr[0] = (u32t)&mt_exitthreada;
-         stackptr[1] = (u32t)arg;
-      }
-      if (flags&MTCT_NOFPU) th->tiMiscFlags |= TFLM_NOFPU;
-      if (flags&MTCT_NOTRACE) th->tiMiscFlags |= TFLM_NOTRACE;
-      if ((flags&MTCT_SUSPENDED)==0) th->tiState = THRD_RUNNING;
-      rc = th->tiTID;
+      mt_swunlock();
    }
-   mt_swunlock();
-   return rc;
+   if (optdata) optdata->errorcode = res;
+   if (res) tid = 0;
+
+   return tid;
 }
 
-qserr _std mt_resumethread(u32t pid, mt_tid tid) {
+qserr _std mt_resumethread(mt_pid pid, mt_tid tid) {
    mt_thrdata  *th;
    mt_prcdata  *pd, *rpd;
    u32t         rc = 0;
@@ -573,44 +674,77 @@ qserr _std mt_resumethread(u32t pid, mt_tid tid) {
    return rc;
 }
 
-u32t _std mt_termthread(mt_tid tid, u32t result) {
-   mt_thrdata  *th;
+qserr _std mt_suspendthread(mt_pid pid, mt_tid tid, u32t waitstate_ms) {
+   mt_prcdata *pd;
+   mt_thrdata *th = 0;
+   u32t        rc = 0;
+
+   mt_swlock();
+   pd = pid ? get_by_pid(pid) : pt_current->tiParent;
+   if (!pd) rc = E_MT_BADPID; else th = get_by_tid(pd, tid);
+
+   if (!th) rc = E_MT_BADTID; else
+   if ((th->tiMiscFlags&TFLM_SYSTEM) && (pt_current->tiMiscFlags&TFLM_SYSTEM)==0)
+      rc = E_MT_ACCESS; else
+   if (th->tiState==THRD_RUNNING && !th->tiFirstMutex) {
+      th->tiState = THRD_SUSPENDED;
+      /* self-suspend: well - switch out of here.
+         lock is reset by the switch_context() call */
+      if (th==pt_current) {
+         switch_context(0, SWITCH_SUSPEND);
+         return 0;
+      }
+   } else {
+      // not so hard to be implemented, but where the users? ;)
+      rc = waitstate_ms?E_SYS_UNSUPPORTED:E_MT_NOTSUSPENDED;
+   }
+   mt_swunlock();
+   return rc;
+}
+
+qserr _std mt_termthread(mt_pid pid, mt_tid tid, u32t result) {
    mt_prcdata  *pd;
    mt_thrdata *dth;
    u32t   fibIndex, rc = 0;
 
    mt_swlock();
-   th  = (mt_thrdata*)pt_current;
-   pd  = th->tiParent;
-   dth = get_by_tid(pd, tid);
-   // no tid
-   if (!dth) rc = E_MT_BADTID; else {
+   pd = pid ? get_by_pid(pid) : pt_current->tiParent;
+   if (!pd) rc = E_MT_BADPID; else {
+      dth = get_by_tid(pd, tid);
+      if (!dth) rc = E_MT_BADTID;
+   }
+   if (!rc) {
       u32t st = dth->tiState,
            wr = dth->tiWaitReason;
       // thread is gone or this is main, waiting for secondaries
       if (st==THRD_FINISHED || st==THRD_WAITING && wr==THWR_TIDMAIN) rc = E_MT_GONE;
          else
-      // main or system?
-      if ((dth->tiMiscFlags&(TFLM_SYSTEM|TFLM_MAIN))) rc = E_MT_ACCESS;
+      // system?
+      if (dth->tiMiscFlags&TFLM_SYSTEM) rc = E_MT_ACCESS;
          else
-      /* waiting for something? still able to stop mt_waitobject, another
-         one mt_termthread (THWR_TIDEXIT state) & THWR_WAITLNCH. */
-      if (st==THRD_WAITING && wr!=THWR_TIDEXIT && wr!=THWR_WAITOBJ &&
-         wr!=THWR_WAITLNCH) rc = E_MT_BUSY;
+      /* we can ignore THWR_TIDEXIT, THWR_WAITOBJ and THWR_WAITLNCH, but
+         cannot ignore THWR_CHILDEXEC */
+      if (st==THRD_WAITING && wr==THWR_CHILDEXEC) {
+         mt_prcdata *cpd = get_by_pid(dth->tiWaitHandle);
+         if (!cpd)
+            log_it(0, "no child pid %u!\n", dth->tiWaitHandle);
+         else
+            mt_switchtosession(cpd);
+         // this can`t be current thread, so just "suspend" it
+         dth->tiState = THRD_SUSPENDED;
+      }
    }
 
-   if (rc || th->tiTID==tid) {
+   if (rc || dth==pt_current) {
       mt_swunlock();
       if (rc) return rc;
       // this can`t be waiting!
       mt_exitthread(result);
    }
-   // create fiber & then launch it
-   fibIndex = mt_allocfiber(dth, FIBT_MAIN, PAGESIZE, (u32t)&mt_exitthreada);
-   if (fibIndex==FFFF) {
-      rc = E_MT_ACCESS;
-      mt_swunlock();
-   } else {
+   // create a fiber & launch it
+   rc = mt_allocfiber(dth, FIBT_MAIN, PAGESIZE, (u32t)&mt_exitthreada, &fibIndex);
+   if (rc) mt_swunlock(); else {
+      int samepid = pt_current->tiPID==dth->tiPID;
       // cleanup mt_waitobject()
       if (dth->tiState==THRD_WAITING && dth->tiWaitReason==THWR_WAITOBJ)
          w_term(dth, THRD_SUSPENDED);
@@ -619,11 +753,15 @@ u32t _std mt_termthread(mt_tid tid, u32t result) {
       dth->tiFiberIndex = fibIndex;
       dth->tiState      = THRD_RUNNING;
 
-      th->tiWaitReason  = THWR_TIDEXIT;
-      th->tiWaitHandle  = tid;
+      if (samepid) {
+         pt_current->tiWaitReason = THWR_TIDEXIT;
+         pt_current->tiWaitHandle = tid;
+      }
       // lock will be reset here
-      switch_context(dth, SWITCH_WAIT);
-      // here we are when thread has finished
+      switch_context(dth, samepid?SWITCH_WAIT:SWITCH_MANUAL);
+      /* for the current process we are here when thread has finished, but
+         for another we just force scheduler to the exiting thread and hope
+         this enough */
    }
    return rc;
 }
@@ -689,22 +827,92 @@ void _std mt_exitthread_int(u32t result) {
    }
 }
 
+u32t mt_newfiber(mt_thrdata *th, mt_threadfunc fiber, u32t flags,
+                 mt_cfdata *optdata, void *arg)
+{
+   u32t     stacksize = _64KB;
+   u32t        rstack = 0;
+   qserr          res = 0;
+   u32t      fiber_id = 0;
+   int        _switch = 0,
+             nounlock = 0;
+   // filter out wrong optdata with minimal damage
+   if (optdata)
+      if (optdata->size!=sizeof(mt_cfdata)) res = E_SYS_INVPARM; else
+         if (optdata->stack && optdata->stacksize==0) res = E_SYS_INVPARM;
+   // check args
+   if (!res)
+      if (!mt_on) res = E_MT_DISABLED; else
+         if (!fiber) res = E_SYS_ZEROPTR; else
+            if (flags&~(MTCF_APC|MTCF_SWITCH)) res = E_SYS_INVPARM;
+   _switch = flags&MTCF_SWITCH;
+
+   mt_swlock();
+   // switching of another thread`s fiber requires an additional validation
+   if (_switch && th!=pt_current) {
+      switch (th->tiState) {
+         case THRD_SUSPENDED: res = E_MT_SUSPENDED; break;
+         case THRD_FINISHED: res = E_MT_GONE; break;
+         case THRD_WAITING:
+            res = th->tiWaitReason==THWR_TIDMAIN?E_MT_GONE:E_MT_BUSY;
+            break;
+      }
+   }
+   if (!res) {
+      if (optdata) {
+         if (optdata->stacksize) stacksize = optdata->stacksize;
+         // we must add stacksize to stack to make esp value, so it was checked above
+         if (optdata->stack) rstack = (u32t)optdata->stack;
+      }
+      res = mt_allocfiber(th, flags&MTCF_APC?FIBT_APC:FIBT_MAIN,
+                          rstack?0:stacksize, (u32t)fiber, &fiber_id);
+      if (!res) {
+         mt_fibdata  *fb = th->tiList + fiber_id;
+         u32t  *stackptr;
+         // ready stack esp setup
+         if (rstack) fb->fiRegs.tss_esp = rstack + stacksize;
+         fb->fiRegs.tss_esp -= 8;
+         stackptr    = (u32t*)fb->fiRegs.tss_esp;
+         stackptr[0] = flags&MTCF_APC?(u32t)&fiberexit_apc:(u32t)&mt_exitthreada;
+         stackptr[1] = (u32t)arg;
+         // switch to another fiber will reset lock
+         if (_switch && th==pt_current) {
+            if (mt_switchfiber(fiber_id,0)==0) nounlock = 1;
+         } else {
+            // it should be THRD_RUNNING here, we checked this above
+            if (_switch) th->tiFiberIndex = fiber_id;
+         }
+      }
+   }
+   if (!nounlock) mt_swunlock();
+
+   if (optdata) optdata->errorcode = res;
+   if (res) fiber_id = 0;
+
+   return fiber_id;
+}
+
+u32t _std mt_createfiber(mt_threadfunc fiber, u32t flags, mt_cfdata *optdata, void *arg) {
+   return mt_newfiber((mt_thrdata*)pt_current, fiber, flags, optdata, arg);
+}
+
 /// our`s usleep() replacement
 void _std mt_usleep(u32t usec) {
    /* if sleep < 1/2 of tick - call original i/o delay based function,
       else use mt_waitobject, 1024 mks in 1 ms here ;) */
    if (usec>>5 <= tick_ms) _usleep(usec); else {
-      mt_waitentry we = { QWHT_CLOCK, 0 };
+      mt_waitentry we[2] = {{QWHT_CLOCK,0}, {QWHT_SIGNAL,1}};
       u32t        res;
-      we.tme = sys_clock() + usec;
-      mt_waitobject(&we, 1, 0, &res);
+      we[0].tme = sys_clock() + usec;
+      do {
+         res = 0;
+         mt_waitobject(we, 2, 0, &res);
+      } while (res==1);
    }
 }
 
 /// "system idle" thread
 static u32t _std sleeper(void *arg) {
-   clock_t lct = sys_clock();
-   u32t    cnt = 0;
    mt_threadname("system idle");
    while (1) {
       __asm { hlt }
@@ -718,16 +926,17 @@ void start_idle_thread(void) {
 
    memset(&ctd, 0, sizeof(mt_ctdata));
    ctd.size      = sizeof(mt_ctdata);
-   ctd.stacksize = 16384;
+   ctd.stacksize = 4096;
    ctd.pid       = 1;
 
-   tid = mt_createthread(sleeper, 0, &ctd, 0);
+   tid = mt_createthread(sleeper, MTCT_NOFPU|MTCT_NOTRACE, &ctd, 0);
+
    if (tid) pt_sysidle = get_by_tid(pd_qsinit, tid);
    if (!pt_sysidle) {
       log_it(0, "idle thread error!\n");
       THROW_ERR_PD(pd_qsinit);
    } else {
       // eternal life! :)
-      pt_sysidle->tiMiscFlags |= TFLM_SYSTEM|TFLM_NOSCHED|TFLM_NOFPU|TFLM_NOTRACE;
+      pt_sysidle->tiMiscFlags |= TFLM_SYSTEM|TFLM_NOSCHED;
    }
 }

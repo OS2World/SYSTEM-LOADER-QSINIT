@@ -417,17 +417,3 @@ int __stdcall _snprint(char *buf, u32t count, const char *fmt, long *argp) {
 int __cdecl snprintf(char *buf, u32t count, const char *fmt, long args) {
    return _snprint(buf, count, fmt, &args);
 }
-
-#if 0  // moved to start
-static void _std vioprn(int ch, void *stream) {
-   vio_charout(ch);
-}
-
-int __cdecl printf(const char *fmt, long args) {
-   return _prt_common(0,fmt,&args,vioprn);
-}
-
-int __stdcall vprintf(const char *fmt, long *argp) {
-   return _prt_common(0,fmt,argp,vioprn);
-}
-#endif

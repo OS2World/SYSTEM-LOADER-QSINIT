@@ -1,4 +1,4 @@
-#define HELP_LASTHLPIDX  2150  // must be the last
+#define HELP_LASTHLPIDX  2160  // must be the last
 
 const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Type kernel file name here",
@@ -143,7 +143,15 @@ const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Select EXTension instead of SYS for boot CONFIG.SYS",
   "QSINIT batch file name to execute before launching kernel",
   "Level of QSINIT log message to copy into kernel log",
-  "","","","","","","",
+  "Start command shell in a new session",
+  "Show session list",
+  "Switch to the selected session",
+  "System process listing and information",
+  "",
+  "Switch to the selected process",
+  "Terminate selected process",
+  "Terminate process and any processes which were started by it",
+  "","","","","","","","",""
   };
 
 const char *EmptyStr="";

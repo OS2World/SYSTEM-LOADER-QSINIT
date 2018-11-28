@@ -14,7 +14,7 @@ static qs_cachectrl qcl = 0;
 int cache_load(void);
 
 u32t _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf) {
-   struct Boot_Record *br = (struct Boot_Record*)(optbuf?optbuf:malloc(MAX_SECTOR_SIZE));
+   struct Boot_Record *br = (struct Boot_Record*)(optbuf?optbuf:malloc_thread(MAX_SECTOR_SIZE));
    u32t st = dsk_sectortype(disk, sector, (u8t*)br);
    u32t ii;
 
@@ -237,6 +237,7 @@ long vol_index(u8t vol, u32t *disk) {
    disk_volume_data  vi;
    hlp_volinfo(vol, &vi);
 
+   if (vi.InfoFlags&VIF_VFS) return -1;
    if (vi.TotalSectors) {
       FUNC_LOCK  lk;
       hdd_info  *hi = get_by_disk(vi.Disk);
@@ -321,7 +322,7 @@ u32t _std dsk_fillsector(u32t disk, u64t sector, u32t count, u8t value) {
       u32t bufsize = count<sper32k ? count : sper32k;
 
       // allocate buffer for 32k i/o ops
-      u8t *zbuf = (u8t*)malloc(bufsize * sectsz);
+      u8t *zbuf = (u8t*)malloc_thread(bufsize * sectsz);
       memset(zbuf, value, bufsize * sectsz);
 
       while (count) {
@@ -739,7 +740,7 @@ qserr _std dsk_setsize(u32t disk, u64t size, u32t secsize) {
    // start of autodetection logic
    if (res==E_PTE_FLOPPY || res==E_PTE_EMPTY) {
       char  fsys[12];
-      void   *br = malloc(MAX_SECTOR_SIZE);
+      void   *br = malloc_thread(MAX_SECTOR_SIZE);
       u32t    bt = dsk_ptqueryfs(disk, 0, fsys, (u8t*)br);
       u64t nsize = 0;
 
@@ -886,12 +887,6 @@ int   _std dsk_isgpt(u32t disk, long index) {
    }
 }
 
-/** query GPT partition info.
-    Function deny all types of extended partition.
-    @param  [in]  disk    Disk number
-    @param  [in]  index   Partition index
-    @param  [out] pinfo   Buffer for partition info
-    @return 0 on success or E_PTE_* constant (E_PTE_MBRDISK if partition is MBR). */
 qserr _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
    FUNC_LOCK  lk;
    hdd_info  *hi = get_by_disk(disk);
@@ -929,7 +924,7 @@ qserr _std dsk_gptpinfo(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
 
 /** query GPT disk info.
     @param  [in]  disk    Disk number
-    @param  [out] pinfo   Buffer for disk info
+    @param  [out] dinfo   Buffer for disk info
     @return 0 on success or E_PTE_* constant (E_PTE_MBRDISK if disk is MBR). */
 qserr _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo) {
    FUNC_LOCK  lk;

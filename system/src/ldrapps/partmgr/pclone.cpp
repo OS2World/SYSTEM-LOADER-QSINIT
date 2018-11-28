@@ -164,7 +164,7 @@ qserr _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags) {
          }
          // change disk id in partition table if IDs is not the same
          if ((flags&DCLN_SAMEIDS)==0) {
-            struct Disk_MBR *mbr = (struct Disk_MBR*)malloc(hD->info.SectorSize);
+            struct Disk_MBR *mbr = (struct Disk_MBR*)malloc_thread(hD->info.SectorSize);
 
             if (dsk_sectortype(dstdisk,0,(u8t*)mbr)==DSKST_PTABLE) {
                mbr->MBR_DiskID = random(0x10000)<<16|random(0x10000);
@@ -290,8 +290,8 @@ qserr _std dsk_clonestruct(u32t dstdisk, u32t srcdisk, u32t flags) {
       if (rc) break;
       // common for GPT & MBR: update MBR code/IDs
       if ((flags&DCLN_IDENT)==0 && (flags&(DCLN_SAMEIDS|DCLN_MBRCODE))) {
-         struct Disk_MBR *smbr = (struct Disk_MBR*)malloc(hS->info.SectorSize),
-                         *dmbr = (struct Disk_MBR*)malloc(hD->info.SectorSize);
+         struct Disk_MBR *smbr = (struct Disk_MBR*)malloc_thread(hS->info.SectorSize),
+                         *dmbr = (struct Disk_MBR*)malloc_thread(hD->info.SectorSize);
          if (!hlp_diskread(srcdisk, 0, 1, smbr)) rc = E_DSK_ERRREAD;
          if (!hlp_diskread(dstdisk, 0, 1, dmbr)) rc = E_DSK_ERRREAD;
 
@@ -377,7 +377,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
                          flags&DCLD_NOBREAK?0:break_copy, 0, &rc);
    if (dlen<slen) return rc;
 
-   // lock it again and hope what nobody changes partition map
+   // lock it again and hope what nobody changed partition map
    FUNC_LOCK  lk;
 
    rc = 0; hidden_upd = 0; 
@@ -385,7 +385,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
    // update target partition`s BPB
    if ((flags&DCLD_SKIPBPB)==0) {
       u32t  bstype;
-      br     = (struct Boot_Record*)malloc(sector_sz);
+      br     = (struct Boot_Record*)malloc_thread(sector_sz);
       bstype = dsk_sectortype(dstdisk, dpos, (u8t*)br);
       /* NOT touching total number of sectors in BPB here because of two
          reasons:
@@ -393,7 +393,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
            BPB format.
          * some hypotetic code can depends on this value (i.e. check some
            FS structures and so on) 
-         So, updating HiddenSectors & CHS values only (if it possible). */
+         So, update HiddenSectors & CHS values only (if it possible). */
       if (bstype==DSKST_BOOTFAT || bstype==DSKST_BOOTBPB) {
          disk_geo_data  geo;
          u32t   wrt = 0, nv = dpos>=_4GBLL ? FFFF : dpos;

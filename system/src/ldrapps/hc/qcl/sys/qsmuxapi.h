@@ -5,14 +5,15 @@
 #ifndef QSINIT_MUTEX_CLASS
 #define QSINIT_MUTEX_CLASS
 
-#include "qstypes.h"
-#include "qsclass.h"
+/* note, that headers not typed here because of too many system & converted
+   ones to use. This is internal file, so no reason to worry */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef u32t  mux_handle_int;
+typedef u32t  evt_handle_int;
 
 /** mutex handle conversion service function.
     Function converts public handle back to mux_handle_int. This service
@@ -44,7 +45,7 @@ typedef int     _std (*qe_availfunc) (qshandle queue, u32t *ppid, u32t *sft_no);
     @param  pd            process data.
     @param  usrdata       user data arg from enumpd call.
     @return 1 to continue enumeration, 0 to cancel */
-typedef int     _std (*qe_pdenumfunc)(void *pd, void *usrdata);
+typedef int     _std (*qe_pdenumfunc)(mt_prcdata *pd, void *usrdata);
 
 typedef struct {
    int        state;
@@ -64,11 +65,14 @@ typedef struct qs_sysmutex_s {
    /// common init call.
    void      _exicc (*init   )(qs_muxcvtfunc sf1, qe_availfunc sf2,
                                qshandle sys_q);
-   /// create mutex.
-   qserr     _exicc (*create )(mux_handle_int *res, u32t sft_no);
+   /// create mutex/event.
+   qserr     _exicc (*create )(mux_handle_int *res, u32t sft_no, int event,
+                               int signaled);
    /// release mutex.
    qserr     _exicc (*release)(mux_handle_int muxh);
-   /// delete mutex.
+   /// event action
+   qserr     _exicc (*event  )(evt_handle_int evh, u32t action);
+   /// delete mutex/event.
    qserr     _exicc (*free   )(mux_handle_int muxh, int force);
    /** return mutex state.
        info can be 0.
@@ -82,7 +86,7 @@ typedef struct qs_sysmutex_s {
        Only one callback per function address is possible, next call with the
        same address will replace target time and "usrdata".
 
-       Up to 4 (four) callbacks can be installed.
+       Up to 4 (four) callbacks in system can be installed.
 
        @param  at           Time to fire (use 0 to deinstall this callback)
        @param  cb           Callback function address
@@ -94,6 +98,14 @@ typedef struct qs_sysmutex_s {
        address mt_prcdata in parameter. MT lock is on during entire call.
        @param  cb           Callback function address */
    void      _exicc (*enumpd )(qe_pdenumfunc cb, void *usrdata);
+   /// replace fiber regs by supplied one (both 32 & 64, depends on host)
+   void      _exicc (*setregs)(mt_fibdata *fd, struct tss_s *regs);
+   /** get process data by pid value.
+       @attention Function turns on MT lock and LEAVE it ON after exit.
+       
+       @param  pid          Process ID
+       @return process data or 0. MT lock is ON in both cases! */
+   mt_prcdata* _exicc (*getpd)(u32t pid);
 } _qs_sysmutex, *qs_sysmutex;
 
 /// direct export for MTLIB
@@ -109,10 +121,12 @@ typedef struct qs_fpustate_s {
 } _qs_fpustate, *qs_fpustate;
 
 /// @name sys_q events
-#define SYSQ_SESSIONFREE    0x00001  ///< session free (mt_prcdata* in event.a)
+#define SYSQ_SESSIONFREE    0x00001  ///< session free (a=mt_prcdata*)
 #define SYSQ_BEEP           0x00002  ///< speaker beep (freq in a, dur in b)
 #define SYSQ_MEMSTAT        0x00003  ///< periodic memory stat (scheduled)
 #define SYSQ_DCNOTIFY       0x00004  ///< data cache timer notification
+#define SYSQ_FREE           0x00005  ///< free memory block (a=ptr, b=heap(1/0), c=sender)
+#define SYSQ_ALARM          0x00006  ///< alarm signal (a=pid, b=tid, scheduled)
 //@}
 
 #ifdef __cplusplus

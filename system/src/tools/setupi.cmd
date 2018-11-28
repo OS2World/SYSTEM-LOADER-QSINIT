@@ -22,9 +22,12 @@ if "%VIO_SVGA%".=="". goto UnkOS
 :Os2
 set BUILD_HERE=OS2
 set PATH=%WATCOM%\BINP;
-set BEGINLIBPATH=%WATCOM%\binp\dll;%BEGINLIBPATH%;
 set TOOL_INC=%WATCOM%\H;%WATCOM%\H\OS2;%WATCOM%\H\NT
 set BCKEY=
+rem protect from BEGINLIBPATH overflow in long builds
+if "%QS_BLP_DONE%".=="yes". goto cont
+set BEGINLIBPATH=%WATCOM%\binp\dll;%BEGINLIBPATH%;
+set QS_BLP_DONE=yes
 goto cont
 :UnkOS
 echo Warning! Unknown build OS!

@@ -52,7 +52,7 @@ void _std thunk_panic(ordinal_data *od, int msgnum) {
 static ordinal_data *find_entry(module *mh, u32t ordinal, void *func = 0) {
    u32t ii, cnt = chlist?chlist->count():0;
    if (!cnt || !ordinal && !func) return 0;
-   for (ii=0;ii<cnt;ii++) {
+   for (ii=0; ii<cnt; ii++) {
       ordinal_data *od = (ordinal_data*)chlist->value(ii);
       if (od->od_handle==mh) {
          if (ordinal && od->od_ordinal==ordinal) return od;
@@ -60,6 +60,25 @@ static ordinal_data *find_entry(module *mh, u32t ordinal, void *func = 0) {
       }
    }
    return 0;
+}
+
+/** thread exit/kill callback for chain lists.
+    Function enum chlist and free all exit hooks, owned by this thread.
+    Thread execution must be stopped already, else any exit hook in the
+    thread context will hang into the panic screen */
+void chain_thread_free(mt_thrdata *th) {
+   if (chlist) {
+      u32t ii, jj, cnt = chlist->count(), lcnt = 0;
+      for (ii=0; ii<cnt; ii++) {
+         ordinal_data *od = (ordinal_data*)chlist->value(ii);
+         for (jj=0; jj<EXIT_STACK_SIZE; jj++)
+            if (od->od_exitstack[jj].es_sign==EXIT_SIGN && od->od_exitstack[jj].es_owner==th) {
+               od->od_exitstack[jj].es_sign = 0;
+               lcnt++;
+            }
+      }
+      if (lcnt) log_it(3, "pid %u, tid %u, %u of exit chains lost\n", th->tiPID, th->tiTID, lcnt);
+   }
 }
 
 /// get chain info by thunk pointer

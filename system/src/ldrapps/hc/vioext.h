@@ -41,6 +41,23 @@ extern "C" {
 #define MSG_POPUP         0x2000
 #define MSG_NOSHADOW      0x4000      ///< no shadow on the bottom and right borders
 
+#define MSG_POSDEFAULT  0x000000
+#define MSG_POSMASK     0xFF0000
+// position in range -7..0..7
+#define MSG_POSX(x)     (((x)&0xF)<<16)
+#define MSG_POSY(y)     (((y)&0xF)<<20)
+#define MSG_POS_N       0xA00000      // -6
+#define MSG_POS_E       0x060000
+#define MSG_POS_W       0x0A0000
+#define MSG_POS_S       0x600000
+#define MSG_POS_CUSTOM  0x880000      ///< only in vio_showlist()
+#define MSG_POS_NE      (MSG_POS_N|MSG_POS_E)
+#define MSG_POS_NW      (MSG_POS_N|MSG_POS_W)
+#define MSG_POS_SE      (MSG_POS_S|MSG_POS_E)
+#define MSG_POS_SW      (MSG_POS_S|MSG_POS_W)
+
+#define MSG_SESFORE    0x1000000      ///< switch session to foreground when box activated
+
 #define MRES_CANCEL       0x0000
 #define MRES_OK           0x0001
 #define MRES_YES          0x0002
@@ -50,19 +67,19 @@ extern "C" {
 #define KEY_LEAVEMBOX     0xFFFE
 
 /** callback for vio_msgbox().
-    Note, that in MT mode, with MSG_POPUP flag - this function is called from
+    Note, that in MT mode, with MSG_POPUP flag - this function called from
     another thread.
 
-    @param key    Pressed key (from key_read()). In addition KEY_ENTERMBOX
-                  will be sended on start and KEY_LEAVEMBOX on exit
+    @param key    Key code (from key_read()). In addition KEY_ENTERMBOX
+                  will be sent on start and KEY_LEAVEMBOX on exit
     @return -1 to continue processing, -2 - to ignore this key, >=0 - to
             stop dialog and return this result code. */
 typedef int _std (*vio_mboxcb)(u16t key);
 
 /** shows message box.
     With MSG_POPUP flag function acts as normal message box in non-MT mode and
-    as "vio popup" in MT mode. This mean - it showed in the separate session
-    (from a special thread) and can be used by detached processes.
+    as "vio popup" in MT mode. This mean - it showed in a separate session
+    (by another thread) and can be called from detached processes.
 
     @param header   Header string
     @param text     Message text. Use ^ symbol for manual EOL.
@@ -75,6 +92,11 @@ u32t  _std vio_msgbox(const char *header, const char *text, u32t flags,
 /** query/set ANSI state.
     ANSI state is unique for every process. Child inherits current
     value from its parent process.
+
+    Thread may set predefined QTLS_FORCEANSI tls variable to override
+    common process ANSI state (on/off).
+
+    See also str_length().
 
     @param newstate   0/1 - set state, -1 - return current only
     @return previous ANSI state */
@@ -160,6 +182,28 @@ char* _std key_getstr(key_strcb cbfunc);
     @return string, need to be free() */
 char* _std key_getstrex(key_strcb cbfunc, int col, int line, int len, const char *init);
 
+struct _vio_list;
+
+/** callback for additional keys in vio_showlist().
+    Note, that in MT mode, with MSG_POPUP flag - this function called from
+    another thread.
+    Callback called only for keys, listed in akey array, but you can override
+    predefined key processing (enter, space, etc) in it.
+
+    @param ref        List data
+    @param key        Key code (from key_read()).
+    @return 0 - to ignore key, INT_MIN to exit from the list with 0 result,
+            INT_MAX to exit with id|id_or value, any other - list`s focus
+            position diff (+/-) */
+typedef int _std (*vio_lstkeycb)(struct _vio_list *ref, u16t key);
+
+typedef struct {
+   u16t         key;  ///< key code (with applying "mask" value before)
+   u16t        mask;  ///< AND mask for system key code to compare with "key"
+   u32t       id_or;  ///< value to OR with line id to produce result
+   vio_lstkeycb  cb;  ///< call this instead of returning ORed id
+} vio_listkey;
+
 typedef struct _vio_list {
    u32t        size;     ///< struct size
    u32t       items;     ///< # of items in the menu
@@ -167,7 +211,34 @@ typedef struct _vio_list {
    u32t         *id;     ///< id (menu result) for every line (if 0, then result is line number)
    struct
    _vio_list **subm;     ///< submenus (if present, ptr can be 0, members too)
+   union {
+      struct {
+         u16t     type;  ///< submenu only: *this* menu options (VLSF_* below)
+         s8t     posdx,  ///< offset (VLSF_CENTOFS, VLSF_LINEOFS and VLSF_TOPOFS)
+                 posdy;
+      };
+      struct {
+         u16t     posx,  ///< main list only, with MSG_POS_CUSTOM flag
+                  posy;
+      };
+   };
+   vio_listkey akey[1];  ///< zero-term list of additional keys to react for
 } vio_listref;
+
+/// @name vio_listref submemu location & flags
+//@{
+#define VLSF_CENTER       0x0000      ///< in the center of parent menu
+#define VLSF_CENTOFS      0x0001      ///< offset between center of this menu & parent`s
+#define VLSF_CENTOFSLINE  0x0002      ///< same as VLSF_CENTOFS, but y - caller line pos
+#define VLSF_RIGHT        0x0003      ///< top point right next the caller line in parent
+#define VLSF_LINE         0x0004      ///< top on the caller line but above parent menu
+#define VLSF_LINEOFS      0x0005      ///< same as VLSF_LINE, but with offset specified
+#define VLSF_TOPOFS       0x0006      ///< offset from the top left corner of the parent
+#define VLSF_LOCMASK      0x000F      ///< location value mask
+#define VLSF_HINT         0x0100      ///< this is a hint - list without keyboard focus
+#define VLSF_COLOR        0x0200      ///< color value is valid
+#define VLSF_COLMASK      0xF000      ///< MSG_GRAY...MSG_WHITE << 12
+//@}
 
 /** execute listbox selection (with possible submenus).
     Text can be splitted into columns in the following way:
@@ -183,13 +254,18 @@ typedef struct _vio_list {
 
     Single '-' char in line means horisontal line, '=' - double line.
 
+    List react on Enter, Space and Esc. Additional keys may be listed in the
+    akey array.
+
     @param ref        Data to show
-    @param flags      Subset of vio_msgbox() flags accepted here: MSG_POPUP
-                      and color scheme MSG_values.
+    @param flags      Subset of vio_msgbox() flags accepted here: MSG_POPUP,
+                      color scheme and position values.
+    @param focus      Focused item on open (0..ref->items-1).
     @return 0 if ESC was pressed or value from the ref->id array (from one of
        submenus too) or (if ref->id==0) - just a one-based line number of the
        selected item */
-u32t  _std vio_showlist(const char *header, vio_listref *ref, u32t flags);
+u32t  _std vio_showlist(const char *header, vio_listref *ref, u32t flags,
+                        u32t focus);
 
 #ifdef __cplusplus
 }

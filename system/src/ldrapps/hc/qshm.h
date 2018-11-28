@@ -37,9 +37,8 @@ u64t  _std hlp_tscread    (void);
     On BIOS host value calulated in real time - every 55 ms and function
     can cause a delay if called immediately after tm_calibrate().
 
-    Now this value must be nearly constant, because not clock modulation
-    setup nor mtrr changes cannot affect rdtsc counter, but possible
-    future implementation of AMD Pstates - can ;)
+    Now this value must be nearly constant, because both clock modulation
+    settings and mtrr changes cannot affect rdtsc counter.
 
     @return 0 on 486 or timer error, else - value */
 u64t  _std hlp_tscin55ms  (void);
@@ -164,7 +163,7 @@ u32t  _std hlp_mtrrsum    (u64t start, u64t length);
     Function split addr and length to multiple fixed length registers.
     If addr/addr+length not aligned to fixed MTRR boundaries - function
     will fail.
-    @param start      start adresses
+    @param addr       start adresses
     @param length     block length
     @param state      cache type
     @return MTRRERR_* value */
@@ -249,10 +248,10 @@ int   _std hlp_pciclass   (u32t classcode, u16t index, pci_location *dev, int no
 
 /** get PCI device base address list.
     @param [in,out] dev     Only bus/slot/func required, other will be filled on exit.
-    @param [out]    base    Array of six u64t for base addresses (values stored
+    @param [out]    bases   Array of six u64t for base addresses (values stored
                             without applying PCI_ADDR_MEM_MASK, so i/o and mem
                             type bits are usable).
-    @param [out]    size    Array of six u64t for size
+    @param [out]    sizes   Array of six u64t for size
     @return number of filled entries */
 u32t  _std hlp_pcigetbase (pci_location *dev, u64t *bases, u64t *sizes);
 

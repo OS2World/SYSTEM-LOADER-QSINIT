@@ -489,3 +489,19 @@ u32t _std hlp_memavail(u32t *maxblock, u32t *total) {
    if (total) *total = availmem;
    return rc;
 }
+
+u32t _std hlp_memused(u32t pid) {
+   u32t ii, size = 0;
+
+   mt_swlock();
+   for (ii=0; ii<memblocks; ii++) {
+      u32t mti = memtable[ii];
+      if (mti && mti<FFFF) {
+         if (Xor(pid,memowner[ii])) continue;
+         if (pid && memowner[ii]->pid!=pid) continue;
+         size += Round64k(mti);
+      }
+   }
+   mt_swunlock();
+   return size;
+}

@@ -27,3 +27,6 @@ creates partitions in own way - but in the same position).
    Note, what when you restore configuration - target disk can be smaller,
 than source (hd3) - "dmgr clone" allow this, it checks for the actual end
 of partition data, not for disk length itself.
+
+   p.s. fixed size VHD support was added in rev.463. Nothing special, just
+a plain read/write & image creation.

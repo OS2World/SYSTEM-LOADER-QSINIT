@@ -49,8 +49,8 @@ qserr _std zip_open(ZIP *zip, void *in_data, u32t in_size);
     Note, that function locks boot i/o until zip_close() call - like
     hlp_fopen() do.
 
-    Also, note, that all zip functions are NOT thread safe, i.e. every ZIP
-    instance should be used from one thread.
+    Also, note, that zip functions are NOT thread safe, i.e. every ZIP
+    instance should be used from a single thread.
 
     @param [out] zip      zip handle
     @param [in]  path     zip file name
@@ -62,7 +62,7 @@ qserr _std zip_openfile(ZIP *zip, const char *path, int bootvol);
 /// close ZIP file.
 void  _std zip_close(ZIP *zip);
 
-/** seek to the next file and get it information.
+/** seek to the next file and get information.
     @param [in]  zip       zip handle
     @param [out] filename  next file name to unpack
     @param [out] filesize  next file`s size

@@ -27,7 +27,7 @@ cp=copy
 
 [vars.linux]
 del=rm
-copy=cp
+cp=cp
 
 [vars.*.0]
 dbgkey=-dDEBUG

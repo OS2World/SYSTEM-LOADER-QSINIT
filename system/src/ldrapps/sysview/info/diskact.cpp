@@ -216,7 +216,8 @@ void TWalkDiskDialog::getfs(u32t disk, u64t sector, char *fsname, u8t *buf, know
       }
       case DSKST_BOOTBPB:
          if (strcmp(fsname, "HPFS")==0) fst = HPFS; else
-            if (strcmp(fsname, "JFS")==0) fst = JFS;
+            if (strcmp(fsname, "JFS")==0) fst = JFS; else
+               if (strcmp(fsname, "NTFS")==0) fst = NTFS;
          break;
       case DSKST_BOOTEXF:
          fst = FAT64;
@@ -934,7 +935,17 @@ int TDMgrDialog::SectorSelGoto(void) {
          rootpos = poslist->insert("Root directory");
       }
    } else
-   if (fs==HPFS || fs==JFS) sbpos = poslist->insert("Superblock");
+   if (fs==HPFS || fs==JFS) sbpos = poslist->insert("Superblock"); else
+   if (fs==NTFS) {
+      Boot_RecordNT *bs = (Boot_RecordNT*)ddta[cur_disk].bsdata->at(ptindex);
+      u64t mft1 = bs->BR_BPB.BPB_SecPerClus * bs->BR_NT_Mft1Lcn,
+           mft2 = bs->BR_BPB.BPB_SecPerClus * bs->BR_NT_Mft2Lcn;
+      if (mft1 && mft1<FFFF) {fat1pos = poslist->insert("MFT"); fat1sn = mft1; }
+      if (mft2 && mft2<FFFF) { 
+         fat2pos = poslist->insert("MFT mirror");
+         fat2sn  = mft2;
+      }
+   }
 
    lbs->newList(poslist);
 

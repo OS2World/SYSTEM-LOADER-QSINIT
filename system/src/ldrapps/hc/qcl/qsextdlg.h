@@ -25,7 +25,10 @@ typedef struct qs_extcmd_s {
 
    /** shows "boot manager" selection dialog.
        @param header        Dialog header
-       @param flags         Dialog flags (see vio_showlist() flags).
+       @param flags         Dialog flags (see vio_showlist() flags). Note,
+                            that default position will be overriden to top
+                            left corner. Use MSG_POS_CUSTOM value here to
+                            force list into the center.
        @param type          Dialog type (see BTDT_* below)
        @param [out] disk    Disk number (on success)
        @param [out] index   Partition index (on success, can be 0 for BTDT_HDD),
@@ -34,6 +37,21 @@ typedef struct qs_extcmd_s {
                one of disk error codes */
    qserr      _exicc (*bootmgrdlg   )(const char *header, u32t flags, u32t type,
                                       u32t *disk, long *index);
+
+   /** shows "task list".
+       @param header        Dialog header, can be 0
+       @param flags         Dialog flags (see vio_showlist() flags). Note,
+                            that default position will be overriden to top
+                            left corner. Use MSG_POS_CUSTOM value here to
+                            force list into the center of screen.
+       @param opts          task list options (see TLDT_* below)
+       @param updatekey     update list key code (session list will be updated
+                            when dialog receive this key press), use 0 to ignore.
+       @return session id was selected or 0. If 'Del' pressed and no TLDT_NODEL
+               option - returns id|0x80000000 */
+   u32t       _exicc (*tasklistdlg  )(const char *header, u32t flags, u32t opts,
+                                      u16t updatekey);
+
 } _qs_extcmd, *qs_extcmd;
 
 /// @name qs_extcmd->bootmgrdlg type values
@@ -43,6 +61,16 @@ typedef struct qs_extcmd_s {
 #define BTDT_ALL            2  ///< show all partitions in plain list
 #define BTDT_DISKTREE       3  ///< show all partitions, but with submenu for every HDD
 #define BTDT_NOEMU     0x1000  ///< skip emulated HDDs in enumeration
+//@}
+
+/// @name qs_extcmd->tasklistdlg opts flags
+//@{
+#define TLDT_CDEV      0x0100  ///< show only current device sessions
+#define TLDT_NOSHOWALL 0x0200  ///< remove "show all" option when TLDT_CDEV is on
+#define TLDT_NOSELF    0x0400  ///< exclude dialog`s session from list
+#define TLDT_NODEL     0x0800  ///< no "delete" key handling
+#define TLDT_HINTCOL   0x1000  ///< special hint color present 
+#define TLDT_HCOLMASK  0x000F  ///< hint color mask (MSG_GRAY ... MSG_WHITE)
 //@}
 
 #ifdef __cplusplus

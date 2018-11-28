@@ -94,7 +94,7 @@ int _std dsk_wipe55aa(u32t disk, u64t sector) {
 }
 
 int dsk_wipevbs(u32t disk, u64t sector) {
-   struct Boot_Record *br = (struct Boot_Record*)malloc(MAX_SECTOR_SIZE);
+   struct Boot_Record *br = (struct Boot_Record*)malloc_thread(MAX_SECTOR_SIZE);
    u32t st = dsk_sectortype(disk, sector, (u8t*)br);
    u32t ssize, rc;
    hlp_disksize(disk, &ssize, 0);
@@ -324,8 +324,9 @@ u32t _std dsk_datatype(u8t *sectordata, u32t sectorsize, u32t disk, int is0) {
    }
 }
 
+// used by scan itself, so should not use scan_lock()
 u32t _std dsk_sectortype(u32t disk, u64t sector, u8t *optbuf) {
-   u8t   *sbuf = optbuf?optbuf:malloc(MAX_SECTOR_SIZE);
+   u8t   *sbuf = optbuf?optbuf:malloc_thread(MAX_SECTOR_SIZE);
    struct Disk_MBR       *mbr = (struct Disk_MBR *)sbuf;
    struct Boot_Record    *btw = (struct Boot_Record *)sbuf;
    struct Boot_RecordF32 *btd = (struct Boot_RecordF32 *)sbuf;
@@ -405,8 +406,8 @@ qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
          for (ii=0; name[ii]&&ii<15; ii++) bfname[ii] = toupper(name[ii]);
          for (; ii<16; ii++) bfname[ii]=0;
       } else {
-         if (strlen(name)>11) return E_DSK_CNAMELEN;
-         for (ii=0; name[ii]&&ii<11; ii++) bfname[ii] = toupper(name[ii]);
+         if (strlen(name)>8 || strchr(name,'.')) return E_DSK_CNAMELEN;  // 8.3
+         for (ii=0; name[ii]&&ii<8; ii++) bfname[ii] = toupper(name[ii]);
          for (; ii<11; ii++) bfname[ii]=' '; bfname[12]=0;
       }
    }

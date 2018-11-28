@@ -118,7 +118,7 @@ void opts_beep(ul freq, ul duration) {
 #include "vio.h"
 
 ul dsk_count(ul *floppies,ul *vdisks) {
-   if (vdisks) *vdisks = 2;
+   if (vdisks) *vdisks = 1; //2; disk b: now is a ramfs
    return hlp_diskcount(floppies);
 }
 

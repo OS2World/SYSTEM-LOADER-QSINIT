@@ -75,6 +75,7 @@ char *opts_getlog(int time = 1, int dostext = 0);
 u32t  opts_cpuid(u32t index, u32t *data);
 u32t  opts_getpcmem(u64t *highaddr = 0);
 u32t  opts_getcputemp(void);
+u32t  opts_acpiroot(void);
 u32t  opts_mtrrquery(u32t *flags, u32t *state, u32t *addrbits);
 u64t  opts_fsize(const char *str);
 u32t  opts_memread(u64t pos, void *data);
@@ -182,6 +183,10 @@ public:
   void   ToggleEditorCommands(int binedit=-1, int on=-1);
   void   SaveLog(Boolean TimeMark);
 
+  void   SessionListDlg();
+  void   ProcInfoDlg();
+  void   SessionNew();
+
   void   ExecCpuInfoDlg();
   void   BootmgrMenu();
   void   SearchBinStart(TAppWindow *who);
@@ -257,6 +262,7 @@ public:
 #define MSGA_FMTCPSERR    (11)
 #define MSGA_DEVICEMEM    (12)
 #define MSGA_JUSTVALUE    (13)
+#define MSGA_TURNMTMODE   (14)
 
 #define MSGI_DONE          (0)
 #define MSGI_SRCHNOTFOUND  (1)

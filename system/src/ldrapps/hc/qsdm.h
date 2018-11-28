@@ -10,6 +10,7 @@ extern "C" {
 #endif
 #include "qstypes.h"
 #include "qsutil.h"
+#include "qsshell.h"
 
 /// @name dsk_newmbr() flags
 //@{
@@ -558,6 +559,26 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex,
                          u32t srcdisk, u32t srcindex,
                          read_callback cbprint, u32t flags);
 
+/// @name vol_checkbm() error bits
+//@{
+#define DCBM_LOSTCHAIN  0x01     ///< lost chains found on disk
+#define DCBM_BMMATCH    0x02     ///< file(s) uses unallocated space
+#define DCBM_IOERR      0x04     ///< i/o errors occured during scan
+//@}
+
+/** check bitmap structure of volume (all FAT types only).
+    Function checks, that allocation bitmap (or FAT) corresponds to directory
+    data.
+    @param disk           disk number
+    @param index          partition index, can be -1 for the big floppy
+    @param cbprint        process indication callback (can be 0)
+    @param [out] errinfo  error types, was found on the partition (DCBM_*)
+    @param [out] errtext  error information in printable form, list must
+                          must released via free(), ptr can be 0 to skip.
+    @return error code or 0 */
+qserr _std dsk_checkbm(u32t disk, long index, read_callback cbprint,
+                       u32t *errinfo, str_list **errtext);
+
 //===================================================================
 //  OS/2 LVM information access
 //-------------------------------------------------------------------
@@ -678,7 +699,7 @@ qserr _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name);
 /** write LVM signatures to disk.
     Better use OS/2 LVM or DFSEE.
     @param disk      disk number
-    @param geo       disk virtual CHS geometry, can be 0 for
+    @param vgeo      disk virtual CHS geometry, can be 0 for
                      auto-detect.
     @param separate  Disk will have "boot disk serial number" equal to own
                      "serial number". This option must be ON for disks,

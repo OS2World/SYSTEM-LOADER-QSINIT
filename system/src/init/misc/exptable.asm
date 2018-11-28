@@ -201,6 +201,9 @@
                 extrn   _hlp_serialout  :near
                 extrn   _hlp_serialset  :near
                 extrn   _key_waitex     :near
+                extrn   _mod_chain      :near
+                extrn   _hlp_memused    :near
+                extrn   _hlp_cachenotify:near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -255,7 +258,7 @@ _exptable_data:
                 dd      offset _hlp_memrealloc                  ;
                 dd      offset _hlp_memavail                    ;
                 dd      offset _hlp_memqconst                   ;
-                dd      0                                       ;
+                dd      offset _hlp_memused                     ;
                 dd      offset _hlp_memprint                    ;
                 dd      offset _hlp_memgetsize                  ;
                 dd      offset _hlp_memreserve                  ;
@@ -279,6 +282,7 @@ _exptable_data:
                 dd      offset _hlp_serialin                    ;
                 dd      offset _hlp_serialout                   ;
                 dd      offset _hlp_serialset                   ;
+                dd      offset _hlp_cachenotify                 ;
 ;----------------------------------------------------------------
                 nextord <70>                                    ;
                 dd      offset _snprintf                        ;
@@ -391,7 +395,8 @@ _exptable_data:
                 dd      offset _mod_secondary                   ; *
                 dd      offset _mod_list                        ; *
                 dd      offset _mod_ilist                       ; *
-                nextord <173>                                   ; 168..172 removed
+                dd      offset _mod_chain                       ;
+                nextord <173>                                   ; 169..172 is free
                 dd      offset _mod_context                     ;
                 dd      offset _mod_query                       ;
                 dd      offset _mod_apidirect                   ;

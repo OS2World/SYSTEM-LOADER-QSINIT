@@ -9,13 +9,9 @@
 #include "qsmodext.h"
 #include "qstask.h"
 
-#if QSMEMOWNER_COTHREAD+(1<<MAX_TID_BITS) != QSMEMOWNER_LINENUM
-#error MAX_TID_BITS in not match to QSMEMOWNER_COTHREAD!
-#endif
-
-extern u32t _RandSeed;
-extern u32t    _IsDll;
-extern u32t   _Module;
+extern u32t     _RandSeed;
+extern u32t        _IsDll;
+extern u32t       _Module;
 
 u32t __stdcall random(u32t range);
 
@@ -63,19 +59,19 @@ void* __stdcall __realloc_shared_rt(void *old_blk, unsigned long size,
 }
 
 void* __stdcall malloc_thread(unsigned long size) {
-   return mem_alloc(QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid(), size);
+   return mem_alloc(QSMEMOWNER_COTHREAD, (u32t)mt_gettcb(), size);
 }
 
 void* __stdcall calloc_thread(unsigned long n, unsigned long size) {
-   return mem_allocz(QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid(), n*size);
+   return mem_allocz(QSMEMOWNER_COTHREAD, (u32t)mt_gettcb(), n*size);
 }
 
 void* __stdcall realloc_thread(void *old_blk, unsigned long size) {
    if (!old_blk)
-      return mem_alloc(QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid(), size);
+      return mem_alloc(QSMEMOWNER_COTHREAD, (u32t)mt_gettcb(), size);
    else {
       void *rc = mem_realloc(old_blk, size);
-      if (rc) mem_setobjinfo(rc, QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid());
+      if (rc) mem_setobjinfo(rc, QSMEMOWNER_COTHREAD, (u32t)mt_gettcb());
       return rc;
    }
 }
@@ -90,12 +86,12 @@ int __stdcall mem_modblockex(void *block, u32t module) {
 }
 
 int __stdcall mem_threadblock(void *block) {
-   return mem_setobjinfo(block, QSMEMOWNER_COTHREAD+mt_getthread()-1, mod_getpid());
+   return mem_setobjinfo(block, QSMEMOWNER_COTHREAD, (u32t)mt_gettcb());
 }
 
 // unpublished
-int __stdcall mem_threadblockex(void *block, u32t pid, u32t tid) {
-   return mem_setobjinfo(block, QSMEMOWNER_COTHREAD+tid-1, pid);
+int __stdcall mem_threadblockex(void *block, mt_thrdata *th) {
+   return mem_setobjinfo(block, QSMEMOWNER_COTHREAD, (u32t)th);
 }
 
 int __stdcall mem_localblock(void *block) {

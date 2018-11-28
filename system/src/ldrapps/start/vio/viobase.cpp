@@ -88,11 +88,12 @@ static void update_VHfree(void) {
 static se_sysdata *newslot(void) {
    se_sysdata *sd = new se_sysdata;
    mem_zero(sd);
-   sd->vs_sign = SESDATA_SIGN;
-   sd->vs_x    = 80;
-   sd->vs_y    = 25;
+   sd->vs_sign  = SESDATA_SIGN;
+   sd->vs_x     = 80;
+   sd->vs_y     = 25;
    // allocate buffer instance
-   sd->vs_tb   = new_handler(0, QS_VH_BUFFER);
+   sd->vs_tb    = new_handler(0, QS_VH_BUFFER);
+   sd->vs_focus = NEW_G(dd_list);
    return sd;
 }
 
@@ -111,8 +112,15 @@ se_sysdata* _std se_dataptr(u32t sesno) {
 }
 
 u32t _std se_foreground(void) {
-   // should be atomic
+   // should be atomic and faster than se_active() because of no lock
    return Vsn[0];
+}
+
+u32t _std se_active(u32t dev_id) {
+   if (dev_id>=SYS_HANDLERS) return 0;
+   MTLOCK_THIS_FUNC lk;
+   if (!VH[dev_id]) return 0;
+   return Vsn[dev_id];
 }
 
 u32t se_curalloc(void) {
@@ -142,6 +150,7 @@ se_stats* _std se_stat(u32t sesno) {
    rc->flags    = se->vs_flags;
    rc->mx       = se->vs_x;
    rc->my       = se->vs_y;
+   rc->focus    = se->vs_focus->count()?se->vs_focus->value(se->vs_focus->max()):0;
    rc->title    = titlelen ? (char*)rc + titlepos : 0;
    if (rc->title) strcpy(rc->title, se->vs_title);
    return rc;
@@ -207,7 +216,7 @@ static int _std v_setmodeex(u32t cols, u32t lines) {
    se_sysdata* se = get_se(se_sesno());
    if (se->vs_selfno==SESN_DETACHED) return 0;
 
-   // should not be at all!
+   // this is possible and no limits for mode resultion here!
    if (!se->vs_devmask) {
       if (se->vs_tb->setmode(cols, lines, 0)) return 0;
       se->vs_x = cols;
@@ -378,11 +387,11 @@ static void _std v_writebuf(u32t col, u32t line, u32t width, u32t height, void *
                if (line>=se->vs_y || col>=se->vs_x) continue;
                if (col +width >se->vs_x) width  = se->vs_x - col;
                if (line+height>se->vs_y) height = se->vs_y - line;
-               if (width && height) {                   
+               if (width && height) {
                   u16t *src = (u16t*)buf;
                   for (u32t  hh = height, ln = line; hh>0; hh--,ln++) {
                      u16t *bptr = src,
-                          *bscr = se->vs_tb->memory() + line*se->vs_x + col;
+                          *bscr = se->vs_tb->memory() + ln*se->vs_x + col;
                      u32t   wdt = width;
                      while (wdt && *bptr==*bscr) { bptr++; bscr++; wdt--; }
                      if (wdt) {
@@ -420,7 +429,12 @@ qserr _std se_keypush(u32t sesno, u16t code, u32t statuskeys) {
    se_sysdata* se = get_se(sesno);
    if (!se) return E_CON_SESNO;
    if (se->vs_selfno==SESN_DETACHED) return E_CON_DETACHED;
-
+   // ctrl-c/ctrl-break processing (but send it to the user too)
+   if (code==0x2E03 || code==KEYC_CTRLBREAK) {
+      u32      pid = se->vs_focus->count()?se->vs_focus->value(se->vs_focus->max()):0;
+      if (pid && mt_active()) get_mtlib()->sendsignal(pid, 0, QMSV_BREAK, QMSF_TREE);
+   }
+   // common key push
    se->vs_keybuf[se->vs_keywp] = statuskeys<<16|code;
    if (++se->vs_keywp>=SESDATA_KBSIZE) se->vs_keywp = 0;
    se->vs_keybuf[se->vs_keywp] = 0;
@@ -445,7 +459,7 @@ static u32t next_key(se_sysdata *sd) {
    return rc;
 }
 
-extern "C" 
+extern "C"
 void vh_input_read_loop(void) {
 #define CB_LEN 16
    mt_swlock();
@@ -478,6 +492,18 @@ void vh_input_read_loop(void) {
    mt_swunlock();
 }
 
+/* manual DC commit call in non-MT mode */
+static void check_dccommit(void) {
+   if (!in_mtmode) {
+      static qsclock ltime = 0;
+      qsclock now = sys_clock();
+      if (now - ltime > CLOCKS_PER_SEC) {
+         sys_dccommit(DCN_TIMER);
+         ltime = now;
+      }
+   }
+}
+
 static u16t _std k_waitex(u32t ms, u32t *status) {
    u32t      code = 0;
    se_sysdata *se = get_se(se_sesno());
@@ -488,19 +514,19 @@ static u16t _std k_waitex(u32t ms, u32t *status) {
       if (ms==0) {
          code = next_key(se);
       } else {
-         mt_waitentry we[2] = {{QWHT_KEY,1}, {QWHT_CLOCK,0}};
+         mt_waitentry we[3] = {{QWHT_KEY,1}, {QWHT_CLOCK,0}, {QWHT_SIGNAL,2}};
          qs_mtlib     mt = get_mtlib();
          u32t        sig;
          we[1].tme = sys_clock() + (u64t)ms*(CLOCKS_PER_SEC/1000);
          do {
             sig = 0;
             mt_swunlock();
-            mt->waitobject(we, 2, 0, &sig);
+            mt->waitobject(we, 3, 0, &sig);
             mt_swlock();
             // read code anyway, because at may be available with timeout res
             code = next_key(se);
             // break on timeout or error
-            if (sig!=1) break;
+            if (sig==0) break;
          } while (!code);
       }
       mt_swunlock();
@@ -510,8 +536,8 @@ static u16t _std k_waitex(u32t ms, u32t *status) {
    // non-MT way
    qsclock  btime = 0;
 
-   /* hotkey has able to turn MT mode on, even if now it does not. Result
-      will be fatal because no locks in this loop, so we just go away. */
+   /* hotkey has able to turn MT mode on. Result will be fatal because no locks
+      in this loop, so we just go away. */
    while (se && !in_mtmode) {
       if (avail_key(se)) code = next_key(se);
       if (!code) {
@@ -529,6 +555,7 @@ static u16t _std k_waitex(u32t ms, u32t *status) {
                   if (!kh) kh = ckh;
                }
             }
+         check_dccommit();
          // no any input? - just sleep a bit and return 0
          if (!kh) {
             if (ms) cpuhlt();
@@ -553,11 +580,13 @@ static u16t _std k_waitex(u32t ms, u32t *status) {
                if (hlp_hosttype()==QSHT_EFI) usleep(10000); else cpuhlt();
             }
             vh_input_read_loop();
+            if (ms) check_dccommit();
             continue;
          }
       }
       break;
    }
+   if (ms) check_dccommit();
    if (status) *status = code>>16;
    return code;
 }
@@ -629,7 +658,7 @@ static vio_handler bvio = { "basevio", v_setmode, v_setmodeex, v_resetmode,
     @param dev_id         use -1 for mode on any device, else - device id
                           (0 - screen).
     @return one or more mode information records in user`s heap buffer (must
-            be free()-ed). The end of list indicated by vio_mode_info.size 
+            be free()-ed). The end of list indicated by vio_mode_info.size
             field = 0. */
 vio_mode_info* _std vio_modeinfo(u32t mx, u32t my, int dev_id) {
    if (VHTable[VHI_ACTIVE]!=&bvio) return 0;
@@ -728,6 +757,8 @@ qserr _std START_EXPORT(se_deviceadd)(const char *handler, u32t *dev_id, const c
    update_VHfree();
    *dev_id  = idx;
    log_it(2, "device %u added (%s)\n", idx, handler);
+   // notify about new device
+   sys_notifyexec(SECB_DEVADD, idx);
    return 0;
 }
 
@@ -739,6 +770,8 @@ qserr _std START_EXPORT(se_devicedel)(u32t dev_id) {
 
    MTLOCK_THIS_FUNC lk;
    if (!VH[dev_id]) return E_CON_NODEVICE;
+   // notify subcribers about device removing
+   sys_notifyexec(SECB_DEVDEL, dev_id);
 
    for (u32t ii=1; ii<=Sessions.Max(); ii++) {
       se_sysdata* se = (se_sysdata*)Sessions[ii];
@@ -774,12 +807,13 @@ qserr _std se_deviceswap(u32t dev_id, qs_vh np, qs_vh *op) {
    if (mi) {
       for (u32t ii=1; ii<=Sessions.Max(); ii++) {
          se_sysdata* se = (se_sysdata*)Sessions[ii];
-         u32t        ok = 0, idx = 0;
-
-         while (mi[idx].mx)
-            if (mi[idx].mx==se->vs_x && mi[idx].my==se->vs_y) { ok=1; break; }
-               else idx++;
-         if (!ok) { free(mi); return E_CON_NOSESMODE; }
+         if (se) {
+            u32t        ok = 0, idx = 0;
+            while (mi[idx].mx)
+               if (mi[idx].mx==se->vs_x && mi[idx].my==se->vs_y) { ok=1; break; }
+                  else idx++;
+            if (!ok) { free(mi); return E_CON_NOSESMODE; }
+         }
       }
       free(mi);
    }
@@ -791,7 +825,7 @@ qserr _std se_deviceswap(u32t dev_id, qs_vh np, qs_vh *op) {
    u32t sesno = Vsn[dev_id];
    if (sesno) {
       se_sysdata* se = get_se(sesno);
-      if (se) se_clone(se->vs_tb, np, SE_CLONE_MODE); else sesno = 0; 
+      if (se) se_clone(se->vs_tb, np, SE_CLONE_MODE); else sesno = 0;
    }
    if (!sesno) np->reset();
 
@@ -864,6 +898,7 @@ se_stats* _std se_deviceenum(void) {
    rc->title    = 0;
    rc->sess_no  = 0;
    rc->flags    = 0;
+   rc->focus    = 0;
    rc->mx       = 0;
    rc->my       = 0;
    return rc;
@@ -884,7 +919,7 @@ qserr _std START_EXPORT(se_switch)(u32t sesno, u32t foremask) {
    MTLOCK_THIS_FUNC lk;
    se_sysdata *dse = sesno ? get_se(sesno) : 0;
    if (sesno && !dse) return E_CON_SESNO;
-   // foremask should have at least one valid bit 
+   // foremask should have at least one valid bit
    if (dse)
       if ((foremask&=dse->vs_devmask)==0) return E_SYS_INVPARM;
 
@@ -898,7 +933,7 @@ qserr _std START_EXPORT(se_switch)(u32t sesno, u32t foremask) {
 
             for (u32t si=1; si<=Sessions.Max(); si++) {
                se_sysdata* sd = (se_sysdata*)Sessions[si];
-               if (sd && (sd->vs_devmask&1<<ii)) { 
+               if (sd && (sd->vs_devmask&1<<ii)) {
                   if (sd->vs_flags&VSF_NOLOOP) {
                      eses = si;
                      ese  = sd;
@@ -941,14 +976,14 @@ qserr _std START_EXPORT(se_selectnext)(u32t device) {
    if (!Vsn[device]) return se_switch(0, 1<<device);
 
    u32t  sesno = Vsn[device], ii,
-        sesnew = 0; 
+        sesnew = 0;
 
    for (ii=sesno+1; ii<=Sessions.Max(); ii++) {
       se_sysdata *sd = (se_sysdata*)Sessions[ii];
       if (sd && (sd->vs_flags&VSF_NOLOOP)==0 &&
          (sd->vs_devmask&1<<device)) { sesnew = ii; break; }
    }
-   if (!sesnew) 
+   if (!sesnew)
       for (ii=1; ii<sesno; ii++) {
          se_sysdata *sd = (se_sysdata*)Sessions[ii];
          if (sd && (sd->vs_flags&VSF_NOLOOP)==0 &&
@@ -979,7 +1014,7 @@ qserr _std START_EXPORT(se_clone)(qs_vh src, qs_vh dst, u16t modeid) {
          if (!res) res = dst->getmode(&dmx, &dmy, 0);
          if (res) return res;
       }
-   if (vmx!=dmx || vmy!=dmy) return E_CON_MODERR; 
+   if (vmx!=dmx || vmy!=dmy) return E_CON_MODERR;
 
    // ignore errors & try to use memory() when it possible
    mem = dst->memory();
@@ -1014,8 +1049,7 @@ qserr _std START_EXPORT(se_clone)(qs_vh src, qs_vh dst, u16t modeid) {
    return 0;
 }
 
-static int _std process_enum_callback(void *vpd, void *usrdata) {
-   mt_prcdata *pd = (mt_prcdata*)vpd;
+static int _std process_enum_callback(mt_prcdata *pd, void *usrdata) {
    u32t     *cnta = (u32t*)usrdata, ii;
 
    for (ii=0; ii<pd->piListAlloc; ii++) {
@@ -1038,9 +1072,11 @@ static int _std process_enum_callback(void *vpd, void *usrdata) {
 }
 
 static void se_release(se_sysdata *se) {
+   DELETE(se->vs_focus);
    DELETE(se->vs_tb);
    se->vs_sign    = 0;
    se->vs_tb      = 0;
+   se->vs_focus   = 0;
    se->vs_devmask = 0;
    if (se->vs_title) { free(se->vs_title); se->vs_title = 0; }
    memset(&se->vs_devdata, 0, sizeof(se->vs_devdata));
@@ -1064,8 +1100,10 @@ void _std se_closeempty() {
          sd->vs_devmask = 0;
          // empty session is selected somewhere
          if (sd->vs_flags&VSF_FOREGROUND) se_switch(0,mask);
-         Sessions[ii]   = 0; 
+         Sessions[ii]   = 0;
          se_release(sd);
+         // session exit notification
+         sys_notifyexec(SECB_SEEXIT, ii);
       }
    }
    // unlock MT and then free
@@ -1085,8 +1123,9 @@ static char *copy_title(const char *title) {
    return rc;
 }
 
-qserr _std se_newsession(u32t devices, u32t foremask, const char *title) {
+qserr _std se_newsession(u32t devices, u32t foremask, const char *title, u32t flags) {
    if (!in_mtmode) return E_MT_DISABLED;
+   if (flags&~(VSF_NOLOOP|VSF_HIDDEN)) return E_SYS_INVPARM;
    MTLOCK_THIS_FUNC lk;
    mt_thrdata      *th;
    mt_getdata(0,&th);
@@ -1099,10 +1138,10 @@ qserr _std se_newsession(u32t devices, u32t foremask, const char *title) {
                *nse = newslot();
    nse->vs_selfno   = sesno<0 ? Sessions.Count() : sesno;
    nse->vs_devmask  = devices ? devices : cse->vs_devmask;
-   nse->vs_flags    = 0;
+   nse->vs_flags    = flags;
    nse->vs_x        = devices ? 80 : cse->vs_x;
    nse->vs_y        = devices ? 25 : cse->vs_y;
-   if (title) 
+   if (title)
       nse->vs_title = copy_title(title);
    // clone custom video modes
    if (!devices)
@@ -1115,6 +1154,8 @@ qserr _std se_newsession(u32t devices, u32t foremask, const char *title) {
    // new session number (update mt_exechooks because we`re the current thread!)
    th->tiSession = nse->vs_selfno;
    mt_exechooks.mtcb_sesno = nse->vs_selfno;
+   // system notification
+   sys_notifyexec(SECB_SESTART, nse->vs_selfno);
    // enum sessions and close which one, who has no threads in it
    se_closeempty();
 
@@ -1132,9 +1173,19 @@ qserr _std se_settitle(u32t sesno, const char *title) {
    MTLOCK_THIS_FUNC lk;
    se_sysdata *se = get_se(sesno);
    if (!se) return E_CON_SESNO;
-
-   if (se->vs_title) { free(se->vs_title); se->vs_title = 0; }
-   if (title) se->vs_title = copy_title(title);
+   char   *ntitle = title ? copy_title(title) : 0;
+   /* compare titles *after* convert.
+      this should be done because user (cmd.exe especially) may annoy with
+      too often calls and every one of them cause system notification below */
+   if (ntitle && se->vs_title)
+      if (strcmp(ntitle,se->vs_title)==0) {
+         free(ntitle);
+         return 0;
+      }
+   if (se->vs_title) free(se->vs_title);
+   se->vs_title = ntitle;
+   // notify subscribers
+   sys_notifyexec(SECB_SETITLE, sesno);
    return 0;
 }
 
@@ -1155,13 +1206,15 @@ se_stats** _std se_enum(u32t devmask) {
    u32t  allocsz = Sessions.Count()*sizeof(se_stats*), pos, ii;
    se_stats **rc = (se_stats**)malloc_local(allocsz);
    if (!rc) return 0;
-   // dumb method - just call se_stat() one by one and then copy its results
+   // dumb method - just call se_stat() one by one and then copy results
    for (ii=1, pos=0; ii<=Sessions.Max(); ii++) {
       se_sysdata *se = (se_sysdata*)Sessions[ii];
-      if (se && (se->vs_devmask&devmask)) {
-         se_stats *st = se_stat(ii);
-         if (st && (st->flags&VSF_HIDDEN)==0) rc[pos++] = st;
-      }
+      if (se)
+         if ((se->vs_devmask&devmask) || !se->vs_devmask && devmask==FFFF) {
+            se_stats *st = se_stat(ii);
+            if (st)
+               if (st->flags&VSF_HIDDEN) free(st); else rc[pos++] = st;
+         }
    }
    if (!pos) {
       free(rc);
@@ -1172,16 +1225,16 @@ se_stats** _std se_enum(u32t devmask) {
    for (ii=0; ii<pos; ii++) addsz += ilen[ii] = mem_blocksize(rc[ii]);
 
    se_stats **nrc = (se_stats**)realloc(rc, allocsz+addsz);
-   if (nrc) { 
+   if (nrc) {
       u8t *dst = (u8t*)nrc + allocsz;
       for (ii=0; ii<pos; ii++) {
-         memcpy(dst, rc[ii], ilen[ii]);
+         memcpy(dst, nrc[ii], ilen[ii]);
          // update title pointer (it MUST points into the source block)
-         if (rc[ii]->title)
-            ((se_stats*)dst)->title = (char*)dst + (rc[ii]->title - (char*)rc[ii]);
-         free(rc[ii]);
-         rc[ii] = (se_stats*)dst;
-         dst   += ilen[ii];
+         if (nrc[ii]->title)
+            ((se_stats*)dst)->title = (char*)dst + (nrc[ii]->title - (char*)nrc[ii]);
+         free(nrc[ii]);
+         nrc[ii] = (se_stats*)dst;
+         dst    += ilen[ii];
       }
       nrc[pos] = 0;
    } else {
@@ -1191,6 +1244,28 @@ se_stats** _std se_enum(u32t devmask) {
    }
    delete ilen;
    return nrc;
+}
+
+/* set/unset current process as Ctrl-C focus app for the current session.
+   Function called from the main thread`s final exit hook. */
+qserr _std se_sigfocus(u32t focus) {
+   MTLOCK_THIS_FUNC lk;
+   u32t            res = 0;
+   mt_prcdata      *pd;
+   mt_thrdata     *thm;
+   // get the main thread
+   mt_getdata(&pd, 0);
+   thm = pd->piList[0];
+
+   if (thm->tiSession==SESN_DETACHED) res = E_CON_DETACHED; else
+   if (thm->tiSession!=se_sesno()) res = E_SYS_ACCESS; else {
+      se_sysdata *se = get_se(thm->tiSession);
+
+      if (!se->vs_focus->delvalue(pd->piPID))
+         if (!focus) res = E_SYS_NOTFOUND;
+      if (focus) se->vs_focus->add(pd->piPID);
+   }
+   return res;
 }
 
 /** return qs_viobuf instance with copy of session screen.
@@ -1271,7 +1346,7 @@ void sys_hotkeyfree(u32t pid) {
    mt_swlock();
    if (hk_funcs)
       for (u32t ii=0; ii<hk_funcs->Count(); ii++)
-         if ((*hk_pid)[ii]==pid) { 
+         if ((*hk_pid)[ii]==pid) {
             hk_funcs->Delete(ii);
             hk_codes->Delete(ii);
             hk_pid  ->Delete(ii);
@@ -1368,7 +1443,7 @@ qserr _std hlp_serconsole(u32t sesno) {
       }
       if (res) dbport_device = 0;
       return res;
-   } else 
+   } else
    if (!dbport_device) return E_SYS_NONINITOBJ; else {
       qserr res = se_devicedel(dbport_device);
       if (!res) dbport_device = 0;
@@ -1387,7 +1462,7 @@ void _std log_sedump(void) {
             u32t fl = se->vs_flags;
             log_it(2,"No %2u. %ux%u >> dev:%03X tb:%08X:%08X %s%s%s [%s]\n", ii,
                se->vs_x, se->vs_y, se->vs_devmask, se->vs_tb, se->vs_tb->memory(),
-                  fl&VSF_FOREGROUND?"FG ":"", fl&VSF_NOLOOP?"NOSW ":"", 
+                  fl&VSF_FOREGROUND?"FG ":"", fl&VSF_NOLOOP?"NOSW ":"",
                      fl&VSF_HIDDEN?"HID ":"", se->vs_title?se->vs_title:"");
             if (se->vs_flags&VSF_FOREGROUND)
                for (u32t idx=0; idx<VHfree; idx++)
@@ -1448,7 +1523,7 @@ void setup_sessions(void) {
    // switch vio output to common mode
    VHTable[VHI_BVIO]   = &bvio;
    VHTable[VHI_ACTIVE] = &bvio;
-   se_settitle(1, "Boot session");
+   //se_settitle(1, "Boot session");
    // install shutdown handler
    sys_notifyevent(SECB_QSEXIT|SECB_GLOBAL, shutdown_handler);
 }

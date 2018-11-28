@@ -78,7 +78,8 @@ void  opts_yield() {
    // mt_active() is best, because it never loads MTLIB to check MT mode
    if (mt_active()) {
       /* just leave DELETE for QSINIT ;)
-         class was used here to prevent static linking of MTLIB */
+         class was used here to prevent static linking of MTLIB.
+         instance may be created outside of this file, in seslist.cpp for ex. */
       if (!mtl) mtl = NEW(qs_mtlib);
       if (mtl) {
          mt_waitentry we[2] = {{QWHT_KEY,1}, {QWHT_CLOCK,0}};
@@ -168,6 +169,10 @@ u32t opts_getpcmem(u64t *highaddr) {
 
 u32t opts_getcputemp(void) {
    return hlp_getcputemp();
+}
+
+u32t opts_acpiroot(void) {
+   return sys_acpiroot();
 }
 
 u32t opts_mtrrquery(u32t *flags, u32t *state, u32t *addrbits) {
@@ -341,6 +346,10 @@ unsigned long opts_getpcmem(u64t *highaddr) {
 }
 
 unsigned long opts_getcputemp(void) {
+   return 0;
+}
+
+unsigned long opts_acpiroot(void) {
    return 0;
 }
 

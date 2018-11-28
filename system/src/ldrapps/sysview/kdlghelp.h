@@ -130,4 +130,12 @@ const int
   hcKernLogSize          = 2140,
   hcKernConfigExt        = 2141,
   hcKernBatchName        = 2142,
-  hcKernLogLevel         = 2143;
+  hcKernLogLevel         = 2143,
+  hcSesNew               = 2144,
+  hcSesList              = 2145,
+  hcSesListSwitch        = 2146,
+  hcProcInfo             = 2147,
+//  hcProcInfoList         = 2148,
+  hcProcInfoSwitch       = 2149,
+  hcProcInfoKill         = 2150,
+  hcProcInfoKillTree     = 2151;

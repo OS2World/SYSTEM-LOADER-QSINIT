@@ -3,17 +3,26 @@
 //
 #include "stdlib.h"
 #include "qsbase.h"
+#include "signal.h"
 #include "vioext.h"
 #include "errno.h"
 #include "qcl/qslist.h"
+#include "qcl/qsmt.h"
 #include "direct.h"
 #include "qstask.h"
 
 extern 
-char      *_CmdArgs;                   ///< full command line (runtime variable)
-u32t           echo = CMDR_ECHOOFF;
-qshandle    history = 0;               ///< shared queue, which works as history list
+char         *_CmdArgs;                ///< full command line (runtime variable)
+u32t              echo = CMDR_ECHOOFF;
+qshandle       history = 0;            ///< shared queue, which works as history list
+static char *in_stream = 0,
+           *out_stream = 0;
+int        interactive = 1;
+char          *apppath = 0;            ///< argv[0]
+qshandle          hmux = 0;            ///< history access mutex
+
 #define HISTORY_KEY  "cmd_hist_list"   ///< queue name
+#define HISTORY_MUX  "cmd_hist_mutex"
 
 void set_errorlevel(int elvl) {
    char  errlvl[12];
@@ -26,6 +35,8 @@ void set_title(const char *str) {
    se_settitle(se_sesno(), title);
    if (title) free(title);
 }
+
+void _std ctrlc_processing(int sig);
 
 u32t execute_command(char *cmd) {
    str_list *cmd_s = str_splitargs(cmd);
@@ -109,14 +120,18 @@ u32t execute_command(char *cmd) {
       if (err) {
           printf("Unable to find command \"%s\"!\n",cmd_s->item[0]);
           rc = ENOENT;
-      } else
-      if (is_batch || strcmp(ext,".CMD")==0 || strcmp(ext,".BAT")==0) {
-          cmd_exec(path,cmd);
       } else {
-          cmd_state state = cmd_init(cmd,0);
-          cmd_run(state,echo);
-          echo = cmd_getflags(state);
-          cmd_close(state);
+         signal(SIGINT, ctrlc_processing);
+
+         if (is_batch || strcmp(ext,".CMD")==0 || strcmp(ext,".BAT")==0) {
+             cmd_exec(path,cmd);
+         } else {
+             cmd_state state = cmd_init(cmd,0);
+             cmd_run(state,echo);
+             echo = cmd_getflags(state);
+             cmd_close(state);
+         }
+         signal(SIGINT, SIG_IGN);
       }
    }
    if (cmd_f) free(cmd_f);
@@ -124,7 +139,25 @@ u32t execute_command(char *cmd) {
    return rc;
 }
 
-static void read_history(void) {
+/// ctrl-c signal handler
+void _std ctrlc_processing(int sig) {
+   printf("\nProcess terminated\n");
+   if (interactive) {
+      u32t mod = mod_load(apppath, 0, 0, 0);
+      if (mod) {
+         /* chain a new copy of self to the same pid - this will release any
+            lost resources but does not break the parent process, which wait
+            for us */
+         mod_chain(mod, 0, "/q /k");
+      }
+   }
+   // this call links MTLIB statically ...
+   //mod_stop(0, 0, EXIT_FAILURE);
+   // terminate self without any signal
+   NEW(qs_mtlib)->stop(0, 0, EXIT_FAILURE);
+}
+
+static void history_open(void) {
    qserr err = qe_open(HISTORY_KEY, &history);
    /* we are the first shell instance - init global history and detach
       its handle - it will stay forever (until reboot) */
@@ -133,10 +166,21 @@ static void read_history(void) {
          io_setstate (history, IOFS_DETACHED, 1);
 }
 
+static void history_lock(int lock) {
+   if (!hmux && mt_active()) {
+      qserr rc = mt_muxcreate(0, HISTORY_MUX, &hmux);
+      if (rc==E_MT_DUPNAME) rc = mt_muxopen(HISTORY_MUX, &hmux);
+
+      if (hmux) io_setstate(hmux, IOFS_DETACHED, 1);
+   }
+   if (hmux)
+      if (lock) mt_muxcapture(hmux); else mt_muxrelease(hmux);
+}
+
 // trim command and save it in history, return 0 if command was empty.
 static char* push_history(char *cmd) {
    if (history && cmd) {
-      u32t ii;
+      int   ii;   // must be int because qe_available() may return -1 
       char *cn = cmd;
       while (*cn==' '||*cn=='\t') cn++;
       ii = strlen(cn);
@@ -148,25 +192,27 @@ static char* push_history(char *cmd) {
       }
       // command is empty?
       if (!ii) { free(cmd); return 0; }
-      // trying to free some memory, because pointer will saved until reboot
+      // free memory, because pointer will be saved until reboot
       if (cmd!=cn) memmove(cmd,cn,ii+1);
       cmd = realloc(cmd,ii+1);
-
+      // lock history list access by global mutex
+      history_lock(1);
       for (ii=0; ii<qe_available(history); ii++) {
          qe_event *ev = qe_peekevent(history, ii);
          char    *str = (char*)ev->code;
          if (strcmp(str,cmd)==0) {
-            // dangerous place, but while we have no two keyboards - it should work :)
             ev = qe_takeevent(history, ii);
             // duplicate entry? move it to the top of history:
             qe_postevent(history, (u32t)str, 0, 0, 0);
+            history_lock(0);
             free(cmd);
             free(ev);
             return str;
          }
       }
+      history_lock(0);
       // share it in this way to prevent garbage in file name in memmgr dump
-      __set_shared_block_info(cmd, "cmd history", 0);
+      __set_shared_block_info(cmd, 0, 0);
       qe_postevent(history, (u32t)cmd, 0, 0, 0);
       return cmd;
    }
@@ -181,8 +227,11 @@ static int _std editline_cb(u16t key, key_strcbinfo *dta) {
       if (keyh==0x48 || keyh==0x50) {
          long up = keyh==0x48?-1:1;
          dta->userdata+=up;
+
+         history_lock(1);
+
          if ((long)dta->userdata<0) dta->userdata = qe_available(history); else
-         if (dta->userdata>qe_available(history)) dta->userdata = 0;
+            if (dta->userdata>qe_available(history)) dta->userdata = 0;
          // 0 - empty string, 1...count = history
          if (!dta->userdata) {
             dta->pos=0; dta->scroll=0; dta->clen=0; *dta->rcstr=0;
@@ -203,6 +252,8 @@ static int _std editline_cb(u16t key, key_strcbinfo *dta) {
                dta->pos = len;
             }
          }
+         history_lock(0);
+
          return 3;
       }
    }
@@ -212,7 +263,8 @@ static int _std editline_cb(u16t key, key_strcbinfo *dta) {
 int cmdloop(const char *init) {
    u32t     rc;
    qserr   err;
-   read_history();
+   history_open();
+   signal(SIGINT, SIG_IGN);
    do {
       char *cmd, cdir[QS_MAXPATH+1], *title;
       vio_setshape(VIO_SHAPE_LINE);
@@ -244,20 +296,21 @@ int io_replacement(const char *fname, const char *mode, FILE *stdf) {
    return errNo;
 }
 
-static char *in_stream = 0,
-           *out_stream = 0;
-
 int main(int argc,char *argv[]) {
-   int argnext = 1, leave = 1, editcmd = 0;
+   int argnext = 1, editcmd = 0, quiet = 0;
    char last = 0, *init = 0;
+   apppath = argv[0];
 
    while (argnext<argc) {
       if (argv[argnext][0]=='/') {
          if (stricmp(argv[argnext]+1,"C")==0) {
-            last = 'C'; leave = 0; argnext++;
+            last = 'C'; interactive = 0; argnext++;
          } else 
          if (stricmp(argv[argnext]+1,"K")==0) {
             last = 'K'; argnext++;
+         } else 
+         if (stricmp(argv[argnext]+1,"Q")==0) {
+            last = 'Q'; quiet = 1; argnext++;
          } else 
          if (stricmp(argv[argnext]+1,"E")==0) {
             last = 'E'; editcmd = 1; argnext++;
@@ -270,9 +323,15 @@ int main(int argc,char *argv[]) {
             cmd_shellhelp("CMD",CLR_HELP);
             set_errorlevel(0);
             return 0;
+         } else 
+         if (last) break; else {
+            printf("\rInvalid parameter: \"%s\"\n", argv[argnext]);
+            return EINVAL;
          }
       } else break;
    }
+   se_sigfocus(1);
+
    if (argnext<argc && last) {
       char srch[3] = "/", *pos;
       srch[1] = last; srch[2] = 0;
@@ -285,7 +344,7 @@ int main(int argc,char *argv[]) {
       if (pos) {
          pos = strchr(pos, ' ');
          if (pos)
-            if (editcmd) { leave = 1; init  = pos+1; } else {
+            if (editcmd) { interactive = 1; init  = pos+1; } else {
                if (last=='C') {
                   if (in_stream) {
                      int res = io_replacement(in_stream, "r", stdin);
@@ -301,16 +360,18 @@ int main(int argc,char *argv[]) {
       }
    }
 
-   if (leave) {
-       u32t ver_len = sys_queryinfo(QSQI_VERSTR, 0);
-       char  *about = (char*)malloc(ver_len), 
-             *cmpos;
-       sys_queryinfo(QSQI_VERSTR, about);
-       cmpos = strrchr(about,',');
-       if (cmpos) *cmpos = 0;
-       printf("\n  Welcome to %s shell! ;)\n",about);
-       free(about);
-       return cmdloop(init);
+   if (interactive) {
+      if (!quiet) {
+         u32t ver_len = sys_queryinfo(QSQI_VERSTR, 0);
+         char  *about = (char*)malloc(ver_len), 
+               *cmpos;
+         sys_queryinfo(QSQI_VERSTR, about);
+         cmpos = strrchr(about,',');
+         if (cmpos) *cmpos = 0;
+         printf("\n  Welcome to %s shell! ;)\n",about);
+         free(about);
+      }
+      return cmdloop(init);
    }
    set_title(0);
    return 0;

@@ -28,7 +28,7 @@ static void shl_printpci(int nopause) {
                "Unknown":classname[gclass]));
       if (hmsg) free(hmsg);
       // this function expand tabs
-      if (cmd_printtext(sbuf,!nopause,0,0)) break;
+      if (cmd_printtext(sbuf,nopause?-1:0,0)) break;
 
       ok = hlp_pcigetnext(&dev,0,1);
    }

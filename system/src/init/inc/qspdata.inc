@@ -32,8 +32,6 @@ piThreads       dd      ?          ;/< number of active threads
 piExitCode      dd      ?          ;/< process exit code
 ;ct process_context*
 piContext       dd      ?          ;/< process context
-
-piPrio          dd      ?          ;/<
 ;ct module*
 piModule        dd      ?          ;/< exe file module
 ;ct mt_thrdata**
@@ -61,6 +59,7 @@ PFLM_SYSTEM     equ     1          ;/< system process, should never free it
 PFLM_EMBLIST    equ     2          ;/< list embedded into process info block
 PFLM_NOPWAIT    equ     4          ;/< this is session start, no parent waiting
 PFLM_LWAIT      equ     8          ;/< wait for launcher`s mt_waitobject() call
+PFLM_CHAINEXIT  equ    10h         ;/< replacing by another module in progress (2 same PIDs active)
 
 THRD_RUNNING    equ     0          ;/< thread is active
 THRD_SUSPENDED  equ     1          ;/< suspended thread
@@ -111,6 +110,11 @@ tiListAlloc     dd      ?          ;/< allocated size of tiList (1 by default)
 tiMiscFlags     dd      ?
 ;ct void*
 tiFirstMutex    dd      ?          ;/< first owned mutex (mutex_data*)
+;ct void*
+tiSigFunc       dd      ?          ;/< signal handler
+;ct u32t*
+tiSigQueue      dd      ?          ;/< signal queue
+tiSigFiber      dd      ?          ;/< current existing signal fiber
 
 mt_threadinfo   ends
 
@@ -142,7 +146,7 @@ FIBT_APC        equ     1          ;/< fiber is async procedure
 FIBT_AVAIL      equ     2          ;/< empty slot
 
 FIBF_EMPTY      equ     0          ;/< FPU state buffer is empty or unallocated
-FIBF_FIB0       equ     1          ;/< use fiber 0 buffer
+FIBF_FIB0       equ     1          ;/< use fiber 0 buffer (not used, actually)
 FIBF_OK         equ     2          ;/< FPU state buffer is in use
 
 ;cc typedef mt_prcdata* (_std *pmt_new  )(process_context *pq, void *mtdata);
@@ -171,7 +175,8 @@ mtcb_llcaller   dd      ?          ;/< last mt_swlock() caller addr
 mtcb_pxcpttop   dd      ?
 ;ct process_context*
 mtcb_ctxmem     dd      ?
-mtcb_ctid       dd      ?          ;/< current thread (pid in mtcb_ctxmem)
+;ct mt_thrdata*
+mtcb_cth        dd      ?          ;/< current thread
 mtcb_sesno      dd      ?          ;/< current session no
 ;ct mt_thrdata*
 mtcb_cfpt       dd      ?          ;/< current FPU owner thread
@@ -186,6 +191,7 @@ PREALLOC_THLIST equ     32
 
 TLS_FAKE_PTR    equ    0FFFFFFFFh  ;///< value for used, but unallocated slot
 
+;cc mt_thrdata* _std mt_gettcb(void);
 
 ;cc #ifdef __cplusplus
 ;cc }

@@ -36,6 +36,7 @@ call make.cmd extcmd   %bldparm%
 call make.cmd mtlib    %bldparm%
 call make.cmd aoscfg   %bldparm%
 call make.cmd fslib    %bldparm%
+call make.cmd fsfat    %bldparm%
 
 goto quit
 :single_build

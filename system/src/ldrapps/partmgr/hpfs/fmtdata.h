@@ -23,6 +23,12 @@ extern "C" {
 #define MAX_DIRBLK     4000                  ///< max DIRBLKs in dirblk band
 #define FORMAT_LIMIT    (_2GB/512*32)        ///< max. # of sectors (64Gb)
 
+/// minor data to write during partition creation
+typedef struct {
+   u32t       sector;
+   u32t         nsec;
+   u8t       data[1];
+} fmt_mwrite;
 
 typedef struct {
    bit_map             bmp;                ///< disk bitmap
@@ -41,6 +47,7 @@ typedef struct {
    u32t           bbidxlen;                ///< # of 2k blocks in bad block list
 
    bit_map           dbbmp;                ///< DIRBLK bitmap
+   ptr_list         mwlist;                ///< list of fmt_mwrite entries
 
    hpfs_superblock     sup;                ///< super block
    hpfs_spareblock     spr;                ///< spare block

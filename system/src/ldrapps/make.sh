@@ -48,6 +48,7 @@ then
   bash -c "./make.sh mtlib    $bldparm"
   bash -c "./make.sh aoscfg   $bldparm"
   bash -c "./make.sh fslib    $bldparm"
+  bash -c "./make.sh fsfat    $bldparm"
 else
   if test -f $1/$1.prj
   then

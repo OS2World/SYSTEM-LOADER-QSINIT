@@ -12,7 +12,9 @@
 #include "qsstor.h"
 #include "qserr.h"
 #include "qsint.h"
+#include "memmgr.h"       // QSMEMOWNER_* constants
 
+typedef  _std (*pf_mtpexitcb)(mt_thrdata *td, int stage);
 
 void  _std usleep      (u32t usec);
 void  _std mt_yield    (void);
@@ -30,9 +32,11 @@ void       mem_procexit(process_context *pq);
 u32t       hlp_fopen2  (const char *name, int allow_pxe);
 // serial port init, has no lock inside!
 void  _std serial_init (u16t port);
+void       init_host   (void);
 
 /// secondary function table, from "start" module
 extern mod_addfunc *mod_secondary; 
+extern pf_mtpexitcb    mt_pexitcb;
 extern volatile 
        mt_proc_cb    mt_exechooks;
 extern vol_data*           extvol;
@@ -50,6 +54,8 @@ extern u32t              BaudRate;
 extern u32t         cvio_ttylines;
 
 #ifndef EFI_BUILD
+/// check/reset BIOS Ctrl-Break flag in 040:0071h
+int   _std check_cbreak(void);
 /// boot flags
 extern u8t           dd_bootflags,
                       dd_bootdisk;

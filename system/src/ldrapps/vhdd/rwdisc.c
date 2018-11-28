@@ -1,30 +1,20 @@
 //
 // QSINIT
-// dinamycally expanded virtual HDD for partition management testing
+// virtual disk management module
 // ------------------------------------------------------------------
-// code is not optimized at all, but it was written only for PARTMGR
-// testing, which require a small number of sectors.
+// code is not optimized, but it was initially written for PARTMGR tests only.
 //
-#include "stdlib.h"
+#include "vhdd.h"
 #include "qslog.h"
 #include "qsio.h"
-#include "qsint.h"
-#include "qserr.h"
-#include "dskinfo.h"
-#include "qcl/qsvdimg.h"
 #include "qcl/bitmaps.h"
-#include "qcl/sys/qsedinfo.h"
 
 #define SLICE_SECTORS          1024   ///< "sectors" per one index slice
 #define HEADER_SPACE           4096
-#define VHDD_SIGN        0x64644856   ///< VHdd string
 #define VHDD_VERSION         0x0001
 #define MAX_CBMHINT            _2MB   ///< size limit for single disk
 
 #define VHDD_OFSDD           0x0001   ///< 32-bit sector number
-
-static u32t classid_emu = 0,          ///< qs_emudisk class id
-            classid_ext = 0;          ///< qs_extdisk compatible class id
 
 /// "qs_emudisk" class data
 typedef struct {
@@ -47,42 +37,11 @@ typedef struct {
    qs_extdisk    einfo;    // attached to this disk ext.info class
 } diskdata;
 
-/// "qs_emudisk_ext" class data
-typedef struct {
-   u32t           sign;
-   qs_emudisk     self;
-} doptdata;
-
 typedef struct {
    u32t           sign;
    u16t          flags;
    u16t        version;
 } file_header;
-
-// interface array for every possible disk number
-qs_emudisk mounted[QDSK_DISKMASK+1];
-
-#define instance_ret(type,inst,err)   \
-   type *inst = (type*)data;          \
-   if (inst->sign!=VHDD_SIGN) return err;
-
-#define instance_void(type,inst)      \
-   type *inst = (type*)data;          \
-   if (inst->sign!=VHDD_SIGN) return;
-
-u32t _std diskio_read (u32t disk, u64t sector, u32t count, void *data) {
-   disk &= ~(QDSK_DIRECT|QDSK_IAMCACHE|QDSK_IGNACCESS);
-   if (disk>QDSK_DISKMASK) return 0;
-   if (!mounted[disk]) return 0;
-   return mounted[disk]->read(sector, count, data);
-}
-
-u32t _std diskio_write(u32t disk, u64t sector, u32t count, void *data) {
-   disk &= ~(QDSK_DIRECT|QDSK_IAMCACHE|QDSK_IGNACCESS);
-   if (disk>QDSK_DISKMASK) return 0;
-   if (!mounted[disk]) return 0;
-   return mounted[disk]->write(sector, count, data);
-}
 
 /// 32-bit offset in file
 static inline u64t index_to_offset(diskdata *di, u32t idxpos) {
@@ -128,7 +87,8 @@ static u32t ed_sectorindex(diskdata *di, u64t sector, u32t hintidx) {
 static int flush_slices(diskdata *di) {
    /* function can`t use hint bitmaps, they can be outdated at this moment
       (and no reason to use it here) */
-   if (!di->df) return 0; else {
+   if (!di->df) return 0; else
+   if (!di->slices) return 0; else {
       // step size
       u64t rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
       u32t    ii;
@@ -192,7 +152,7 @@ static int build_hints(diskdata *di) {
 
 /// create new image file
 static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t sectors) {
-   u32t  shift, action;
+   u32t  shift;
    qserr    rc;
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
@@ -203,11 +163,9 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
    shift = bsf32(sectorsize);
    if (bsr32(sectorsize)!=shift) return E_SYS_INVPARM;
    if (shift<9 || shift>12) return E_SYS_INVPARM;
-   // file exists? return err!
-   if (!access(fname,F_OK)) return E_SYS_EXIST;
-   // create it
-   rc = io_open(fname, IOFM_CREATE_NEW|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN|IOFM_CLOSE_DEL, 
-                &di->df, &action);
+   // create it (only new one)
+   rc = io_open(fname, IOFM_CREATE_NEW|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN|IOFM_CLOSE_DEL,
+                &di->df, 0);
    if (rc) return rc; else {
       // preallocate initial file space
       rc = io_setsize(di->df, HEADER_SPACE+(SLICE_SECTORS<<shift)+(SLICE_SECTORS<<di->idxshift));
@@ -275,12 +233,12 @@ static qserr _exicc dsk_close(EXI_DATA);
 
 /// open existing image file
 static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
-   qserr  rc, action;
+   qserr  rc;
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
    if (di->df) return E_SYS_INITED;
    // open file
-   rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN, &di->df, &action);
+   rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN, &di->df, 0);
    if (!rc) {
       file_header  mhdr;
       u32t    ii, rsize;
@@ -289,7 +247,7 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
       rc = io_size(di->df, &sz);
       if (!rc) {
          io_read(di->df, &mhdr, 8);
-         if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = E_DSK_UNKFS; else
+         if (mhdr.sign!=VHDD_SIGN || mhdr.version!=VHDD_VERSION) rc = E_SYS_BADFMT; else
             if (io_read(di->df, &di->info, sizeof(disk_geo_data))!=sizeof(disk_geo_data))
                rc = E_DSK_ERRREAD;
       }
@@ -582,13 +540,13 @@ static s32t _exicc dsk_mount(EXI_DATA) {
    dp.qd_sectorsize  = di->info.SectorSize;
    dp.qd_sectorshift = di->lshift;
 
-   if (classid_ext) {
-      qs_extdisk  eptr = (qs_extdisk)exi_createid(classid_ext, EXIF_SHARED);
+   if (cid_ext) {
+      qs_extdisk  eptr = (qs_extdisk)exi_createid(cid_ext, EXIF_SHARED);
       if (eptr) {
-         doptdata *dod = (doptdata*)exi_instdata(eptr);
-         dod->self     = di->selfptr;
-         dp.qd_extptr  = eptr;
-         di->einfo     = eptr;
+         de_data *de  = (de_data*)exi_instdata(eptr);
+         de->self     = di->selfptr;
+         dp.qd_extptr = eptr;
+         di->einfo    = eptr;
       }
    }
    // install new "hdd"
@@ -755,40 +713,9 @@ static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
    return 0;
 }
 
-static qserr _exicc dopt_getgeo(EXI_DATA, disk_geo_data *geo) {
-   instance_ret(doptdata, dod, E_SYS_INVOBJECT);
-   if (!geo) return E_SYS_ZEROPTR;
-   if (!dod->self) return E_SYS_NONINITOBJ;
-   // call parent, it shoud be safe in its mutex
-   return dod->self->query(geo, 0, 0, 0);
-}
-
-static u32t _exicc dopt_setgeo(EXI_DATA, disk_geo_data *geo) {
-   instance_ret(doptdata, dod, E_SYS_INVOBJECT);
-   if (!geo) return E_SYS_ZEROPTR;
-   if (!dod->self) return E_SYS_NONINITOBJ;
-   // call parent, it shoud be safe in its mutex
-   return dod->self->setgeo(geo);
-}
-
-static char* _exicc dopt_getname(EXI_DATA) {
-   char *rc, fname[QS_MAXPATH+1];
-   instance_ret(doptdata, dod, 0);
-   if (!dod->self) return 0;
-   if (dod->self->query(0, fname, 0, 0)) return 0;
-   rc = strdup("VHDD disk. File ");
-   rc = strcat_dyn(rc, fname);
-   return rc;
-}
-
-static u32t _exicc dopt_state(EXI_DATA, u32t state) { return EDSTATE_NOCACHE; }
-
 static void *qs_emudisk_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
    dsk_write, dsk_compact, dsk_mount, dsk_disk, dsk_umount, dsk_close,
    dsk_trace, dsk_setgeo };
-
-static void *qs_extdisk_list[] = { dopt_getgeo, dopt_setgeo, dopt_getname,
-   dopt_state };
 
 static void _std dsk_init(void *instance, void *data) {
    diskdata  *di = (diskdata*)data;
@@ -821,44 +748,7 @@ static void _std dsk_done(void *instance, void *data) {
    memset(di, 0, sizeof(diskdata));
 }
 
-static void _std dopt_init(void *instance, void *data) {
-   doptdata *dod = (doptdata*)data;
-   dod->sign     = VHDD_SIGN;
-}
-
-static void _std dopt_done(void *instance, void *data) {
-   instance_void(doptdata,dod);
-   memset(dod, 0, sizeof(doptdata));
-}
-
-int init_rwdisk(void) {
-   if (!classid_emu) {
-      classid_emu = exi_register("qs_emudisk", qs_emudisk_list,
-         sizeof(qs_emudisk_list)/sizeof(void*), sizeof(diskdata), 0,
-            dsk_init, dsk_done, 0);
-      memset(mounted, 0, sizeof(mounted));
-   }
-   if (!classid_ext)
-      classid_ext = exi_register("qs_emudisk_ext", qs_extdisk_list,
-         sizeof(qs_extdisk_list)/sizeof(void*), sizeof(doptdata), 0,
-            dopt_init, dopt_done, 0);
-
-   return classid_emu && classid_ext?1:0;
-}
-
-int done_rwdisk(void) {
-   if (classid_emu || classid_ext) {
-      u32t ii;
-      // call delete, it calls umount & close disk file for every mounted disk
-      for (ii=0; ii<=QDSK_DISKMASK; ii++)
-         if (mounted[ii]) exi_free(mounted[ii]);
-
-      memset(mounted, 0, sizeof(mounted));
-      // trying to unregister classes
-      if (exi_unregister(classid_ext)) classid_ext = 0;
-         else return 0;
-      if (exi_unregister(classid_emu)) classid_emu = 0;
-         else return 0;
-   }
-   return 1;
+u32t init_rwdisk(void) {
+   return exi_register(VHDD_VHDD, qs_emudisk_list, sizeof(qs_emudisk_list)/
+      sizeof(void*), sizeof(diskdata), 0, dsk_init, dsk_done, 0);
 }

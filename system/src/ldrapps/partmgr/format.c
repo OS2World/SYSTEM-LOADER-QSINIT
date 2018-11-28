@@ -8,7 +8,6 @@
 #include "qsutil.h"
 #include "qsdm.h"
 #include "parttab.h"
-#include "qstime.h"
 #include "qcl/qslist.h"
 #include "qcl/bitmaps.h"
 #include "qcl/cplib.h"
@@ -140,8 +139,9 @@ qserr _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
    hlp_volinfo(vol, &di);
 
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
-
    if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
+   if (di.InfoFlags&VIF_VFS) return E_DSK_NOTPHYS;
+
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
    if (volidx<0 && di.StartSector) return E_PTE_PINDEX;
@@ -513,7 +513,9 @@ qserr _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
 
    hlp_volinfo(vol, &di);
    if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
+   if (di.InfoFlags&VIF_VFS) return E_DSK_NOTPHYS;
    if (di.TotalSectors<0x1000) return E_DSK_VSMALL;
+
    volidx = vol_index(vol,0);
    // allow floppies and big floppies
    if (volidx<0 && di.StartSector) return E_PTE_RESCAN;
@@ -574,7 +576,7 @@ qserr _std exf_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
    bm_nsec = (bmsize + di.SectorSize - 1) / di.SectorSize;
    // # of rootdir clusters
    ftab[2] = 1;
-   buf     = (u8t*)malloc(bufsize = _32KB);
+   buf     = (u8t*)malloc_thread(bufsize = _32KB);
    bufnsec = bufsize>>secshift;    // will be at least 8
 
    // create a compressed uppercase table

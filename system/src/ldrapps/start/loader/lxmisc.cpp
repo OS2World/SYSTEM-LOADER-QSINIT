@@ -42,6 +42,9 @@ int          unpack_ldi  (void);
 void         trace_start_hook(module *mh);
 /// call trace on module free
 void         trace_unload_hook(module *mh);
+/// call trace just after process start
+void         trace_pid_start(void);
+
 // decompression routines
 u32t _std    DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
 u32t _std    DecompressM3(u32t DataLen, u8t* Src, u8t *Dst, u8t *Buffer);
@@ -357,48 +360,59 @@ int unpack_ldi(void) {
    char  *zfpath;
    u32t   zfsize = 0;
    int    errors = 0, errprev;
-   u32t    ready = 0;
 
    if (zip_open(&zz, zip, zsize)) return 0;
 
    while (zip_nextfile(&zz, &zfpath, &zfsize)==0) {
-      // allocate at least MAXPATH bytes ;)))
-      void *filemem = 0;
       int      skip = 0;
-      // print process
-      ready += zfsize;
-      // ignore directories and/or empty files here
+      void *filemem = 0;
+      char     path[QS_MAXPATH+1];
       if (!zfsize) continue;
-      // and self - because we are here already ;)
+      // skip START module - because we are here already ;)
       if (stricmp(MODNAME_START,zfpath)==0) continue;
+      // full path (x:\name)
+      snprintf(path, QS_MAXPATH, "%c:\\%s", 'A'+DISK_LDR, zfpath);
+      errprev = errors;
 
       if (mod_delay) {
          char *ep = strchr(zfpath,'.');
          // delayed unpack (for large modules only)
-         if (ep && (!strnicmp(ep,".EXE",4) || !strnicmp(ep,".DLL",4)) && zfsize>_4KB) {
-            filemem = hlp_memalloc(zfsize,0);
-            // mark it
-            *(u32t*)filemem = UNPDELAY_SIGN;
+         if (ep && (stricmp(ep,".EXE")==0 || stricmp(ep,".DLL")==0)) {
             if (!DelayList) DelayList = new TStrings;
             DelayList->AddObject(spstr(zfpath).replacechar('/','\\'), zz.dostime);
             skip = 1;
          }
       }
-      // unpack & save
-      if (!filemem) zip_readfile(&zz, &filemem);
-
-      if (!filemem) errors++; else {
-         char   path[QS_MAXPATH+1];
-         // create full path (x:\name)
-         snprintf(path, QS_MAXPATH, "%c:\\%s", 'A'+DISK_LDR, zfpath);
-
-         errprev = errors;
-         if (fwritefull(path, filemem, zfsize)) {
-            char dir[QS_MAXPATH+1];
-            _splitfname(path, dir, 0);
-            mkdir(dir);
-            if (fwritefull(path, filemem, zfsize)) errors++;
+      if (!skip) {
+         zip_readfile(&zz, &filemem);
+         if (!filemem) errors++;
+      }
+      if (skip || filemem) {
+         qserr res = 0;
+         while (1) {
+            io_handle fh;
+            res = io_open(path, IOFM_CREATE_ALWAYS|IOFM_WRITE, &fh, 0);
+            // log_printf("io_open(%s) err %08X!\n", path, res);
+            if (!res) {
+               if (skip) {
+                  res = io_setsize(fh,zfsize);
+                  if (!res) {
+                     u32t data = UNPDELAY_SIGN;
+                     if (io_write(fh, &data, 4)!=4) res = E_DSK_ERRWRITE;
+                  }
+               } else
+               if (io_write(fh, filemem, zfsize)!=zfsize) res = E_DSK_ERRWRITE;
+               io_close(fh);
+               break;
+            } else {
+               char dir[QS_MAXPATH+1];
+               _splitfname(path, dir, 0);
+               res = io_mkdir(dir);
+               if (res) break; else continue;
+            }
          }
+         if (filemem) hlp_memfree(filemem);
+         if (res) errors++;
          /* ugly way to detect verbose build.
             (these messages scroll up actual info in it) */
          u32t lines;
@@ -406,10 +420,14 @@ int unpack_ldi(void) {
          if (lines<50)
             log_printf("%s %s, %d bytes\n", skip?"skip ":"unzip", path, zfsize);
          // set file time on success
-         if (errprev!=errors) log_printf("%s: error!\n", path); else
-            _dos_setfiletime(path, zz.dostime, _DT_MODIFY|_DT_CREATE);
+         if (errprev!=errors) log_printf("%s: error (%08X)!\n", path, res); else {
+            io_handle_info fi;
+            io_timetoio(&fi.ctime, dostimetotime(zz.dostime));
+            fi.atime = fi.ctime;
+            fi.wtime = fi.ctime;
+            io_setinfo(path, &fi, IOSI_CTIME|IOSI_ATIME|IOSI_WTIME);
+         }
       }
-      if (filemem) hlp_memfree(filemem);
    }
    zip_close(&zz);
 #if 0
@@ -417,6 +435,10 @@ int unpack_ldi(void) {
    log_printlist("list:", lst);
    free(lst);
 #endif
+   if (errors && !mod_delay && !hlp_insafemode()) {
+      log_printf("%u errors in QSINIT.LDI!\n", errors);
+      return 0;
+   }
    return 1;
 }
 
@@ -492,27 +514,31 @@ void _std mod_freeexps(module *mh) {
 }
 
 /** process start callback.
-    function is not covered by MT lock, nor by ldr_mutex!
-    note, that callbacks are called in CALLER context! */
-int _std mod_startcb(process_context *pq) {
-   init_stdio(pq);
-   return 0;
+    Function is not covered by any locks!
+    This is the first call in the main thread of a new process - before main()
+    itself.
+    mod_exec() calls it in non-MT mode and MTLIB app start code in MT mode */
+void _std mod_startcb(void) {
+   init_stdio(mod_context());
+   init_signals();
+   trace_pid_start();
 }
 
 /** process exit callback.
-    note, that callbacks are called in CALLER context!
+    note, that this callback is in the CALLER context!
     To catch something in CALLEE context use mt_pexitcb() for tid 1.
     Function is not covered by MT lock, nor by ldr_mutex! */
 s32t _std mod_exitcb(process_context *pq, s32t rc) {
    int errtype = 0;
    // !!!
    fcloseall_as(pq->pid);
-   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE);
-
+   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE|IOHT_EVENT);
+   // free PUSHD stack
    if (pq->rtbuf[RTBUF_PUSHDST]) {
       pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
       pq->rtbuf[RTBUF_PUSHDST] = 0;
    }
+   // free ansi specific data
    if (pq->rtbuf[RTBUF_ANSIBUF]) {
       free((void*)pq->rtbuf[RTBUF_ANSIBUF]);
       pq->rtbuf[RTBUF_ANSIBUF] = 0;
@@ -551,16 +577,84 @@ void check_version(void) {
    }
 }
 
-u32t _std mod_getmodpid(u32t module) {
+u32t _std mod_getmodpid(u32t module, u32t *parent) {
    if (!in_mtmode) {
       process_context *pq = mod_context();
       while (pq) {
-         if ((u32t)pq->self==module) return pq->pid;
+         if ((u32t)pq->self==module) {
+            if (parent) *parent = pq->pctx?pq->pctx->pid:0;
+            return pq->pid;
+         }
          pq = pq->pctx;
       }
    } else
-      return get_mtlib()->getmodpid(module);
+      return get_mtlib()->getmodpid(module,parent);
    return 0;
+}
+
+u32t _std mod_checkpid(u32t pid) {
+   if (pid)
+      if (!in_mtmode) {
+         process_context *pq = mod_context();
+         while (pq) {
+            if (pq->pid==pid) return 1;
+            pq = pq->pctx;
+         }
+      } else
+         return get_mtlib()->checkpidtid(pid,0)==0 ? 1 : 0;
+   return 0;
+}
+
+/** return process context for the specified process id.
+    Function exported, but unpublished in headers because it dangerous.
+    It TURNS ON MT lock if MT mode active and returned value is non-zero */
+process_context* _std mod_pidctx(u32t pid) {
+   if (pid)
+      if (!in_mtmode) {
+         process_context *pq = mod_context();
+         while (pq) {
+            if (pq->pid==pid) return pq;
+            pq = pq->pctx;
+         }
+      } else {
+         // this call turns MT lock on in any case
+  	     mt_prcdata      *pd = mtmux->getpd(pid);
+  	     process_context *pq = pd?pd->piContext:0;
+  	     // check pq<->pd match
+  	     if ((mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT]!=pd)
+  	        sys_exfunc4(xcpt_prcerr, pq->self->name, pq->pid);
+
+  	     if (!pq) mt_swunlock();
+  	     return pq;
+      }
+   return 0;
+}
+
+/** query list of running processes.
+    Function replaced by MTLIB on its load.
+    @return pid list with zero in the last entry - in the process owned heap
+            block. */
+extern "C" u32t* _std START_EXPORT(mod_pidlist)(void) {
+   u32t *rc = 0;
+   if (!in_mtmode) {
+      u32t cnt = 0, pass, ii = 0;
+
+      for (pass=0; pass<2; pass++) {
+         process_context *pq = mod_context();
+         while (pq) {
+            if (pass) rc[ii++] = pq->pid; else cnt++;
+            pq = pq->pctx;
+         }
+         if (!pass) rc = (u32t*)malloc_local(sizeof(u32t)*(cnt+1)); else {
+            // sort in in ascending order
+            bswap(rc, sizeof(u32t), cnt);
+            rc[cnt] = 0;
+         }
+      }
+   }
+   /* function should be catched and replaced by MTLIB, so just return 0 to
+      hang in user code in case of malfunction. */
+   return rc;
 }
 
 mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, 0, // number of entries
@@ -569,10 +663,11 @@ mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, 0, // number of entri
    sto_save, sto_flush, unzip_ldi, mod_startcb, mod_exitcb, log_memtable,
    hlp_memcpy, mod_loaded, sys_exfunc4, hlp_volinfo, io_fullpath,
    getcurdir_dyn, io_remove, mem_freepool, sys_notifyexec, sys_notifyevent,
-   0,0,0, mt_muxcapture, mt_muxwait, mt_muxrelease, env_copy, 0, 0, fptostr,
+   0,0,0, mt_muxcapture, mt_waithandle, mt_muxrelease, env_copy, 0, 0, fptostr,
    fpu_stsave, fpu_strest, 0, io_mfs_open, io_mfs_read, io_mfs_close,
    io_open, io_read, io_write, io_seek, io_size, io_setsize, io_close,
-   io_lasterror, bitfind, setbits, mempanic };
+   io_lasterror, bitfind, setbits, mempanic, mt_tlsget, mt_tlsaddr,
+   mt_tlsset };
 
 void setup_loader_mt(void) {
    qserr   rc;
@@ -589,12 +684,6 @@ void setup_loader_mt(void) {
 }
 
 void setup_loader(void) {
-   u8t fstype = hlp_volinfo(DISK_BOOT,0);
-   // boot volume is mounted by FAT code
-   if (fstype>FST_NOTMOUNTED) {
-      log_printf("BootFT: %u\n", fstype);
-      table.mfs_replace = 1;
-   }
    // export function table
    mod_secondary = &table;
    // flush log first time

@@ -20,11 +20,12 @@ enum _keys { kAltE, kAltFX, kAltFXe=5, kCtrlC, kPreload, kLimit, kDbcs,
    kLogSize, kNoRev, kNoLogo, kCfgExt, kSymName, kRestart, kDbPort, kCall,
    kVAlimit, kCpuClock, kDefMsg, kEnd };
 
-// options to remove from result line
+/* options to remove from result line.
+   there is no more "DISKSIZE", but let it will be here. */
 static const char *emptylist[] = { "DEFAULT", "TIMEOUT", "DISKSIZE", "UNZALL",
   "SHOWMEM", "TTYMENU", "MENUPALETTE", "RESETMODE", "DISKSIZE", "USEBEEP", 
   "HEAPFLAGS", "DEFAULT_PARTITION", "DBFLAGS", "SHAREIRQ", "MFSPRINT",
-  "NOCLOCK", 0 };
+  "NOCLOCK", "REIPL", "CTRLN", "PCISCAN_ALL", 0 };
 
 extern "C"
 int _stdcall cmd_mergeopts(char *line, char *args, const char *ininame) {

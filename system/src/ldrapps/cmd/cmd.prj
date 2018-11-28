@@ -54,6 +54,9 @@ file /[[$(**c)! !,]]
 #file /[[$(**asm)! !,]]
 file %(appinit_lib)\bld\Common\init.obj 
 lib %(appinit_lib)\runtime.lib 
+op map=$(name).map
+sort global
+op statics
 op quiet
 op el
 op internalrelocs

@@ -309,7 +309,7 @@ qe_event* _std qe_waitevent(qshandle queue, u32t timeout_ms) {
       qs_mtlib     mt = get_mtlib();
       mt_waitentry we[2] = {{QWHT_QUEUE,1}, {QWHT_CLOCK,0}};
       u32t        sig;
-      we[0].que = queue;
+      we[0].wh  = queue;
       we[1].tme = sys_clock() + (u64t)timeout_ms*1000;
       do {
          sig = 0;
@@ -351,11 +351,12 @@ static qe_eid pushto(qshandle owner, sys_queue *qi, qe_event *src, clock_t at = 
    ev->a        = src->a;
    ev->b        = src->b;
    ev->c        = src->c;
-   ev->reserved = 0;
+   ev->id       = 0;
    if (now<at) {
       sched_event *ev_l = eid_add(owner, qi, ev);
       qi->fq.Add(ev_l); 
-      res = (qe_eid)ev_l;
+      res    = (qe_eid)ev_l;
+      ev->id = res;
    } else
       qi->uq.Add(ev);
    return res;
@@ -422,6 +423,8 @@ qe_eid _std qe_reschedule(qe_eid eventid, clock_t attime) {
       eid_unlink(ev_l, qi);
       // and link back at new pos
       res = pushto(ev_l->owner, qi, ev_l->ev, attime);
+      // update event id field in event
+      ev_l->ev->id = res;
       mt_swunlock();
       delete ev_l;
    }
@@ -443,7 +446,8 @@ qe_event* _std qe_unschedule(qe_eid eventid) {
       // unlink it
       eid_unlink(ev_l, qi);
       mt_swunlock();
-      retev = ev_l->ev;
+      retev     = ev_l->ev;
+      retev->id = 0;
       delete ev_l;
    }
    // make it caller process owned

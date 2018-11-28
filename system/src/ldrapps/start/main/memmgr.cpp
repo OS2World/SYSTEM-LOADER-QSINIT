@@ -3,15 +3,15 @@
 // memory manager
 // -------------------------------------
 //
-// * this memmgr was written in 1997 for own unfinished pascal compiler ;)
+// * code was written in 1997 for own unfinished pascal compiler ;)
 //   then it was ported to C and used on some real jobs (for 4 bln. users)
-// * simplified version here, with 16 bytes block header.
+// * simplified version here, with 16 byte block header.
 // * alloc/free pair speed is ~ the same with ICC/GCC runtime, but this
 //   manager also provides file/line or id1/id2 pair for user needs in every
 //   block as well as various debug listings.
 //
 // * mtlock is used here because of using this manager in MTLIB itself. I.e
-//   all thread/fiber data is also stored in those heaps.
+//   system thread/fiber data is also stored in heap blocks.
 //
 
 #include "qsutil.h"
@@ -45,10 +45,11 @@ typedef struct {
 
 typedef struct {
    QSMCC            block;
-   QSMCC           *CPrev,
+   QSMCC           *CPrev, // additional fields cannot use more than 16 bytes
                    *CNext;
-   u32t           PoolIdx;
-   u32t           PoolPos;
+   u32t               Sum; // MUST be equal to CPrev+CNext (just a crc)
+   u16t           PoolIdx;
+   u16t           PoolPos;
 } QSMCCF;
 
 #define QSMCCMEM(PP) ((long*)((QSMCC*)PP+1))
@@ -165,25 +166,39 @@ static inline u32t actsize(QSMCC *pp) {
 }
 
 static void AddToCache(QSMCC*PP) {
-   long lg=PP->Size<TinySize16?0:1;
-   PQSMCC*chpos=Cache[lg]+(PP->Size>>(lg?SZSHL_L-SZSHL_S:0));
-   PQSMCC next=*chpos;
-   LC(PP)->CNext =next;
-   LC(PP)->CPrev =NULL;
-   *chpos    =PP;
-   if (next) LC(next)->CPrev=PP;
+   long  lg = PP->Size<TinySize16?0:1;
+   PQSMCC *chpos = Cache[lg]+(PP->Size>>(lg?SZSHL_L-SZSHL_S:0));
+   PQSMCC   next = *chpos;
+   LC(PP)->CNext = next;
+   LC(PP)->CPrev = NULL;
+   LC(PP)->Sum   = (u32t)next;
+   *chpos = PP;
+   if (next) {
+      LC(next)->CPrev = PP;
+      LC(next)->Sum   = (u32t)LC(next)->CNext + (u32t)PP;
+   }
 }
 
-static void RmvFromCache(QSMCC*PP) {
-   QSMCC*prev=LC(PP)->CPrev,
-        *next=LC(PP)->CNext;
-   if (prev) LC(prev)->CNext=LC(PP)->CNext; else {
-      long lg=PP->Size<TinySize16?0:1;
+static int RmvFromCache(QSMCC*PP) {
+   QSMCC *prev = LC(PP)->CPrev,
+         *next = LC(PP)->CNext;
+   // control sum mismatch - header damaged!
+   if ((u32t)prev + (u32t)next != LC(PP)->Sum) return 0;
+
+   if (prev) {
+      LC(prev)->CNext = LC(PP)->CNext;
+      LC(prev)->Sum   = (u32t)LC(prev)->CPrev + (u32t)LC(prev)->CNext;
+   } else {
+      long lg = PP->Size<TinySize16?0:1;
       QSMCC**chpos=Cache[lg]+(PP->Size>>(lg?SZSHL_L-SZSHL_S:0));
-      *chpos=next;
+      *chpos = next;
    }
-   if (next) LC(next)->CPrev=LC(PP)->CPrev;
-   LC(PP)->CPrev=0; LC(PP)->CNext=0;
+   if (next) {
+      LC(next)->CPrev = LC(PP)->CPrev;
+      LC(next)->Sum   = (u32t)LC(next)->CPrev + (u32t)LC(next)->CNext;
+   }
+   LC(PP)->CPrev=0; LC(PP)->CNext=0; LC(PP)->Sum=0;
+   return 1;
 }
 
 static inline void FillQSMCC(QSMCC*PP,u32t sz,long Owner,long Pool,u32t Back) {
@@ -288,9 +303,8 @@ static QSMCC* SmallAlloc(long Owner, long Pool, u32t Size16, u32t Caller) {
          res = SmallPool[FirstFree-1];
       }
    }
-   if (res->Signature!=QSMCC_SIGN)
+   if (res->Signature!=QSMCC_SIGN || !RmvFromCache(res))
       (*MemError)(_RET_MCBDESTROYD,"SmallAlloc()",Caller,res);
-   RmvFromCache(res);
    res->GlobalID  =Owner;
    res->ObjectID  =Pool;
    if (res->Size>Size16+HeaderSize16) {
@@ -302,10 +316,9 @@ static QSMCC* SmallAlloc(long Owner, long Pool, u32t Size16, u32t Caller) {
       FillQSMCC16(PP,bs,FREEQSMCC,FREEQSMCC,Size16);
       qsmcc next(PP); next++;
       if (next->Size&&next->GlobalID==FREEQSMCC) {
-         if (next->Signature!=QSMCC_SIGN)
+         if (next->Signature!=QSMCC_SIGN || !RmvFromCache(next))
             (*MemError)(_RET_MCBDESTROYD,"SmallAlloc()",Caller,next);
-         next->Signature=0; // clean up signature
-         RmvFromCache(next);
+         next->Signature = 0; // clean up signature
          PP->Size+=next->Size;
          next++;
       }
@@ -397,15 +410,19 @@ static QSMCC* CheckMerge(QSMCC*MM, u32t Caller) {
          qsmcc next(MM);
          next++;
          while (next->Size&&next->GlobalID==FREEQSMCC) {
-            next->Signature=0; // clean up signature
-            RmvFromCache(next);
+            // unlink from free stack and hang on damaged header
+            if (!RmvFromCache(next))
+               (*MemError)(_RET_MCBDESTROYD, ChkMergeStr, Caller, next);
+            // clean up signature
+            next->Signature=0;
             MM->Size+=next->Size; next++;
          }
          qsmcc prev(MM);
          while (prev->Link) {
             prev--;
             if (prev->GlobalID==FREEQSMCC) {
-               RmvFromCache(prev);
+               if (!RmvFromCache(prev))
+                  (*MemError)(_RET_MCBDESTROYD, ChkMergeStr, Caller, prev);
                prev->Size+=MM->Size;
                MM->Signature=0;
                MM=prev;
@@ -417,12 +434,14 @@ static QSMCC* CheckMerge(QSMCC*MM, u32t Caller) {
             while (FirstFree&&SmallPool[FirstFree-1]->Size<<4==PoolBlocks-HeaderSize&&
                  SmallPool[FirstFree-1]->GlobalID==FREEQSMCC)
             {
-               RmvFromCache(SmallPool[--FirstFree]);
-               SmallPool[FirstFree]->Signature=0;
-               if (MM && (u32t)MM-(u32t)SmallPool[FirstFree]<PoolBlocks) MM=0;
-               if (!ExtPoolPtr[FirstFree]) mfree(SmallPool[FirstFree]);
-                  else ExtPoolPtr[FirstFree]=0;
-               SmallPool[FirstFree]=0;
+               QSMCC *fp = SmallPool[FirstFree-1];
+               if (!RmvFromCache(fp))
+                  (*MemError)(_RET_MCBDESTROYD, ChkMergeStr, Caller, fp);
+               fp->Signature = 0;
+               if (MM && (u32t)MM-(u32t)fp<PoolBlocks) MM = 0;
+
+               SmallPool[--FirstFree] = 0;
+               if (!ExtPoolPtr[FirstFree]) mfree(fp); else ExtPoolPtr[FirstFree] = 0;
                CurMemUsed-=PoolBlocks;
             }
          }
@@ -462,7 +481,7 @@ extern "C" void* mem_dup(void *M) {
 #define memReallocStr "mem_realloc()"
 
 // realloc memory block.
-extern "C" void *mem_realloc(void *M, u32t NewSize) { 
+extern "C" void *mem_realloc(void *M, u32t NewSize) {
    if (!NewSize) NewSize=16;
    if (!M) return mem_alloc(0,0,NewSize);
    if (!MMInited) return 0;
@@ -500,7 +519,8 @@ extern "C" void *mem_realloc(void *M, u32t NewSize) {
             long usize16=next->Size+mm->Size-NewSize16;
             if (next->Size && next->GlobalID==FREEQSMCC && usize16>=0) {
                qsmcc npsave=next;
-               RmvFromCache(next);
+               if (!RmvFromCache(next))
+                  (*MemError)(_RET_MCBDESTROYD,memReallocStr,Caller,next);
                if (usize16>HeaderSize16) {
                   mm->Size=NewSize16;
                   next=mm; next++;
@@ -558,18 +578,18 @@ extern "C" void *mem_realloc(void *M, u32t NewSize) {
 extern "C" void mem_zero(void *M) {
    if (!MMInited) return;
    u32t Caller = CALLER(M);
-   qsmcc    mm = TryToRefBlock((u8t*)M,"memZero()",Caller);
+   qsmcc    mm = TryToRefBlock((u8t*)M,"mem_zero()",Caller);
    memset(M,0,actsize(mm)-HeaderSize);
 }
 
-extern "C" unsigned long mem_blocksize(void *M) {
+extern "C" u32t mem_blocksize(void *M) {
    if (!MMInited) return 0;
    u32t Caller = CALLER(M);
-   qsmcc    mm = TryToRefBlock((u8t*)M,"memBlockSize()",Caller);
+   qsmcc    mm = TryToRefBlock((u8t*)M,"mem_blocksize()",Caller);
    return actsize(mm)-HeaderSize;
 }
 
-extern "C" unsigned long mem_getobjinfo(void *M, long *Owner, long *Pool) {
+extern "C" u32t mem_getobjinfo(void *M, long *Owner, long *Pool) {
    if (!MMInited) return 0;
    u32t Caller = CALLER(M);
    qsmcc    mm = TryToRefNonFatal((u8t*)M);
@@ -597,7 +617,7 @@ void __stdcall mem_uniqueid(long *Owner, long *Pool) {
 }
 
 // free by Owner/Pool
-extern "C" unsigned long mem_freepool(long Owner, long Pool) {
+extern "C" u32t mem_freepool(long Owner, long Pool) {
    if (!MMInited) return 0;
    long ii;
    u32t Caller=CALLER(Owner), blockcnt=0;
@@ -626,7 +646,7 @@ extern "C" unsigned long mem_freepool(long Owner, long Pool) {
    return blockcnt;
 }
 
-extern "C" unsigned long mem_freeowner(long Owner) {
+extern "C" u32t mem_freeowner(long Owner) {
    if (!MMInited) return 0;
    long ii;
    u32t Caller=CALLER(Owner), blockcnt=0;
@@ -671,7 +691,7 @@ extern "C" void mem_stat() {
    // calc real size in small pools
    for (ii=0; ii<FirstFree; ii++)
       sp += ExtPoolSize[ii]?ExtPoolSize[ii]:PoolBlocks;
-   ep = buf + snprintf(buf, MSTAT_BSIZE, "memStat(): %u:%u /", sp>>10, lp>>10);
+   ep = buf + snprintf(buf, MSTAT_BSIZE, "mem_stat(): %u:%u /", sp>>10, lp>>10);
    for (ii=0; ii<FirstFree; ii++) {
       qsmcc PP(SmallPool[ii]);
       u32t  maxsize = 0, totsize = 0,
@@ -711,7 +731,7 @@ static StatMaxInfo *StatMaxUpdate(StatMaxInfo *stat,int &cnt,int &max,QSMCC*bloc
    if (cnt+1==max) {
       StatMaxInfo *statnew=(StatMaxInfo*)hlp_memrealloc(stat,max*2*sizeof(StatMaxInfo));
       if (!statnew) {
-         log_printf("No mem for memStatMax()");
+         log_printf("No mem for mem_statmax()");
          mfree(stat);
          return 0;
       }
@@ -726,6 +746,15 @@ static StatMaxInfo *StatMaxUpdate(StatMaxInfo *stat,int &cnt,int &max,QSMCC*bloc
    return stat;
 }
 
+// warning! buffer here is static. But this may distort mem_statmax() only
+static const char *get_file_name(u32t address) {
+   static char fnbuf[64];
+   u32t   len = hlp_copytoflat(&fnbuf, address, get_flatds(), 63);
+   fnbuf[len] = 0;
+   if (!len) snprintf(fnbuf, 64, "(addr violation: %08X)", address);
+   return fnbuf;
+}
+
 extern "C" void mem_statmax(int topcount) {
    int     alloc = 4096, ca = 0, ii;
    u32t   Caller = CALLER(topcount);
@@ -735,7 +764,7 @@ extern "C" void mem_statmax(int topcount) {
    for (ii=0;ii<LargeFree&&stat;ii++)
       if (LargePool[ii]) {
          if (LargePool[ii]->Signature!=QSMCL_SIGN)
-            TryToRefBlock((char*)LargePool[ii]+HeaderSize,"memStatMax()",Caller);
+            TryToRefBlock((char*)LargePool[ii]+HeaderSize,"mem_statmax()",Caller);
          stat=StatMaxUpdate(stat,ca,alloc,LargePool[ii]);
       }
    // if (MultiThread) MutexRelease(SynchroG);
@@ -746,14 +775,14 @@ extern "C" void mem_statmax(int topcount) {
       while (stat) {
          if (!PP->Size) break;
          if (PP->Signature!=QSMCC_SIGN)
-            TryToRefBlock((char*)PP+HeaderSize,"memStatMax()",Caller); // abort
+            TryToRefBlock((char*)PP+HeaderSize,"mem_statmax()",Caller); // abort
          if (PP->GlobalID!=FREEQSMCC) stat=StatMaxUpdate(stat,ca,alloc,PP);
          PP++;
       }
    }
    mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    if (!stat) {
-      log_printf("No mem for memStatMax()");
+      log_printf("No mem for mem_statmax()");
       return;
    } else {
       if (ca>1) {
@@ -779,14 +808,14 @@ extern "C" void mem_statmax(int topcount) {
          u32t owner = stat[ii].owner,
                pool = stat[ii].pool;
          if (owner>=QSMEMOWNER_LINENUM && owner<FREEQSMCC) {
-            char *Line = (char*)pool;
             long  line = (owner&~QSMEMOWNER_LINENUM)+1;
             log_printf("%4d. %8u bytes, %4u blocks, #%s %u\n", ii+1, stat[ii].size,
-               stat[ii].blocks, (u32t)Line>0x1000?Line:"(null)", line);
-         } else 
-         if (owner>=QSMEMOWNER_COTHREAD && owner<QSMEMOWNER_LINENUM) {
+               stat[ii].blocks, pool>0x1000?get_file_name(pool):"(null)", line);
+         } else
+         if (owner==QSMEMOWNER_COTHREAD) {
+            mt_thrdata *th = (mt_thrdata*)pool;
             log_printf("%4d. %8u bytes, %4u blocks, PID %u, TID %u\n", ii+1,
-               stat[ii].size, stat[ii].blocks, pool, owner-QSMEMOWNER_COTHREAD+1);
+               stat[ii].size, stat[ii].blocks, th->tiPID, th->tiTID);
          } else
          if (owner==QSMEMOWNER_COPROCESS) {
             mt_prcdata *pd = (mt_prcdata*)pool;
@@ -807,7 +836,71 @@ extern "C" void mem_statmax(int topcount) {
    }
 }
 
-static void PrintBlock(QSMCC *ptr,QSMCC *prev,QSMCC *pool) {
+static void statinfo_add(u32t itype, QSMCC*ptr, mem_statdata *info) {
+   if (itype!=QSMEMINFO_ALL) {
+      u32t owner = ptr->GlobalID;
+      switch (itype) {
+         case QSMEMINFO_MODULE:
+            if (owner!=QSMEMOWNER_COLIB || ptr->ObjectID!=info->ph) return;
+            break;
+         case QSMEMINFO_GLOBAL:
+            if (owner==QSMEMOWNER_COLIB || owner==QSMEMOWNER_COPROCESS ||
+               owner==QSMEMOWNER_COTHREAD) return;
+            break;
+         case QSMEMINFO_PROCESS:
+            if (owner!=QSMEMOWNER_COPROCESS) return; else
+               if (((mt_prcdata*)ptr->ObjectID)->piPID!=info->ph) return;
+            break;
+         case QSMEMINFO_THREAD:
+            if (owner!=QSMEMOWNER_COTHREAD) return; else {
+               mt_thrdata *td = (mt_thrdata*)ptr->ObjectID;
+               if (td->tiPID!=info->ph || td->tiTID!=info->tid) return;
+            }
+            break;
+         default:
+            return;
+      }
+   }
+   info->mem += (u32t)ptr->Size<<4;
+   info->nblk++;
+}
+
+extern "C" void mem_statinfo(u32t itype, mem_statdata *info) {
+   if (!MMInited) return;
+   if (!info) return;
+   info->mem  = 0;
+   info->nblk = 0;
+   if (itype<0 || itype>QSMEMINFO_THREAD) return;
+   // zero cannot be handle or pid
+   if (!info->ph && itype>=QSMEMINFO_MODULE) return;
+   if (itype==QSMEMINFO_THREAD && !info->tid) return;
+
+   u32t Caller = CALLER(itype), ii;
+   mt_swlock(); // if (MultiThread) EnterUniqueSection(&SynchroL);
+   if (ParanoidalChk) CheckMgr(Caller);
+   for (ii=0; ii<FirstFree; ii++) {
+      qsmcc PP(SmallPool[ii]);
+      while (true) {
+         if (!PP->Size) break;
+         if (PP->Signature!=QSMCC_SIGN)
+            TryToRefBlock((u8t*)PP+HeaderSize, "mem_statinfo()", Caller); // abort
+         if (PP->GlobalID!=FREEQSMCC) statinfo_add(itype, PP, info);
+         PP++;
+      }
+   }
+   //if (MultiThread) LeaveUniqueSection(&SynchroL);
+   //if (MultiThread) EnterUniqueSection(&SynchroG);
+   for (ii=0; ii<LargeFree; ii++)
+      if (LargePool[ii]) {
+         if (LargePool[ii]->Signature!=QSMCL_SIGN)
+            TryToRefBlock((u8t*)LargePool[ii]+HeaderSize, "mem_statinfo()", Caller);
+         if (LargePool[ii]->GlobalID!=FREEQSMCC)
+            statinfo_add(itype, LargePool[ii], info);
+      }
+   mt_swunlock(); //if (MultiThread) LeaveUniqueSection(&SynchroG);
+}
+
+static void PrintBlock(QSMCC *ptr, QSMCC *prev, QSMCC *pool) {
    u8t    *addr[2];
    u32t    size[2];
    if (!prev)
@@ -869,10 +962,13 @@ extern "C" int mem_checkmgr() {
          if ((P->GlobalID==FREEQSMCC||P->ObjectID==FREEQSMCC)) {
             if (P->GlobalID!=P->ObjectID) MCBError(P,2);
             if (P->Size<TinySize16) {
-               if (LC(P)->CNext)
-                  if (LC(P)->CNext->Signature!=QSMCC_SIGN) MCBError(P,3);
-               if (LC(P)->CPrev)
-                  if (LC(P)->CPrev->Signature!=QSMCC_SIGN) MCBError(P,4);
+               QSMCCF *lp = LC(P);
+               // check sum and only then links (both may be broken)
+               if ((u32t)lp->CPrev+(u32t)lp->CNext!=lp->Sum) MCBError(P,13);
+               if (lp->CNext)
+                  if (lp->CNext->Signature!=QSMCC_SIGN) MCBError(P,3);
+               if (lp->CPrev)
+                  if (lp->CPrev->Signature!=QSMCC_SIGN) MCBError(P,4);
             }
          }
          // checking for invalid size
@@ -913,35 +1009,39 @@ static void CheckMgr(u32t Caller) {
    if (!mem_checkmgr()) (*MemError)(_RET_CHECKFAILED,"mem_checkmgr()",Caller,0);
 }
 
-static void DumpNewReport(QSMCC*P,u32t idx) {
+static void DumpNewReport(QSMCC*P, u32t idx) {
    u32t owner = (u32t)P->GlobalID,
          pool = (u32t)P->ObjectID;
    if (owner>=QSMEMOWNER_LINENUM && owner<FREEQSMCC) {
-      char *Line = (char*)pool;
-      long  line = (owner&~QSMEMOWNER_LINENUM)+1;
-      log_printf("%4d.[%8.8X] #%s %u - %u\n",idx,P,(u32t)Line>0x1000?Line:"(null)",line,actsize(P));
-   } else 
-   if (owner>=QSMEMOWNER_COTHREAD && owner<QSMEMOWNER_LINENUM) {
-      log_printf("%4d.[%8.8X] pid %5d  tid %4d   - % 8d\n",idx,P,pool,
-         owner-QSMEMOWNER_COTHREAD+1,actsize(P));
+      long line = (owner&~QSMEMOWNER_LINENUM)+1;
+      log_printf("%4d.[%8.8X] #%s %u - %u\n", idx, P,  pool>0x1000?
+         get_file_name(pool):"(null)", line, actsize(P));
+   } else
+   if (owner==QSMEMOWNER_COTHREAD) {
+      mt_thrdata *th = (mt_thrdata*)pool;
+      if ((u32t)th<0x1000 || th->tiSign!=THREADINFO_SIGN)
+         log_printf("%4d.[%8.8X] !!! wrong tcb = %08X !!!\n", idx, P, th);
+      else
+         log_printf("%4d.[%8.8X] pid %5d  tid %4d   - % 8d %s\n", idx, P,
+            th->tiPID, th->tiTID, actsize(P), th->tiParent->piModule->mod_path);
    } else
    if (owner==QSMEMOWNER_COPROCESS) {
       mt_prcdata *pd = (mt_prcdata*)pool;
-      log_printf("%4d.[%8.8X] pid %5d             - % 8d %s\n",idx,P,pd->piPID,
-         actsize(P),pd->piModule->mod_path);
+      log_printf("%4d.[%8.8X] pid %5d             - % 8d %s\n", idx, P, pd->piPID,
+         actsize(P), pd->piModule->mod_path);
    } else
    if (owner==QSMEMOWNER_COLIB) {
       module *mh = (module*)pool;
-      log_printf("%4d.[%8.8X] %-21s - %8d\n",idx,P,mh->name,actsize(P));
+      log_printf("%4d.[%8.8X] %-21s - %8d\n", idx, P, mh->name, actsize(P));
    } else {
       const char *cc = owner==GETOWNERID?"<memGetUniqueID>": (owner==FREEQSMCC?"free":"");
-      log_printf("%4d.[%8.8X] %10d %10d - %8d %s\n",idx,P,owner,pool,actsize(P),cc);
+      log_printf("%4d.[%8.8X] %10d %10d - %8d %s\n", idx, P, owner, pool, actsize(P), cc);
    }
 }
 
 #define LOG_PRN_BUFLEN    80
 
-static void _memDumpLog(const char *TitleString,int DumpAll) {
+static void _memDumpLog(const char *TitleString, int DumpAll) {
    if (!MMInited) return;
    long ii,nbb;
    qsmcc  P;
@@ -967,8 +1067,8 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
          nbb++;
          if (DumpAll) DumpNewReport(P,nbb);
          if (P->GlobalID==FREEQSMCC&&P->Size>0) {
-            LC(P)->PoolIdx=ii;
-            LC(P)->PoolPos=nbb;
+            LC(P)->PoolIdx = ii;
+            LC(P)->PoolPos = nbb;
          }
          if (!P->Size) break;
          prev=P;
@@ -997,36 +1097,35 @@ static void _memDumpLog(const char *TitleString,int DumpAll) {
          for (ii=jj==0?3:0;ii<TinySize16;ii++) {
             QSMCC*bbl=Cache[jj][ii];
             if (bbl) {
-               static const char *badtype[]={"","(!!!)","<-!!","->!!","(pos!:"};
+               static const char *badtype[]={"","(!!!)","<-!!","->!!","(sum)"};
                char linebuf[LOG_PRN_BUFLEN], bstr[48];
                int   slen = LOG_PRN_BUFLEN;
 
                slen-=snprintf(linebuf, slen, "%4d->", ii<<(jj?SZSHL_L:SZSHL_S));
 
                while (bbl) {
-                  int err=0;
+                  QSMCCF *bBL = LC(bbl);
+                  int     err = 0;
                   if (bbl->GlobalID!=FREEQSMCC) err=1; else
-                  if (!err&&LC(bbl)->CNext)
-                    if (LC(bbl)->CNext->Signature!=QSMCC_SIGN) err=3;
-                  if (err&&LC(bbl)->CPrev)
-                    if (LC(bbl)->CPrev->Signature!=QSMCC_SIGN) err=2;
+                     if ((u32t)bBL->CPrev+(u32t)bBL->CNext!=bBL->Sum) err=4;
+                  if (!err && bBL->CNext)
+                    if (bBL->CNext->Signature!=QSMCC_SIGN) err=3;
+                  if (err && bBL->CPrev)
+                    if (bBL->CPrev->Signature!=QSMCC_SIGN) err=2;
 
-                  int len = snprintf(bstr, 48, "%d.%d%s",LC(bbl)->PoolIdx,
-                                     LC(bbl)->PoolPos, badtype[err]);
-                  if (err==4) len+=snprintf(bstr+len, 48-len, "%#8.8x)", bbl);
+                  int len = snprintf(bstr, sizeof(bstr), "%u.%u%s%s", bBL->PoolIdx,
+                     bBL->PoolPos, badtype[err], err>=3?",<<broken>>":(bBL->CNext?",":""));
 
-                  bstr[len++] = LC(bbl)->CNext?',':' ';
-                  bstr[len++] = 0;
-                  if (slen<len) {
+                  if (slen<++len) {
                      log_printf("%s\n",linebuf);
                      linebuf[0] = 0;
                      slen = LOG_PRN_BUFLEN;
-                  } else {
-                     // do not use strcat() to prevent stdlib.h include
-                     memcpy(linebuf+strlen(linebuf), bstr, len);
-                     slen-=len;
                   }
-                  bbl=LC(bbl)->CNext;
+                  // do not use strcat() to prevent stdlib.h include
+                  memcpy(linebuf+strlen(linebuf), bstr, len);
+                  slen -= len;
+                  // is CNext valid?
+                  if (err>=3) break; else bbl = bBL->CNext;
                }
                if (linebuf[0]) log_printf("%s\n",linebuf);
             }
@@ -1043,7 +1142,7 @@ extern "C" void mem_dumplog(const char *TitleString) {
    _memDumpLog(TitleString,true);
 }
 
-extern "C" void mem_setopts(long Options) {
+extern "C" void mem_setopts(u32t Options) {
    ParanoidalChk = (Options&QSMEMMGR_PARANOIDALCHK)!=0;
    ClearBlocks   = (Options&QSMEMMGR_ZEROMEM)!=0;
    HaltOnNoMem   = (Options&QSMEMMGR_HALTONNOMEM)!=0;

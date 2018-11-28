@@ -40,7 +40,7 @@ del=rm
 copy=cp
 
 [files]
-rwdisc.c vhdd.c ../../init/inc/dskinfo.inc
+rwdisc.c vhdd.c vhdf.c ../../init/inc/dskinfo.inc
 
 [make_footer]
 $(outdir) : .DIRECTORY

@@ -7,13 +7,17 @@
 #include "qsint.h"
 #include "syslocal.h"
 #include "qsinit_ord.h"
-#include "qsvdata.h"
+//#include "qsvdata.h"
+#include "setjmp.h"
+#include "qsxcpt.h"
 #include "cpudef.h"
 #include "qstask.h"
 #include "qserr.h"
 #include "qssys.h"
 #include "qscon.h"
 #include "sysio.h"
+#include "dpmi.h"
+#include "qcl/qsextdlg.h"
 
 #define TLS_GROW_SIZE         64       ///< TLS array one time grow size
 
@@ -23,10 +27,11 @@ static int              kbask_ms = 0,
                       memstat_on = 0;
 u8t                    in_mtmode = 0;
 qs_sysmutex                mtmux = 0;
-static qshandle            sys_q = 0;
+qshandle                   sys_q = 0;
 u64t              memstat_period = CLOCKS_PER_SEC*120;
 static pf_beep             _beep = 0;  ///< original vio_beep call
 u32t                     sys_con = 0;  ///< "system console" session
+u32t                    ctrln_d0 = 0;
 
 extern module *     _std      mod_ilist;  // and this
 extern mt_proc_cb   _std   mt_exechooks;  // and also this ;)
@@ -34,6 +39,7 @@ extern mt_proc_cb   _std   mt_exechooks;  // and also this ;)
 void   setup_loader_mt(void);
 void   setup_pagman_mt(void);
 void   setup_exi_mt   (void);
+void   trace_pid_done (void);
 
 void _std v_beep(u16t freq, u32t ms) {
    if (freq>16384 || (int)ms<0) return;
@@ -43,8 +49,8 @@ void _std v_beep(u16t freq, u32t ms) {
 static qserr _std muxcvtfunc(qshandle mutex, mux_handle_int *res) {
    if (!res) return E_SYS_ZEROPTR; else {
       sft_entry *fe;
-      qserr  rc = io_check_handle(mutex, IOHT_MUTEX, 0, &fe);
-      *res = rc?0:fe->mux.mh;
+      qserr  rc = io_check_handle(mutex, IOHT_MUTEX|IOHT_EVENT, 0, &fe);
+      *res = rc?0:fe->muxev.mh;
       // dec MT lock, was incremented by success io_check_handle()
       if (!rc) mt_swunlock();
       return rc;
@@ -65,22 +71,39 @@ static void session_free(mt_prcdata *pd) {
     this thread below). */
 static void process_sysq(qe_event *ev) {
    switch (ev->code) {
-      case SYSQ_SESSIONFREE:
-         session_free((mt_prcdata*)ev->a);
+      case SYSQ_SESSIONFREE: {
+         mt_prcdata *pd = (mt_prcdata*)ev->a;
+         u32t      rpid = pd->piMiscFlags&PFLM_CHAINEXIT?pd->piPID:0;
+         session_free(pd);
+         /* a bit ugly way to implement chain process - we suspend it until
+            release of a predecessor and resume here - else session_free()
+            will close handles of a new process too! */
+         if (rpid) mtlib->thresume(rpid,1);
          break;
+      }
       case SYSQ_BEEP:
          if (_beep) _beep(ev->a,ev->b);
          break;
       case SYSQ_MEMSTAT:
          mem_stat();
-         /*log_sedump();
-         mod_dumptree(); */
          qe_schedule(sys_q, sys_clock()+memstat_period, SYSQ_MEMSTAT, 0, 0, 0);
          break;
       case SYSQ_DCNOTIFY:
          // cache timer in MT mode
          sys_dccommit(DCN_TIMER);
          qe_schedule(sys_q, sys_clock()+CLOCKS_PER_SEC, SYSQ_DCNOTIFY, 0, 0, 0);
+         break;
+      case SYSQ_FREE: {
+         void *block = (void*)ev->a;
+         if (ev->b) {
+            if (mem_getobjinfo(block,0,0)) free(block); else
+               log_it(3,"invalid block in SYSQ_FREE: %X, sender: %X\n", block, ev->c);
+         } else
+            hlp_memfree(block);
+         break;
+      }
+      case SYSQ_ALARM:
+         mtlib->sendsignal(ev->a, ev->b, QMSV_ALARM, 0);
          break;
       default:
          log_it(3,"unknown sys_q event %X %X %X %X!\n", ev->code, ev->a, ev->b, ev->c);
@@ -103,7 +126,7 @@ static u32t _std sys_servicethread(void *arg) {
    // add TFLM_SYSTEM bit to thread flags
    mt_safedor(&pth->tiMiscFlags, TFLM_SYSTEM);
 
-   mtlib->threadname("service");
+   mt_threadname("service");
    // unzip LDI
    unzip_delaylist();
    // dump memstat once per 2 minutes
@@ -121,11 +144,9 @@ static u32t _std sys_servicethread(void *arg) {
       exit. I.e. mod_exitcb() validation calls may produce error message
       screen. It showed in the current console for common modules, but for
       detached ones it requires a place to show. And here it is. */
-   rc = se_newsession(se_devicemask(), 0, "System Console");
-   if (rc) log_it(1, "unable to create session - %X!\n", rc); else {
+   rc = se_newsession(se_devicemask(), 0, "System Console", VSF_NOLOOP|VSF_HIDDEN);
+   if (rc) log_it(1, "unable to create session - %X!\n", rc); else
       sys_con = se_sesno();
-      se_setstate(sys_con, VSF_NOLOOP|VSF_HIDDEN, FFFF);
-   }
    // post 1st cache commit event
    qe_postevent(sys_q, SYSQ_DCNOTIFY, 0, 0, 0);
 
@@ -149,14 +170,30 @@ static u32t _std sys_servicethread(void *arg) {
 }
 
 /// Alt-Esc & Ctrl-N processing callback (task switch on the device where it was pressed).
-static void _std sys_tswcb(sys_eventinfo *kd) {
+static void _std cb_taskswitch(sys_eventinfo *kd) {
    /* push Ctrl-N back to the active session queue if it was pressed on
       device 0 (screen) */
-   if ((u16t)kd->info==0x310E && kd->info2==0) {
+   if (!ctrln_d0 && (u16t)kd->info==0x310E && kd->info2==0) {
       se_keypush(se_foreground(), 0x310E, kd->info>>16);
       return;
    }
    se_selectnext(kd->info2);
+}
+
+/** Ctrl-Esc & Ctrl-B processing callback
+    Function shows task list on the device where it was pressed. */
+static void _std cb_tasklist(sys_eventinfo *kd) {
+   // push Ctrl-B back on device 0 (screen)
+   if (!ctrln_d0 && (u16t)kd->info==0x3002 && kd->info2==0) {
+      se_keypush(se_foreground(), 0x3002, kd->info>>16);
+      return;
+   } else {
+      qs_mtlib mt = get_mtlib();
+      if (mt) {
+         if (!in_mtmode) mt->initialize();
+         if (in_mtmode) mt->tasklist(1<<kd->info2);
+      }
+   }
 }
 
 /** callback from MT lib - MT mode is ready.
@@ -184,12 +221,10 @@ void _std mt_startcb(qs_sysmutex mproc) {
    // catch vio_beep
    _beep         = (pf_beep)mod_apidirect(mh_qsinit, ORD_QSINIT_vio_beep);
    mod_apichain(mh_qsinit, ORD_QSINIT_vio_beep, APICN_REPLACE, v_beep);
-   // run funcs, waiting for this happens
-   sys_notifyexec(SECB_MTMODE, 0);
    // catch alt-esc and ctrl-n
-   err = sys_sethotkey(0x0100, KEY_ALT, SECB_GLOBAL, sys_tswcb);
-   if (!err) err = sys_sethotkey(0x310E, KEY_CTRL, SECB_GLOBAL, sys_tswcb);
-   if (err) log_it(0, "hotkeys error (%X)!\n", err);
+   err = sys_sethotkey(0x0100, KEY_ALT, SECB_GLOBAL, cb_taskswitch);
+   if (!err) err = sys_sethotkey(0x310E, KEY_CTRL, SECB_GLOBAL, cb_taskswitch);
+   if (err) log_it(0, "hotkeys(n) error (%X)!\n", err);
    /* read vars for service thread (must be here because thread itself has
       pid 1 environment) */
    kbask_ms      = env_istrue("KBRES");
@@ -200,47 +235,83 @@ void _std mt_startcb(qs_sysmutex mproc) {
    ctd.size      = sizeof(mt_ctdata);
    ctd.stacksize = 32768;
    ctd.pid       = 1;
-   mtlib->createthread(sys_servicethread, MTCT_NOFPU|MTCT_NOTRACE, &ctd, 0);
+   mtlib->thcreate(sys_servicethread, MTCT_NOFPU|MTCT_NOTRACE, &ctd, 0);
+   // run notifications about MT mode
+   sys_notifyexec(SECB_MTMODE, 0);
+}
+
+void setup_tasklist(void) {
+   // catch ctrl-esc and ctrl-b
+   qserr err = sys_sethotkey(0x011B, KEY_CTRL, SECB_GLOBAL, cb_tasklist);
+   if (!err) err = sys_sethotkey(0x3002, KEY_CTRL, SECB_GLOBAL, cb_tasklist);
+   if (err) log_it(0, "hotkeys(l) error (%X)!\n", err);
 }
 
 /** callback from MT lib - thread exit.
-    This is the last call in thread context, next will be releasing mutexes
-    and exit.
-    In non-MT mode mod_exec calls it too, on exit, with td=0 arg */
-void _std mt_pexitcb(mt_thrdata *td) {
-   u32t pid = td?td->tiPID:mod_getpid();
-   // main thread exit / non-MT mode
-   if (!td || td->tiTID==1) {
-      // non-MT - reset FPU owner!
-      if (!td) fpu_strest();
-      //log_it(0, "pid %u exit cb!\n", pid);
-      /* call it here for the main thread, else notification code can be
-         invoked in parent context after process exit */
-      sys_notifyfree(pid);
-      // as a company
-      sys_hotkeyfree(pid);
-      /* here too - this will free all instances before the moment of imported
-         DLL mod term function. I.e. if we will call it after DLL fini - DLL
-         can deny unload if it provides class for us */
-      exi_free_as(pid);
-   }
-   // in MT mode only
-   if (td) {
-      /* if we owning mfs_mutex - hlp_fclose() must be called to reset
-         mutex & flags in mfs i/o functions */
-      if (!mt_muxstate(mod_secondary->mfs_mutex, 0)) hlp_fclose();
-      /* if we owning ldr_mutex - then trap screen is too close to us now,
-         but still tries to clear mod_ilist at least. */
-      if (!mt_muxstate(mod_secondary->ldr_mutex, 0)) {
-          if (mod_ilist) {
-             log_it(0, "mod_ilist was lost!\n");
-             mod_ilist = 0;
-          }
+    stage==0: This is the last call in thread context, next will be releasing
+              mutexes and exit.
+              In non-MT mode mod_exec calls it too, on exit, with td=0 arg
+    stage==1: Called when thread is gone.
+              In non-MT mode mod_exec calls it too, with valid td arg */
+void _std mt_pexitcb(mt_thrdata *td, int stage) {
+   /* processing of exiting thread -- */
+   if (!stage) {
+      u32t pid = td?td->tiPID:mod_getpid();
+      /* main thread exit / non-MT mode.
+         This case must be the last for the process, because main thread
+         waits for secondaries and only then goes here */
+      if (!td || td->tiTID==1) {
+         // non-MT - reset FPU owner!
+         if (!td) fpu_strest();
+         //log_it(0, "pid %u exit cb!\n", pid);
+         /* call it here for the main thread, else notification code can be
+            invoked in parent context after process exit */
+         sys_notifyfree(pid);
+         // as a company
+         sys_hotkeyfree(pid);
+         // as well
+         se_sigfocus(0);
+         // trace process exit hook
+         trace_pid_done();
+         /* here too - this will free all instances before the moment of imported
+            DLL mod term function. I.e. if we will call it after DLL fini - DLL
+            can deny unload if it provides class for us */
+         exi_free_as(pid);
       }
-      // disable any vio output
-      td->tiSession = SESN_DETACHED;
-      // and check sessions for empty ones after that
-      se_closeempty();
+      // in MT mode only
+      if (td) {
+         // unschedule alarm() event delivery
+         u32t alarm_ev = mt_tlsget(QTLS_ALARMQH);
+         if (alarm_ev) {
+            void *ev = qe_unschedule(alarm_ev);
+            if (ev) free(ev);
+         }
+         /* if we owning mfs_mutex - hlp_fclose() must be called to reset
+            mutex & flags in mfs i/o functions */
+         if (!mt_muxstate(mod_secondary->mfs_mutex, 0)) hlp_fclose();
+         /* if we owning ldr_mutex - then trap screen is too close to us now,
+            but still tries to clear mod_ilist at least. */
+         if (!mt_muxstate(mod_secondary->ldr_mutex, 0)) {
+             if (mod_ilist) {
+                log_it(0, "mod_ilist was lost!\n");
+                mod_ilist = 0;
+             }
+         }
+         // disable any vio output
+         td->tiSession = SESN_DETACHED;
+         // and check sessions for empty ones after that
+         se_closeempty();
+      }
+   /* processing of finished thread -- */
+   } else {
+      /* note, that at this moment system may have ANOTHER ONE pid/tid pair
+         equal to td arg (after mod_chain()). So, only td pointer value
+         MUST be the key to process. */
+
+      // release lost entries in exit chain stacks
+      chain_thread_free(td);
+      // release thread owned memory
+      mem_freepool(QSMEMOWNER_COTHREAD, (u32t)td);
    }
 }
 
@@ -289,7 +360,7 @@ u32t _std START_EXPORT(mt_getthread)(void) {
 /** get thread comment.
     note, what result is up to 16 chars & NOT terminated by zero if
     length is full 16 bytes.
-    @return actually direct pointer to TLS variable with thread comment */
+    @return direct pointer to TLS variable with thread comment */
 char *mt_getthreadname(void) {
    static char *tnb = "";
    if (in_mtmode) {
@@ -300,10 +371,12 @@ char *mt_getthreadname(void) {
 }
 
 // -------------------------------------------------------------
-// M u t e x e s
+//   M u t e x e s / E v e n t s
 // -------------------------------------------------------------
 
-qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
+static qserr mt_commoncreate(int initialstate, const char *name, qshandle *res,
+                             u32t namespc, u32t type, u32t createarg)
+{
    qserr  rc = 0;
    u32t  fno;
    if (!res) return E_SYS_ZEROPTR;
@@ -313,7 +386,7 @@ qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
    if (!in_mtmode) return E_MT_DISABLED;
 
    mt_swlock();
-   fno  = sft_find(name, NAMESPC_MUTEX);
+   fno  = sft_find(name, namespc);
 
    if (fno) rc = E_MT_DUPNAME; else {
       mux_handle_int mhi = 0;
@@ -323,15 +396,15 @@ qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
       sft_entry      *fe = 0;
 
       if (!ifno || !fno) rc = E_SYS_NOMEM; else
-         rc = mtmux->create(&mhi, fno);
+         rc = mtmux->create(&mhi, fno, createarg, initialstate);
       if (!rc) {
          fe = (sft_entry*)malloc(sizeof(sft_entry));
          fe->sign       = SFTe_SIGN;
-         fe->type       = IOHT_MUTEX;
+         fe->type       = type;
          fe->fpath      = name?strdup(name):0;
-         fe->name_space = NAMESPC_MUTEX;
+         fe->name_space = namespc;
          fe->pub_fno    = SFT_PUBFNO+fno;
-         fe->mux.mh     = mhi;
+         fe->muxev.mh   = mhi;
          fe->ioh_first  = 0;
          fe->broken     = 0;
          // add new entries
@@ -348,7 +421,7 @@ qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
    return rc;
 }
 
-qserr _std mt_muxopen(const char *name, qshandle *res) {
+static qserr mt_commonopen(const char *name, qshandle *res, u32t namespc, u32t type) {
    qserr  rc = 0;
    u32t  fno;
    if (!res) return E_SYS_ZEROPTR;
@@ -359,7 +432,7 @@ qserr _std mt_muxopen(const char *name, qshandle *res) {
    if (!in_mtmode) return E_SYS_NOPATH;
 
    mt_swlock();
-   fno  = sft_find(name, NAMESPC_MUTEX);
+   fno  = sft_find(name, namespc);
 
    if (!fno) rc = E_SYS_NOPATH; else {
       mux_handle_int mhi = 0;
@@ -368,7 +441,7 @@ qserr _std mt_muxopen(const char *name, qshandle *res) {
       sft_entry      *fe = sftable[fno];
 
       if (!ifno) rc = E_SYS_NOMEM; else
-      if (fe->type!=IOHT_MUTEX) rc = E_SYS_INVHTYPE;
+         if (fe->type!=type) rc = E_SYS_INVHTYPE;
 
       if (!rc) {
          ioh_setuphandle(ifno, fno, pid);
@@ -379,6 +452,14 @@ qserr _std mt_muxopen(const char *name, qshandle *res) {
    return rc;
 }
 
+qserr _std mt_muxcreate(int initialowner, const char *name, qshandle *res) {
+   return mt_commoncreate(initialowner, name, res, NAMESPC_MUTEX, IOHT_MUTEX, 0);
+}
+
+qserr _std mt_muxopen(const char *name, qshandle *res) {
+   return mt_commonopen(name, res, NAMESPC_MUTEX, IOHT_MUTEX);
+}
+
 qserr _std mt_muxrelease(qshandle mtx) {
    sft_entry   *fe;
    qserr       err;
@@ -386,7 +467,7 @@ qserr _std mt_muxrelease(qshandle mtx) {
    // this call LOCKs us if err==0
    err = io_check_handle(mtx, IOHT_MUTEX, 0, &fe);
    if (!err) {
-      err = mtmux->release(fe->mux.mh);
+      err = mtmux->release(fe->muxev.mh);
       mt_swunlock();
    }
    return err;
@@ -400,7 +481,7 @@ qserr _std mt_muxstate(qshandle handle, u32t *lockcnt) {
    err = io_check_handle(handle, IOHT_MUTEX, 0, &fe);
    if (!err) {
       qs_sysmutex_state mi;
-      int  lkcnt = mtmux->state(fe->mux.mh, &mi);
+      int  lkcnt = mtmux->state(fe->muxev.mh, &mi);
 
       if (lkcnt<0) err = E_SYS_INVPARM; else
       if (lkcnt==0) err = E_MT_SEMFREE; else
@@ -417,17 +498,18 @@ qserr _std mt_closehandle_int(qshandle handle, int force) {
    qserr          err;
    if (!in_mtmode) return E_SYS_INVPARM;
    // this call LOCKs us if err==0
-   err = io_check_handle(handle, IOHT_MUTEX, &fh, &fe);
+   err = io_check_handle(handle, IOHT_MUTEX|IOHT_EVENT, &fh, &fe);
    if (err) return err;
-   /* single object? then try close it first and return error (E_MT_SEMBUSY
-      commonly */
-   if (ioh_singleobj(fe)) err = mtmux->free(fe->mux.mh, force);
+   /* single object? then try close it first and return error
+      (E_MT_SEMBUSY commonly). Both event & mutex should be accepted
+      here. */
+   if (ioh_singleobj(fe)) err = mtmux->free(fe->muxev.mh, force);
    if (!err) {
       handle ^= IOH_HBIT;
       // unlink it from sft entry & ioh array
       ioh_unlink(fe, handle);
       fh->sign = 0;
-      // we reach real close here!
+      // we are reach real close here!
       if (fe->ioh_first==0) {
          sftable[fh->sft_no] = 0;
          if (fe->fpath) free(fe->fpath);
@@ -448,21 +530,42 @@ qserr _std mt_closehandle(qshandle handle) {
 qserr _std mt_muxcapture(qshandle handle) {
    if (!in_mtmode) return E_SYS_INVPARM; else {
       mt_waitentry we = { QWHT_MUTEX, 0 };
-      we.mux = handle;
+      we.wh = handle;
       return mtlib->waitobject(&we, 1, 0, 0);
    }
 }
 
-qserr _std mt_muxwait(qshandle handle, u32t timeout_ms) {
+qserr _std mt_eventcreate(int signaled, const char *name, qshandle *res) {
+   return mt_commoncreate(signaled, name, res, NAMESPC_EVENT, IOHT_EVENT, 1);
+}
+
+qserr _std mt_eventopen(const char *name, qshandle *res) {
+   return mt_commonopen(name, res, NAMESPC_EVENT, IOHT_EVENT);
+}
+
+qserr _std mt_eventact(qshandle evt, u32t action) {
+   sft_entry   *fe;
+   qserr       err;
+   if (!in_mtmode) return E_SYS_INVPARM;
+   // this call LOCKs us if err==0
+   err = io_check_handle(evt, IOHT_EVENT, 0, &fe);
+   if (!err) {
+      err = mtmux->event(fe->muxev.mh, action);
+      mt_swunlock();
+   }
+   return err;
+}
+
+qserr _std mt_waithandle(qshandle handle, u32t timeout_ms) {
    if (!in_mtmode) return E_SYS_INVPARM; else {
       // mutex must be first to be catched on zero timeout
-      mt_waitentry we[2] = {{QWHT_MUTEX,1}, {QWHT_CLOCK,2}};
+      mt_waitentry we[2] = {{QWHT_HANDLE,1}, {QWHT_CLOCK,2}};
       qserr       res;
       u32t        sig;
-      we[0].mux = handle;
-      we[1].tme = sys_clock() + (timeout_ms)*1000;
-
-      res = mtlib->waitobject(&we, 2, 0, &sig);
+      we[0].wh  = handle;
+      if (timeout_ms!=FFFF) we[1].tme = sys_clock() + (timeout_ms)*1000;
+      // really remove timeout if arg is 0xFFFFFFFF
+      res = mtlib->waitobject(&we, timeout_ms==FFFF?1:2, 0, &sig);
 
       if (res) return res;
       return sig==1 ? 0 : E_SYS_TIMEOUT;
@@ -475,19 +578,35 @@ qserr _std mt_muxwait(qshandle handle, u32t timeout_ms) {
    TLS implementation is independent from MTLIB module to allow
    vars usage in non-MT mode.
 
-   In details, every TLS storage is not allocated until the first
-   write into it in running thread. This saves both time & memory. */
+   In detail, every TLS storage is not allocated until first write into it
+   in the running thread. This saves both time & memory. */
 
 /** get process/thread data pointers.
     Must be called in MT lock! */
 void _std mt_getdata(mt_prcdata **ppd, mt_thrdata **pth) {
-   process_context *pq = mt_exechooks.mtcb_ctxmem;
-   mt_prcdata      *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
-   if (ppd) *ppd = pd;
-   if (pth) {
-      u32t tid = mt_exechooks.mtcb_ctid - 1;
-      *pth = pd->piListAlloc<=tid ? 0 : pd->piList[tid];
+   mt_thrdata *th = mt_exechooks.mtcb_cth;
+
+   if ((u32t)th<0x1000 || th->tiSign!=THREADINFO_SIGN || !th->tiParent) {
+      log_printf("tcb: %08X\n", th);
+      if ((u32t)th>0x1000) log_printf("tcb: %8lb\n", th);
+      mod_dumptree();
+      _throwmsg_("Current thread state damaged");
    }
+   if (ppd) *ppd = th->tiParent;
+   if (pth) *pth = th;
+}
+
+mt_thrdata* _std mt_gettcb(void) {
+   mt_thrdata *rc;
+   mt_swlock();
+   mt_getdata(0, &rc);
+   mt_swunlock();
+   return rc;
+}
+
+static mt_thrdata* thdata(mt_prcdata *pd, u32t tid) {
+   if (!pd || !tid || tid>pd->piListAlloc) return 0;
+   return pd->piList[tid-1];
 }
 
 /** commit TLS array/slot.
@@ -501,14 +620,14 @@ void mt_tlscommit(mt_thrdata *th, u32t index) {
       if (!pd->piTLSSize) pd->piTLSSize = pasize?Round64(pasize):64;
       // array for this thread
       th->tiTLSArray = (u64t**)calloc(pd->piTLSSize,sizeof(u64t*));
-      // preallocated, but uninited
+      // allocated, but uninited has TLS_FAKE_PTR value, unallocated - zero!
       if (pasize) memsetd((u32t*)th->tiTLSArray, TLS_FAKE_PTR, pasize);
    }
    if (index<pd->piTLSSize)
       if (th->tiTLSArray[index]==(u64t*)TLS_FAKE_PTR) {
          void *pv = (u64t*)calloc(TLS_VARIABLE_SIZE,1);
          // attach block to thread
-         mem_threadblockex(pv, th->tiPID, th->tiTID);
+         mem_threadblockex(pv, th);
          th->tiTLSArray[index] = (u64t*)pv;
       }
 }
@@ -521,7 +640,7 @@ u32t _std mt_tlsalloc(void) {
 
    mt_swlock();
    mt_getdata(&pd, 0);
-   // use main thread as reference, not current
+   // use main thread for a reference, not current
    th = pd->piList[0];
    // commit TLS array for this thread
    if (!th->tiTLSArray) mt_tlscommit(th, FFFF);
@@ -534,8 +653,8 @@ u32t _std mt_tlsalloc(void) {
       for (ii=0; ii<pd->piListAlloc; ii++) {
          mt_thrdata *tl = pd->piList[ii];
          if (tl && tl->tiTLSArray) {
-            tl->tiTLSArray = (u64t**)realloc(tl->tiTLSArray, sizeof(u64t**)*pd->piTLSSize);
-            memset(tl->tiTLSArray+oldsz, 0, TLS_GROW_SIZE*sizeof(u64t**));
+            tl->tiTLSArray = (u64t**)realloc(tl->tiTLSArray, sizeof(u64t*)*pd->piTLSSize);
+            memset(tl->tiTLSArray+oldsz, 0, TLS_GROW_SIZE*sizeof(u64t*));
          }
       }
       pos = th->tiTLSArray + oldsz;
@@ -590,7 +709,7 @@ u64t _std mt_tlsget(u32t index) {
    if (index<pd->piTLSSize && th->tiTLSArray) {
       u64t *pv = th->tiTLSArray[index];
       // slot written at least once?
-      if (pv!=(u64t*)TLS_FAKE_PTR) {
+      if (pv && pv!=(u64t*)TLS_FAKE_PTR) {
          u64t rc = *pv;
          mt_swunlock();
          return rc;
@@ -600,38 +719,42 @@ u64t _std mt_tlsget(u32t index) {
    return 0;
 }
 
-static qserr tlsset_common(u32t index, u64t **slotaddr, u64t setv) {
+static qserr tlsset_common(u32t index, u64t **slotaddr, u64t setv, mt_thrdata *oth) {
    mt_thrdata *th;
    mt_prcdata *pd;
    u32t        rc = 0;
 
    mt_swlock();
-   mt_getdata(&pd,&th);
-   // first save in this process?
-   if (!pd->piTLSSize) mt_tlscommit(th, FFFF);
+   if (!oth) mt_getdata(&pd,&th); else
+      if (oth->tiSign!=THREADINFO_SIGN) rc = E_MT_BADTID;
+         else pd = (th = oth)->tiParent;
+   if (!rc) {
+      // first save in this process?
+      if (!pd->piTLSSize) mt_tlscommit(th, FFFF);
 #if 0
-   log_printf("index = %u, %X, %LX pd=%X, th=%X tid=%u pid=%u\n", index, slotaddr,
-      setv, pd, th, th->tiPID, th->tiTID);
+      log_printf("index = %u, %X, %LX pd=%X, th=%X tid=%u pid=%u\n", index, slotaddr,
+         setv, pd, th, th->tiPID, th->tiTID);
 #endif
-   if (index>=pd->piTLSSize) rc = E_MT_TLSINDEX; else {
-      u64t *pv;
-      // there is no array, reconstructing one
-      if (!th->tiTLSArray) {
-         mt_thrdata *th0 = pd->piList[0];
-         /* if we have main thread array, then use it as reference, else
-            was no mt_tlsalloc() before and common commit will help */
-         if (th0->tiTLSArray) {
-            u32t ii;
-            th->tiTLSArray = (u64t**)mem_dup(th0->tiTLSArray);
-            for (ii=0; ii<pd->piTLSSize; ii++)
-               if (th->tiTLSArray[ii]) th->tiTLSArray[ii] = (u64t*)TLS_FAKE_PTR;
+      if (index>=pd->piTLSSize) rc = E_MT_TLSINDEX; else {
+         u64t *pv;
+         // there is no array, reconstructing one
+         if (!th->tiTLSArray) {
+            mt_thrdata *th0 = pd->piList[0];
+            /* if main thread array exists, then use it as a reference, else
+               was no mt_tlsalloc() before and common commit will help */
+            if (th0->tiTLSArray) {
+               u32t ii;
+               th->tiTLSArray = (u64t**)mem_dup(th0->tiTLSArray);
+               for (ii=0; ii<pd->piTLSSize; ii++)
+                  if (th->tiTLSArray[ii]) th->tiTLSArray[ii] = (u64t*)TLS_FAKE_PTR;
+            }
          }
-      }
-      mt_tlscommit(th, index);
-      pv = th->tiTLSArray[index];
+         mt_tlscommit(th, index);
+         pv = th->tiTLSArray[index];
 
-      if (!pv) rc = E_MT_TLSINDEX; else
-         if (slotaddr) *slotaddr = pv; else *pv = setv;
+         if (!pv) rc = E_MT_TLSINDEX; else
+            if (slotaddr) *slotaddr = pv; else *pv = setv;
+      }
    }
    mt_swunlock();
    return rc;
@@ -644,11 +767,89 @@ qserr _std mt_tlsaddr(u32t index, u64t **slotaddr) {
 
    if (!slotaddr) return E_SYS_ZEROPTR;
    *slotaddr = 0;
-   return tlsset_common(index, slotaddr, 0);
+   return tlsset_common(index, slotaddr, 0, 0);
+}
+
+// unpublished in API because it unsafe - exported just for MTLIB needs
+qserr _std mt_tlssetas(mt_thrdata *th, u32t index, u64t value) {
+   return tlsset_common(index, 0, value, th);
 }
 
 qserr _std mt_tlsset(u32t index, u64t value) {
-   return tlsset_common(index, 0, value);
+   return tlsset_common(index, 0, value, 0);
+}
+
+qserr _std mt_threadname(const char *str) {
+   char *va;
+   qserr rc = mt_tlsaddr(QTLS_COMMENT, (u64t**)&va);
+   if (!rc) {
+      // no lock here, because partial name is safe ;)
+      memset(va, 0, TLS_VARIABLE_SIZE);
+      if (str && *str) strncpy(va, str, TLS_VARIABLE_SIZE);
+   }
+   return rc;
+}
+
+qserr _std mt_getthname(mt_pid pid, mt_tid tid, char *buffer) {
+   if (!buffer) return E_SYS_ZEROPTR; else
+   if (!tid) return E_MT_BADTID; else {
+      process_context *pq;
+      qserr            rc = 0;
+
+      mt_swlock();
+      pq = mod_pidctx(pid);
+      if (!pq) rc = E_MT_BADPID; else {
+         mt_thrdata *th = thdata((mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT], tid);
+         if (!th) rc = E_MT_BADTID; else {
+            // thread comment string
+            char *th_np = th->tiTLSArray?(char*)th->tiTLSArray[QTLS_COMMENT]:0;
+            if (th_np && th_np!=(char*)TLS_FAKE_PTR && th_np[0]) {
+               memcpy(buffer, th->tiTLSArray[QTLS_COMMENT], 16); buffer[16] = 0;
+            } else
+               buffer[0] = 0;
+         }
+      }
+      mt_swunlock();
+      return rc;
+   }
+}
+
+/* -------------------------------------------------------------
+   S i g n a l s
+   ------------------------------------------------------------- */
+
+void sigljmp_thunk(void);
+
+void __stdcall _siglongjmp(jmp_buf *env, int return_value) {
+   if (in_mtmode) {
+      mt_thrdata *th;
+      mt_swlock();
+      mt_getdata(0, &th);
+      // force fiber 0 to longjmp address
+      if (th->tiFiberIndex) {
+         struct tss_s     rd;
+         rmcallregs_t *ljmpd = (rmcallregs_t*)env;
+         /* warning - using setjmp`s data stack here. Not so good, but
+            returning from another task during exception does the same */
+         memset(&rd, 0, sizeof(rd));
+         rd.tss_eip      = (u32t)&sigljmp_thunk;
+         rd.tss_cs       = get_flatcs();
+         rd.tss_ds       = rd.tss_cs + 8;
+         rd.tss_es       = rd.tss_ds;
+         rd.tss_ss       = ljmpd->r_ss;
+         rd.tss_esp      = ljmpd->r_eax;
+         rd.tss_ecx      = (u32t)env;
+         rd.tss_eax      = return_value;
+         /* start with _disabled interrupts, _longjmp will popf-ix it */
+         rd.tss_eflags   = CPU_EFLAGS_IOPLMASK;
+         // set registers for fiber 0
+         mtmux->setregs(th->tiList + 0, &rd);
+         // delete this fiber
+         mtlib->switchfiber(0,1);
+      }
+      mt_swunlock();
+   }
+   _longjmp(env, return_value);
 }
 
 /* -------------------------------------------------------------
@@ -656,7 +857,7 @@ qserr _std mt_tlsset(u32t index, u64t value) {
    -------------------------------------------------------------
    FPU context switching logics is different in BIOS & EFI hosts.
 
-   In EFI TS bit always OFF. This mean FPU context switching at every
+   In EFI TS bit always OFF. This mean FPU context save/rest at every
    thread context switching.
    On BIOS host TS bit is used as designed. */
 
@@ -678,7 +879,7 @@ static qserr _std fpu_allocstate(mt_thrdata *owner, int fiber) {
          fb->fiFPUMode = FIBF_EMPTY;
          fb->fiFPURegs = malloc(fpu_statesize()+48);
          mem_zero(fb->fiFPURegs);
-         mem_threadblockex(fb->fiFPURegs, owner->tiPID, owner->tiTID);
+         mem_threadblockex(fb->fiFPURegs, owner);
          /* allocate 48 bytes more to align it on 64 bytes (heap blocks
             are always rounded up to 16 bytes).
             We never free this pointer directly, this mean changing is safe. */
@@ -845,3 +1046,4 @@ static void _std fpu_switchto(mt_thrdata *to) {
 
 _qs_fpustate _std fpu_statedata = {
    0, fpu_updatets, fpu_xcpt_nm, fpu_switchto, fpu_allocstate };
+

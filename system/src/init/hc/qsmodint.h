@@ -17,7 +17,7 @@ extern "C" {
 
 #define MOD_SIGN      0x484D5351   /// QSMH - module struct check signature
 #define MAX_IMPMOD            32   /// maximum number of imported modules
-#define MAX_EXPSTART         512   /// maximum number of exports in START
+#define MAX_EXPSTART        1024   /// maximum number of exports in START
 
 typedef struct {
    void           *address;
@@ -56,8 +56,6 @@ typedef struct _module {
    char          *mod_path;    ///< module full path
 
    char          *name_buf;    ///< mod_getname() string (after 1st fn call only)
-   void               *tmp;    ///< temp var, can be used inside loader mutex only!
-
    struct _module    *prev,
                      *next;    ///< module list
    struct _module  *impmod[MAX_IMPMOD+1]; ///< zero-term. list of used modules
@@ -98,21 +96,27 @@ typedef struct _process_context {
 #define RTBUF_PROCDAT          8         ///< process internal data
 #define RTBUF_STDNUL           9         ///< nul file handle
 #define RTBUF_ENVMUX          10         ///< mutex for clib env. funcs
-#define RTBUF_ENVORG          11         ///< original env.data
+#define RTBUF_ENVORG          11         ///< original environment data
+#define RTBUF_RTFINI          12         ///< exit() support (internal)
+#define RTBUF_RTEXIT          13         ///< exit() support (internal)
 //@}
 
-#define PCTX_BIGMEM            0x0001    ///< envptr was hlp_memalloc-ed
 #define PCTX_ENVCHANGED        0x0002    ///< envptr was changed by runtime
-
-#ifndef QSMEMOWNER_MODLDR
-#define QSMEMOWNER_MODLDR      0x4243444D
-#define QSMEMOWNER_COPROCESS   0x42434F50
-#define QSMEMOWNER_SESTATE     0x42434D53
-#define QSMEMOWNER_COTHREAD    0xFFFFD000
-#endif
 
 /** return current executed module process context */
 process_context* _std mod_context(void);
+
+/** stack, as it filled by launch32() code in QSINIT.
+    Assumed by MTLIB & mod_chain() code. */
+typedef struct {
+   void      *retaddr;
+   module     *module;
+   u32t      reserved;
+   char       *envptr;
+   char      *cmdline;
+   u32t     startaddr;
+   u32t    parent_esp;
+} launch32_stack;
 
 /// @name module.flags values
 //@{
@@ -176,9 +180,8 @@ typedef struct {
    void    _std (*sto_flush)(void);
    /// delayed exe unzip
    int     _std (*unzip_ldi)(void *mem, u32t size, const char *path);
-   /** start process callback.
-       called when module is loaded, can return non-zero to deny exec */
-   int     _std (*start_cb)(process_context *pq);
+   /** start process callback. */
+   void    _std (*start_cb)(void);
    /** exit process callback.
        called when module was exited, can change result code */
    s32t    _std (*exit_cb)(process_context *pq, s32t rc);
@@ -263,6 +266,10 @@ typedef struct {
    void    _std (*setbits)(void *dst, u32t pos, u32t count, u32t flags);
    /// go to system memory manager panic screen
    void    _std (*mempanic)(u32t type, void *addr, u32t info, char here, u32t caller);
+
+   u64t    _std (*tlsget)(u32t index);
+   qserr   _std (*tlsaddr)(u32t index, u64t **slotaddr);
+   qserr   _std (*tlsset)(u32t index, u64t value);
 } mod_addfunc;
 
 /// @name mod_addfunc.mempanic type value

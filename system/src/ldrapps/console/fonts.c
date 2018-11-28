@@ -254,7 +254,7 @@ int _std con_makeshot(u32t sesno, const char *fname, int mute) {
       }
    } while (!rc);
 
-   /* function returns "vio buffer" class with copy of session screen */
+   // function returns "vio buffer" class with a copy of session screen
    scrncopy = se_screenshot(sesno);
    if (!scrncopy) return ENOTTY;
 

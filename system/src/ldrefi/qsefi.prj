@@ -1,7 +1,7 @@
 [project]
 ; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0022
+version=0x0024
 
 [config]
 0=Debug
@@ -59,7 +59,7 @@ swcode.asm evio.c edisk.c estub.c emem.c etime.c qsexp.asm selmgr.asm
 rtmisc.asm
 $(ldrsrc)\misc\iniparm.c $(ldrsrc)\misc\fileio.c $(ldrsrc)\misc\util.asm
 $(ldrsrc)\zip\puff.c $(ldrsrc)\zip\crc32.c $(ldrsrc)\zip\unzip.c
-$(ldrsrc)\fat\fmkfs.c $(ldrsrc)\misc\mdt.c $(ldrsrc)\misc\membase.c
+$(ldrsrc)\misc\mdt.c $(ldrsrc)\misc\membase.c
 $(ldrsrc)\misc\exptable.asm $(ldrsrc)\misc\print.c $(ldrsrc)\misc\common.c
 $(ldrsrc)\misc\wcrt.asm $(ldrsrc)\misc\log.asm $(ldrsrc)\misc\process.c
 $(ldrsrc)\fat\diskio.c $(ldrsrc)\disk1.c $(ldrsrc)\init32.c

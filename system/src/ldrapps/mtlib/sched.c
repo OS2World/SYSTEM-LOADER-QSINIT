@@ -15,9 +15,10 @@ static   u64t     last_shed_tsc = 0;
 attime_entry              attcb[ATTIMECB_ENTRIES];
 
 /// non-reenterable tree walking start
-mt_prcdata *walk_start(void) {
-   pd_qsinit->piTmpWalk = 0;
-   return pd_qsinit;
+mt_prcdata *walk_start(mt_prcdata *top) {
+   mt_prcdata *res = top?top:pd_qsinit;
+   res->piTmpWalk = 0;
+   return res;
 }
 
 /// non-reenterable tree walking get next
@@ -81,7 +82,7 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
       case SWITCH_PROCEXIT: {
          mt_prcdata *pd = th->tiParent;
          // callback to START in thread context & release mutexes
-         mt_pexitcb(th);
+         mt_pexitcb(th, 0);
          mutex_release_all(th);
          // main thread exit
          w_check_conditions(th->tiPID, 0, 0);
@@ -100,21 +101,31 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
          break;
       case SWITCH_EXIT:
          // callback to START in thread context & release mutexes
-         mt_pexitcb(th);
+         mt_pexitcb(th, 0);
          mutex_release_all(th);
          // we must call it when thread data still valid!
          w_check_conditions(th->tiPID, th->tiTID, 0);
-         // free it (it should zero FPU context too)
-         mt_freethread(th,0);
+         /* free it (it should zero FPU context too).
+            Note, that after this string and until context switch - environment
+            is undefined.
+            All thread data released, but stack exists, because mt_freefiber()
+            is smart enough to post an event about to free it later. This,
+            also, applied to SWITCH_FIBEXIT */
+         mt_freethread(th);
          // inform switch code below about to skip context saving
          th    = 0;
          break;
+      case SWITCH_FIBEXIT:
       case SWITCH_FIBER:
          thread           = th;
          th->tiState      = THRD_RUNNING;  // just update
          th->tiFiberIndex = th->tiWaitReason;
          th->tiWaitReason = 0;
          break;
+      case SWITCH_SUSPEND:
+         th->tiState      = THRD_SUSPENDED;
+         break;
+      case SWITCH_MANUAL:
       default:
          th->tiState      = THRD_RUNNING;  // just update
          break;
@@ -175,12 +186,19 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
       }
    }
    if (!thread) thread = pt_sysidle;
+   // fiber exit - free _current_ fiber here, so no context save below
+   if (reason==SWITCH_FIBEXIT) { mt_freefiber(th, pfiber); th = 0; }
+   /* we have at least two threads - system & the last console. This mean
+      that we can wait for a thread switch and swap fiber in it to an existing
+      signal APC fiber, because at this moment this is safe */
+   if (thread!=th && thread->tiSigQueue && thread->tiSigFiber && !thread->tiFiberIndex)
+      thread->tiFiberIndex = thread->tiSigFiber;
 
    if (thread!=th || reason==SWITCH_FIBER) {
       // swap pt_current, process context and xcpt_top in START module
       if (th) th->tiList[pfiber].fiXcptTop = *pxcpt_top;
       mt_exechooks.mtcb_ctxmem = thread->tiParent->piContext;
-      mt_exechooks.mtcb_ctid   = thread->tiTID;
+      mt_exechooks.mtcb_cth    = thread;
       mt_exechooks.mtcb_sesno  = thread->tiSession;
 
       pt_current    = thread;
@@ -207,7 +225,8 @@ void _std switch_context_timer(void *regs, int is64) {
       memcpy(fbregs, regs, sizeof(struct tss_s));
 
    /* disable custom yield() / yield in mt_swunlock()!
-      this is critical, because function below call a tonns of api with lock/unlock */
+      this is critical, because function below calls a tonns of api with
+      lock/unlock */
    next_rdtsc = FFFF64;
 
    switch_context(0, SWITCH_TIMER);

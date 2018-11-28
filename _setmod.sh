@@ -14,8 +14,10 @@ chmod +111 system/src/usrapps/example/make.sh
 chmod +111 system/src/usrapps/fixcfg/make.sh
 chmod +111 system/src/usrapps/mptable/make.sh
 chmod +111 system/src/usrapps/mttest/make.sh
+chmod +111 system/src/usrapps/sigtest/make.sh
 chmod +111 system/src/tools/setupi.sh
 chmod +111 system/src/tools/src/bin2h/make.sh
+chmod +111 system/src/tools/src/cdboot/make.sh
 chmod +111 system/src/tools/src/def2lbc/make.sh
 chmod +111 system/src/tools/src/dos2unix/make.sh
 chmod +111 system/src/tools/src/mkbin/make.sh

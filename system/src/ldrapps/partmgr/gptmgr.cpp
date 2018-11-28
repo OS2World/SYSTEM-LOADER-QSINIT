@@ -138,7 +138,7 @@ qserr dsk_gptdel(u32t disk, u32t index, u64t start) {
    for (ii=2; ii<DISK_COUNT; ii++) {
       disk_volume_data vi;
       hlp_volinfo(ii,&vi);
-      if (vi.StartSector==(u64t)start && vi.Disk==disk) hlp_unmountvol(ii);
+      if (vi.StartSector==start && vi.Disk==disk) hlp_unmountvol(ii);
    }
    log_it(2, "delete on %02X, index %u, start %09LX\n", disk, index, start);
 

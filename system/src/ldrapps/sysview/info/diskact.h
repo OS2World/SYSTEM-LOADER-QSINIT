@@ -34,7 +34,7 @@ protected:
    u32t        cur_disk;
    int         cur_part;
    // other types should be inserted after CDFS!
-   typedef enum { FAT12, FAT16, FAT32, FAT64, HPFS, JFS, CDFS, UNKFS } knowntype;
+   typedef enum { FAT12, FAT16, FAT32, FAT64, HPFS, JFS, CDFS, NTFS, UNKFS } knowntype;
 
    void getfs(u32t disk, u64t sector, char *fsname, u8t *buf, knowntype &fst);
 

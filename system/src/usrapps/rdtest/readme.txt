@@ -22,8 +22,7 @@
   IOCTL access is MUCH faster than ram disk i/o. Most of time it spend to OS/2
   call and copying itself is very fast.
 
-  But, if size of block to copy exceed 2Mb-4Kb OR supplied buffer is not page
-  aligned - it will gain large overhead.
+  But, if size of block to copy exceeds 2Mb-4Kb OR supplied buffer is not page
+  aligned - it will gain a large overhead.
 
   Run "RDTEST" to see results on yout PC.
-

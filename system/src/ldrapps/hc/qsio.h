@@ -80,7 +80,10 @@ qserr    _std io_vollabel (u8t drive, const char *label);
 qserr    _std io_fullpath (char *buffer, const char *path, u32t size);
 
 qserr    _std io_chdir    (const char *path);
+/** make path function.
+    note, that function creates a PATH too, not only a single dir */
 qserr    _std io_mkdir    (const char *path);
+
 qserr    _std io_rmdir    (const char *path);
 
 typedef struct {
@@ -139,6 +142,7 @@ typedef struct {
 #define IOFM_SHARE_WRITE   0x2000     ///< Share write
 #define IOFM_SHARE_DEL     0x4000     ///< Allow deletition by other processes
 #define IOFM_SHARE_REN     0x8000     ///< Allow renaming/changing time/attr by other processes
+#define IOFM_SHARE         (IOFM_SHARE_READ|IOFM_SHARE_DEL|IOFM_SHARE_REN)
 
 #define IOFM_OPEN_MASK     0x0007     ////< bit mask for open type in open mode
 #define IOFM_SHARE_MASK    0xF000     ////< bit mask for share bits in open mode
@@ -149,7 +153,23 @@ typedef struct {
 
 qserr    _std io_open     (const char *name, u32t mode, io_handle *pfh,
                            u32t *action);
+
+/** read from file.
+    @param fh      file handle
+    @param buffer  target buffer
+    @param size    # of bytes (sectors in IOFM_SECTOR_IO) to read
+    @return number of ready bytes (sectors) and error in io_lasterror(). Note,
+            that can be NO error if you read at the end of file and returned
+            size still not zero. */
 u32t     _std io_read     (io_handle fh, const void *buffer, u32t size);
+
+/** write data to a file.
+    @param fh      file handle
+    @param buffer  source data
+    @param size    # of bytes (sectors in IOFM_SECTOR_IO) to write
+    @return number of ready bytes (sectors) and error in io_lasterror(). Note,
+            that can be NO error if you write into full volume or until file
+            size limit of current FS and written size still not zero. */
 u32t     _std io_write    (io_handle fh, const void *buffer, u32t size);
 
 /** set file position.
@@ -185,11 +205,23 @@ qserr    _std io_close    (io_handle fh);
     @return error code */
 qserr    _std io_size     (io_handle fh, u64t *size);
 
+/** set file size.
+    Function may expand file to a new size even if no actual place for it
+    (depends on FS type). Allocated space is NOT guaranteed to be zero-filled.
+
+    Attepmt to set size above disk_volume_data.FSizeLim value will failed
+    with E_SYS_FSLIMIT error. For exFAT this value is unlimited (practically),
+    for FAT is 4Gb-1 (if you have free space for such file on your FAT16
+    partition, then it is imcompatible with OS/2 and no reason to care).
+
+    @param fh      file handle
+    @param newsize new file size (in bytes or sectors)
+    @return error code */
 qserr    _std io_setsize  (io_handle fh, u64t newsize);
 
 /** setup additional file options.
     @param fh      file/directory/mutex handle
-    @param flag    option(s) (IOFS_*). Note, that IOFS_DETACHED can be set
+    @param flags   option(s) (IOFS_*). Note, that IOFS_DETACHED can be set
                    by owner only and cannot be reset back, IOFS_RENONCLOSE
                    can only be reset to 0 (i.e. this terminates file
                    renaming/moving action) and IOFS_BROKEN cannot be set,
@@ -257,6 +289,7 @@ qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
 #define IOFT_DIR               3    ///< dir_handle object
 #define IOFT_MUTEX             4    ///< mutex object handle
 #define IOFT_QUEUE             5    ///< queue object handle
+#define IOFT_EVENT             6    ///< event object handle
 #define IOFT_UNKNOWN           7    ///< handle type is unknown
 //@}
 

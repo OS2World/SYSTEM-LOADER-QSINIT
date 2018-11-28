@@ -15,6 +15,7 @@
 #define WOBJ_OK             (1)              ///< entry signaled
 #define WOBJ_MUXFREE        (2)              ///< entry is/was a free mutex at check time
 #define WOBJ_SAVERES        (4)              ///< entry requires result saving
+#define WOBJ_EVFREE         (8)              ///< entry is/was a free event at check time
 
 /** Objects added to the bottom of list (we_last) and processed from the top
     (we_first). This is the only help for long waiting threads - they are
@@ -23,7 +24,7 @@ static we_list_entry  *we_first = 0,
                        *we_last = 0;
 
 qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *signaled) {
-   u32t     ii, groups, zero;
+   u32t             ii;
    qserr           err;
    mt_thrdata      *ct;
    we_list_entry  *nwe;
@@ -38,32 +39,8 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
 
    // log_it(0, "mt_waitobject (%u:%u) [%u %LX] %u\n", ct->tiPID, ct->tiTID, list->htype, list->tme, count);
 
-   // check parameters
-   for (ii=0, err=0, groups=0, zero=0; ii<count && !err; ii++) {
-      mt_waitentry *we = list+ii;
-
-      if (we->htype>QWHT_QUEUE) err = E_SYS_INVPARM; else {
-         if (!we->group) zero++; else groups|=we->group;
-         switch (we->htype) {
-            case QWHT_TID:
-               if (!we->tid || get_by_tid(pt_current->tiParent, we->tid)==0)
-                  err = E_MT_BADTID;
-               break;
-            case QWHT_PID:
-               if (get_by_pid(we->pid)) err = E_MT_BADPID;
-               break;
-            case QWHT_MUTEX:
-               if (!hlp_cvtmux) err = E_SYS_UNSUPPORTED; else
-                  err = hlp_cvtmux(we->mux, (mux_handle_int*)&we->reserved);
-               break;
-            case QWHT_QUEUE:
-               // check both for handle and access
-               if (qe_available(we->que)<0) err = E_SYS_INVPARM;
-               break;
-         }
-      }
-   }
-   if (err) { mt_swunlock(); return err; }
+   /* copy list data first, because QWHT_HANDLE must be replaced to valid
+      type in the next loop */
    ii  = sizeof(we_list_entry) + (count-1)*sizeof(mt_waitentry);
    nwe = (we_list_entry*)malloc(count+ii);
    // wait list entry setup
@@ -75,6 +52,44 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
    nwe->clogic   = glogic;
    memcpy(&nwe->we, list, count*sizeof(mt_waitentry));
    memset(nwe->sigf, 0, count);
+   // check parameters
+   for (ii=0, err=0; ii<count && !err; ii++) {
+      mt_waitentry *we = nwe->we + ii;
+      // convert QWHT_HANDLE to a real handle type
+      if (we->htype==QWHT_HANDLE) {
+         u32t ht = io_handletype(we->wh);
+         switch (ht) {
+            case IOFT_MUTEX: we->htype = QWHT_MUTEX; break;
+            case IOFT_QUEUE: we->htype = QWHT_QUEUE; break;
+            case IOFT_EVENT: we->htype = QWHT_EVENT; break;
+            default:
+               err = E_SYS_INVPARM; 
+         }
+      }
+      if (err) break;
+
+      if (we->htype>QWHT_EVENT) err = E_SYS_INVPARM; else {
+         switch (we->htype) {
+            case QWHT_TID:
+               if (we->tid && get_by_tid(pt_current->tiParent, we->tid)==0)
+                  err = E_MT_BADTID;
+               break;
+            case QWHT_PID:
+               if (get_by_pid(we->pid)) err = E_MT_BADPID;
+               break;
+            case QWHT_EVENT:
+            case QWHT_MUTEX:
+               if (!hlp_cvtmux) err = E_SYS_UNSUPPORTED; else
+                  err = hlp_cvtmux(we->wh, (mux_handle_int*)&we->reserved);
+               break;
+            case QWHT_QUEUE:
+               // check both for handle and access
+               if (qe_available(we->wh)<0) err = E_SYS_INVPARM;
+               break;
+         }
+      }
+   }
+   if (err) { mt_swunlock(); free(nwe); return err; }
 
    for (ii=0; ii<count; ii++) {
       mt_waitentry *we = nwe->we + ii;
@@ -86,7 +101,7 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
             if (!now_t) { now_t = sys_clock(); now_c = hlp_tscread(); }
             // start tsc value
             we->reserved = now_c;
-         
+
             if (we->tme<now_t) we->tme = 0; else {
                we->tme = (we->tme - now_t + 50) / 100;
                // if timeout > 80 days - set it to "forewer", else calc real value
@@ -96,6 +111,7 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
             break;
          }
          case QWHT_MUTEX:
+         case QWHT_EVENT:
             mutex_wcounter(we->reserved, 1);
             break;
          case QWHT_PID  :
@@ -106,7 +122,7 @@ qserr _std mt_waitobject(mt_waitentry *list, u32t count, u32t glogic, u32t *sign
    }
    w_add(nwe);
    /* if condition is ready just now - then no additional context switching,
-      else switch main thread to waiting state (this reset MT lock to 0!) */
+      else switch current thread to waiting state (this reset MT lock to 0!) */
    if (!w_check_conditions(0,0,nwe)) {
       pt_current->tiWaitReason = THWR_WAITOBJ;
       pt_current->tiWaitHandle = (u32t)nwe;
@@ -140,7 +156,8 @@ void w_del(we_list_entry *entry) {
 
    for (ii=0; ii<entry->ecnt; ii++) {
       mt_waitentry *we = entry->we + ii;
-      if (we->htype==QWHT_MUTEX) mutex_wcounter(we->reserved, -1);
+      if (we->htype==QWHT_MUTEX || we->htype==QWHT_EVENT)
+         mutex_wcounter(we->reserved, -1);
    }
 }
 
@@ -182,7 +199,7 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                switch (cwe->htype) {
                   case QWHT_TID  :
                      if (pid && tid)
-                        if (we->caller->tiPID==pid && cwe->tid==tid) {
+                        if (we->caller->tiPID==pid && (cwe->tid==tid || !cwe->tid)) {
                            we->sigf[ii]  = WOBJ_OK|(cwe->resaddr?WOBJ_SAVERES:0);
                            // use high part to save result
                            cwe->reserved = cwe->reserved&FFFF|(u64t)(we->caller->
@@ -203,6 +220,14 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                         if (!cwe->tme || now - cwe->reserved >cwe->tme)
                            we->sigf[ii] = WOBJ_OK;
                      break;
+                  case QWHT_EVENT: {
+                     int e_state = event_state(cwe->reserved);
+                     if (e_state<0) we->reterr = E_SYS_INVOBJECT; else
+                        if (e_state==1) we->sigf[ii] = WOBJ_OK; else
+                           if (e_state==2) we->sigf[ii] = WOBJ_EVFREE;
+                              else we->sigf[ii] = 0;
+                     break;
+                  }
                   case QWHT_MUTEX: {
                      qs_sysmutex_state ms;
                      int   m_state = mutex_state(0,0, cwe->reserved, &ms);
@@ -220,11 +245,15 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                         we->sigf[ii] = WOBJ_OK;
                      break;
                   case QWHT_QUEUE: {
-                     int evnum = hlp_qavail(cwe->que, 0, 0);
+                     int evnum = hlp_qavail(cwe->wh, 0, 0);
                      if (evnum<0) we->reterr = E_SYS_INVOBJECT; else
                         we->sigf[ii] = evnum>0?WOBJ_OK:0;
                      break;
                   }
+                  case QWHT_SIGNAL:
+                     if (we->caller->tiSigQueue && *we->caller->tiSigQueue)
+                        we->sigf[ii] = WOBJ_OK;
+                     break;
                }
                upcnt += we->sigf[ii];
             }
@@ -255,9 +284,9 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
             if (we->signaled>=0) {
                /* we have a free mutex here or at least one tid/pid with resaddr,
                   so walk over winner and apply requirements */
-               if ((onf&(WOBJ_MUXFREE|WOBJ_SAVERES))) {
+               if ((onf&(WOBJ_MUXFREE|WOBJ_EVFREE|WOBJ_SAVERES))) {
                   u32t cv = we->signaled ? 1<<we->signaled-1 : 0;
-               
+
                   for (ii=0; ii<we->ecnt; ii++) {
                      mt_waitentry *cwe = we->we+ii;
                      if (cwe->group==cv || (cwe->group&cv))
@@ -266,6 +295,13 @@ int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
                            we->sigf[ii]  = WOBJ_OK;
                            we->reterr    = mutex_capture(cwe->reserved, we->caller);
                            /// we have an error!
+                           if (we->reterr) break;
+                        } else
+                        if (cwe->htype==QWHT_EVENT && (we->sigf[ii]&WOBJ_EVFREE)) {
+                           we->sigf[ii]  = WOBJ_OK;
+                           /* reset it here. First, who reach this point, will stop
+                              QEVA_PULSEONE action */
+                           we->reterr    = event_action(0,0, cwe->reserved, QEVA_RESET);
                            if (we->reterr) break;
                         } else
                         if ((we->sigf[ii]&WOBJ_SAVERES)) {

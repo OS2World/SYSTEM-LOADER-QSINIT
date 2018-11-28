@@ -10,7 +10,8 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
                       + sizeof(mt_thrdata*) * PREALLOC_THLIST;
    mt_prcdata   *pc = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR,
                       (u32t)pq->self, alloc_len): hlp_memallocsig(alloc_len,
-                      "MDta", QSMA_READONLY);
+                      "MDta", QSMA_READONLY),
+               *ppd = pq->parent?(mt_prcdata*)pq->pctx->rtbuf[RTBUF_PROCDAT]:0;
    mt_thrdata   *td = (mt_thrdata*)(pc+1);
    mt_fibdata   *fd = (mt_fibdata*)(td+1);
    mt_thrdata **thl = (mt_thrdata**)(fd+1);
@@ -28,6 +29,7 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    pc->piList       = thl;
    pc->piListAlloc  = PREALLOC_THLIST;
    pc->piMiscFlags  = (pc->piModule->flags&MOD_SYSTEM?PFLM_SYSTEM:0)|PFLM_EMBLIST;
+   pc->piParent     = ppd;
    // b:\ is initial start dir
    pc->piCurDrive   = DISK_LDR;
    // and we can try to get it from current process
@@ -59,18 +61,9 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    return pc;
 }
 
-mt_thrdata* _std mt_curthread(void) {
-   process_context *pq = mt_exechooks.mtcb_ctxmem;
-   mt_prcdata      *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
-   if (!pd) return 0;
-   if (pd->piSign!=PROCINFO_SIGN) return 0;
-   if (mt_exechooks.mtcb_ctid>pd->piThreads) return 0;
-   return pd->piList[mt_exechooks.mtcb_ctid-1];
-}
-
 u32t _std mt_exit(process_context *pq) {
    mt_prcdata *pc = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
-   char       ltr, *envorg;
+   char       ltr;
    // trap in any way ;)
    if (!pc || pc->piSign!=PROCINFO_SIGN)
       mod_secondary->sys_throw(0xFFFA, pq->self->name, pq->pid);
@@ -81,22 +74,17 @@ u32t _std mt_exit(process_context *pq) {
    // free current dir buffers if was allocated
    for (ltr='A'; ltr<='Z'; ltr++)
       if (pc->piCurDir[ltr-'A']) mod_secondary->mem_free(pc->piCurDir[ltr-'A']);
-   // free process & main thread memory
+   // free process owned memory
    mod_secondary->mem_freepool(QSMEMOWNER_COPROCESS, (u32t)pc);
-   mod_secondary->mem_freepool(QSMEMOWNER_COTHREAD, pq->pid);
+   // free main thread owned memory (in non-MT mode, else MTLIB do it)
+   if (pc->piList[0]) mt_pexitcb(pc->piList[0],1);
    // free global blocks, owned by this process
    mem_procexit(pq);
-   // it will panic on bad pointer too ;)
+   // free process data
    mod_secondary->mem_free((void*)pc);
-
-   envorg = (char*)pq->rtbuf[RTBUF_ENVORG];
    pq->rtbuf[RTBUF_PROCDAT] = 0;
+   /* both original & updated environment arrays are marked as module owned,
+      mod_free() will care of it later */
    pq->rtbuf[RTBUF_ENVORG ] = 0;
-   // free original env. segment
-   mod_secondary->mem_free(envorg);
-   // free reallocated env. data
-   if ((pq->flags&PCTX_ENVCHANGED) && pq->envptr!=envorg)
-      if (pq->flags&PCTX_BIGMEM) hlp_memfree(pq->envptr); else
-         mod_secondary->mem_free(pq->envptr);
    return 1;
 }

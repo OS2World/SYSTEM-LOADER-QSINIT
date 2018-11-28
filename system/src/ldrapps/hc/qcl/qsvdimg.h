@@ -1,7 +1,6 @@
 //
 // QSINIT
-// dinamycally expanded virtual HDD for partition management testing
-// (file-based virtual disk)
+// virtual HDD management class
 //
 #ifndef VHDD_INTERNALS
 #define VHDD_INTERNALS
@@ -67,5 +66,8 @@ typedef struct qs_emudisk_s {
        @return 0 on success or error value */
    qserr _exicc (*setgeo )(disk_geo_data *geo);
 } _qs_emudisk, *qs_emudisk;
+
+#define VHDD_VHDD      "qs_emudisk"     ///< VHDD disk image handling class
+#define VHDD_VHD_F     "qs_vhddisk"     ///< Fixed size VHD handling class
 
 #endif // VHDD_INTERNALS

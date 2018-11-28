@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/** Query video memroy size and address.
+/** Query video memory size and address.
     @param  [out] fbaddr   Video memory address, can be 0. Returned value may
                            be zero too - if address is unknown.
     @return memory size in bytes.*/
@@ -28,7 +28,7 @@ u32t _std con_write(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t pitch);
     @param  y      Start y point
     @param  dx     Number of columns
     @param  dy     Number of lines
-    @param  src    Destination data buffer
+    @param  dst    Destination data buffer
     @param  pitch  Destination data line length
     @return true if success */
 u32t _std con_read(u32t x, u32t y, u32t dx, u32t dy, void *dst, u32t pitch);

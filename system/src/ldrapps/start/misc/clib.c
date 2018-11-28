@@ -12,6 +12,7 @@
 #include "qsshell.h"
 #include "syslocal.h"
 #include "limits.h"
+#include "wchar.h"
 
 int* __stdcall _get_errno(void) { 
    u64t *rc;
@@ -65,6 +66,10 @@ int __stdcall stricmp( const char *s1, const char *s2 ) {
 
 int __stdcall strcmp(const char *s1, const char *s2) {
    return strncmp(s1,s2,strlen(s1)+1);
+}
+
+int __stdcall wcscmp(const wchar_t *s1, const wchar_t *s2) {
+   return wcsncmp(s1,s2,wcslen(s1)+1);
 }
 
 #define is_hexstr(p) (pp[0]=='0'&&(p[1]&~0x20)=='X')
@@ -325,7 +330,7 @@ char __stdcall strclast(const char *str) {
 }
 
 u32t __stdcall replacechar(char *str, char from, char to) {
-  if (!str || from==to || !from || !to) return 0; else {
+  if (!str || from==to || !from) return 0; else {
      char  *ch = strchr(str,from);
      u32t  res = 0;
      while (ch) {
@@ -441,12 +446,20 @@ int __stdcall qserr2errno(qserr errv) {
       case E_SYS_NOMEM        :return ENOMEM;
       case E_SYS_NOFILE       :
       case E_SYS_NOPATH       :return ENOENT;
+      case E_MT_DUPNAME       :
       case E_SYS_EXIST        :return EEXIST;
+      case E_MT_ACCESS        :
+      case E_MT_NOTOWNER      :
       case E_SYS_ACCESS       :return EACCES;
       case E_SYS_FILES        :return EMFILE;
       case E_SYS_SHARE        :return EAGAIN;
+      case E_MT_BUSY          :
+      case E_MT_SEMBUSY       :
       case E_SYS_TIMEOUT      :return EBUSY;
       case E_SYS_UNSUPPORTED  :return ENOLCK;
+      case E_SYS_EOF          :return ENODATA;
+      case E_SYS_INTVAL       :return EOVERFLOW;
+      case E_SYS_SOFTFAULT    :return EFAULT;
       case E_SYS_INVNAME      :
       case E_SYS_INCOMPPARAMS :
       case E_SYS_INVPARM      :
@@ -455,8 +468,12 @@ int __stdcall qserr2errno(qserr errv) {
       case E_DSK_BADVOLNAME   :
       case E_SYS_INVHTYPE     :
       case E_SYS_DISKMISMATCH :
+      case E_MT_BADTID        :
+      case E_MT_BADFIB        :
+      case E_MT_TLSINDEX      :
       case E_SYS_INVTIME      :return EINVAL;
       case E_SYS_LONGNAME     :return ENAMETOOLONG;
+      case E_SYS_BADFMT       :
       case E_SYS_FSLIMIT      :return EFBIG;
       case E_SYS_BUFSMALL     :return ERANGE;
       case E_SYS_PRIVATEHANDLE:return EPERM;
@@ -468,12 +485,23 @@ int __stdcall qserr2errno(qserr errv) {
       case E_SYS_READONLY     :return EROFS;
       case E_SYS_TOOLARGE     :
       case E_SYS_TOOSMALL     :return EINVAL;
+      case E_SYS_CRC          :
       case E_DSK_ERRREAD      :
       case E_DSK_ERRWRITE     :return EIO;
       case E_DSK_NOTREADY     :
       case E_DSK_WP           :return EROFS;
       case E_DSK_UNKFS        :return ENOMNT;
       case E_DSK_NOTMOUNTED   :return ENOMNT;
+      case E_MT_TIMER         :
+      case E_MT_OLDCPU        :
+      case E_MT_DISABLED      :return ENOSYS;
+      case E_SYS_NOTFOUND     :
+      case E_MT_GONE          :
+      case E_MT_BADPID        :return ESRCH;
+      case E_MT_THREADLIMIT   :
+      case E_MT_LOCKLIMIT     :return EMLINK;
+      case E_SYS_DIRNOTEMPTY  :return ENOTEMPTY;
+      case E_SYS_ISDIR        :return EISDIR;
    }
    return ERANGE;
 }
@@ -528,7 +556,7 @@ typedef struct {
 dir_t* __stdcall START_EXPORT(opendir)(const char *dpath) {
    qserr      err;
    u32t       len = sizeof(dir_t) + sizeof(StatInfo);
-   dir_t      *rc = (dir_t*)calloc(len,1);
+   dir_t      *rc = (dir_t*)calloc_thread(len,1);
    StatInfo   *si = (StatInfo*)(rc+1);
    rc->d_openpath = si->dirpath;
    // set process as block owner
@@ -591,6 +619,7 @@ qserr __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
       fp->d_name[NAME_MAX] = 0;
       fp->d_openpath = &fp->d_name[NAME_MAX];
       fp->d_sysdata  = 0;
+      fp->d_subdir   = 0;
    }
    return err;
 }
@@ -734,7 +763,7 @@ int __stdcall _replacepattern(const char *frompattern, const char *topattern,
 }
 
 qserr __stdcall START_EXPORT(_dos_findfirst)(const char *path, u16t attributes, dir_t *fp) {
-   StatInfo *si = (StatInfo*)calloc(sizeof(StatInfo),1);
+   StatInfo *si = (StatInfo*)calloc_thread(sizeof(StatInfo),1);
    qserr    err = io_fullpath(si->dirpath, path, QS_MAXPATH+1);
    if (!err) {
       char *cp = strrchr(si->dirpath, '\\');
@@ -754,6 +783,7 @@ qserr __stdcall START_EXPORT(_dos_findfirst)(const char *path, u16t attributes, 
    }
    fp->d_openpath = si->dirpath;
    fp->d_sysdata  = si;
+   fp->d_subdir   = 0;
    si->sign       = STAT_SIGN;
    si->call       = 2;
    si->attrs      = attributes;
@@ -876,22 +906,31 @@ char* __stdcall START_EXPORT(_fullpath)(char *buffer, const char *path, size_t s
    return err?0:rc;
 }
 
+#define TREE_SIGN   (0x45525452)
+
+typedef struct {
+   u32t            sign;
+   ptr_list         blk;   // list of memory blocks to free
+   u32t          dircnt;
+} ReadTreeInfo;
+
 #define allmask(mask) (!mask||*mask==0||strcmp(mask,"*")==0||strcmp(mask,"*.*")==0)
 
 static long readtree(const char *Dir, const char *Mask, dir_t **info,
-   long owner, long pool, int subdirs, _dos_readtree_cb callback, void *cbinfo)
+   ReadTreeInfo *rti, int subdirs, _dos_readtree_cb callback, void *cbinfo)
 {
    long   count, all=allmask(Mask), rc=0, ii;
    dir_t  *iout, *rdh, *rdi;
    qserr   errv;
-   // it is a bad idea to alloc 300 bytes in stack recursively ;)
-   char     *nm = (char*)malloc(QS_MAXPATH+1),
+   // it is a bad idea to alloc 300 bytes in the stack recursively ;)
+   char     *nm = (char*)malloc_th(QS_MAXPATH+1),
             *np = all?0:strupr(strdup(Mask)), *dptr;
-   /* log_printf("readtree(%s,%s,%08X,%08X,%08X,%i,%08X,%08X)\n",Dir,Mask,info,
-       owner,pool,subdirs,callback,cbinfo); */
-   if (!owner) mem_uniqueid(&owner, &pool);
+#if 0
+   log_printf("readtree(%s,%s,%08X,%08X,%i,%08X,%08X)\n", Dir, Mask, info, rti,
+      subdirs, callback, cbinfo);
+#endif
    // convert name and save it for dir_t.d_openpath
-   dptr  = (char*)mem_alloc(owner, pool, QS_MAXPATH+1);
+   dptr  = (char*)malloc_th(QS_MAXPATH+1);
    errv  = io_fullpath(dptr, Dir, QS_MAXPATH+1);
    if (!errv && strclast(dptr)!='\\') strcat(dptr, "\\");
    *info = 0;
@@ -921,53 +960,73 @@ static long readtree(const char *Dir, const char *Mask, dir_t **info,
                   }
                   /* alloc memory (note, that with initial ii=128 it eats all
                      3Gb ram on partition with >10000 directories ;) */
-                  if (count+2>=ii) {
-                     if (!ii) iout = (dir_t*)mem_alloc(owner,pool,(ii=8)*sizeof(dir_t));
-                        else iout = (dir_t*)mem_realloc(iout,(ii*=2)*sizeof(dir_t));
+                  if (count+2>=ii)
+                     if (!ii) iout = (dir_t*)malloc_th((ii=8)*sizeof(dir_t));
+                        else iout = (dir_t*)realloc(iout,(ii*=2)*sizeof(dir_t));
+                  memcpy(iout+count, rdi, sizeof(dir_t));
+
+                  if (!count) {
+                     if (!rti) {
+                        rti = (ReadTreeInfo*)malloc_th(sizeof(ReadTreeInfo));
+                        rti->sign   = TREE_SIGN;
+                        rti->blk    = NEW(ptr_list);
+                        rti->dircnt = 0;
+                     }
+                     rti->blk->add(dptr);
                   }
-                  memcpy(iout+count,rdi,sizeof(dir_t));
-                  iout[count].d_sysdata  = 0;
+                  iout[count].d_sysdata  = rti;
+                  iout[count].d_subdir   = 0;
                   iout[count].d_openpath = dptr;
                   count++;
                }
             }
          }
       } while (rdi);
-      if (count) memset(iout+count,0,sizeof(dir_t));
+      if (count) {
+         memset(iout+count, 0, sizeof(dir_t));
+         rti->blk->add(iout);
+      }
       closedir(rdh);
    }
 
    if (count && subdirs)
-      for (ii=0;ii<count;ii++)
+      for (ii=0; ii<count; ii++)
          if ((iout[ii].d_attr&_A_SUBDIR)!=0 && strcmp(iout[ii].d_name,"..")!=0) {
-            long     tmp = strlen(dptr), nestcnt;
+            long     tmp = strlen(dptr), ncount;
             dir_t *iout2 = 0;
 
-            strcpy(nm,dptr);
+            strcpy(nm, dptr);
             if (nm[--tmp]=='\\') nm[tmp]='/';
             if (nm[tmp]!='/') strcat(nm+tmp,"/");
-            strcat(nm+tmp,iout[ii].d_name);
-            nestcnt = readtree(nm,Mask,&iout2,owner,pool,1,callback,cbinfo);
-            if (nestcnt<0) { rc=-1; break; } // stopped in nest dir
-            rc+=nestcnt;
-            iout[ii].d_sysdata = iout2;
-         }
+            strcat(nm+tmp, iout[ii].d_name);
 
-   if (rc>=0) { rc+=count; *info=iout; }
+            rti->dircnt++;
+            ncount = readtree(nm, Mask, &iout2, rti, 1, callback, cbinfo);
+            if (ncount<0) { rc=-1; break; } // stopped in child
+            rc    += ncount;
+            iout[ii].d_subdir = iout2;
+         }
+   if (rc>=0) { rc+=count; *info=iout; } else
+      if (iout) free(iout);
+   // no users of directory name?
+   if (!count) free(dptr);
    if (np) free(np);
    free(nm);
    return rc;
 }
 
-u32t  __stdcall START_EXPORT(_dos_readtree)(const char *dir, const char *mask,
-  dir_t **info, int subdirs, _dos_readtree_cb callback, void *cbinfo)
+u32t __stdcall START_EXPORT(_dos_readtree)(const char *dir, const char *mask,
+  dir_t **info, int subdirs, u32t *dircnt, _dos_readtree_cb cbfn, void *cbinfo)
 {
-   if (!info&&!callback) return 0; else {
-      long rc;
-      dir_t *iout = 0;
+   if (!info && !cbfn) return 0; else {
+      dir_t  *iout = 0;
+      long      rc;
       // reset it to not confuse by previous error & zero count
       set_errno(0);
-      rc = dir?readtree(dir,mask,&iout,0,0,subdirs,callback,cbinfo):0;
+      rc = dir?readtree(dir, mask, &iout, 0, subdirs, cbfn, cbinfo) : 0;
+
+      if (dircnt && rc>0) *dircnt = ((ReadTreeInfo*)iout[0].d_sysdata)->dircnt;
+
       if (!info || rc<=0) {
          _dos_freetree(iout);
          iout = 0;
@@ -978,12 +1037,18 @@ u32t  __stdcall START_EXPORT(_dos_readtree)(const char *dir, const char *mask,
 }
 
 qserr __stdcall START_EXPORT(_dos_freetree)(dir_t *info) {
-   long  Owner,Pool;
-   if (!info) return E_SYS_INVPARM;
-   // memmgr block?
-   if (!mem_getobjinfo(info,&Owner,&Pool)) return E_SYS_INVPARM;
-   // check memGetUniqueID`s owner to prevent free() opendir`s dir_t
-   if (Owner==-2) mem_freepool(Owner,Pool); else return E_SYS_INVPARM;
+   ReadTreeInfo *rti;
+   u32t           ii;
+   if (!info) return E_SYS_INVOBJECT;
+   rti = (ReadTreeInfo*)info[0].d_sysdata;
+   if (!rti) return E_SYS_INVOBJECT;
+   /* is it our`s dir_t? (to deny opendir`s dir_t and so on)
+      and make it thread safe */
+   if (mt_cmpxchgd(&rti->sign,0,TREE_SIGN)!=TREE_SIGN) return E_SYS_INVOBJECT;
+
+   for (ii=0; ii<rti->blk->count(); ii++) free(rti->blk->value(ii));
+   DELETE(rti->blk);
+   free(rti);
    return 0;
 }
 

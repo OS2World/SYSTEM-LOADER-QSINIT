@@ -44,7 +44,9 @@ copy=cp
 
 [files]
 ..\runtime\partmgr.ord
-extcmd.c mtrrmem.c pci.c vhtty.c extdlg.c ..\..\hc\inc\pci.inc
+extcmd.c mtrrmem.c pci.c vhtty.c extdlg.c pstat.c ..\..\hc\inc\pci.inc
+..\..\hc\inc\seldesc.inc
+..\..\init\inc\qspdata.inc
 
 [make_footer]
 $(outdir) : .DIRECTORY

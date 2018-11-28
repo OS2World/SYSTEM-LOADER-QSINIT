@@ -36,9 +36,6 @@ u32t        sft_volumebroke(u8t vol, int enumonly);
     @return number of closed handles */
 u32t        io_close_as(u32t pid, u32t htmask);
 
-/// cache ioctl (must be used inside MT lock only!)
-void        cache_ctrl(u32t action, u8t vol);
-
 /** allocates new sft_entry entry.
     Must be called in locked state (sft access). */
 u32t        sft_alloc(void);
@@ -106,7 +103,7 @@ typedef struct {
       } std;
       struct {
          mux_handle_int mh;
-      } mux;
+      } muxev;
       struct {
          void          *qi;
       } que;
@@ -120,16 +117,18 @@ typedef struct {
 #define IOHT_DIR         0x00010
 #define IOHT_MUTEX       0x00020
 #define IOHT_QUEUE       0x00040
+#define IOHT_EVENT       0x00080
 
 #define IOH_HBIT      0x40000000        ///< addition to IOH index to make io_handle
 
 #define NAMESPC_FILEIO         0        ///< file i/o namespace (files & dirs)
 #define NAMESPC_MUTEX          1        ///< mutexes namespace
 #define NAMESPC_QUEUE          2        ///< queues namespace
+#define NAMESPC_EVENT          3        ///< events namespace
 
 /** check user io_handle handle and return pointers to objects.
     @attention if no error returned, then MT lock IS ON!
-    @param [in]  fh            handle to check
+    @param [in]  ifh           handle to check
     @param [in]  accept_types  IOHT_* combination (allowed handle types)
     @param [out] pfh           pointer to io_handle_data, can be 0
     @param [out] pfe           pointer to sft_entry, can be 0
@@ -154,10 +153,26 @@ int _std        qe_available_info(void *pi, u32t *n_sched);
 /** start of MT mode callback.
     setup_loader_mt() calls this to get disk access cb funcs. */
 void            setup_fio_mt     (dsk_access_cbf *rcb, dsk_access_cbf *wcb);
+/// try to mount ramfs to a volume
+qserr           io_mount_ramfs   (u8t vol);
 
 extern sft_entry* volatile      *sftable;
 extern io_handle_data* volatile  *ftable;
 extern qs_sysmutex                 mtmux;
+
+typedef struct {
+   char    *fsname;
+   u16t     offset;
+   u16t       size;
+   u8t    *cmpdata;
+} fs_detect_list;
+
+/** return FS detection list.
+    Function returns parsed [fsdetect] section contents, in the single module
+    owned heap block. Last entry in list is zero-filled */
+fs_detect_list* ecmd_readfsdetect();
+/// try lo load module for the filesystem, listed in extcmd.ini
+void            ecmd_loadfslib   (const char *fsname);
 
 #ifdef __cplusplus
 }

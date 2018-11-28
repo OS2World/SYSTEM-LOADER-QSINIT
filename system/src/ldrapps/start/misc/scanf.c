@@ -58,11 +58,11 @@ static int __stdcall str_getc(char **ptr) {
 #define SBSIZE      32
 
 /** common internal scanf, used by all scanf functions.
-    @param  fp     user data, "stream" parameter for gc/ugc
-    @param  fmt    format string
-    @param  arg    pointer to variable arguments
-    @param  gc     get char callback, can be 0 (fp will be used as string)
-    @param  ugc    unget char callback, can be 0
+    @param  fp      user data, "stream" parameter for gc/ugc
+    @param  fmt     format string
+    @param  args    pointer to variable arguments
+    @param  getc    get char callback, can be 0 (fp will be used as string)
+    @param  ungetc  unget char callback, can be 0
     @return common scanf return value */
 int _std _scanf_common(void *fp, const char *fmt, char **args, scanf_getch getc,
                        scanf_ungetch ungetc)

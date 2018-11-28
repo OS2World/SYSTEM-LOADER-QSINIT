@@ -138,7 +138,7 @@ void *_std mod_buildthunk(u32t module, void *function);
     @return number of released thunks */
 u32t  _std mod_freethunk (u32t module, void *thunk);
 
-/** install chain procedure for function.
+/** install chain procedure for a function.
     @param  module      Module handle. Hooks will be removed on module unloading.
     @param  thunk       Pointer to calling thunk (returned by mod_buildthunk())
     @param  chaintype   Type of chaining
@@ -176,12 +176,17 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
 void* _std mod_apidirect(u32t module, u32t ordinal);
 
 /// get current process pid
-u32t  _std mod_getpid(void);
+u32t  _std mod_getpid   (void);
+
+/** check pid existence.
+    @return success flag 1/0 */
+u32t  _std mod_checkpid (u32t pid);
 
 /** get pid of process, executing this EXE module.
     @param        module  Module handle.
+    @param [out]  parent  Parent process PID (can be 0)
     @return 0 on no process, module or module is DLL, else - process PID */
-u32t  _std mod_getmodpid(u32t module);
+u32t  _std mod_getmodpid(u32t module, u32t *parent);
 
 /** query current or parent process module name.
     @param  [out] name    Buffer for name (128 bytes), returned in upper case.
@@ -206,24 +211,72 @@ char *_std mod_getname(u32t module, char *buffer);
 module* _std mod_by_eip(u32t eip, u32t *object, u32t *offset, u16t cs);
 
 typedef struct _mod_info {
-   u32t               handle;    ///< module handle
-   u32t                flags;    ///< module flags
-   u32t            start_ptr;    ///< module start pointer
-   u32t            stack_ptr;    ///< module stack pointer
-   u32t                usage;    ///< usage counter
-   u32t              objects;    ///< number of objects
-   u32t             baseaddr;    ///< base address
-   char            *mod_path;    ///< module full path
-   char                *name;    ///< module name
+   u32t                handle;    ///< module handle
+   u32t                 flags;    ///< module flags
+   u32t             start_ptr;    ///< module start pointer
+   u32t             stack_ptr;    ///< module stack pointer
+   u32t                 usage;    ///< usage counter
+   u32t               objects;    ///< number of objects
+   u32t              baseaddr;    ///< base address
+   char             *mod_path;    ///< module full path
+   char                 *name;    ///< module name
    /** zero-term list of used modules. Pointers cross-linked in the same memory
        block, returned by mod_enum() */
-   struct _mod_info *imports[MAX_IMPMOD+1];
+   struct _mod_info  *imports[MAX_IMPMOD+1];
 } module_information;
 
-/** enum all modules in system.
+/** enum all modules in the system.
     @param [out] pmodl   List of modules, must be released via free().
     @return number of modules in returning list */
 u32t  _std mod_enum(module_information **pmodl);
+
+/** query single object information.
+    @param        module  Module handle.
+    @param        object  Object index (0..x)
+    @param  [out] addr    Address of object in FLAT space, 0 to skip
+    @param  [out] size    Size of object, 0 to skip
+    @param  [out] flags   Flags of object (see LX format), 0 to skip
+    @param  [out] sel     Selector (for 16-bit objects), 0 to skip
+    @return error code or 0 */
+qserr _std mod_objectinfo(u32t module, u32t object, u32t *addr, u32t *size,
+                          u32t *flags, u16t *sel);
+
+/** return process list.
+    Function returns active processes list as a process id enumeration
+    array with zero in the last entry. Returning list must be released via
+    free() call */
+u32t* _std mod_pidlist(void);
+
+
+typedef struct _thread_info {
+   u32t                   tid;
+   u32t                fibers;
+   u32t           activefiber;
+   u32t                 state;
+   u32t                   sid;    ///< thread`s session id
+   u32t                 flags;    ///< TFLM_* flags
+   u64t                  time;
+} thread_information;
+
+typedef struct _process_info {
+   u32t                   pid;    ///< process id
+   module_information     *mi;    ///< executable module and all of imported DLLs
+   char               *curdir;    ///< current directory
+   u32t               threads;    ///< # of active threads
+   u32t                  ncld;    ///< # of child processes
+   struct _process_info **cll,    ///< child list
+                      *parent;    ///< parent process (0 for pid 1)
+   thread_information     *ti;    ///< thread list
+} process_information;
+
+/** enum all processes in the system.
+    Returned data is bounded into the single block and should be released
+    via one free() call. 
+
+    This is a kind of snapshot of system state.
+    @param [out] ppdl    Pointer to the returned process list.
+    @return number of processes in list */
+u32t  _std mod_processenum(process_information **ppdl);
 
 /// dump process tree to log
 void  _std mod_dumptree(void);

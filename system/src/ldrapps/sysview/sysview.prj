@@ -77,7 +77,7 @@ outdir=$(bld_dir)\$(config).$(build_osc)
 ..\..\hc\inc\filetab.inc
 tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
 tvext\tcolortx.cpp tvext\tinplong.cpp tvext\tcombo.cpp tvext\tnocstr.cpp
-tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp
+tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp info\seslist.cpp
 info\miscdlg.cpp info\diskdlg.cpp
 bootopt\kdlg.cpp bootopt\kdlgset.cpp bootopt\ldrdlg.cpp bootopt\opts.cpp
 bootopt\rundlg.cpp bootopt\zipload.cpp info\cpuinfo.cpp info\ptabdlg.cpp

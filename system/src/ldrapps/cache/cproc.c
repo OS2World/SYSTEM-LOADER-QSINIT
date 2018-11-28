@@ -619,9 +619,6 @@ void cache_ioctl(u8t vol, u32t action) {
       case CC_SHUTDOWN : // Disk i/o shutdown
          unload_all();
          return;
-      case CC_RESET    : // FatFs disk_initialize()
-         return;
-      case CC_SYNC     : // FatFs CTRL_SYNC command
       case CC_FLUSH    : // Flush all
          return;
       default:
@@ -632,8 +629,8 @@ void cache_ioctl(u8t vol, u32t action) {
 
 void _exicc cc_invalidate_vol(EXI_DATA, u8t drive) {
    disk_volume_data info;
-   hlp_volinfo(drive,&info);
-   if (info.TotalSectors)
+   hlp_volinfo(drive, &info);
+   if (info.TotalSectors && (info.InfoFlags&VIF_VFS)==0)
       cc_invalidate(0, 0, info.Disk, info.StartSector, info.TotalSectors);
 }
 

@@ -111,7 +111,7 @@ static qserr hpfs_load_cp(volume_data *vd) {
    return 0;
 }
 
-/** try to free directory and all its childrens.
+/** try to free directory and all its children.
     call free only for directories with zero usage count.
     @return 1 on success */
 static int hpfs_free_dir(dir_data *dd) {
@@ -156,8 +156,6 @@ static qserr _exicc hpfs_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec
    vd->fs_ok    = 0;
    vd->codepage = 0;
    vd->root     = 0;
-   // only FAT driver must react on this
-   if (flags&SFIO_NOMOUNT) return E_SYS_INVPARM;
 
    if (vdta->sectorsize!=512) err = E_DSK_SSIZE; else
    if (vdta->length) {
@@ -192,13 +190,6 @@ static qserr _exicc hpfs_initialize(EXI_DATA, u8t vol, u32t flags, void *bootsec
             }
             free(root_fn);
          }
-      }
-      if (err && (flags&SFIO_FORCE)) {
-         err = 0;
-         vdta->cltotal   = vdta->length;
-         vdta->serial    = 0;
-         vdta->label[0]  = 0;
-         vd->root_dirblk = FFFF;   // make it unusable, but safe
       }
    }
    if (!err) {
@@ -683,27 +674,6 @@ static qserr _exicc hpfs_setinfo(EXI_DATA, const char *path, io_handle_info *inf
    return E_DSK_WP;
 }
 
-static qserr _exicc hpfs_setattr(EXI_DATA, const char *path, u32t attr) {
-   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
-   if (!path) return E_SYS_ZEROPTR;
-   if ((attr&~(IOFA_READONLY|IOFA_HIDDEN|IOFA_SYSTEM|IOFA_ARCHIVE)))
-      return E_SYS_INVPARM;
-   return E_DSK_WP;
-}
-
-static qserr _exicc hpfs_getattr(EXI_DATA, const char *path, u32t *attr) {
-   io_handle_info pd;
-   qserr          rc;
-   instance_ret(volume_data, vd, E_SYS_INVOBJECT);
-   if (!path || !attr) return E_SYS_ZEROPTR;
-
-   *attr = 0;
-   rc    = hpfs_pathinfo(data, 0, path, &pd);
-   if (rc) return rc;
-   *attr = pd.attrs;
-   return 0;
-}
-
 static qserr _exicc hpfs_setexattr(EXI_DATA, const char *path, const char *aname, void *buffer, u32t size) {
    instance_ret(volume_data, vd, E_SYS_INVOBJECT);
    return E_DSK_WP;
@@ -752,7 +722,6 @@ static qserr _exicc hpfs_diropen(EXI_DATA, const char *path, dir_handle_int *pdh
    cpath = hpfs_cvtpath(vd, path);
    if (!cpath) res = E_SYS_INVPARM; else {
       dir_data    *dd;
-      int       index;
       res = follow_path(vd, cpath, &dd, 0);
       free(cpath);
 
@@ -819,9 +788,13 @@ static qserr _exicc hpfs_volinfo(EXI_DATA, disk_volume_data *info, int fast) {
          info->ClBad        = vdta->badclus;
          info->SerialNum    = vdta->serial;
          info->ClSize       = vdta->clsize;
-         info->ClAvail      = 0;
+         //info->ClAvail      = 0;
          info->ClTotal      = vdta->cltotal;
          info->FsVer        = FST_OTHER;
+         info->InfoFlags    = VIF_READONLY;
+         //info->Reserved     = 0;
+         info->DataSector   = HPFSSEC_SUPERB + 4;
+         //info->OemData      = 0;
          strcpy(info->Label,vdta->label);
          strcpy(info->FsName,vdta->fsname);
          return 0;
@@ -879,13 +852,13 @@ static void _std hpfs_done(void *instance, void *userdata) {
 
 static void *m_list[] = { hpfs_initialize, hpfs_finalize, hpfs_avail,
    hpfs_volinfo, hpfs_setlabel, hpfs_drive, hpfs_open, hpfs_read, hpfs_write,
-   hpfs_flush, hpfs_close, hpfs_size, hpfs_setsize, hpfs_finfo, hpfs_setattr,
-   hpfs_getattr, hpfs_setexattr, hpfs_getexattr, hpfs_lstexattr, hpfs_remove,
-   hpfs_renmove, hpfs_makepath, hpfs_remove, hpfs_pathinfo, hpfs_setinfo,
-   hpfs_diropen, hpfs_dirnext, hpfs_dirclose };
+   hpfs_flush, hpfs_close, hpfs_size, hpfs_setsize, hpfs_finfo, hpfs_setexattr,
+   hpfs_getexattr, hpfs_lstexattr, hpfs_remove, hpfs_renmove, hpfs_makepath,
+   hpfs_remove, hpfs_pathinfo, hpfs_setinfo, hpfs_diropen, hpfs_dirnext,
+   hpfs_dirclose };
 
 u32t register_hpfs(void) {
-   u32t ii, cid;
+   u32t cid;
    // something forgotten! interface part is not match to the implementation
    if (sizeof(_qs_sysvolume)!=sizeof(m_list)) {
       log_printf("hpfs: function list mismatch\n");
@@ -893,10 +866,10 @@ u32t register_hpfs(void) {
    }
    cid = exi_register("qs_sys_hpfsio", m_list, sizeof(m_list)/sizeof(void*),
                        sizeof(volume_data), EXIC_PRIVATE, hpfs_init, hpfs_done, 0);
-   if (!cid) log_printf("hpfs: reg failed!\n"); else {
+   if (cid) {
       qserr res = io_registerfs(cid);
       if (res) {
-         log_printf("hpfs: regfs error %X!\n", res);
+         log_printf("hpfs: regfs err %X!\n", res);
          exi_unregister(cid);
          cid = 0;
       }

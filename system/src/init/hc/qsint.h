@@ -1,9 +1,9 @@
 //
 // QSINIT
-// internal data & structs
+// internal data & functions (not for common apps)
 //
-#ifndef QSINIT_LDRDATA
-#define QSINIT_LDRDATA
+#ifndef QSINIT_HIDFUNCS
+#define QSINIT_HIDFUNCS
 
 #include "qstypes.h"
 #pragma pack(1)
@@ -100,6 +100,7 @@ typedef struct {
 //@{
 #define VDTA_ON     0x001  // volume available
 #define VDTA_FAT    0x010  // volume mounted to FatFs
+#define VDTA_VFS    0x020  // volume is virtual (no disk i/o)
 //@}
 
 #define STOKEY_ZIPDATA  "zip"             ///< key with .ldi file
@@ -116,15 +117,14 @@ typedef struct {
 #define STOKEY_MFSDCRC  "mfsdcrc"         ///< mini-FSD crc32
 #define STOKEY_SHOTDIR  "screenshot_dir"  ///< directory for screenshots
 #define STOKEY_LOGSIZE  "dh_logsize"      ///< custom log size for doshlp
+#define STOKEY_ACPIADDR "acpi_table"      ///< ACPI table address (EFI build)
 
 /// cache i/o ioctl
 //@{
-#define CC_SYNC          0x0001           ///< FatFs CTRL_SYNC command
 #define CC_MOUNT         0x0002           ///< Mount volume
 #define CC_UMOUNT        0x0003           ///< Unmount volume
 #define CC_SHUTDOWN      0x0004           ///< Disk i/o shutdown
 #define CC_FLUSH         0x0006           ///< Flush all
-#define CC_RESET         0x0007           ///< FatFs disk_initialize()
 //@}
 /// cache ioctl function
 typedef void _std (*cache_ioctl_func)(u8t vol, u32t action);
@@ -149,7 +149,13 @@ typedef struct {
     this function.
     @param  fptr  Function, use NULL to remove handler.
     @return success flag (1/0) */
-u32t _std hlp_runcache(cache_extptr *fptr);
+u32t  _std hlp_runcache(cache_extptr *fptr);
+
+/** sector-level cache notification.
+    Should not be used in user code, called in several points with 
+    CC_MOUNT, CC_UMOUNT, CC_SHUTDOWN and CC_FLUSH codes.
+    @return success flag (1/0) */
+u32t  _std hlp_cachenotify(u8t vol, u32t action);
 
 /// internal disk i/o bits
 //@{
@@ -174,12 +180,12 @@ typedef int _std (*scanf_ungetch)(int ch, void *stream);
 /** common internal scanf, used by all scanf functions.
     @param  fp     user data, "stream" parameter for gc/ugc
     @param  fmt    format string
-    @param  arg    pointer to variable arguments
-    @param  gc     get char callback, can be 0 (fp will be used as string)
-    @param  ugc    unget char callback, can be 0
+    @param  args   pointer to variable arguments
+    @param  getc   get char callback, can be 0 (fp will be used as string)
+    @param  ungetc  unget char callback, can be 0
     @return common scanf return value */
-int _std _scanf_common(void *fp, const char *fmt, char **args, scanf_getch gc,
-                       scanf_ungetch ugc);
+int _std _scanf_common(void *fp, const char *fmt, char **args, scanf_getch getc,
+                       scanf_ungetch ungetc);
 
 /** lock context switching over system.
     Note, what this is internal call for system api implementation, not user
@@ -199,6 +205,11 @@ void      mt_swunlock(void);
 #pragma aux mt_swlock   "_*" modify exact [];
 #pragma aux mt_swunlock "_*" modify exact [];
 #endif
+
+/** calibrate I/O delay value.
+    Must be called to recalculate i/o delay after major actions like
+    "mtrr off" or cpu frequency change. */
+void _std tm_calibrate(void);
 
 /** atomic bidirectional list link.
     Note, that logic is different if "last" arg available. Without it
@@ -269,7 +280,7 @@ typedef u32t _std (*dc_notify)(u32t code, void *usr);
 
     @param   usr       new data cache entry (must be in system owned memory)
     @param   flags     entry flags (DCF_UNSAFE & DCF_NOTIMER)
-    @param   maxtime   time to stay in unsafe state.
+    @param   maxtime   time to stay in unsafe state, in seconds!
     @param   cb        notification callback
     @return error code or 0. Error returned for invalid parameters only
             (zero usr or cb or invalid flags) */
@@ -284,8 +295,15 @@ qserr _std sys_dcedel(void *usr);
 /// data cache commit point
 void  _std sys_dccommit(u32t code);
 
+#ifdef QSINIT_MOD_INT
+/** return process context for the specified process id.
+    Function exported by START module, but unpublished.
+    It TURNS ON MT lock if MT mode active and returned value is non-zero */
+process_context* _std mod_pidctx(u32t pid);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
 #pragma pack()
-#endif // QSINIT_LDRDATA
+#endif // QSINIT_HIDFUNCS

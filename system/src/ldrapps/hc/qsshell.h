@@ -48,6 +48,12 @@ str_list* _std str_copylines(str_list*list, u32t first, u32t last);
 /// merge list to command line (wrap "" around lines with spaces)
 char*     _std str_mergeargs(str_list*list);
 
+/** delete entry from the list.
+    Function just dec list->count value and move list->item array content,
+    no any updates in memory & pointers. If index is above list size, function
+    do nothing */
+void      _std str_delentry (str_list*list, u32t index);
+
 /// read current environment to string list
 str_list* _std str_getenv   (void);
 
@@ -225,14 +231,28 @@ str_list* _std cmd_shellqall(int ext_only);
     @return 1 if ESC was pressed in pause. */
 u32t   __cdecl cmd_printseq(const char *fmt, int flags, u8t color, ...);
 
-/** print long text to screen.
+#define  PRNTXT_HELPMODE    (8)        ///< special help text split (with soft-cr)
+
+/** print long text to the screen.
+    "^" acts as EOL in the text.
     @param text     text, need to be splitted to lines gracefully
-    @param pause    non-zero to make pause at the end of screen. Use
-                    cmd_printseq(0,1,0) to init pause line counter before.
-    @param init     init lines counter
+    @param flags    init - PRNSEQ_* + PRNTXT_*, 0 - print with pause,
+                    -1 - no pause
     @param color    color to print, can be 0 for default value
     @return  1 if ESC was pressed in pause. */
-u32t      _std cmd_printtext(const char *text, int pause, int init, u8t color);
+u32t      _std cmd_printtext(const char *text, int flags, u8t color);
+
+#define  PRNFIL_SPLITTEXT  (16)        ///< split text via cmd_printtext()
+
+/** print file contents to the screen.
+    @param handle   file handle, use _os_handle() for FILE* source
+    @param len      data length, from current file position, negative value
+                    mean "until the end of file". Position is changed on exit.
+    @param flags    PRNSEQ_* + PRNTXT_* + PRNFIL_* flags
+    @param color    line color, 0 - default
+    @return 0 on success, E_SYS_UBREAK if ESC was pressed in pause, else
+            error code */
+qserr     _std cmd_printfile(qshandle handle, long len, int flags, u8t color);
 
 /** printf with "pause".
     Call to cmd_printseq() to init line counter and log copying state.
@@ -413,6 +433,11 @@ u32t      _std shl_detach (const char *cmd, str_list *args);
 u32t      _std shl_start  (const char *cmd, str_list *args);
 /// SM command.
 u32t      _std shl_sm     (const char *cmd, str_list *args);
+/// STOP command.
+u32t      _std shl_stop   (const char *cmd, str_list *args);
+/// PS command.
+u32t      _std shl_ps     (const char *cmd, str_list *args);
+
 
 #ifdef __cplusplus
 }

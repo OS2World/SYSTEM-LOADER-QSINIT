@@ -9,7 +9,6 @@
 // There is no long names for FAT12/16/32!
 //
 #include "qslocal.h"
-#include "qstime.h"
 #include "parttab.h"
 
 #define MAX_FAT12      0xFF5       ///< max # of FAT12 clusters

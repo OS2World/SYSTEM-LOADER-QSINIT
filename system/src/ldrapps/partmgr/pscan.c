@@ -4,6 +4,7 @@
 //
 #include "stdlib.h"
 #include "qsdm.h"
+#include "qsbase.h"
 #include "memmgr.h"
 #include "pscan.h"
 #include "qcl/qslist.h"
@@ -12,6 +13,7 @@
 #include "vioext.h"
 #include "errno.h"
 #include "qcl/sys/qsedinfo.h"
+#include "qcl/qsmt.h"
 #include "seldesc.h"          // next 3 is for hook only
 #include "qsmodext.h"
 #include "qsinit_ord.h"
@@ -143,6 +145,12 @@ static u32t scan_gpt(hdd_info *drec) {
    return 0;      
 }
 
+/* note, that scan code should not use any FPU.
+   if it want so, MTCT_NOFPU flag in the thread below must be removed.
+   
+   Also, here is a huge disadvantage of scanning in a separate thread:
+   scan mutex is catched by caller and we must avoid any calls to every one,
+   who uses it */
 static u32t scan_disk(hdd_info *drec) {
    u32t sector = 0, chssec = 0, errcnt, chsread = 0, ii, rc = 0, lowestLBA = 0;
 
@@ -614,8 +622,8 @@ static int    hook_on = 0;    ///< hlp_diskremove hook installed?
 
 void scan_init(void) {
    u32t ii;
-
-   scan_lock();
+   /* lock array creation to prevent mod_stop() at this time */
+   mt_swlock();
 
    if (memOwner==-1) {
       mem_uniqueid(&memOwner,&memPool);
@@ -637,7 +645,7 @@ void scan_init(void) {
       // change number of hard disks (to support ram disk hot plug)
       u32t nhdd = hlp_diskcount(0);
 
-      if (nhdd==hddc) { scan_unlock(); return; }
+      if (nhdd==hddc) { mt_swunlock(); return; }
       hddc = nhdd;
    }
    if (hddc)
@@ -645,16 +653,16 @@ void scan_init(void) {
          hdd_info *iptr = get_by_disk(ii);
          if (iptr) iptr->disk = ii;
       }
-   scan_unlock();
+   mt_swunlock();
 }
 
 void scan_free(void) {
-   scan_lock();
+   mt_swlock();
    if (memOwner!=-1) {
       mem_freepool(memOwner, memPool);
       hddi = 0; hddc = 0; hddf = 0;
    }
-   scan_unlock();
+   mt_swunlock();
 }
 
 hdd_info *get_by_disk(u32t disk) {
@@ -671,6 +679,77 @@ hdd_info *get_by_disk(u32t disk) {
       return hddi + MAX_QS_DISK + idx;
    }
    return 0;
+}
+
+static mt_tid   service_tid = 0;
+static qshandle service_que = 0;
+// use dynamic MTLIB calls to prevent dependence on its presence
+static qs_mtlib       mtlib = 0;
+
+#define SCAN_THREAD_WAIT  45000   ///< scan thread life time (45s)
+
+static u32t _std scan_thread(void *arg) {
+   mt_threadname("dmgr scan");
+
+   while (service_que) {
+      int    avail;
+      qe_event *ev = qe_waitevent(service_que, SCAN_THREAD_WAIT);
+
+      if (ev) {
+         hdd_info *hi = (hdd_info*)ev->a;
+         hi->scan_rc  = scan_disk(hi);
+         hi->inited   = 1;
+         // wake up caller thread by unused signal number
+         mtlib->sendsignal(ev->b, ev->c, FFFF-0xFFF, 0);
+         free(ev);
+      } else {
+         // no event for 45 sec - exit
+         mt_swlock();
+         service_tid = 0;
+         mt_swunlock();
+         break;
+      }
+   }
+   return 0;
+}
+
+/* we have a trouble in MT mode: process kill can stop us in the middle of
+   disk scan and broke disk information for all.
+   SO - we create a thread in PID 1 context - to use it as a scan processor
+   and ask to scan disks for us via queue */
+static void scan_disk_mt(hdd_info *drec) {
+   mt_swlock();
+   // first time init
+   if (!mtlib) {
+      mtlib = NEW_G(qs_mtlib);
+      qe_create(0, &service_que);
+      if (service_que)
+         if (io_setstate(service_que, IOFS_DETACHED, 1)) service_que = 0;
+      // just panic, should never occurs
+      if (!service_que) _throwmsg_("partmgr: scan queue error!");
+   }
+   if (!service_tid) {
+      mt_ctdata  ctd;
+      memset(&ctd, 0, sizeof(ctd));
+      ctd.size      = sizeof(mt_ctdata);
+      ctd.stacksize = _64KB;
+      ctd.pid       = 1;
+
+      service_tid = mtlib->thcreate(scan_thread, MTCT_NOFPU/*|MTCT_NOTRACE*/, &ctd, 0);
+      // just panic, should never occurs
+      if (!service_tid) _throwmsg_("partmgr: scan thread start error!");
+   }
+   mt_swunlock();
+   drec->inited = 0;
+   qe_postevent(service_que, 0, (long)drec, mod_getpid(), mt_getthread());
+
+   // wait for any signal and check drec->inited on it
+   while (!drec->inited) {
+      mt_waitentry we;
+      we.htype = QWHT_SIGNAL;
+      we.group = 0;
+      mtlib->waitobject(&we, 1, 0, 0);
+   }
 }
 
 qserr _std dsk_ptrescan(u32t disk, int force) {
@@ -691,9 +770,14 @@ qserr _std dsk_ptrescan(u32t disk, int force) {
 #endif
          // rescan on force, first time or floppy disk
          if (hi->inited && !force && (disk&QDSK_FLOPPY)==0) res = hi->scan_rc; else {
-            res = scan_disk(hi);
-            hi->scan_rc = res;
-            hi->inited  = 1;
+            if (mt_active()) {
+               scan_disk_mt(hi);
+               res = hi->scan_rc;
+            } else {
+               res = scan_disk(hi);
+               hi->scan_rc = res;
+               hi->inited  = 1;
+            }
          }
       }
    }

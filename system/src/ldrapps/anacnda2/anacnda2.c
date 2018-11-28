@@ -1,3 +1,7 @@
+/* 
+   code was digged up somewhere over net, it terrible, slow, ugly and wrong.
+   but, let work as it is ;)
+*/
 #include "clib.h"
 #include "vio.h"
 #include "qsutil.h"
@@ -20,7 +24,6 @@ u32t random(u32t range);
 
 int len;
 long int SPEED = 4000000;
-int maze;
 int cur_score=0;
 
 int getkey(void) {
@@ -33,10 +36,8 @@ int getkey(void) {
 
 void start_graphic();
 void function(int len0,int x,int y,int xt,int yt,int xf, int yf,
-          int px[],int py[],long int speed,char a[],char status);
+              int px[],int py[],long int speed,char a[]);
 int isamong(int c,int c1,int ch[],int ch1[],int n);
-void showmaze();
-int mazehit(int x,int y);
 void waitfor(long int k);
 void wait();
 
@@ -49,25 +50,29 @@ void hline() {
 
 //////////////////////// MAIN STARTS ///////////////////////////////
 void main() {
-   char a[500],s='O',name[80],status; //s=skin
+   char a[500],s='O',name[80]; //s=skin
    int px[500],py[500],len0,xt,yt,xf,yf,i,j,r,rx,ry,x,y; //xt=xtemporary  xf=xfood
    int  top=3,bottom=24,left=1,right=79;    //r = range of food //x,y of tail
+   u32t cols, lines;
    int  move,current,ans;
-   long int speed=SPEED;
-
-   maze=0;
 
    start_graphic();
    clrscr();
-
    
    for (i=0;i<80;i++) name[i]=' ';
    vio_strout("NOTE:\n\nThe Anaconda is not beautiful... but then... It is not meant to be either...!!!");
 
+newgame:
    vio_setshape(VIO_SHAPE_NONE);
 
-   newgame:
-   clrscr();
+   if (!vio_getmode(&cols, &lines) || cols!=80 || lines>30) vio_resetmode(); else {
+      clrscr();
+      if (lines - 25 > 1) {
+         u32t ii;
+         vio_setpos(25, 1);
+         for (ii=0; ii<78; ii++) vio_charout(0xCD);
+      }
+   }
    cur_score=0;
    randomize();
 
@@ -85,7 +90,6 @@ void main() {
    yf=random(ry)+r;
    gotoxy(xf,yf); vio_charout(s);
 
-   if (maze) showmaze();
 //************************** start game *******************************
    do {
       move=getkey();
@@ -98,26 +102,17 @@ void main() {
       {
          case 333:
             if (current==331) { move=current; break; } //backward not allowed
-            speed=SPEED/2;
             current=333;
             do {
                x=px[0]; y=py[0];
-               status='3';// status is  nothing imp, to be used for debugging
                xt=px[len-1]; yt=py[len-1];        // [len-1] represents "head"
-               if(!maze) { if(xt==right)  xt-=(right-left);}  // to allow " aar paar " through
+               if(xt==right) xt-=(right-left);    // to allow " aar paar " through
                xt++;              // screen
                if(isamong(xt,yt,px,py,len)) {   // self collision
                   gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
                   goto end;
                }
-               if (maze) {
-                  if(mazehit(xt,yt)) {
-                     gotoxy(1,1); vio_strout("G A M E   O V E R  ! ! !");
-                     getch();
-                     goto end;
-                  }
-               }
-               function(len0,x,y,xt,yt,xf,yf,px,py,speed,a,status);
+               function(len0,x,y,xt,yt,xf,yf,px,py,SPEED/2,a);
                           // function shows current frame
                
                if(xt==xf && yt==yf) {            // check and eat food
@@ -132,33 +127,24 @@ void main() {
          //----------------------------------------------------------
          case 331:
             if(current==333) {move=current; break;}
-            speed=SPEED/2;
             current=331;
             do {
                x=px[0]; y=py[0];
-               status='1';
                xt=px[len-1]; yt=py[len-1];
-               if(!maze) { if(xt==left) xt+=(right-left); }
-                xt--;
-                if (isamong(xt,yt,px,py,len)) {
-                   gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
-                   goto end;
-                }
-                if(maze) { 
-                   if(mazehit(xt,yt)) {
-                      gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
-                      getch();
-                      goto end;
-                   }
-                }
+               if(xt==left) xt+=(right-left);
+               xt--;
+               if (isamong(xt,yt,px,py,len)) {
+                  gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
+                  goto end;
+               }
                
-                function(len0,x,y,xt,yt,xf,yf,px,py,speed,a,status);
-                if(xt==xf && yt==yf) {
-                   a[len]='O'; px[len]=xt; py[len]=yt; len++;
-                   xf=random(rx)+r;
-                   yf=random(ry)+r;
-                   gotoxy(xf,yf); vio_charout('O');
-                }
+               function(len0,x,y,xt,yt,xf,yf,px,py,SPEED/2,a);
+               if(xt==xf && yt==yf) {
+                  a[len]='O'; px[len]=xt; py[len]=yt; len++;
+                  xf=random(rx)+r;
+                  yf=random(ry)+r;
+                  gotoxy(xf,yf); vio_charout('O');
+               }
             } while (!kbhit());
             move=getkey();
             break;
@@ -166,26 +152,17 @@ void main() {
          case 336:
      
             if(current==328) {move=current; break;}
-            speed=SPEED;
             current=336;
             do {
                x=px[0]; y=py[0];
-               status='2';
                xt=px[len-1]; yt=py[len-1];
-               if (!maze) { if(yt==bottom) yt-=(bottom-top); }
+               if(yt==bottom) yt-=(bottom-top);
                yt++;
                if (isamong(xt,yt,px,py,len)) {
                   gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
                   goto end;
                }
-               if(maze) { 
-                  if(mazehit(xt,yt)) {
-                     gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
-                     getch();
-                     goto end;
-                  }
-               }
-               function(len0,x,y,xt,yt,xf,yf,px,py,speed,a,status);
+               function(len0,x,y,xt,yt,xf,yf,px,py,SPEED,a);
                if(xt==xf && yt==yf) {
                   a[len]='O'; px[len]=xt; py[len]=yt; len++;
                   xf=random(rx)+r;
@@ -199,26 +176,17 @@ void main() {
          case 328:
      
             if(current==336) {move=current; break;}
-            speed=SPEED;
             current=328;
             do {
                x=px[0]; y=py[0];
-               status='5';
                xt=px[len-1]; yt=py[len-1];
-               if(!maze) { if(yt==top) yt+=(bottom-top); }
+               if(yt==top) yt+=(bottom-top);
                yt--;
                if(isamong(xt,yt,px,py,len)) {
                   gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
                   goto end;
                }
-               if(maze) { 
-                  if(mazehit(xt,yt)) {
-                     gotoxy(1,1); vio_strout("G A M E   O V E R ! ! ! ");
-                     getch();
-                     goto end;
-                  }
-               }
-               function(len0,x,y,xt,yt,xf,yf,px,py,speed,a,status);
+               function(len0,x,y,xt,yt,xf,yf,px,py,SPEED,a);
                if(xt==xf && yt==yf) {
                   a[len]='O'; px[len]=xt; py[len]=yt; len++;
                   xf=random(rx)+r;
@@ -242,7 +210,6 @@ void main() {
             move=current;
             break;
       }
-      status='0';
    } while(1);
 //*********************** exit options **************************
 end:
@@ -259,7 +226,7 @@ end:
 /////////////////////////// MAIN ENDS //////////////////////////////////////
 
 void function (int len0,int x,int y,int xt,int yt,int xf, int yf,
-           int px[],int py[],long int speed,char a[],char status)
+           int px[],int py[],long int speed,char a[])
 {
    char score[64];
    int i,j;
@@ -279,17 +246,6 @@ void function (int len0,int x,int y,int xt,int yt,int xf, int yf,
    vio_strout(score);
    vio_strout("\n Press Esc to EXIT");
 }
-//***********************************************************
-void showmaze() {
-   int i;
-   textcolor(BROWN);
-
-   for(i=1;i<=79;i++) { gotoxy(i,3);   vio_charout('Û'); }
-   for(i=1;i<=79;i++) { gotoxy(i,24);   vio_charout('Û'); }
-   for(i=3;i<=24;i++) { gotoxy(1,i);   vio_charout('Û'); }
-   for(i=3;i<=24;i++) { gotoxy(79,i);   vio_charout('Û'); }
-   return;
-}
 //************************************************************
 int isamong(int c,int c1,int ch[],int ch1[],int n)
 {                                   // for collision check
@@ -298,18 +254,6 @@ int isamong(int c,int c1,int ch[],int ch1[],int n)
       if(ch[i]==c && ch1[i]==c1) { t=1; break;}
    }
    return t;
-}
-//************************************************************
-int mazehit(int xt,int yt) {
-   int mx[300],my[300];
-   int i,j;
-   j=0;
-   for(i=1;i<=79;i++,j++)  { mx[j]=i; my[j]=3; }
-   for(i=1;i<=79;i++,j++)  { mx[j]=i; my[j]=24; }
-   for(i=3;i<=24;i++,j++)  { mx[j]=1; my[j]=i; }
-   for(i=3;i<=24;i++,j++)  { mx[j]=79; my[j]=i; }
-
-   return isamong(xt,yt,mx,my,j);
 }
 //************************************************************
 void start_graphic()          // show starting graphics , messages

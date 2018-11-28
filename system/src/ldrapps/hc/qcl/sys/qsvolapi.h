@@ -26,7 +26,7 @@ typedef struct qs_sysvolume_s {
        unknown. During mount volume may be shared between default FAT handler
        (forced) and init function.
        @param   vol      Volume (0==A, 1==B and so on)
-       @param   flags    SFIO_* flags
+       @param   flags    No flags now (just 0)
        @param   bootsec  Boot sector data (only when append==0)
        @return error code. If SFIO_FORCE is set and no FS - volume is mounted,
                but function returns E_DSK_UNKFS error code here */
@@ -68,8 +68,6 @@ typedef struct qs_sysvolume_s {
        check (avail()&SFAF_FINFO) before use. */
    qserr     _exicc (*finfo)    (io_handle_int fh, io_direntry_info *info);
 
-   qserr     _exicc (*setattr)  (const char *path, u32t attr);
-   qserr     _exicc (*getattr)  (const char *path, u32t *attr);
    qserr     _exicc (*setexattr)(const char *path, const char *aname, void *data, u32t size);
    qserr     _exicc (*getexattr)(const char *path, const char *aname, void *buffer, u32t *size);
    str_list  _exicc (*lstexattr)(const char *path);
@@ -104,10 +102,11 @@ typedef struct qs_sysvolume_s {
 /// @name avail() flags
 //@{
 #define SFAF_FINFO       0x000001     ///< finfo() function is available
+#define SFAF_VFS         0x000002     ///< virtual FS
 //@}
 
 /** register qs_sysvolume compatible class as a new filesystem handler.
-    Function forces remount of the all unknown volumes.
+    Function forces remount of all unknown volumes (unless SFAF_VFS class).
     @return error code (too many FS handlers or wrong number of functions in
             the supplied class) or 0 on success. */
 qserr _std io_registerfs(u32t classid);

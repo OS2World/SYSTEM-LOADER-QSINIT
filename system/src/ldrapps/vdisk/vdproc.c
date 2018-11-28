@@ -233,7 +233,7 @@ static qserr check_pae(void) {
 }
 
 /** check for disk presence at the start of 4th Gb.
-    @param [out] dh     returning disk header (on success, mapped)
+    @param [out] pdh     returning disk header (on success, mapped)
     @retval 0                  success, returns mapped disk header (must be released in caller)
     @retval E_SYS_NONINITOBJ   no disk
     @retval E_SYS_NOMEM        no memory above 4Gb
@@ -548,7 +548,7 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
                   }
                }
             }
-            log_printf("ram disk init: dmgr rc = %d, lvm rc = %d\n", d_rc, l_rc);
+            log_printf("ram disk init: dmgr rc = %X, lvm rc = %X\n", d_rc, l_rc);
             if (vol_names) free(vol_names);
          } else {
             log_printf("ram disk init: persistent!\n");
@@ -768,10 +768,10 @@ static void *qs_extdisk_fn[] = { dopt_getgeo, dopt_setgeo, dopt_getname, dopt_st
 
 int unregister_class(void) {
    int err = 0;
-   if (classid_ext)
-      if (exi_unregister(classid_ext)) classid_ext = 0; else err++;
    if (classid_vd)
       if (exi_unregister(classid_vd)) classid_vd = 0; else err++;
+   if (classid_ext)
+      if (exi_unregister(classid_ext)) classid_ext = 0; else err++;
    return err?0:1;
 }
 

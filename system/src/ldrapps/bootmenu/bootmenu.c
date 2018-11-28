@@ -2,9 +2,11 @@
 // QSINIT "boot menu" module
 //
 #include "stdlib.h"
+#include "signal.h"
 #include "qsbase.h"
 #include "qcl/qslist.h"
 #include "ksline.h"
+#include "qsmodext.h"
 
 int  MenuKernel(char *rcline, int errors);
 int  MenuCommon(char *menu, char *rcline, u32t pos);
@@ -12,6 +14,12 @@ int  MenuPtBoot(char *rcline);
 void InitParameters(void);
 void DoneParameters(void);
 int  IsMenuPresent(const char *section);
+
+static void _std push_updn(sys_eventinfo *info) {
+   // push "up + down" - to stop the timer without any side effects
+   key_push(0x4800);
+   key_push(0x5000);
+}
 
 char       *menu_fname = 0;
 const char   *ld_fname = "b:\\qsinit.ini";
@@ -29,6 +37,8 @@ void main(int argc,char *argv[]) {
       printf("usage: bootmenu [menu_name]\n");
       return;
    }
+   // disable Ctrl-C
+   signal(SIGINT, SIG_IGN);
 
    history = NEW(ptr_list);
    m_ini   = NEW(qs_inifile);
@@ -41,22 +51,22 @@ void main(int argc,char *argv[]) {
    }
    eptr       = getenv("menu_source");
    menu_fname = strdup(eptr?eptr:"b:\\menu.ini");
-   // open files (actually, ignore its presence)
+   // open files (ignore presence, actually)
    m_ini->open(menu_fname, QSINI_READONLY);
    ld_ini->open(ld_fname, QSINI_READONLY);
    // reading color & help strings from menu.ini
    InitParameters();
-   // read it here to optimize ugly INI caching in START
+   // default menu for uefi & single mode
    if (hlp_hosttype()==QSHT_EFI)
       defmenu = m_ini->getstr("common", "def_efi", 0); else
    if (hlp_boottype()==QSBT_SINGLE)
       defmenu = m_ini->getstr("common", "def_single", 0); 
-   /* we have no altered menu name - checking for existence of [kernel] and
-      [partition] sections and switching to partition menu when suitable */
+   /* there is no altered menu name - check for existence of [kernel] and
+      [partition] and switching to the partition menu when suitable */
    if (noextmenu)
       if (!IsMenuPresent("kernel") && IsMenuPresent("partition"))
          strcpy(cmenu,"bootpart");
-   // still have no menu - then get defaults for "single" or EFI
+   // still has no menu name - then get defaults for "single" or EFI
    if (!*cmenu && defmenu) strncpy(cmenu, defmenu, 128);
    if (defmenu) { free(defmenu); defmenu = 0; }
 
@@ -65,11 +75,23 @@ void main(int argc,char *argv[]) {
       u32t     idx = 0;
       int iskernel = !*cmenu || stricmp(cmenu,"bootos2")==0,
           isptboot = stricmp(cmenu,"bootpart")==0 || stricmp(cmenu,"pt")==0;
+      // reset title every time before menu processing
+      se_settitle(se_sesno(), "Boot menu");
 
       if (idxpos) { *idxpos++=0; idx=atoi(idxpos); }
+
+      /* a bit crazy hack for handling MT activation by a hotkey.
+         When user presses Ctrl-Esc - he goes into a task list, but timer
+         here continue to count! This cause background kernel launch.
+         So we just catch MT mode activation ONLY during menu navigation
+         and post up+down key presses in this case (to stop timer cycle) */
+      sys_notifyevent(SECB_MTMODE|SECB_THREAD, push_updn);
       // launch menu
       rc = iskernel ? MenuKernel(cmdline,kernfail) : (
            isptboot ? MenuPtBoot(cmdline) : MenuCommon(cmenu,cmdline,idx));
+      // unset notification
+      sys_notifyevent(0, push_updn);
+
       if (rc) {
          log_it(2,"action=\"%s\"\n",cmdline);
          // save position

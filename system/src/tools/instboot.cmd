@@ -11,7 +11,7 @@ exit
 set suffix=w
 :cont
 if "%1".=="". goto about
-if not exist bootset%suffix%.exe goto bserr
+if not exist %suffix%\bootset.exe goto bserr
 if not exist QSINIT.LDI goto dotdot
 if not exist OS2LDR goto dotdot
 set bsrc=
@@ -21,7 +21,7 @@ set bsrc=..\
 if not exist ..\QSINIT.LDI goto berr
 if not exist ..\OS2LDR goto berr
 :runit
-bootset%suffix% -w %2 -q %1
+%suffix%\bootset -w %2 -q %1
 if errorlevel 1 goto serr
 if exist %1\QSINIT attrib -r -s -h %1\QSINIT
 if exist %1\QSINIT.LDI attrib -r -s -h %1\QSINIT.LDI

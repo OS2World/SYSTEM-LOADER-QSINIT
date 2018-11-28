@@ -36,5 +36,5 @@ endif
           MAX_QS_DISK    = 16                                   ; number of supported fdd+hdd
           MAX_QS_FLOPPY  = 2                                    ; number of supported fdds
 
-          MFSD_NAME_LEN  = 64                                   ; max length of micro-FSD name
+          MFSD_NAME_LEN  = 128                                  ; max length of micro-FSD name
 ;cc #endif // QSINIT_ASMDEFS

@@ -1,22 +1,15 @@
-#include "clib.h"
+#include "qsbase.h"
+#include "qsmodext.h"
 #include "vioext.h"
-#include "setjmp.h"
-#include "qslog.h"
-#include "errno.h"
+#include "qsint.h"
+#include "qsdm.h"
+
+#include "clib.h"
 #include "time.h"
+#include "errno.h"
+#include "setjmp.h"
 #include "stdlib.h"
 #include "direct.h"
-#include "qsxcpt.h"
-#include "qsmodext.h"
-#include "qsutil.h"
-#include "qstime.h"
-#include "qssys.h"
-#include "qshm.h"
-#include "qsdm.h"
-#include "qsio.h"
-#include "qsshell.h"
-#include "qspage.h"
-#include "qsint.h"
 
 jmp_buf jmp;
 
@@ -61,6 +54,11 @@ int _std hook_proc(mod_chaininfo *mc) {
    return 1;
 }
 
+static u32t _std threadfunc(void *arg) {
+   mod_stop(0, 0, 0);
+   return 0;
+}
+
 // sorted disk map
 void printDisk(u32t disk) {
    dsk_mapblock *dm = dsk_getmap(disk);
@@ -100,6 +98,27 @@ int main(int argc,char *argv[]) {
          do {
             printf("%LX\n", hlp_tscin55ms());
          } while (key_wait(2)==0);
+         return 0;
+      } else
+      if (stricmp(argv[1],"k")==0) {
+         u32t tid;
+         // trying to kill self from the second thread
+         if (!mt_active()) {
+            qserr res = mt_initialize();
+            if (res) {
+               cmd_shellerr(EMSG_QS, res, "MT mode:");
+               return 1;
+            }
+         }
+         // turn on trace output for MTLIB
+         cmd_shellcall(shl_trace, "on mtlib", 0);
+
+         tid = mt_createthread(threadfunc, MTCT_SUSPENDED|MTCT_NOFPU, 0, 0);
+         mod_dumptree();
+         mt_resumethread(0, tid);
+         mt_waitthread(tid);
+         // this line should never been printed
+         printf("Something going wrong!\n");
          return 0;
       } else
       if (stricmp(argv[1],"m")==0 && argc==4) {
@@ -203,7 +222,7 @@ int main(int argc,char *argv[]) {
             ref->id    = ref->items?(u32t*)calloc(ref->items,4):0;
             ref->subm  = 0;
             hlp_memfree(fd);
-            vio_showlist("List test", ref, MSG_LIGHTBLUE);
+            vio_showlist("List test", ref, MSG_LIGHTBLUE, 0);
             if (ref->id) free(ref->id);
             free(ref->text);
             free(ref);

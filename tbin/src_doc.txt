@@ -51,7 +51,8 @@ Source tree:
    system\src\ldrapps\console      - advanced console support
    system\src\ldrapps\cplib        - code page support
    system\src\ldrapps\doshlp       - doshlp (binary file)
-   system\src\ldrapps\extcmd       - some large shell commands
+   system\src\ldrapps\extcmd       - some large shell commands & optional code
+   system\src\ldrapps\fsfat        - FAT/FAT32/exFAT support (FatFs)
    system\src\ldrapps\fslib        - HPFS r/o support
    system\src\ldrapps\mtlib        - threads support (still in progress)
    system\src\ldrapps\partmgr      - partition management module
@@ -59,8 +60,8 @@ Source tree:
    system\src\ldrapps\tv           - Turbo Vision
    system\src\ldrapps\vdisk        - PAE ram disk support module
    system\src\ldrapps\vmtrr        - Write Combining MTRR setup
-   system\src\ldrapps\vhdd         - simple "file disk" (virtual hdd for
-                                     PARTMGR testing)
+   system\src\ldrapps\vhdd         - "file disk" support (self-implemented
+                                     format & fixed size VHD)
 
    system\src\usrapps            >> additional apps
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
@@ -72,9 +73,10 @@ Source tree:
    system\src\usrapps\mttest       - example of multithreading API usage
    system\src\usrapps\rdtest       - OS/2 application example of IOCTL
                                      access to PAE RAM disk (speed test app
-                                     and read disk to file example)
+                                     and read disk to a file example)
+   system\src\usrapps\sigtest      - signal() usage example
 
-   system\src\tools\src          >> various build tools source code
+   system\src\tools\src          >> various tools source code
    system\src\tools\src\bin2h      - binary data to .h simple converter
    system\src\tools\src\bootset    - volume boot sector setup for OS/2 & Windows
    system\src\tools\src\def2lbc    - .ref file converter to various files
@@ -92,7 +94,7 @@ Some helpful key combinations:
    Ctrl-Alt-F1  - switch debug serial port into VT100 terminal with current
                   console screen (only for 80x25), second press revert it back
    Ctrl-Alt-F2  - session list
-   Ctrl-Alt-F3  - shared classes list
+   Ctrl-Alt-F3  - shared class list
    Ctrl-Alt-F4  - file table dump
    Ctrl-Alt-F5  - process tree dump (+ threads in MT mode)
    Ctrl-Alt-F6  - gdt dump
@@ -104,6 +106,5 @@ Some helpful key combinations:
    Ctrl-Alt-F11 - system memory table dump
    Ctrl-Alt-F12 - pool block list (very long)
 
-TRACE command can help in strange situations. It supports tracing of all
-described module`s exports and shared classes. Trace info stored in TRC files
-(one per module) in LDI archive.
+TRACE command may help in strange situations. It supports tracing of all
+described modules (both exports and shared classes).

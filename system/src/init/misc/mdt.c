@@ -7,7 +7,7 @@
     load by module init function. */
 #define LDM_STATIC      0x0002
 
-typedef  _std (*pf_mtpexitcb)(mt_thrdata *td);
+typedef  _std (*pf_mtpexitcb)(mt_thrdata *td, int stage);
 
 mod_addfunc *mod_secondary = 0; // secondary function table, inited by 2nd part
 module           *mod_list = 0; // loaded module list
@@ -15,7 +15,6 @@ module          *mod_ilist = 0; // loading modules list (recursive mod_load())
 module           *mod_self = 0, // QSINIT module reference
                 *mod_start = 0; // START module reference
 u32t           lastusedpid = 1; // unique pid for processes
-static
 pf_mtpexitcb    mt_pexitcb = 0;
 
 static char     qsinit_str[] = MODNAME_QSINIT;
@@ -246,7 +245,11 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       size = *(u32t*)extdta;
    } else
    if (mod_secondary) {
+      /* lock it here, because unzip_delaylist() in START may be in the
+         middle of unzipping */
+      ldr_lock();
       img  = (char*)mod_secondary->freadfull(path, &size);
+      ldr_unlock();
       if (!img) rc = E_SYS_NOFILE; else
          if (*(u32t*)img==UNPDELAY_SIGN) // file is delayed -> unpack
             if (!mod_secondary->unzip_ldi(img, size, path))
@@ -254,7 +257,7 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       if (!rc && size<=sizeof(lx_exe_t)) rc = E_MOD_EMPTY;
       // early error occured, exiting
       if (rc) {
-         log_printf("lx read(%s): %d\n", path, rc);
+         log_printf("lx read(%s): %X\n", path, rc);
          if (img) hlp_memfree(img);
          if (error) *error = rc;
          return 0;
@@ -765,29 +768,32 @@ void *mod_apidirect(u32t mh, u32t index) {
 }
 
 static u32t env_length(const char *env) {
-   u32t   total=0;
-   char    *pos=(char*)env;
-   do {
-      u32t len=strlen(pos);
-      total+=++len; pos+=len;
-   } while (*pos);
-   return total+1;
+   u32t  size = 0;
+   char  *pos = (char*)env;
+   while (*pos) {
+      u32t len = strlen(pos) + 1;
+      size+=len; pos+=len;
+   }
+   return size + 1;
 }
 
 /* run module. return -1 if failed (invalid handle, etc)
    env\0
-   env\0\0
+   env\0
+   \0
    module path\0
    params:
    module path\0
    arguments string\0\0 */
-s32t mod_exec(u32t mh, const char *env, const char *params, void *mtdata) {
+static s32t mod_execcall(u32t mh, const char *env, const char *params,
+                         void *mtdata, int chain)
+{
    u32t      envlen, parmlen,
-         pathlen, rc, env_sz,
-                   alloc_len;
+         pathlen, rc, env_sz;
    char    *envseg, *cmdline;
    process_context   *newctx;
-   mt_prcdata            *pd;
+   mt_prcdata            *pd,
+                      *pdnew;
    module                *md = (module*)mh;
    char          *parent_env = 0;
    // lock mutex
@@ -795,32 +801,45 @@ s32t mod_exec(u32t mh, const char *env, const char *params, void *mtdata) {
    // module is library or executed already
    if (md->sign!=MOD_SIGN || (md->flags&(MOD_LIBRARY|MOD_EXECPROC)))
       { ldr_unlock(); return -1; }
-   /* envinonment allocation.
-      hlp_memalloc(r) is used for the first launch only */
+   /* envinonment allocation:
+      * hlp_memalloc(r) is used for the first launch only and never released
+      * for common launch block is marked as "module owned" and will be released
+        by mod_free() call at the end of this function */
    if (!env && mod_secondary)
       env = parent_env = mod_secondary->envcopy(mt_exechooks.mtcb_ctxmem, 0);
-   envlen    = env?env_length(env):0;
-   parmlen   = params?strlen(params)+1:0;
+   envlen    = env    ? env_length(env)  : 0;
+   parmlen   = params ? strlen(params)+1 : 0;
    pathlen   = strlen(md->mod_path)+1;
    env_sz    = envlen + 2 + parmlen + 2 + pathlen*2;
-   alloc_len = env_sz +sizeof(process_context);
-   envseg    = mod_secondary?mod_secondary->mem_alloc(QSMEMOWNER_MODLDR, mh, alloc_len):
-               hlp_memallocsig(alloc_len, "MCtx", QSMA_NOCLEAR|QSMA_READONLY);
-   // zero it all
-   memset(envseg, 0, alloc_len);
+
+   if (mod_secondary) {
+      envseg = mod_secondary->mem_alloc(QSMEMOWNER_COLIB, mh, env_sz);
+      newctx = mod_secondary->mem_alloc(QSMEMOWNER_COLIB, mh, sizeof(process_context));
+      memset(newctx, 0, sizeof(process_context));
+      memset(envseg, 0, env_sz);
+   } else {
+      envseg = hlp_memallocsig(env_sz + sizeof(process_context), "MCtx", QSMA_READONLY);
+      newctx = (process_context*)(envseg + env_sz);
+   }
    // fill process context data
-   newctx = (process_context*)(envseg + env_sz);
-   newctx->size   = sizeof(process_context);
-   newctx->pid    = lastusedpid++;
+   newctx->size = sizeof(process_context);
+   /* since unixtime (one per second) is a 136 years period - PID overflow
+      is just impossible :) */
+   if (chain) {
+      newctx->pid  = mt_exechooks.mtcb_ctxmem->pid;
+      newctx->pctx = mt_exechooks.mtcb_ctxmem->pctx;
+   } else {
+      newctx->pid  = lastusedpid++;
+      newctx->pctx = mt_exechooks.mtcb_ctxmem;
+   }
    newctx->envptr = envseg;
    newctx->self   = md;
-   newctx->pctx   = mt_exechooks.mtcb_ctxmem;
    newctx->parent = newctx->pctx?newctx->pctx->self:0;
-   newctx->flags  = mod_secondary?0:PCTX_BIGMEM;
+   newctx->flags  = 0;
 
    // copying env/cmdline data
    cmdline  = envseg;
-   if (envlen) memcpy(cmdline, env, envlen); else envlen = 2;
+   if (envlen) memcpy(cmdline, env, envlen); else envlen = 1;
    cmdline += envlen;
    memcpy(cmdline, md->mod_path, pathlen);
    cmdline += pathlen;
@@ -845,50 +864,90 @@ s32t mod_exec(u32t mh, const char *env, const char *params, void *mtdata) {
    mt_swunlock();
    rc = 0;
    if (md!=mod_self) {
-      // callback, in caller context!
-      rc = mod_secondary->start_cb(newctx);
-      // launch it if was not denied by callback
-      if (!rc) {
-         log_it(LOG_HIGH, "exec %s\n", md->mod_path);
-         /* if we have MT exec - it process context switching for us, just
-            call it here and it suspends this thread until child`s exit.
-            In non-MT mode - swap process context and call FPU context
-            handling in START module. */
-         if (mt_exechooks.mtcb_exec) rc = mt_exechooks.mtcb_exec(newctx); else {
-            mod_secondary->fp_save(newctx);
-            mt_exechooks.mtcb_ctxmem = newctx;
-            mt_exechooks.mtcb_ctid   = 1;
+      mt_thrdata *self = mt_exechooks.mtcb_cth;
 
-            rc = launch32(md, (u32t)envseg, (u32t)cmdline);
-            // restore context only if still no MT mode!
-            if (!mt_exechooks.mtcb_exec) {
-               // callbacks in callee context (pid)
-               mt_pexitcb(0);
-               mod_secondary->fp_rest();
-               // switch context back to caller
-               mt_exechooks.mtcb_ctxmem = newctx->pctx;
-            }
-         }
-         // this is session start! just exit.
-         if (pd->piMiscFlags&PFLM_NOPWAIT) return rc;
-         /* be careful, this finalization block duplicatied in MTLIB -
-            in session exit code! */
-         rc = mod_secondary->exit_cb(newctx, rc);
+      log_it(LOG_HIGH, chain?"chain %s\n":"exec %s\n", md->mod_path);
+      /* if we have MT exec - it process context switching for us, just
+         call it here and it suspends this thread until child`s exit.
+         In non-MT mode - swap process context and call FPU context
+         handling in START module. */
+      if (mt_exechooks.mtcb_exec) rc = mt_exechooks.mtcb_exec(newctx); else {
+         mod_secondary->fp_save(newctx);
+         mt_exechooks.mtcb_ctxmem = newctx;
+         mt_exechooks.mtcb_cth    = pd->piList[0];
+         // simulate tree
+         if (pd->piParent) pd->piParent->piFirstChild = pd;
+         // callback to START
+         mod_secondary->start_cb();
+         // and !GO!
+         rc = launch32(md, (u32t)envseg, (u32t)cmdline);
       }
+      /* mod_chain can replace a child for us :) so we should check it here
+         and update pointers */
+      pdnew = (mt_prcdata*)mod_secondary->tlsget(QTLS_CHAININFO);
+      if (pdnew) {
+         mod_secondary->tlsset(QTLS_CHAININFO, 0);
+         pd     = pdnew;
+         newctx = pd->piContext;
+         md     = newctx->self;
+      }
+      // this is session start! just exit.
+      if (pd->piMiscFlags&PFLM_NOPWAIT) return rc;
+      // restore context in non-MT mode! (exec above can turn it on, of course)
+      if (!mt_exechooks.mtcb_exec) {
+         // callbacks in callee context (pid)
+         mt_pexitcb(0,0);
+         mod_secondary->fp_rest();
+         // switch context back to caller
+         mt_exechooks.mtcb_ctxmem = newctx->pctx;
+         mt_exechooks.mtcb_cth    = self;
+         // clean up tree
+         if (pd->piParent && pd->piParent->piFirstChild==pd)
+            pd->piParent->piFirstChild = 0;
+      }
+      /* !!!! be careful, this finalization block duplicatied in MTLIB - in
+         session exit code !!!! */
+      rc = mod_secondary->exit_cb(newctx, rc);
+      
       mt_exechooks.mtcb_fini(newctx);
       // must be the last command
       mt_safedand(&md->flags, ~MOD_EXECPROC);
+      /* free the module.
+         must be here because of mod_chain() tricks */
+      mod_free((u32t)md);
    } else {
       /* START module launching.
          This is, actually, NOT DLL init (it already called by mod_load),
          but ptr to START.189 - main function in START.
          Called via dll32init() to use its simple save/restore features. */
       mt_exechooks.mtcb_ctxmem = newctx;
-      mt_exechooks.mtcb_ctid   = 1;
+      mt_exechooks.mtcb_cth    = pd->piList[0];
       dll32init(md,0);
       //log_printf("warning! \"start\" module exited!\n");
    }
    return rc;
+}
+
+s32t mod_exec(u32t mh, const char *env, const char *params, void *mtdata) {
+   return mod_execcall(mh, env, params, mtdata, 0);
+}
+
+qserr _std mod_chain(u32t mh, const char *env, const char *params) {
+   module *md = (module*)mh;
+   qserr  res = 0;
+   // at least now - but this is fixable
+   if (!mod_secondary->in_mtmode) return E_SYS_UNSUPPORTED;
+
+   ldr_lock();
+   // several checks here - because mod_execcall() does not support error code
+   if (md->sign!=MOD_SIGN) res = E_MOD_HANDLE; else
+      if (md->flags&MOD_LIBRARY) res = E_MOD_LIBEXEC; else
+         if (md->flags&MOD_EXECPROC) res = E_MOD_EXECINPROC;
+   ldr_unlock();
+   if (!res) mod_execcall(mh, env, params, 0, 1);
+   /* chain call should never reach this point, so it can be only lucky
+      mod_free() between ldr_unlock() here & ldr_lock() in mod_execcall() */
+   return res?res:E_MOD_HANDLE;
 }
 
 // free and unload module (decrement usage)
@@ -1000,6 +1059,8 @@ int start_it() {
    // loading START module (this is DLL now, not EXE like it was until rev.287)
    mod_start = (module*)mod_load(sec_data, LDM_MEMORY, &err, &sec_size);
    if (!mod_start) return err;
+   // make printable name instead of "mem.source (...)"
+   strcpy(mod_start->mod_path, MODNAME_START);
    // mark it as "system"
    mod_start->flags |= MOD_SYSTEM;
    // query "main" address

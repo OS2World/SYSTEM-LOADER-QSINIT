@@ -1,5 +1,5 @@
 /* unfortunately - main function can`t be in C++ file.
-   wpp is too capricious to overload it name into _main */
+   wpp is too capricious to overload its name into _main */
 
 #include <stdlib.h>
 

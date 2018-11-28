@@ -3,13 +3,17 @@
 // time C library functions
 //
 #include "time.h"
-#include "qstime.h"
+#include "qsutil.h"
 #include "qslog.h"
 #include "qsmod.h"
+#include "errno.h"
 #include "syslocal.h"
 
 static struct tm lct_res;
 static char  timestr[32];
+static const char    *am = "AM";
+static const char    *pm = "PM";
+static const u8t  ampm[] = { 12,1,2,3,4,5,6,7,8,9,10,11,12,1,2,3,4,5,6,7,8,9,10,11 };
 
 #define CONST_DATE_D0     1461
 #define CONST_DATE_D1   146097
@@ -111,14 +115,15 @@ time_t __stdcall time(time_t *tloc) {
    return dostime;
 }
 
-/* The ctime functions convert the time into a string containing 
-exactly 26 characters.  This string has the form shown in the 
-following example:
-     Sat Mar 21 15:58:27 1987\n\0 
-*/
-static const char *mtitle[12]={"Jan","Feb","Mar","Apr","May","Jun",
-   "Jul","Aug","Sep","Oct","Nov","Dec"};
-static const char *dtitle[7]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+static const 
+char *mtitle[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+                    "Sep", "Oct", "Nov", "Dec"},
+      *dtitle[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
+    *dtitle_f[7] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
+                    "Friday", "Saturday" },
+     *mtitle_f[] = {"January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November",
+                    "December" };
 
 static char* _asctime_buffer(void) {
    if (!in_mtmode) return &timestr; else {
@@ -159,4 +164,117 @@ time_t __stdcall dostimetotime(u32t dostime) {
          uts = (jNow-j1970)*CONST_SECINDAY,
         temp = (dostime>>11&0x1F)*3600+(dostime>>5&0x3F)*60+((dostime&0x1F)<<1);
    return uts+temp;
+}
+
+static int lcopy(char *dst, const char *src, u32t maxlen) {
+   int cnt = 0;
+   while (maxlen--)
+      if (*dst++ = *src++) cnt++; else return cnt;
+   return -1;
+}
+
+#define copy_str(x) lclen = lcopy(dst, (x), len);
+
+static void dec(char *out, int in) {
+   *out++ = (in / 10) + '0';
+   *out++ = (in % 10) + '0';
+   *out   = 0;
+}
+
+u32t _std strftime(char *dst, u32t len, const char *fmt, const struct tm *tmv) {
+   char  *start = dst;
+   char     buf[26];
+   char      ch;
+   int    lclen;
+
+   while ((ch = *fmt++)) {
+      if (ch!='%') {
+         *dst++ = ch;
+         if (len--==0) { set_errno(EOVERFLOW); return 0; }
+         continue;
+      }
+      buf[0] = 0;
+
+      switch (*fmt++) {
+         case 'a': copy_str(dtitle[tmv->tm_wday]);     break;
+         case 'A': copy_str(dtitle_f[tmv->tm_wday]);   break;
+         case 'h':
+         case 'b': copy_str(mtitle[tmv->tm_mon]);      break;
+         case 'B': copy_str(mtitle_f[tmv->tm_mon]);    break;
+         case 'c':
+            sprintf(buf, "%02u/%02u/%02u %02u:%02u:%02u", tmv->tm_mday, tmv->tm_mon+1,
+               tmv->tm_year%100, tmv->tm_hour, tmv->tm_min, tmv->tm_sec);
+            break;
+         case 'C': dec(buf, tmv->tm_year/100 + 19);    break;
+         case 'd': dec(buf, tmv->tm_mday);             break;
+         case 'D':
+            sprintf(buf, "%02u/%02u/%02u", tmv->tm_mon+1, tmv->tm_mday, tmv->tm_year%100);
+            break;
+         case 'e': sprintf(buf, "%2u", tmv->tm_mday);  break;
+         case 'F':
+            sprintf(buf, "%4u-%02u-%02u", tmv->tm_year+1900, tmv->tm_mon+1, tmv->tm_mday);
+            break;
+         case 'H': dec(buf, tmv->tm_hour);             break;
+         case 'I': dec(buf, ampm[tmv->tm_hour]);       break;
+         case 'j': sprintf(buf, "%03u", tmv->tm_yday); break;
+         case 'k': sprintf(buf, "%2u", tmv->tm_hour);  break;
+         case 'l': sprintf(buf, "%2u", ampm[tmv->tm_hour]); break;
+         case 'm': dec(buf, tmv->tm_mon + 1);          break;
+         case 'M': dec(buf, tmv->tm_min);              break;
+         case 'n': copy_str("\n"); break;
+         case 'p': copy_str(tmv->tm_hour<12?am:pm);    break;
+         case 'r':
+            sprintf(buf, "%02u:%02u:%02u %s", ampm[tmv->tm_hour], tmv->tm_min,
+               tmv->tm_sec, tmv->tm_hour<12? am : pm);
+            break;
+         case 'R':
+            sprintf(buf, "%02u:%02u", tmv->tm_hour, tmv->tm_min);
+            break;
+         case 's': {
+            /* mktime should adjust tm fields. we ignore this here, but let it
+               will be coded well */
+            struct tm tmtemp = *tmv;
+            ultoa(mktime(&tmtemp), buf, 10);
+            break;
+         }
+         case 'S': dec(buf, tmv->tm_sec);              break;
+         case 't': copy_str("\t"); break;
+         case 'T':
+         case 'X':
+            sprintf(buf, "%02u:%02u:%02u", tmv->tm_hour, tmv->tm_min, tmv->tm_sec);
+            break;
+         case 'U':
+         case 'W': {
+            u32t days = 365 * (u32t)tmv->tm_year;
+            if (tmv->tm_year) {
+               days += (tmv->tm_year-1) / 4;
+               days -= (tmv->tm_year-1) / 100;
+            }
+            if (fmt[-1]=='U') days++;
+            days = days % 7;
+            dec(buf, (tmv->tm_yday + (days?days:7)) / 7);
+            break;
+         }
+         case 'w':
+            buf[0] = tmv->tm_wday + '0';
+            buf[1] = 0;
+            break;
+         case 'x':
+            sprintf(buf, "%02u/%02u/%02u", tmv->tm_mday, tmv->tm_mon+1, tmv->tm_year%100);
+            break;
+         case 'y': dec(buf, tmv->tm_year%100);         break;
+         case 'Y': sprintf(buf, "%4u", tmv->tm_year+1900); break;
+         case 'Z': // no timezone
+         case 'z': lclen = 0; break;
+         case '%': copy_str("%"); break;
+         default:
+            set_errno(EINVAL);
+            return 0;
+      }
+      if (buf[0]) copy_str(buf);
+      if (lclen<0) { set_errno(EOVERFLOW); return 0; }
+      dst += lclen;     /* executed every pass thru switch */
+      len -= lclen;
+   }
+   return dst - start;
 }

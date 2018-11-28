@@ -16,6 +16,7 @@ CODE32          segment dword public USE32 'CODE'
 
                 extrn   _exi_muxunlock:near                     ;
                 extrn   _unlink:near                            ;
+                extrn   __longjmp:near                          ;
 
 ;----------------------------------------------------------------
 ;u32t __stdcall bcmp(const void *s1, const void *s2, u32t length);
@@ -117,6 +118,35 @@ _strstr         proc    near                                    ;
                 pop     ebx                                     ;
                 ret     8                                       ;
 _strstr         endp                                            ;
+
+;----------------------------------------------------------------
+; int _std wcsncmp (const wchar_t *s1, const wchar_t *s2, u32t n);
+                public _wcsncmp
+_wcsncmp        proc near
+@@str1          =  4                                            ;
+@@str2          =  8                                            ;
+@@len           = 12                                            ;
+                push    esi                                     ;
+                mov     ecx, [esp+4+@@len]                      ;
+                push    edi                                     ;
+                mov     esi, [esp+8+@@str1]                     ;
+                push    ds                                      ;
+                mov     edi, esi                                ;
+                pop     es                                      ;
+                xor     eax, eax                                ;
+          repne scasw                                           ;
+                sub     edi, esi                                ;
+                mov     ecx, edi                                ;
+                mov     edi, [esp+8+@@str2]                     ;
+           repe cmpsw                                           ;
+                jz      @@rcok                                  ;
+                sbb     eax, eax                                ;
+                sbb     eax, 0FFFFFFFFh                         ;
+@@rcok:
+                pop     edi                                     ;
+                pop     esi                                     ;
+                ret     12                                      ;
+_wcsncmp        endp                                            ;
 
 ; search/patch binary data
 ;----------------------------------------------------------------
@@ -494,35 +524,6 @@ _memxchg        proc    near                                    ;
 _memxchg        endp
 
 ;----------------------------------------------------------------
-;u16t   __stdcall bswap16(u16t value);
-                public  _bswap16                                ;
-_bswap16        proc    near                                    ;
-                movzx   eax,word ptr [esp+4]                    ;
-                xchg    ah,al                                   ;
-                ret     4                                       ;
-_bswap16        endp
-
-;----------------------------------------------------------------
-;u32t   __stdcall bswap32(u32t value);
-                public  _bswap32                                ;
-_bswap32        proc    near                                    ;
-                mov     eax,[esp+4]                             ;
-                bswap   eax                                     ;
-                ret     4                                       ;
-_bswap32        endp
-
-;----------------------------------------------------------------
-;u64t   __stdcall bswap64(u64t value);
-                public  _bswap64                                ;
-_bswap64        proc    near                                    ;
-                mov     edx,[esp+4]                             ;
-                mov     eax,[esp+8]                             ;
-                bswap   edx                                     ;
-                bswap   eax                                     ;
-                ret     8                                       ;
-_bswap64        endp
-
-;----------------------------------------------------------------
 ;wchar_t *__stdcall wcscpy(wchar_t *dst, const wchar_t *src);
                 public _wcscpy
 _wcscpy         proc near
@@ -717,12 +718,18 @@ exi_muxunlocka  proc    near                                    ; save edx:eax
                 ret                                             ;
 exi_muxunlocka  endp                                            ;
 
-
 ;----------------------------------------------------------------
-                public  _remove
-_remove         proc    near
-                jmp     _unlink
-_remove         endp
+                public  _remove                                 ;
+_remove         proc    near                                    ;
+                jmp     _unlink                                 ;
+_remove         endp                                            ;
+;----------------------------------------------------------------
+                public  sigljmp_thunk                           ;
+sigljmp_thunk   proc    near                                    ;
+                push    eax                                     ;
+                push    ecx                                     ;
+                call    __longjmp                               ;
+sigljmp_thunk   endp                                            ;
 
 CODE32          ends
 

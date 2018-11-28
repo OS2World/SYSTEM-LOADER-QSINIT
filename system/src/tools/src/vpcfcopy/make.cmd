@@ -1,21 +1,31 @@
+@rem **************************************************
+@rem * make [1]        - release make                 *
+@rem * make 0          - debug make                   *
+@rem * make [x] clean  - clean                        *
+@rem * make [x] nolink - make without linking         *
+@rem **************************************************
 @echo off
-rem save original include & path
-set INC_ORG=%INCLUDE%
+rem --------------
+set prjname=vpcfcopy
+rem --------------
+set bldtype=%1
+set bldarg=%2
+if "%bldtype%"=="0" goto make
+if NOT "%bldtype%"=="1" set bldarg=%1
+set bldtype=1
+:make
+if "%bldarg%".=="". set bldarg=*
+
 set PATH_ORG=%PATH%
 call ..\..\..\setup.cmd
-rem and restore it ;)
-set INCLUDE=%INC_ORG%
+set INCLUDE=%TOOL_INC%
+set PATH=%PATH_ORG%;%PATH%
+
+rem creating dirs (else spprj will fail to write misc files before build)
+spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
+rem writing makefile for reference
+spprj -nb %prjname%.prj %bldtype% bld\%prjname%.mak
+rem and build it
+spprj -b -bl -w -es %toolprjkey% %prjname%.prj %bldtype% %bldarg%
+
 set PATH=%PATH_ORG%
-
-set os_def=SP_%BUILD_HERE%
-if "%BUILD_HERE%".=="OS2". goto skipfix
-set os_def=SP_WIN32
-:skipfix
-set defs=-DSRT -DNO_HUGELIST -DNO_RANDOM -DNO_SP_ASSERTS
-set fp=..\..\..\ldrapps\start\fs
-
-wcl386 -zq -D%os_def% %defs% -I..\tinc2h\rt -I%fp% vpcfcopy.c 
-set TGT_DIR=..\..\t_%BUILD_HERE%
-if EXIST %TGT_DIR%\VPCFCOPY.EXE del %TGT_DIR%\VPCFCOPY.EXE >nul
-move VPCFCOPY.EXE %TGT_DIR%
-del *.obj>nul

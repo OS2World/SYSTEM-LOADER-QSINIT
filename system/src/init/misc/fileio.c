@@ -40,8 +40,6 @@ extern void __cdecl fat_close(void);
 extern void __cdecl mfs_term (void);
 extern void __cdecl fat_term (void);
 
-// cache control
-void _std cache_ctrl(u32t action, u8t vol);
 // setup boot partition i/o
 void init_vol0();
 
@@ -286,7 +284,7 @@ void hlp_fdone(void) {
    if (file_in_use) hlp_fclose();
    if (bootFT) fat_term(); else
       if (micro) mfs_term();
-   cache_ctrl(CC_SHUTDOWN,0);
+   hlp_cachenotify(0, CC_SHUTDOWN);
 }
 
 u32t _std hlp_boottype(void) {

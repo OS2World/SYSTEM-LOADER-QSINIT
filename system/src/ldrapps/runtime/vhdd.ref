@@ -24,6 +24,24 @@ class = {
 }
 
 class = {
+   name = qs_vhddisk
+   entries = {
+      make    = "@uppsu@q"
+      open    = "@upps"
+      query   = "@uppp&s&*u&*u"
+      read    = "upp@qup"
+      write   = "upp@qup"
+      compact = "uppi"
+      mount   = "@upp"
+      disk    = "@upp"
+      umount  = "@upp"
+      close   = "@upp"
+      trace   = "vppii"
+      setgeo  = "@uppp"
+   }
+}
+
+class = {
    name = qs_emudisk_ext
    entries = {
       getgeo  = "uppp"

@@ -49,7 +49,7 @@ u8t*                     ExCvt; // OEM case table (was used for FatFs, now for s
 #define OEMTAB_SIZE     (128)
 
 int  start_it(void);
-void make_disk1(void);
+void unpack_start_module(void);
 void check_disks(void);
 void get_ini_parm(void);
 void make_crc_table(void *table);
@@ -98,6 +98,7 @@ int _std init32(u32t rmstack) {
 #endif // EFI_BUILD
    // init internal structs & save some keys for START module
    init_common();
+   init_host();
 #ifndef EFI_BUILD
    // is disk 0: available?
    bootio_avail = dd_bootflags&BF_NOMFSHVOLIO ? 0 : 1;
@@ -109,7 +110,7 @@ int _std init32(u32t rmstack) {
    // get some critical keys from .ini
    get_ini_parm();
    // read and unpack QSINIT.LDI (zip with common code)
-   make_disk1();
+   unpack_start_module();
    // minor check to see error in log
    check_disks();
 #ifndef EFI_BUILD
@@ -207,14 +208,15 @@ void _std exit_reboot(int warm) {
 // obsolette function
 u32t hlp_segtoflat(u16t Segment) { return (u32t)Segment<<PARASHIFT; }
 
-/// call installed cache callback with supplied action code
-void _std cache_ctrl(u32t action, u8t vol) {
-   if (cache_eproc) (*cache_eproc->cache_ioctl)(vol, action);
-}
-
 /// install cache callback functions
 u32t hlp_runcache(cache_extptr *fptr) {
    if (fptr && fptr->entries!=3) return 0;
    cache_eproc = fptr;
    return 1;
+}
+
+/// call installed cache callback with supplied action code
+u32t _std hlp_cachenotify(u8t vol, u32t action) {
+   if (cache_eproc) (*cache_eproc->cache_ioctl)(vol, action);
+   return cache_eproc?1:0;
 }

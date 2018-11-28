@@ -20,8 +20,6 @@ class = {
       size      = "@upp@u&*q"
       setsize   = "@upp@uq"
       finfo     = "@upp@up"
-      setattr   = "@upps@u"
-      getattr   = "@upps&*@u"
       setexattr = "@uppsspu"
       getexattr = "@uppssp&*u"
       lstexattr = "ppps"
@@ -34,4 +32,5 @@ class = {
       diropen   = "@upps&*@u"
       dirnext   = "@upp@up"
       dirclose  = "@upp@u"
+   }
 }

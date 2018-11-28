@@ -76,7 +76,7 @@ copy=cp
 [files]
 ..\..\hc\inc\seldesc.inc ..\..\init\inc\qspdata.inc
 qsinit.ref start.ref console.ref partmgr.ref start.def cache.ref vdisk.ref
-cplib.ref vhdd.ref extcmd.ref mtlib.ref fslib.ref
+cplib.ref vhdd.ref extcmd.ref mtlib.ref fslib.ref fsfat.ref
 start.trace qsinit.trace partmgr.trace cplib.trace vhdd.trace console.trace
 mtlib.trace vdisk.trace fslib.trace
 init.asm initdll.asm cpproute.asm initdta.asm libmisc.asm

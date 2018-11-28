@@ -60,6 +60,16 @@ void  _std vio_writebuf(u32t col, u32t line, u32t width, u32t height,
 void  _std vio_readbuf (u32t col, u32t line, u32t width, u32t height,
                         void *buf, u32t pitch);
 
+/** draws a rectangle.
+    @param   col    start column
+    @param   line   start line
+    @param   width  rectangle width
+    @param   height rectangle height
+    @param   ch     character, use 0 for default (space)
+    @param   color  color value */
+void  _std vio_fillrect(u32t col, u32t line, u32t width, u32t height,
+                        char ch, u16t color);
+
 #define VIO_SHAPE_FULL      0x00    ///< full-size
 #define VIO_SHAPE_HALF      0x01    ///< bottom half of character
 #define VIO_SHAPE_WIDE      0x02    ///< wide line
@@ -231,6 +241,9 @@ void  _std key_getspeed(u8t *rate, u8t *delay);
 #define KEY_SYSREQ      0x001000
 #define KEY_INSERT      0x002000
 //@}
+
+/// special code for Ctrl-Break (available in BIOS version only)
+#define KEYC_CTRLBREAK    0xFE00
 
 /// get system keys status
 u32t  _std key_status(void);

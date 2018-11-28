@@ -92,9 +92,14 @@ static spstr &subst_env(spstr &str,session_info *si) {
   do {     // replace env vars
      ll=str.bepos("%","%",epos,start);
      if (ll>=0) {
-        spstr ename(str,ll+1,epos-ll-1), eval;
+        spstr ename(str,ll+1,epos-ll-1), eval, opstr;
+        l     oppos = ename.cpos(':');
 
-        if (ename.cpos(' ')>=0) start=epos;
+        if (oppos>=0) {
+           opstr = ename.deltostr(oppos+1, ename.length()-oppos-1);
+           ename.dellast();
+        }
+        if (!ename || ename.cpos(' ')>=0) start=epos;
         else {
            if (ename.upper()=="CD") {
               getcwd(eval.LockPtr(NAME_MAX+1),NAME_MAX+1);
@@ -130,12 +135,36 @@ static spstr &subst_env(spstr &str,session_info *si) {
               char *dn = (char*)sto_data(STOKEY_VDNAME);
               eval = dn?dn:"?";
            } else
-
            if (ename=="DBPORT") {
               u32t port = hlp_seroutinfo(0);
               if (port) eval = port;
            } else
               eval = getenv(ename());
+           // substring expansion/replacement (same as in WinXP cmd.exe)
+           if (opstr.length()) {
+              if (opstr[0]=='~') {
+                int ofs = opstr.del(0).word_Int(1,","),
+                    len = opstr.word_Int(2,",");
+                if (len<=0) len += eval.length();
+                if (ofs<0) ofs += eval.length();
+                eval = eval(ofs,len);
+              } else {
+                 spstr src = opstr.word(1,"=");
+                 if (src[0]=='*') {
+                    l rps = eval.pos(src.del(0));
+                    if (rps>0) eval.del(0,rps);
+                 } else
+                 if (src.lastchar()=='*') {
+                    l rps = eval.pos(src.dellast());
+                    if (rps>=0) {
+                       rps+=src.length();
+                       eval.del(rps, eval.length()-rps);
+                    }
+                 }
+                 eval.replace(src,opstr.word(2,"="));
+              }
+           }
+           // this thing replaces ALL same entries of %string:op% in the line!
            str.replace(str(ll,epos-ll+1),eval);
            // pos to the end of replaced value
            start = ll+eval.length();
@@ -305,7 +334,7 @@ static u32t process_for(TStrings &plist, session_info *si) {
 
          dir_t *info = 0;
          splitfname(mask,dir,name);
-         u32t cnt = _dos_readtree(dir(),name(),&info,isrec,0,0);
+         u32t cnt = _dos_readtree(dir(),name(),&info,isrec,0,0,0);
 
          if (cnt) {
             TStrings flst,dlst;
@@ -534,20 +563,16 @@ static u32t cmd_process(spstr ln, session_info *si) {
             module* md=cmd[1]==':'?(module*)mod_load((char*)cmd(),0,&error,0):
                                    (module*)mod_searchload(cmd(),0,&error);
             if (md) {
-               char *env = env_copy(mod_context(), 0);
-               s32t   rc;
-
+               s32t rc;
                if (si->mode&MODE_DLAUNCH) {
                   qs_mtlib mt = get_mtlib();
-                  error = mt ? mt->execse((u32t)md,env,parm(),QEXS_DETACH,0,0,0) :
+                  error = mt ? mt->execse((u32t)md,0,parm(),QEXS_DETACH,0,0,0) :
                                E_MT_DISABLED;
                   rc    = qserr2errno(error);
                } else {
-                  rc = mod_exec((u32t)md, env, parm(), 0);
+                  rc = mod_exec((u32t)md, 0, parm(), 0);
                   if (rc<0) printf("Unable to launch module \"%s\"\n", cmd());
-                  mod_free((u32t)md);
                }
-               free(env);
                // set errorlevel env. var
                set_errorlevel(rc);
                rc = 0;
@@ -724,12 +749,9 @@ str_list* _std cmd_modeqall(void) {
 
 module* load_module(spstr &name, u32t *error) {
    name.trim().upper();
-   // correct TV direct A:..Z: path
-   if (name[1]==':')
-      if (name[0]>='A'&&name[0]<='Z') name[0]-='A'-'0';
    // launch or search module
-   return name[1]==':'?(module*)mod_load((char*)name(),0,error,0):
-                       (module*)mod_searchload(name(),0,error);
+   return name[1]==':'?(module*)mod_load(name(), 0, error, 0):
+                       (module*)mod_searchload(name(), 0, error);
 }
 
 u32t _std cmd_argtype(char *arg) {

@@ -4,7 +4,7 @@
 ;
                 include inc/basemac.inc 
                 include inc/qstypes.inc
-                include inc/seldesc.inc
+                include inc/qspdata.inc
                 include inc/qschain.inc
 
                 .486
@@ -18,8 +18,7 @@ CODE32          segment para public USE32 'CODE'
                 extrn   _mt_swunlock:near                       ;
                 extrn   _sys_exfunc4:near                       ;
                 extrn   _log_printf :near                       ;
-
-EXIT_SIGN       = 6B6F6F48h                                     ; Hook
+                extrn   _mt_exechooks:mt_proc_cb_s              ;
 
 ; call interception thunk
 ; --------------------------------------------------------------
@@ -97,6 +96,8 @@ _chain_entry    label   near
                 mov     [edi].es_sign,EXIT_SIGN                 ;
                 mov     [edi].es_od,eax                         ;
                 mov     [edi].es_ebp,ebp                        ;
+                mov     ebp,_mt_exechooks.mtcb_cth              ; current thread
+                mov     [edi].es_owner,ebp                      ; (for the thread/process kill)
                 mov     ebp,edi                                 ;
                 pop     ecx                                     ;
                 pop     edi                                     ;

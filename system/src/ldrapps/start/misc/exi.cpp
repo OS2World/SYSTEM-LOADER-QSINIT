@@ -179,14 +179,24 @@ static int exi_loadext(const char *classname, int query = 0) {
    return -1;
 }
 
-u32t _std exi_methods(u32t classid) {
-   MTLOCK_THIS_FUNC lk;
+/// must be called in MT lock
+static cl_ref *_ref(u32t classid) {
    if (!classid) return 0;
    if (!refs) exi_registerstd();
    if (classid>refs->Count()) return 0;
+   return refs->Objects(classid-1);
+}
 
-   cl_ref *ref = refs->Objects(classid-1);
-   return ref->fncount;
+u32t _std exi_methods(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
+   cl_ref *ref = _ref(classid);
+   return ref?ref->fncount:0;
+}
+
+u32t _std exi_provider(u32t classid) {
+   MTLOCK_THIS_FUNC lk;
+   cl_ref *ref = _ref(classid);
+   return ref?ref->module:0;
 }
 
 u32t exi_queryid_int(const char *classname, int noprivate = 1) {
@@ -556,8 +566,8 @@ int _std exi_chainset(void *instance, int enable) {
 
 pvoid* _std exi_thunklist(u32t classid) {
    MTLOCK_THIS_FUNC lk;
-   if (!refs || !classid || classid>refs->Count()) return 0;
-   cl_ref *ref = refs->Objects(classid-1);
+   cl_ref *ref = _ref(classid);
+   if (!ref) return 0;
    if (!ref->thunks) exi_chainon(classid);
    return ref->thunks;
 }

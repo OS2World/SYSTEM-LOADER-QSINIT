@@ -27,7 +27,6 @@ typedef struct {
    u32t           sign;
    u8t _std  (*charin )(u16t port);
    qs_vh          link;
-   u16t           next;
    u16t           port;
    u32t           bpos;
    char       escb[16];
@@ -200,7 +199,7 @@ static void  _exicc vh_tty_setcolor(EXI_DATA, u16t color) {
    if (color>=0x100) color = VIO_COLOR_WHITE;
 
    // any of intensity bit mistmatch?
-   if ((color&0x88^td->color&0x88) || color==7) {
+   if ((color&0x88^td->color&0x88) || (color&7)==7) {
       tty_strout(td,"\x1B[0m");
       if (color&8) tty_strout(td,"\x1B[1m");
       if (color&0x80) tty_strout(td,"\x1B[5m");
@@ -210,7 +209,7 @@ static void  _exicc vh_tty_setcolor(EXI_DATA, u16t color) {
       snprintf(str, 24, "\x1B[%um", 40+col_rec[color>>4&7]);
       tty_strout(td, str);
    }
-   if ((td->color&0x7)!=(color&0x7)) {
+   if ((td->color&7)!=(color&7)) {
       snprintf(str, 24, "\x1B[%um", 30+col_rec[color&7]);
       tty_strout(td, str);
    }
@@ -388,12 +387,12 @@ static u32t tty_charin(kh_data *kd) {
 /*70h*/ 0x19,16,19,0x1F,0x14,0x16,0x2F,17,0x2D,0x15,0x2C,0x1A,0x2B,0x1B,0x29,14 };
 
    u8t chr = kd->charin(kd->port);
-   if (!chr || chr>=0x80) return 0;
 /*
    char buf[32];
    snprintf(buf, 32, "%02X(%c)", chr, chr>0x20?chr:0x20);
    vio_strout(buf);
    return 0; */
+   if (!chr || chr>=0x80) return 0;
 
    if (chr==0x1B) {
       if (kd->bpos!=1) {
@@ -418,6 +417,10 @@ static u32t tty_charin(kh_data *kd) {
          kd->escb[1] = chr;
          kd->bpos++;
          return 0;
+      } else
+      if (chr==0x7F) {
+         kd->bpos = 0;
+         return 0x0E00;  // alt-backspace
       }
    } else
    if (kd->bpos>1) {
@@ -433,12 +436,13 @@ static u32t tty_charin(kh_data *kd) {
       } else
       if (chr=='~') {
          int            chv;
-         // note, that 0x41 is hardcoded KEY_SHIFT|KEY_SHIFTLEFT
+#define KS ((KEY_SHIFT|KEY_SHIFTLEFT)<<16)
          static u32t recmtx[] = {
   /*  1 */  0x4700, 0x5200, 0x5300, 0x4F00, 0x4900, 0x5100, 0,0,0,0,
   /* 11 */  0x3B00, 0x3C00, 0x3D00, 0x3E00, 0x3F00, 0, 0x4000, 0x4100, 0x4200, 0x4300,
-  /* 21 */  0x4400, 0, 0x415400, 0x415500, 0x415600, 0x415700, 0, 0x415800, 0x415900, 0,
-  /* 31 */  0x415A00, 0x415B00, 0x415C00, 0x415D00 };
+  /* 21 */  0x4400, 0, KS|0x5400, KS|0x5500, KS|0x5600, KS|0x5700, 0, KS|0x5800,
+            KS|0x5900, 0,
+  /* 31 */  KS|0x5A00, KS|0x5B00, KS|0x5C00, KS|0x5D00 };
          kd->escb[kd->bpos] = 0;
          chv = atoi(kd->escb+2);
          kd->bpos = 0;
@@ -457,13 +461,15 @@ static u32t tty_charin(kh_data *kd) {
       } else
       if (chr=='Z') {                // shift-tab
          kd->bpos = 0;
-         return 0x410F00;
+         return KS|0x0F00;
       } else
       if (chr=='H' || chr=='K' || chr=='J') {    // home/end
          kd->bpos = 0;
          return chr=='H'?0x4700:0x4F00;
       }
-   }
+   } else
+   if (chr==0x7F) return 0x0E08;    // backspace
+
    kd->bpos = 0;
    // add a scan code (value < 0x20 was filtered above)
    return (u32t)scan[chr-0x20]<<8|chr;
@@ -473,29 +479,19 @@ static u32t tty_charin(kh_data *kd) {
 static u16t _exicc kh_tty_read(EXI_DATA, int wait, u32t *status) {
    u32t   rc;
    kh_instance_ret(kd,0);
-   rc = kd->next;
-   if (rc) kd->next = 0; else {
+   rc = tty_charin(kd);
+   while (wait && !rc) {
+      usleep(32*1024);
       rc = tty_charin(kd);
-      while (wait && !rc) {
-         usleep(32*1024);
-         rc = tty_charin(kd);
-      }
    }
    if (status) *status = rc>>16;
    //if (rc) log_it(0, "tty: %04X\n", rc);
    return rc;
 }
 
-static u8t _exicc kh_tty_avail(EXI_DATA) {
-   kh_instance_ret(kd,0);
-   if (!kd->next) kd->next = tty_charin(kd);
-   return kd->next?1:0;
-}
-
 static u32t _exicc kh_tty_status(EXI_DATA) { return 0; }
 
-static void *kh_methods_list[] = { kh_tty_init, kh_tty_link, kh_tty_avail,
-   kh_tty_read, kh_tty_status };
+static void *kh_methods_list[] = { kh_tty_init, kh_tty_link, kh_tty_read, kh_tty_status };
 
 static void _std kh_tty_initialize(void *instance, void *data) {
    kh_data *kd = (kh_data*)data;

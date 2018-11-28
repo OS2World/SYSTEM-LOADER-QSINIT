@@ -56,6 +56,8 @@
 #define E_SYS_EOF           (E_TYPE_SYS+0x0025)  ///< (unexpected) end of file reached
 #define E_SYS_CRC           (E_TYPE_SYS+0x0026)  ///< CRC error in file
 #define E_SYS_NOTFOUND      (E_TYPE_SYS+0x0027)  ///< entry not found
+#define E_SYS_DIRNOTEMPTY   (E_TYPE_SYS+0x0028)  ///< directory not empty
+#define E_SYS_ISDIR         (E_TYPE_SYS+0x0029)  ///< specified name is a directory
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_DSK_ERRREAD       (E_TYPE_DSK+0x0001)  ///< disk read error
@@ -83,6 +85,7 @@
 #define E_DSK_FILESIZE      (E_TYPE_DSK+0x0017)  ///< file size is not match file system information
 #define E_DSK_FILEALLOC     (E_TYPE_DSK+0x0018)  ///< file allocation data is incorrect
 #define E_DSK_FSSTRUCT      (E_TYPE_DSK+0x0019)  ///< file system structures are invalid or damaged
+#define E_DSK_NOTPHYS       (E_TYPE_DSK+0x001A)  ///< volume is not a physical disk
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_PTE_FLOPPY        (E_TYPE_PTE+0x0001)  ///< big floppy, pt is empty
@@ -167,6 +170,9 @@
 #define E_MT_SEMBUSY        (E_TYPE_MT +0x000E)  ///< semaphore is busy
 #define E_MT_LOCKLIMIT      (E_TYPE_MT +0x000F)  ///< too many nested lock calls (>64k)
 #define E_MT_SEMFREE        (E_TYPE_MT +0x0010)  ///< semaphore is free
+#define E_MT_THREADLIMIT    (E_TYPE_MT +0x0011)  ///< too many threads per process (>4k)
+#define E_MT_SUSPENDED      (E_TYPE_MT +0x0012)  ///< thread is suspended
+#define E_MT_WAITACTIVE     (E_TYPE_MT +0x0013)  ///< someone waits for this mutex or event
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_CON_MODERR        (E_TYPE_CON+0x0001)  ///< video mode is not supported

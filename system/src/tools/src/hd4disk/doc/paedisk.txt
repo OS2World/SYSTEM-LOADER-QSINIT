@@ -31,12 +31,12 @@
 
   You can also use Blue Lion version of HD4DISK.ADD.
 
-  On some PCs you, even, can get a "persistent" RAM disk (only on memory above
-  4GB). I.e., many BIOS models ignore this area during warm reboot. Adding a
-  PERSIST option to RAMDISK command allows you to try recovery such disk after
-  reboot. This option guarantees nothing, actual. For example, on my current
-  PC BIOS clears 1Mb above 4Gb border on every boot - this makes it void.
-  But, in many cases it works.
+  On some BIOS models you, even, can get a "persistent" RAM disk (if only
+  memory above 4GB used). I.e., a lot of BIOS models ignore this area during
+  warm reboot. Adding "PERSIST" option to the RAMDISK command give you a
+  chance to recovery such disk after reboot. This option guarantees nothing,
+  actual. For example, my current PC`s BIOS clears 1Mb above 4Gb border on
+  every boot - this makes it void. But, in many cases it works.
 
   Some examples of RAMDISK command syntax:
 
@@ -50,15 +50,16 @@
 
         ramdisk z: hpfs
 
-     will make the same, but apply HPFS format instead of FAT.
+     makes the same, but apply HPFS format instead of FAT.
 
   2. use all memory above 4Gb, but can use 100Mb of memory below 4Gb to create
-     guaranteed disk size of 100Mb. If disk size if greater 100Mb - is will be
-     splitted to 2 partitions. 
-     First will be Z: FAT, second (if exist) - Q:, FAT or FAT32 - depends on
+     guaranteed disk size of 100Mb. If disk size greater than 100Mb - it will
+     be splitted to two partitions. 
+     First is Z: FAT and second (if exist one) - Q:, FAT or FAT32 - depends on
      size. 
-     First partition`s LVM name will be "Vol1", second "Vol2". I.e. RAMDISKNAME
-     shell variable in QSINIT can be used to replace default volume naming.
+     First partition LVM name forced to be "Vol1", second "Vol2". I.e.
+     RAMDISKNAME shell variable in QSINIT can be used to replace default
+     volume naming.
 
         set ramdiskname = Vol1, Vol2
         ramdisk min=100 z: q: div=100
@@ -115,7 +116,7 @@
 
       /1 - use STRAT1 instead of STRAT2.
            Add this key if you NOT using FAT32 and JFS on RAM disk.
-           (i.e. RAMDISK NOFAT32 must be used to create it).
+           (i.e. RAMDISK NOFAT32 should be used to create it).
 
            STRAT2 calls designed to be more advanced for real hardware i/o,
            but adds additional delay on the RAM disk. 

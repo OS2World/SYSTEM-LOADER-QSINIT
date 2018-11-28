@@ -31,6 +31,8 @@ struct dirent {
    u64t     d_size;             ///< file's size
    char     d_name[NAME_MAX+1]; ///< file's name
    char    *d_openpath;         ///< path specified to opendir (with trailing \)
+   struct 
+   dirent  *d_subdir;           ///< subdirectory data (_dos_readtree() call)
    void    *d_sysdata;          ///< internal data
 };
 typedef struct dirent dir_t;
@@ -73,13 +75,17 @@ typedef struct diskfree_t diskfree_t;
 qserr  _std _dos_getdiskfree(unsigned drive, diskfree_t *diskspace);
 
 /** callback for _dos_readtree.
-    @param fp      file info. d_openpath field point to file`s directory
-    @param cbinfo  user data for callback proc
+    @param fp           file info. d_openpath field point to file`s directory
+    @param cbinfo       user data for callback proc
     @return 1 to continue processing, 0 to skip this entry and -1
             to stop call and return 0 from _dos_readtree() */
 typedef int _std (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
 
 /** read directory tree.
+    @attention Note, that list, returned by this function is a thread owned
+               memory. I.e. exiting of a thread, which called this function
+               will release entire list.
+
     @param dir          Directory.
     @param mask         File mask, can be 0 (assume *.*).<br>
                         note: directories returned without pattern match,
@@ -87,17 +93,18 @@ typedef int _std (*_dos_readtree_cb)(dir_t *fp, void *cbinfo);
                         high bit (0x80) set. "." is never returned.
     @param [out] info   Pointer to return data. Return list of dir files
                         with 0 in last entry dir_t[].d_name. In _A_SUBDIR
-                        dir_t entries d_sysdata field points to subdirectory
+                        dir_t entries d_subdir field points to subdirectory
                         data in the same format (dir_t*).<br>
                         This list must be freed by single _dos_freetree() call
                         with top dir *info value.
     @param subdirs      Scan all subdirectories flag.
+    @param [out] dircnt Number of found subdirectories (ptr can be 0)
     @param callback     Callback to process data immediatly while reading.
                         One of info or callback can be 0.
     @param cbinfo       User data for callback proc.
     @return total number of found files (with subdirectories). */
 u32t   _std _dos_readtree(const char *dir, const char *mask,
-                          dir_t **info, int subdirs,
+                          dir_t **info, int subdirs, u32t *dircnt,
                           _dos_readtree_cb callback, void *cbinfo);
 
 /** free directory tree data.
@@ -113,7 +120,7 @@ qserr  _std _dos_setfileattr(const char *path, unsigned attributes);
 
 /** get file attributes.
     @param       path         File path.
-    @param [OUT] attributes   File attributes.
+    @param [out] attributes   File attributes.
     @return 0 on success or QS error code */
 qserr  _std _dos_getfileattr(const char *path, unsigned *attributes);
 
@@ -130,7 +137,7 @@ qserr  _std _dos_setfiletime(const char *path, u32t dostime, u32t type);
 
 /** get file/dir time.
     @param       path         File path.
-    @param [OUT] dostime      Time in DOS format.
+    @param [out] dostime      Time in DOS format.
     @return 0 on success or QS error code */
 qserr  _std _dos_getfiletime(const char *path, u32t *dostime, u32t type);
 

@@ -20,9 +20,11 @@ void setup_fileio(void);
 void setup_storage(void);
 void setup_hardware(void);
 void setup_sessions(void);
+void setup_tasklist(void);
 void check_version(void);
 int  get_ini_parms(void);
 int  unpack_ldi(void);
+void mount_vol0(void);
 void setup_fio(void);
 void mem_init(void);
 
@@ -43,13 +45,13 @@ void _std mod_main(void) {
    setup_sessions();
    // file i/o, uses storage at least, and provides system file i/o for everybody
    setup_fio();
-   if (!unpack_ldi()) exit_pm32(QERR_NOEXTDATA);
    // export minor LE/LX loader code, missing in QSINIT
    setup_loader();
    // setup std file i/o
    setup_fileio();
    // get some parameters from ini and copy ini file to 1:
    get_ini_parms();
+   if (!unpack_ldi()) exit_pm32(QERR_NOEXTDATA);
    /* advanced setup of system memory
       - must be after memInit() & setup_loader() (mod_secondary for QSINIT) */
    setup_memory();
@@ -61,15 +63,19 @@ void _std mod_main(void) {
    setup_shell();
    // check version (if we`re still alive)
    check_version();
+   // try to mount boot volume
+   mount_vol0();
+   // install ctrl-esc hotkey
+   setup_tasklist();
    // left shift was pressed (safe mode)
    if (hlp_insafemode()) {
       cmd_state cst;
       log_printf("skipping start.cmd\n");
-      cmd_exec("1:\\safemode.cmd",0);
+      cmd_exec("b:\\safemode.cmd",0);
    } else {
       if (hlp_hosttype()==QSHT_BIOS) setup_exceptions(1);
       key_speed(0,0);
-      cmd_exec("1:\\start.cmd",0);
+      cmd_exec("b:\\start.cmd",0);
    }
    /* WARNING! START module is never released by QSINIT, so exported code
       CAN be called after this point! */

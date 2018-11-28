@@ -1,0 +1,39 @@
+License Agreement
+-----------------
+
+Binary form of this package is freeware.
+
+Source code available for non-commercial use only.
+
+Modifications concerning the existence and/or modification of any
+copyright/author/name statements are generally not allowed.
+
+This software is provided on an "as is" basis. The author makes no
+warranties, expressed or implied, including, but not limited to, those
+of merchantability and fitness for a particular purpose,  with respect
+to this software. The author does not warrant, guarantee or make any
+representations regarding the use or the results of the use of this
+software, in terms of the accuracy, reliability, quality, validity,
+stability, completeness, currentness, or otherwise. The entire risk of
+using this software is assumed by the user.
+
+In no event will the author be liable to any party (i) for any direct,
+indirect, special, punitive, incidental or consequential damages
+(including, but not limited to, damages for loss of business profits,
+business interruption, loss of programs or information, and the like),
+or any other damages arising in any way out of the availability, use,
+reliance on, or inability to use this software, even if the author
+have been advised of the possibility of such damages, and regardless
+of the form of action, whether in contract, tort, or otherwise;
+or (ii) for any claim attributable to errors, omissions, or other
+inaccuracies in, or destructive properties of any information.
+
+Author is not obliged to provide maintenance or support to you.
+
+If you don't agree with these statements, please erase this sofware.
+
+AND
+This application is based on part on:
+ * zlib 1.2.8 (c) 1995-2013 Jean-loup Gailly and Mark Adler
+ * FatFs - FAT file system module (c) 2018, ChaN.
+ * PMODE 3.07 (c) 1994, Tran (a.k.a. Thomas Pytel)

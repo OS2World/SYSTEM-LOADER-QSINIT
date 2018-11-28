@@ -1418,10 +1418,10 @@ gptsect:
                 bsf     cx,[bp].Boot_Record.BR_BPB.BPB_BytePerSect ; is it 1 bit
                 cmp     ax,cx                                   ; in range 512..4096?
                 jnz     @@pt_g_notbpb                           ; if yes - update
-                cmp     ax,9                                    ; Hidden Sectors value
+                cmp     al,9                                    ; Hidden Sectors value
                 jc      @@pt_g_notbpb                           ; in BPB.
-                cmp     ax,12                                   ;
-                jg      @@pt_g_notbpb                           ;
+                cmp     al,13                                   ;
+                jnc     @@pt_g_notbpb                           ;
                 mov     [bp].Boot_Record.BR_BPB.BPB_HiddenSec,ebx ;
 @@pt_g_notbpb:
                 JmpF16a 0,LOC_7C00h                             ;

@@ -78,6 +78,7 @@ static void push_avail(TCollection *cl, int width, char **buf, const char *str) 
 }
 
 #define PUSH_AVAIL(x) push_avail(dl,list_wdt,&str,x)
+#define PUSH_EMPTY()  str = new char[2]; *str = 0; dl->insert(str);
 
 void TSysApp::ExecCpuInfoDlg() {
    u32t data[4];
@@ -111,6 +112,8 @@ void TSysApp::ExecCpuInfoDlg() {
 
        sprintf(idstr,"%d.%d.%d",data[0]>>8&0xF,data[0]>>4&0xF,data[0]&0xF);
        replace_coltxt(&CpuIdText, idstr);
+       u32t    cores = data[1]>>16&0xF,
+              apicid = data[1]>>24;
 
        opts_cpuid(0x80000000,data);
        u32t maxlevel = data[0];
@@ -153,7 +156,12 @@ void TSysApp::ExecCpuInfoDlg() {
              }
           }
        }
-       str = new char[2]; *str = 0; dl->insert(str);
+       if (cores>1) {
+          str = new char[80];
+          sprintf(str, "CPU cores  : %u (unit id %u)", cores, apicid);
+          dl->insert(str);
+       }
+       PUSH_EMPTY();
 
        TRect rr(CpuInfoList->getBounds());
        int list_wdt = rr.b.x-rr.a.x;
@@ -192,7 +200,7 @@ void TSysApp::ExecCpuInfoDlg() {
           PUSH_AVAIL(fi[1-1]&CPUID_FI1_OSXSAVE?"XSAVE- ":"XSAVE+ ");
        dl->insert(str);
 
-       str = new char[2]; *str = 0; dl->insert(str);
+       PUSH_EMPTY();
 
        str = new char[list_wdt+1];
        strcpy(str, "Features   : ");
@@ -220,7 +228,7 @@ void TSysApp::ExecCpuInfoDlg() {
 
        u32t tempr = opts_getcputemp();
        if (tempr) {
-          str = new char[2]; *str = 0; dl->insert(str);
+          PUSH_EMPTY();
           str = new char[list_wdt+1];
           strcpy(str, "Temperature: ");
           char *cp = str + strlen(str);
@@ -235,7 +243,7 @@ void TSysApp::ExecCpuInfoDlg() {
           "Write-through", "Write-protected", "Writeback", ""};
 
        if (mtrregs) {
-          str = new char[2]; *str = 0; dl->insert(str);
+          PUSH_EMPTY();
           str = new char[list_wdt+1];
           strcpy(str, "Addr.width : ");
           char *cp = str + strlen(str);
@@ -260,6 +268,13 @@ void TSysApp::ExecCpuInfoDlg() {
              if (cp[-1]!=':') *cp++ = ',';
              sprintf(cp, " default mode is %s", mtstr[state&0x007F]);
           }
+          dl->insert(str);
+       }
+       u32t acpi = opts_acpiroot();
+       if (acpi) {
+          PUSH_EMPTY();
+          str = new char[64];
+          sprintf(str, "ACPI root  : %08X", acpi);
           dl->insert(str);
        }
    }

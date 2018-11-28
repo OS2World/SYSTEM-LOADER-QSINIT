@@ -111,7 +111,7 @@ _settextmode    proc    far                                     ;
                 xor     bl,bl                                   ;
                 int     10h                                     ;
                 mov     ax,1003h                                ; blink off
-                xor     bl,bl                                   ;
+                xor     bx,bx                                   ;
                 int     10h                                     ;
                 ret     4                                       ;
 _settextmode    endp                                            ;
@@ -201,7 +201,7 @@ endif
                 int     10h                                     ;
 @@crmode_exit:
                 mov     ax,1003h                                ; set intensity
-                xor     bl,bl                                   ; (EGA BIOS)
+                xor     bx,bx                                   ; (EGA BIOS)
                 int     10h                                     ;
                 pop     fs                                      ;
                 ret     4                                       ;

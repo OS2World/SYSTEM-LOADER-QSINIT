@@ -8,6 +8,7 @@
 
 ;cc #include "qstypes.h"
 ;cc #include "qcl/sys/qsvioint.h"
+;cc #include "qcl/qslist.h"
 
 ;cc #ifdef __cplusplus
 ;cc extern "C" {
@@ -29,6 +30,8 @@ vs_selfno       dd      ?                       ;/< session number
 vs_tb           dd      ?                       ;/< text mode buffer
 ;ct char*
 vs_title        dd      ?                       ;/< title, in system heap block
+;ct dd_list
+vs_focus        dd      ?                       ;/< focus applications
 vs_keybuf       dd      SESDATA_KBSIZE dup (?)
 vs_keywp        db      ?                       ;/< write pos
 vs_keyrp        db      ?                       ;/< read pos
@@ -103,8 +106,6 @@ VHI_CVIO        equ     1          ;/< start time plain vio output
 VHI_BVIO        equ     2          ;/< base vio (router) with session support
 
 ;cc se_sysdata* _std se_dataptr(u32t sesno);
-
-SESN_DETACHED   equ     0          ;/< detached session common number
 
 ;cc #ifdef __cplusplus
 ;cc }

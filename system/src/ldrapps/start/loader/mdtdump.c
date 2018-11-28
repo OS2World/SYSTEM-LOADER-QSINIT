@@ -8,6 +8,7 @@
 #include "qsinit.h"
 #include "qslog.h"
 #include "qslxfmt.h"
+#include "qsxcpt.h"
 #include "syslocal.h"
 #include "qspdata.h"
 
@@ -172,7 +173,7 @@ void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
    draw_border(1, 2, 78, hdt+5, 0x4F);
    vio_setpos(py, px); vio_strout(" \xFE SYSTEM HEAP FATAL ERROR \xFE");
    py+=2;
-   vio_setpos(py++, px); vio_strout(em[type]); 
+   vio_setpos(py++, px); vio_strout(em[type]);
    vio_strout(". Occurs in ");
    switch (here) {
       case 'a': vio_strout("alloc_worker");   break;
@@ -181,22 +182,22 @@ void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
       case 'i': vio_strout("hlp_memreserve"); break;
       case 'm': vio_strout("hlp_memavail");   break;
       case 'b': vio_strout("hlp_memgetsize"); break;
-      default:  
+      default:
          snprintf(msg, 77, "strange location (%c)", here);
          vio_strout(msg);
    }
-   vio_setpos(py++, px); 
+   vio_setpos(py++, px);
    snprintf(msg, 77, "Error address - %08X", addr);
    vio_strout(msg);
 
-   vio_setpos(py++, px); 
+   vio_setpos(py++, px);
    mi = mod_by_eip(caller, &object, &offset, 0);
    if (mi) snprintf(msg, 77, "Caller - %08X: \"%s\" %u:%08X", caller, mi->name,
       object+1, offset); else
          snprintf(msg, 77, "Caller unknown - %08X", caller);
    vio_strout(msg);
 
-   vio_setpos(py++, px); 
+   vio_setpos(py++, px);
 
    switch (type) {
       case MEMHLT_MEMTABLE :
@@ -220,7 +221,7 @@ void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
    if (msg[0]) vio_strout(msg);
 
    if (type==MEMHLT_FBSIZEERR || type==MEMHLT_FBSIGN || type==MEMHLT_FBHEADER) {
-      vio_setpos(py++, px); 
+      vio_setpos(py++, px);
       snprintf(msg, 77, "%08X: %16b", addr, addr);
       vio_strout(msg);
    }
@@ -265,7 +266,9 @@ void _std START_EXPORT(mod_dumptree)(void) {
    process_context* pq = mod_context();
    log_it(2,"== Process Tree ==\n");
    while (pq) {
+      mt_prcdata *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
       log_dumppctx(pq);
+      if (pd) log_it(2,"  procinfo: %08X, tid 1: %08X\n", pd, pd->piList[0]);
       pq = pq->pctx;
       log_it(2,"------------------\n");
    }
@@ -276,10 +279,7 @@ void _std START_EXPORT(mod_dumptree)(void) {
    log_it(2,"==================\n");
 }
 
-/** enum all modules in system.
-    @param [out] pmodl   List of modules, must be releases via free().
-    @return number of modules in returning list */
-u32t _std mod_enum(module_information **pmodl) {
+static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
    module_information *rc, *rp;
    u32t   mcnt = 0, ii,
           slen = 0;
@@ -294,7 +294,8 @@ u32t _std mod_enum(module_information **pmodl) {
       md = md->next;
    }
    if (!pmodl) return mcnt;
-   rc = (module_information*)malloc_local(sizeof(module_information)*mcnt + slen);
+   rc = (module_information*)((u8t*)malloc_local(sizeof(module_information)*mcnt +
+                                                 slen + moresize) + moresize);
    md = mod_list;
    cb = (char*)(rc + mcnt);
    ii = 0;
@@ -311,20 +312,167 @@ u32t _std mod_enum(module_information **pmodl) {
       strcpy(cb, md->mod_path); cb+=strlen(cb)+1;
       rp->name      = cb;
       strcpy(cb, md->name); cb+=strlen(cb)+1;
-      md->tmp       = rp;
       memcpy(&rp->imports, &md->impmod, sizeof(void*)*(MAX_IMPMOD+1));
 
       md = md->next;
       rp++;
    }
-   rp = rc;
+   rp   = rc;
+   // who knows :)
    mcnt = ii;
+   // re-link imports
    for (ii=0; ii<mcnt; ii++) {
-      u32t idx = 0;
-      while (rp->imports[idx]) rp->imports[idx] = (module_information*)
-         (((module*)rp->imports[idx])->tmp);
+      u32t idx = 0, ll;
+      while (rp->imports[idx] && idx<MAX_IMPMOD) {
+         for (ll=0; ll<mcnt; ll++)
+            if ((u32t)rp->imports[idx]==rc[ll].handle) {
+               rp->imports[idx] = rc+ll;
+               break;
+            }
+         idx++;
+      }
+      rp++;
    }
    if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
    *pmodl = rc;
    return mcnt;
 }
+
+/** enum all modules in system.
+    @param [out] pmodl   List of modules, must be releases via free().
+    @return number of modules in returning list */
+u32t _std mod_enum(module_information **pmodl) {
+   return mod_enum_int(pmodl,0);
+}
+
+qserr _std mod_objectinfo(u32t mod, u32t object, u32t *addr, u32t *size,
+                          u32t *flags, u16t *sel)
+{
+   qserr  res = E_MOD_HANDLE;
+   if (mod) {
+      module *md = (module*)mod;
+      if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
+      if (md->sign==MOD_SIGN)
+         if (object>=md->objects) res = E_SYS_INVPARM; else {
+            mod_object *mo = md->obj + object;
+            if (addr ) *addr  = (u32t)mo->address;
+            if (size ) *size  = mo->size;
+            if (flags) *flags = mo->flags;
+            if (sel  ) *sel   = mo->sel;
+            res = 0;
+         }
+      if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
+   }
+   return res;
+}
+
+#define pd2loc(x) \
+   (*ppdl+((mt_prcdata**)memchrd((u32t*)pdl, (u32t)(x), pcnt) - pdl))
+
+u32t _std mod_processenum(process_information **ppdl) {
+   u32t  *pl, pcnt;
+   mt_swlock();
+   pl   = mod_pidlist();
+   pcnt = memchrd(pl, 0, mem_blocksize(pl)>>2) - pl;
+   if (ppdl) {
+      module_information  *ml = 0;
+      process_information *rp, **rpcs;
+      u32t          ii, tilen = 0, cdlen = 0, cllen = 0, mcnt,
+                         cpid = mod_getpid();
+      char              *cdir;
+      thread_information *ctp;
+      mt_prcdata        **pdl = (mt_prcdata**)malloc_local(pcnt*sizeof(void*));
+
+      /* we should never receive PFLM_CHAINEXIT flag here, because
+         mod_pidctx() returns "visible" process and ignores exiting one
+         during chaining */
+      for (ii=0; ii<pcnt; ii++) {
+         process_context *pq = mod_pidctx(pl[ii]);
+         mt_prcdata      *pd = (mt_prcdata*)(mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT],
+                         *pc = pd->piFirstChild;
+         char           *cdv = pd->piCurDir[pd->piCurDrive];
+         u32t       childcnt = 0;
+         // dec MT lock after mod_pidctx() because we locked over entire call
+         mt_swunlock();
+         while (pc) { childcnt++; pc = pc->piNext; }
+         pdl[ii] = pd;
+         cdlen  += (cdv?strlen(cdv):3)+1;
+         tilen  += pd->piThreads * sizeof(thread_information);
+         cllen  += (childcnt+1) * sizeof(void*);
+         // replace pid with childcnt to use it below
+         pl[ii]  = childcnt;
+      }
+      ii    = tilen+cdlen+cllen+sizeof(process_information)*pcnt;
+      mcnt  = mod_enum_int(&ml, ii);
+      // log_it(2,"mod_enum_int(%08X, %u) = %u done\n", &ml, ii, mcnt);
+      // returning data
+      rp    = (process_information*)((u8t*)ml - ii);
+      ctp   = (thread_information*)((u8t*)rp + sizeof(process_information)*pcnt);
+      rpcs  = (process_information**)((u8t*)ctp + tilen);
+      cdir  = (char*)((u8t*)rpcs + cllen);
+      *ppdl = rp;
+
+      for (ii=0; ii<pcnt; ii++) {
+         mt_prcdata *pd = pdl[ii],
+                    *pc = pd->piFirstChild;
+         char      *cdv = pd->piCurDir[pd->piCurDrive];
+         u32t   pathlen = (cdv?strlen(cdv):3)+1, ti, tidx;
+
+         rp->pid     = pd->piPID;
+         rp->threads = pd->piThreads;
+         rp->ti      = ctp;
+         rp->ncld    = pl[ii];
+         rp->cll     = rpcs;
+         if (cdv) memcpy(cdir, cdv, pathlen); else {
+            cdir[0] = pd->piCurDrive+'A';
+            cdir[1] = ':';
+            cdir[2] = '\\';
+            cdir[3] = 0;
+         }
+         rp->curdir  = cdir;
+         cdir += pathlen;
+
+         ti = 0;
+         while (pc) { 
+            rp->cll[ti++] = pd2loc(pc);
+            pc = pc->piNext;
+         }
+         rp->cll[ti++] = 0;
+         rpcs += ti;
+
+         if (pd->piParent) rp->parent = pd2loc(pd->piParent); else
+            rp->parent = 0;
+
+         // module information pointer
+         rp->mi = 0;
+         for (ti=0; ti<mcnt; ti++)
+            if (ml[ti].handle==(u32t)pd->piModule) {
+               rp->mi = ml + ti;
+               break;
+            }
+         // collect threads
+         for (ti=0; ti<pd->piListAlloc; ti++) {
+            mt_thrdata *td = pd->piList[ti];
+            if (td) {
+               ctp->tid         = td->tiTID;
+               ctp->fibers      = td->tiFibers;
+               ctp->activefiber = td->tiFiberIndex;
+               ctp->state       = td->tiState;
+               ctp->sid         = td->tiSession;
+               ctp->flags       = td->tiMiscFlags;
+               ctp->time        = td->tiTime;
+               // fix wrong state value in non-MT mode
+               if (!in_mtmode && rp->pid!=cpid) ctp->state = THRD_WAITING;
+
+               ctp++;
+            }
+         }
+         rp++;
+      }
+      free(pdl);
+      free(pl);
+   }
+   mt_swunlock();
+   return pcnt;
+}
+

@@ -113,6 +113,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                char  str[128], lvmi[32], dname[12];
                u32t  dsk = FFFF;
                long  idx = vol_index(ii,&dsk);
+               int   vfs = vi[ii].InfoFlags&VIF_VFS?1:0;
                str [0] = 0;
                lvmi[0] = 0;
 
@@ -125,19 +126,23 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                         if (pti.Letter) sprintf(lvmi, "(LVM:%c)", pti.Letter);
                   }
                }
-               dsk_disktostr(dsk, dname);
+               if (vfs) dname[0] = 0; else dsk_disktostr(dsk, dname);
                if (verbose) {
                   char typestr[48];
-                  if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else
-                     if (idx>=0) snprintf(typestr, 48, "partition %d %s", idx, lvmi);
-                        else snprintf(typestr, 48, "partition not matched (%09LX)",
-                           vi[ii].StartSector);
-                  snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dname, typestr);
+                  if (vi[ii].InfoFlags&VIF_VFS) snprintf(str, 128,
+                     "(%08X)       virtual fs", vi[ii].TotalSectors);
+                  else {
+                     if (!vi[ii].StartSector) strcpy(typestr, "floppy media"); else
+                        if (idx>=0) snprintf(typestr, 48, "partition %d %s", idx, lvmi);
+                           else snprintf(typestr, 48, "partition not matched (%09LX)",
+                              vi[ii].StartSector);
+                     snprintf(str, 128, "(%08X)  %-4s %s", vi[ii].TotalSectors, dname, typestr);
+                  }
                } else {
                   if (idx>=0) sprintf(str,"  %s.%d  %s", dname, idx, lvmi); else
                      if (ii!=DISK_LDR && dname[0]) sprintf(str,"  %s  %s", dname, lvmi);
                }
-               if (shellprn(" %c:/%c: %8s  %s %s",'0'+ii,'A'+ii, 
+               if (shellprn(" %c:/%c: %8s  %s %s", '0'+ii, 'A'+ii, 
                   vt[ii]<=FST_EXFAT?fattype[vt[ii]]:vi[ii].FsName,
                      get_sizestr(vi[ii].SectorSize, vi[ii].TotalSectors), str))
                         { rc = EINTR; break; }
@@ -506,6 +511,15 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
    u32t  sttype;
    // no subcommand?
    if (args->count<=pos) return EINVAL;
+   // check it for VFS
+   if (disk&QDSK_VOLUME) {
+      disk_volume_data vi;
+      hlp_volinfo(disk&~QDSK_VOLUME, &vi);
+      if (vi.TotalSectors && (vi.InfoFlags&VIF_VFS)) {
+         cmd_shellerr(EMSG_QS, E_DSK_NOTPHYS, 0);
+         return ENOTBLK;
+      }
+   }
    // current sector type
    sttype = dsk_ptqueryfs(disk,0,fsname,0);
    // check sector type
@@ -533,6 +547,7 @@ u32t _std shl_dm_bootrec(const char *cmd, str_list *args, u32t disk, u32t pos) {
             printf("This is your boot partition! \n");
             return EINVAL;
          }
+         // now it should filtered by VIF_VFS above
          if (disk==QDSK_VOLUME+DISK_LDR) {
             printf("This is a service volume!\n");
             return EINVAL;
@@ -996,6 +1011,10 @@ u32t _std shl_format(const char *cmd, str_list *args) {
          return EINVAL;
       }
       hlp_volinfo(disk, &vi);
+      if (vi.InfoFlags&VIF_VFS) {
+         printf("Format is not possible for non-physical disk\n");
+         return EINVAL;
+      }
       // only emulated hdds can be formatted quietly
       if (quiet && (hlp_diskmode(vi.Disk,HDM_QUERY)&HDM_EMULATED)==0) {
          printf("Quiet format is not possible for real disks!\n");
@@ -1289,7 +1308,7 @@ static u32t dmgr_pm_disk_free(u32t disk) {
          get_sizestr(ssize,dsksize), dsksize);
 
    if (sz) {
-      dsk_freeblock *fi = (dsk_freeblock*)malloc(sz*sizeof(dsk_freeblock));
+      dsk_freeblock *fi = (dsk_freeblock*)malloc_thread(sz*sizeof(dsk_freeblock));
       sz = dsk_ptgetfree(disk,fi,sz);
 
       if (sz) {

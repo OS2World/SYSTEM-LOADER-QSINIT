@@ -48,7 +48,7 @@ copy=cp
 ..\..\init\inc\qspdata.inc ..\..\hc\inc\cpudef.inc
 ..\..\init\inc\qsvdata.inc 
 mtlib.c timer.asm tmproc.c process.c procutil.asm sched.c thread.c mutex.c
-wobj.c smcode.c
+wobj.c smcode.c tasklist.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

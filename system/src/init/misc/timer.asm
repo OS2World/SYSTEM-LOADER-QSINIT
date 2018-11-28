@@ -12,13 +12,13 @@
                 .586
 
 _BSS16          segment
-                public  _IODelay, _OrgInt50h, _NextBeepEnd
+                public  _IODelay, OrgInt50h, _NextBeepEnd
                 public  _countsIn55ms, _rtdsc_present, _rdtscprev
                 align   4
 _rtdsc_present  db      ?
                 db      ?                                       ; reserved for align
 _IODelay        dw      ?                                       ; i/o delay value
-_OrgInt50h      dd      ?                                       ; old irq0 vector
+OrgInt50h       dd      ?                                       ; old irq0 vector
 _NextBeepEnd    dd      ?                                       ; next end of beep, ticks
 _rdtscprev      dq      ?                                       ;
 _countsIn55ms   dq      ?                                       ;
@@ -211,7 +211,7 @@ irq0_handler    proc    near                                    ;
                 pop     eax                                     ;
 @@irq0_quit:
                 popf                                            ;
-                jmp     dword ptr cs:_OrgInt50h                 ;
+                jmp     dword ptr cs:OrgInt50h                  ;
 irq0_handler    endp
 
 ;----------------------------------------------------------------
@@ -225,7 +225,7 @@ settimerirq     proc    near                                    ;
                 mov     es,ax                                   ;
                 mov     di,PIC1_IRQ_NEW shl 2                   ; get int 50h
                 mov     eax,es:[di]                             ;
-                mov     cs:_OrgInt50h,eax                       ;
+                mov     cs:OrgInt50h,eax                        ;
                 mov     ax,cs                                   ; and set own
                 shl     eax,16                                  ;
                 mov     ax,offset irq0_handler                  ;
@@ -242,7 +242,7 @@ _rmvtimerirq    proc    far                                     ;
                 cli                                             ;
                 xor     eax,eax                                 ;
                 mov     es,ax                                   ;
-                mov     ecx,cs:_OrgInt50h                       ; restore org
+                mov     ecx,cs:OrgInt50h                        ; restore org
                 mov     es:[PIC1_IRQ_NEW shl 2],ecx             ; int 8 ptr
                 xchg    cs:_NextBeepEnd,eax                     ;
                 or      eax,eax                                 ;

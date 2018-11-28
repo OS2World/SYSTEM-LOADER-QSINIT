@@ -17,6 +17,7 @@
 #include "qsinit.h"
 #include "qsint.h"
 #include "errno.h"
+#include "sysio.h"
 
 static const char *cfg_section = "config",
                 *shell_section = "shell",
@@ -76,12 +77,14 @@ int get_ini_parms(void) {
       no_tgates = ini.ReadInt(cfg_section,"NOTASK");
       msg_name  = ini.ReadStr(shell_section, "MESSAGES");
       ecmd_name = ini.ReadStr(shell_section, "EXTCOMMANDS");
-      mod_delay = !ini.ReadInt(cfg_section, "UNZALL", 0);
+      mod_delay = ini.ReadInt(cfg_section, "UNZALL", 0) ? 0 : 1;
+      ctrln_d0  = ini.ReadInt(cfg_section,"CTRLN");
       rc        = ini.ReadInt(cfg_section,"REIPL");
       if (rc>0) reipltime = rc;
       // disable clock in menu
       rc        = ini.ReadInt(cfg_section,"NOCLOCK");
-      if (rc || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1);
+      if (rc>0 || hlp_insafemode()) setenv("MENU_NO_CLOCK", "YES", 1); else
+         if (rc<0) env_setvar("MENU_NO_CLOCK", -1);
 
       u32t heapflags = ini.ReadInt(cfg_section,"HEAPFLAGS");
       mem_setopts(heapflags&0xF);
@@ -213,6 +216,16 @@ str_list* __stdcall str_splitargs(const char *str) {
    TStrings lst;
    lst.ParseCmdLine(str);
    return str_getlist_local(lst.Str);
+}
+
+void _std str_delentry(str_list *list, u32t index) {
+   if (!list) return;
+   if (index>=list->count) return;
+
+   if (index<list->count-1)
+      memmove(&list->item[index], &list->item[index+1], (list->count-index-1)*
+         sizeof(ptr));
+   list->count--;
 }
 
 str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**values) {
@@ -436,6 +449,11 @@ char* _std _splitfname(const char *fname, char *dir, char *name) {
       return dir;
 }
 
+void __stdcall bswap(void*mem, size_t size, size_t len) {
+   // just re-use of sprtlib function
+   memswap(mem, size, len);
+}
+
 //**********************************************************************
 
 struct sto_entry {
@@ -501,6 +519,7 @@ void _std sto_flush(void) {
    log_printf("%d keys added\n", cnt);
 }
 
+// locked by callers
 static sto_entry *sto_find(const char *entry) {
    if (!storage||!entry) return 0;
    int idx = storage->IndexOfICase(entry);
@@ -567,30 +586,46 @@ u32t _std hlp_insafemode(void) {
 #define AllowSet " ^\r\n"
 #define CarrySet "-"
 
-void splittext(const char *text, u32t width, TStrings &lst) {
+void splittext(const char *text, u32t width, TStrings &lst, u32t flags) {
    lst.Clear();
    if (!text || width<8) return;
    const char *ps = text, *pps;
+   char    softcr = flags&SplitText_HelpMode?'&':0;
    int         ln = 0;
+   spstr linehead;
    lst.Add(spstr());
    do {
-      while (*ps&&strchr(AllowSet,*ps)) {
+      while (*ps && (strchr(AllowSet,*ps) || *ps==softcr)) {
          register char cr=*ps++;
          if (cr!=' ') {
-            lst.Add(spstr());
-            if (lst[ln].lastchar()==' ') lst[ln].dellast();
-            if (cr=='\r'&&*ps=='\n') ps++;
-            ln++;
+            if (cr==softcr) {
+               pps = ps;
+               if (*pps) pps++;
+               while (*pps==' ' || *pps=='\t') pps++;
+               /* get 1 char after eol and all spaces after it and use result
+                  as a header for all next lines until real cr */
+               linehead = spstr(ps, pps-ps).expandtabs(4);
+               ps = pps;
+            } else {
+               lst.Add(spstr());
+               if (cr=='\r' && *ps=='\n') ps++;
+               linehead.clear();
+               if (lst[ln].lastchar()==' ') lst[ln].dellast();
+               ln++;
+            }
          }
       }
       if (*ps==0) break;
-      pps = strpbrk(ps, CarrySet AllowSet);
+      pps = strpbrk(ps, softcr ? CarrySet AllowSet "&" : CarrySet AllowSet);
       int carry = pps&&strchr(CarrySet,*pps)?1:0;
       spstr curr(ps,pps?pps-ps+carry:0), sum;
       sum = lst[ln]+curr;
       sum.expandtabs(4);
-      if (str_length(sum())<width-2) lst[ln]=sum; else {
-         lst.Add(curr);
+
+      if ((flags&SplitText_NoAnsi?strlen:str_length)(sum())<width-2)
+         lst[ln]=sum;
+      else {
+         lst.Add(linehead+curr);
          if (lst[ln].lastchar()==' ') lst[ln].dellast();
          ln++;
       }
@@ -631,3 +666,67 @@ char* _std getcurdir_dyn(void) {
 // save code size a bit
 #include "pubini.cpp"
 
+//**********************************************************************
+
+/** return FS detection list.
+    Function returns parsed [fsdetect] section contents, in the single module
+    owned heap block. Last entry in this list is zero-filled */
+fs_detect_list* ecmd_readfsdetect() {
+   TStrings lst;
+   if (!ecmd_readsec("fsdetect",lst)) return 0;
+
+   u32t ii, blen = 0, nlen = 0, ecnt = 0;
+   for (ii=0; ii<lst.Count(); ii++) {
+      // filter out commented lines
+      if (lst[ii][0]!=';') {
+         spstr val = lst.Value(ii);
+         if (val.words(",")==2) {
+            blen += val.word(2,",").words();
+            nlen += lst.Name(ii).trim().length()+1;
+            ecnt++;
+            continue;
+         }
+      }
+      lst[ii].clear();
+   }
+   if (!blen || !nlen) return 0;
+   // alloc/calc block pointers
+   u32t        listlen = sizeof(fs_detect_list)*(ecnt+1), idx;
+   fs_detect_list *res = (fs_detect_list*)malloc(listlen+blen+nlen);
+   char          *nptr = (char*)res + listlen;
+   u8t           *dptr = (u8t*)nptr + nlen;
+   // zero last entry
+   memset(res+ecnt, 0, sizeof(fs_detect_list));
+   // build return information in the single memory block
+   for (ii=0, idx=0; ii<lst.Count(); ii++)
+      if (lst[ii].length()) {
+         spstr  val = lst.Value(ii),
+                key = lst.Name(ii).trim();
+         spstr bstr = val.word(2,",");
+
+         res[idx].fsname  = nptr;
+         res[idx].offset  = val.word_Dword(1,",");
+         res[idx].size    = bstr.words();
+         res[idx].cmpdata = dptr;
+         // fa name
+         memcpy(nptr, key(), key.length()+1);
+         nptr += key.length()+1;
+         // binary data to cmp
+         for (u32t ll=0; ll<res[idx].size; ll++)
+            *dptr++ = strtoul(bstr() + bstr.wordpos(ll+1), 0, 16);
+         idx++;
+      }
+   return res;
+}
+
+void ecmd_loadfslib(const char *fsname) {
+   spstr mdname = ecmd_readstr("fslist", fsname);
+
+   if (mdname.trim().length()) {
+      spstr mdfname = ecmd_readstr("MODULES", mdname());
+
+      if (mod_query(mdname(),MODQ_NOINCR)==0)
+         if (load_module(mdfname, 0))
+            log_printf("Module \"%s\" loaded to handle %s\n", mdname(), fsname);
+   }
+}

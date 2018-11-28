@@ -21,7 +21,13 @@ static exit_func exlst_data [EXTL_LIMIT];
 static int       exlst_count = 0;
 
 u32t __stdcall _wc_static_init();
-void __stdcall _exit(int status);
+u32t __stdcall _wc_static_fini();
+void __stdcall _rt__exit(int status);
+
+void __stdcall _rt_process_exit_list(void) {
+   while (exlst_count) exlst_data[--exlst_count]();
+   _wc_static_fini();
+}
 
 /** parse command line and fill _argv.
     @param   cmd    Application path in environment
@@ -32,12 +38,16 @@ u32t __stdcall _parse_cmdline(char *cmd, char *argvb) {
    u32t   argc=1, qout = 0;
    process_context *pq = 0;
 
-   if (!_wc_static_init()) _exit(255);
+   if (!_wc_static_init()) _rt__exit(255);
 
    _RandSeed = tm_counter();
-   // save process start time
+   // save process start time & module exit ptrs (for exit() code)
    pq = mod_context();
-   if (pq) pq->rtbuf[RTBUF_STCLOCK] = _RandSeed;
+   if (pq) {
+      pq->rtbuf[RTBUF_STCLOCK] = _RandSeed;
+      pq->rtbuf[RTBUF_RTFINI]  = (u32t)&_rt_process_exit_list;
+      pq->rtbuf[RTBUF_RTEXIT]  = (u32t)&_rt__exit;
+   }
    // parse command line
    _argv[0]  = _CmdLine;
    cch       = _CmdLine+strlen(_CmdLine)+1;
@@ -71,10 +81,6 @@ u32t __stdcall _parse_cmdline(char *cmd, char *argvb) {
    _argv[argc]=0;
 
    return argc;
-}
-
-void __stdcall _process_exit_list(void) {
-   while (exlst_count) exlst_data[--exlst_count]();
 }
 
 int __stdcall atexit(void (*func)(void)) {

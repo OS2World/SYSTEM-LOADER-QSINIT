@@ -25,7 +25,7 @@ void call_init(u32t rtn);
      "pop    es"     \
      "pop    ds"     \
      "popad    "     \
-     parm [eax];
+     parm [eax] modify exact [];
 
 extern u8t  _xib_label,_xie_label, // init records
             _yib_label,_yie_label; // fini records

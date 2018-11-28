@@ -20,9 +20,6 @@
 #ifndef QSBASE_NOMT
 #include "../ldrapps/hc/qstask.h"
 #endif
-#ifndef QSBASE_NOTM
-#include "../ldrapps/hc/qstime.h"
-#endif
 #ifndef QSBASE_NOEXI
 #include "../ldrapps/hc/qsclass.h"
 #endif
