@@ -61,6 +61,7 @@ pae_diskio      proc    near                                    ;
                 movzx   eax,al                                  ;
                 or      eax,_paeppd                             ;
 
+                db      66h                                     ;
                 sgdt    fword ptr saved_gdt                     ; save (not required,
                 mov     edx,cr3                                 ; but who knows)
                 mov     saved_cr3,edx                           ;
@@ -75,6 +76,7 @@ pae_diskio      proc    near                                    ;
                 mov     edx,ebx                                 ;
                 shr     edx,PARASHIFT                           ;
                 mov     es,dx                                   ;
+                db      66h                                     ;
                 lgdt    fword ptr es:[0].sw_gdtlimit            ;
 
                 mov     saved_ss,ss                             ;
@@ -124,6 +126,7 @@ pae_diskio      proc    near                                    ;
 @@pdhi_rm:
                 mov     edx,saved_cr3                           ; restore GDTR
                 mov     cr3,edx                                 ; and cr3
+                db      66h                                     ;
                 lgdt    fword ptr saved_gdt                     ;
                 popfd                                           ;
                 cmp     ax,1                                    ; error code?

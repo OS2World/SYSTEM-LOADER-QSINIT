@@ -1,6 +1,14 @@
 /* OEMHlp */
 
 #define OEMHLP_GETMEMINFOEX    0x0011
+/** write string to debug com port/QSINIT log buffer.
+
+    Normally, data can be written into OEMHLP$ device via DosWrite, but ACPI.PSD
+    may override this functionality, so a special IOCTL code added.
+
+    Parameter - dw string_length
+    Data      - string buffer */
+#define OEMHLP_LOG_WRITE       0x0013
 
 #pragma pack(1)
 

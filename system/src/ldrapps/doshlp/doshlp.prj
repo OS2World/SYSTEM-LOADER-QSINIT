@@ -77,7 +77,6 @@ order clname PUBINFO
       clname OEMCODE
       clname OEMDATA
       clname DH32CODE
-      clname DH32DATA
       clname MARKER
       clname DISCODE segment BOOTHLP_CODE segment BOOTHLP32_CODE segment _TEXT
       clname DISDATA segment BOOTHLP_DATA segment _DATA

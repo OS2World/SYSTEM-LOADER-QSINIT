@@ -8,6 +8,7 @@
 #include "stdlib.h"
 #include "qsmodext.h"
 #include "qspdata.h"
+#include "qsdump.h"
 #include "qsint.h"
 #include "qs_rt.h"
 #include "direct.h"
@@ -18,8 +19,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef int __cdecl (*printf_function)(const char *fmt, ...);
 
 /** trace helper macros.
     @li declare function as START_EXPORT(rmdir)
@@ -188,9 +187,6 @@ u64t _std  get_xcr0(void);
     DELETE on it.
     @return class instance or 0 if no MTLIB module */
 qs_mtlib   get_mtlib(void);
-
-/// custom dump mdt
-void       log_mdtdump_int(printf_function pfn);
 
 /// dump file systems
 void       fs_list_int(printf_function pfn);

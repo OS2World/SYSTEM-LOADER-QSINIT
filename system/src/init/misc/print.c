@@ -15,8 +15,10 @@ extern mod_addfunc *mod_secondary;
 
 typedef void _std (*print_outf)(int ch, void *stream);
 u32t  _std strlen(const char *str);
+#ifndef NO_WCS_PRINTF
 u32t  _std wcslen(const u16t *str);
 u16t ff_convert(u16t chr, unsigned int dir);
+#endif
 
 #ifdef EFI_BUILD
 const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -102,11 +104,13 @@ static char nextch(char **cp) {  // read asc string
    return rc;
 }
 
+#ifndef NO_WCS_PRINTF
 static char nextchw(char **cp) { // read unicode string
    char rc = ff_convert(*(u16t*)(*cp),0);
    *cp += 2;
    return rc ? rc : '?';
 }
+#endif
 
 int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc) {
    char          *str;
@@ -189,11 +193,13 @@ int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc) {
          }
          str = buf;
          switch (fmtc = *fmt++) {
+#ifndef NO_WCS_PRINTF
             case 'C': {
                char ch = ff_convert(*(u16t*)arg,0);
                buf[0] = ch ? ch : '?';
                arg += 2;
             }
+#endif
             case 'c':
                if (fmtc=='c') buf[0] = *arg++;
                char_prn = true;
@@ -268,15 +274,19 @@ int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc) {
                   continue;
                }
             }
+#ifndef NO_WCS_PRINTF
             case 'S':
+#endif
             case 's':
                char_prn = true;
                str = (char*)*arg++;
                if (!str) { str = "(null)"; fmtc='s'; }
+#ifndef NO_WCS_PRINTF
                if (fmtc=='S') {
                   strin = nextchw;
                   len = wcslen((u16t*)str);
                } else
+#endif
                   len = strlen(str);
                if (prec<len && prec>=0) len = prec;
                break;

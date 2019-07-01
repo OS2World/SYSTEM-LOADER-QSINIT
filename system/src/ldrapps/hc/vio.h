@@ -70,6 +70,17 @@ void  _std vio_readbuf (u32t col, u32t line, u32t width, u32t height,
 void  _std vio_fillrect(u32t col, u32t line, u32t width, u32t height,
                         char ch, u16t color);
 
+/** draws a "shadow".
+    Function draws a "shadow" at the botton right corner of specified
+    rectangle. Shadow is just grayed screen content at this position.
+    Shadow occupy one line starting at line+height and one columns at
+    col+width.
+    @param   col    start column
+    @param   line   start line
+    @param   width  rectangle width
+    @param   height rectangle height */
+void _std vio_drawshadow(u32t col, u32t line, u32t width, u32t height);
+
 #define VIO_SHAPE_FULL      0x00    ///< full-size
 #define VIO_SHAPE_HALF      0x01    ///< bottom half of character
 #define VIO_SHAPE_WIDE      0x02    ///< wide line

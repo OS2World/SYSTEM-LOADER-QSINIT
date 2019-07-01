@@ -1743,8 +1743,10 @@ _call64         proc    near                                    ;
 _call64         endp                                            ;
 
                 public  _sys_setxcpt64, _sys_tmirq64            ;
+                public  _exit_efi                               ;
 _sys_setxcpt64  proc    near                                    ;
 _sys_tmirq64    label   near                                    ;
+_exit_efi       label   near
                 xor     eax,eax                                 ;
                 ret                                             ;
 _sys_setxcpt64  endp                                            ;

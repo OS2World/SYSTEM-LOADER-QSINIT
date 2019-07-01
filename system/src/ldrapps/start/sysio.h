@@ -148,7 +148,7 @@ io_handle_data *ioh_setuphandle  (u32t ifno, u32t fno, u32t pid);
 void            sft_setblockowner(sft_entry *fe, u32t fno);
 // have no locks inside, must be called inside MT lock
 int _std        qe_available_spec(qshandle queue, u32t *ppid, u32t *sft_no);
-// call for io_dumpsft() dump, assume MT lock too
+// call for io_dumpsft() dump, assumes MT lock too
 int _std        qe_available_info(void *pi, u32t *n_sched);
 /** start of MT mode callback.
     setup_loader_mt() calls this to get disk access cb funcs. */

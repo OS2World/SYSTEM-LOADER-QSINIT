@@ -17,7 +17,6 @@ static HD4_Header   *cdh = 0;   ///< active disk header
 static u64t      cdhphys = 0;   ///< disk header physical address
 static u32t         chdd = 0;   ///< QS disk handle
 static u32t      cdhsize = 0;   ///< disk size (in sectors)
-static void    *reserved = 0;   ///< reserved space in qsinit memory
 static HD4_TabEntry *cde = 0;
 static u32t     cdecount = 0;
 static char     *maparea = 0;
@@ -149,6 +148,9 @@ static void set_lvmname(u32t index, str_list* vol_names, u32t *pl_rc) {
 
 static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
    u32t rc = 0;
+   // set LVM drive letter
+   if (*pl_rc==0 && letter && (isalpha(letter) || letter=='*'))
+      *pl_rc = lvm_assignletter(chdd, index, toupper(letter), 1);
    // and format at last
    if ((flags&VFDF_NOFMT)==0) {
       u8t    vol = 0;
@@ -174,9 +176,6 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
       if (!rc && (flags&VFDF_NOFAT32)!=0) wipe_fat32bs(vol);
 
    }
-   // set LVM drive letter
-   if (*pl_rc==0 && letter && (isalpha(letter) || letter=='*'))
-      *pl_rc = lvm_assignletter(chdd, index, toupper(letter), 1);
    return rc;
 }
 
@@ -398,72 +397,49 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
             break;
          }
       }
-      /* walk over low memory - in reverse order to make QSINIT block
-         the last in process */
-      if (lopages) {
-         ii = mem->max();
-         do {
-            u64t  addr = mem->value(ii);
-            int   used = addr& 0x80000000? 1 : 0; // qsinit block, need to reserve it!
-            u32t pages = addr&~0x80000000;
-            addr = addr>>32<<PAGESHIFT;
-            if (addr<_4GBLL) {
-               u32t res, reason;
-
-               if (used) {
-                  if (pages<=lopages) {
-                     log_printf("QS block - %d, but need %d\n", pages, lopages);
-                     break;
-                  }
-                  addr += pages - lopages << PAGESHIFT;
-                  reserved = hlp_memreserve(addr, lopages<<PAGESHIFT, &reason);
-                  if (!reserved) {
-                     log_printf("Failed to reserve: %08X, %u pages, err %u\n",
-                        (u32t)addr, lopages, reason);
-                     break;
-                  }
-                  pages = lopages;
-               } else
-               if (pages>lopages) { // alloc from the end of block
-                  addr += pages - lopages << PAGESHIFT;
-                  pages = lopages;
-               }
-               /* mark memory as used by ram disk.
-                  Here we hide memory from OS/2. For QSINIT block use PCMEM_QSINIT
-                  owner - because sys_markmem will deny any other */
-               res = sys_markmem(addr, pages, (used?PCMEM_QSINIT:PCMEM_RAMDISK)|PCMEM_HIDE);
-               if (res)
-                  log_printf("warning! mark failed, addr %LX - %d\n", addr, res);
-               // map header on first block
-               if (!cdh) {
-                  // low addr must be mapped in any case (else we hang! :)
-                  cdh     = (HD4_Header*)pag_physmap(addr, PAGESIZE, 0);
-                  cdhphys = addr;
-                  if (!cdh) {
-                     log_printf("Header map err (lo) - %08X\n", (u32t)addr);
-                     rc = E_SYS_SOFTFAULT;
-                     break;
-                  }
-                  fill_header(--lopages);
-                  addr += PAGESIZE;
-                  pages--;
-               }
-               // add block to list in header
-               cde[cdecount].hde_1stpage = (u32t)(addr>>PAGESHIFT);
-               cde[cdecount].hde_sectors = pages<<3;
-               lopages -= pages;
-               cdecount++;
+      // low memory (system alloc)
+      mt_swlock();
+      while (lopages) {
+         u32t  pages, addr, res;
+         hlp_memavail(&pages, 0);
+         pages>>=PAGESHIFT;
+      
+         if (pages>lopages) pages = lopages;
+         addr = (u32t)hlp_memallocsig(pages<<PAGESHIFT, "disk", QSMA_MAXADDR|
+                                      QSMA_RETERR|QSMA_NOCLEAR);
+         if (!addr) break;
+         // mark memory as used by ram disk (hide it from OS/2)
+         res = sys_markmem(addr, pages, PCMEM_QSINIT|PCMEM_HIDE);
+         if (res)
+            log_printf("warning! mark failed, addr %LX - %d\n", addr, res);
+         // map header on first block
+         if (!cdh) {
+            // low addr must be mapped in any case (else we hang! :)
+            cdh     = (HD4_Header*)pag_physmap(addr, PAGESIZE, 0);
+            cdhphys = addr;
+            if (!cdh) {
+               log_printf("Header map err (lo) - %08X\n", (u32t)addr);
+               rc = E_SYS_SOFTFAULT;
+               break;
             }
-            if (!lopages) break;
-         } while (ii--);
-
-         if (rc) break;
-         // some low pages still unprocessed? strange...
-         if (lopages) {
-            log_printf("lopages rem: %d\n", lopages);
-            rc = E_SYS_NOMEM;
-            break;
+            fill_header(--lopages);
+            addr += PAGESIZE;
+            pages--;
          }
+         // add block to list in header
+         cde[cdecount].hde_1stpage = (u32t)(addr>>PAGESHIFT);
+         cde[cdecount].hde_sectors = pages<<3;
+         lopages -= pages;
+         cdecount++;
+      }
+      mt_swunlock();
+
+      if (rc) break;
+      // some low pages still unprocessed? strange...
+      if (lopages) {
+         log_printf("lopages rem: %d\n", lopages);
+         rc = E_SYS_NOMEM;
+         break;
       }
    } while (0);
 
@@ -596,9 +572,9 @@ u32t _exicc vdisk_clean(EXI_DATA) {
          void *clean_ptr = pag_physmap(min4Gaddr, clean_size, 0);
 
          if (clean_ptr) {
-            log_printf("ram disk clean: %LX %u\n", min4Gaddr, clean_size);
             memset(clean_ptr, 0, clean_size);
             pag_physunmap(clean_ptr);
+            log_printf("ram disk clean done (%X,%X)!\n", clean_ptr, clean_size);
             return 0;
          } else
             return E_SYS_SOFTFAULT;
@@ -635,15 +611,15 @@ u32t _exicc vdisk_free(EXI_DATA) {
       if ((me[ii].flags&PCMEM_TYPEMASK)==PCMEM_RAMDISK)
          sys_unmarkmem(me[ii].start, me[ii].pages);
       else
-      if (me[ii].flags==(PCMEM_QSINIT|PCMEM_HIDE))
+      if (me[ii].flags==(PCMEM_QSINIT|PCMEM_HIDE)) {
          sys_markmem(me[ii].start, me[ii].pages, PCMEM_QSINIT);
+         hlp_memfree((void*)me[ii].start);
+      }
       ii++;
    }
    free(me);
    // delete storage key with disk header phys page number
    sto_del(STOKEY_VDPAGE);
-   // return reserved block to memory manager
-   if (reserved) { hlp_memfree(reserved); reserved = 0; }
    // there is no disk header, return 0
    if (!cdh) return 0;
    // unmap high memory

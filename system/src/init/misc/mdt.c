@@ -84,19 +84,35 @@ static void ldr_unlock(void) {
       mod_secondary->muxrelease(mod_secondary->ldr_mutex);
 }
 
-static mod_export *mod_findexport(module *mh, u16t ordinal) {
+/** find export.
+    @param mh        module
+    @param ordinal   ordinal value (one of name/ordinal can be 0)
+    @param name      procedure name (can be 0 for export by ordinal)
+    @param nlen      name length (can be 0 to use full string)
+    @return export reference or 0 */
+static mod_export *mod_findexport(module *mh, u16t ordinal,
+                                  const char *name, u8t nlen) {
    //log_misc(3, "searching %s.%d\n", mh->name, ordinal);
    if (mh&&mh->exports&&mh->exps) {
       mod_export *exp = mh->exps;
-      u32t        cnt = mh->exports;
+      u32t        cnt = mh->exports, namelen; 
+
+      if (name) {
+         namelen = nlen?nlen:strlen(name);
+         if (namelen>MAX_NAMELEN) namelen = MAX_NAMELEN;
+      }
+
       while (cnt--) {
-         if (exp->ordinal==ordinal) {
+         if (name && exp->name && strncmp(name,exp->name,namelen)==0 ||
+             exp->ordinal==ordinal)
+         {
             // resolve forward module entry
             if (exp->forward) {
                mod_export *mf;
                if (exp->sel==0xFFFF) return 0; // circular reference?
                exp->sel = 0xFFFF;
-               mf = mod_findexport(mh->impmod[exp->forward-1],exp->address);
+               mf = mod_findexport(mh->impmod[exp->forward-1], exp->address,
+                                   exp->name, 0);
                if (!mf) { exp->sel=0; return 0; }
                // update export to actual values
                exp->is16    = mf->is16;
@@ -119,6 +135,20 @@ static void mod_unloadimports(module *md) {
    md->flags|=MOD_IMPDONE;
    while (md->impmod[idx]) idx++;
    while (--idx>=0) mod_free((u32t)md->impmod[idx]);
+}
+
+// calc res/nres table size, return FFFF on error
+static u32t mod_tabsize(void *table, u32t size) {
+   u32t rc = 0;
+   u8t *pt = (u8t*)table;
+   while (*pt) {
+      if (*pt&0x80) return FFFF;
+      rc+=(u32t)*pt+3;
+      pt+=(u32t)*pt+3;
+      // reach end of file?
+      if ((u32t)pt > (u32t)table+size) return FFFF;
+   }
+   return rc+1;
 }
 
 // call init/term for single dll module
@@ -277,7 +307,8 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       register lx_exe_t *eh = (lx_exe_t*)((u8t*)img + oldhdr_size);
       lx_obj_t          *ot = (lx_obj_t*)((u8t*)eh + eh->e32_objtab);
       u32t        ii, vsize = 0,
-          selbase, selcount = 0;
+          selbase, selcount = 0,
+            reslen, nreslen = 0;
       u8t*             tptr;
 
       // invalid signature
@@ -304,6 +335,13 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
          break;
       if (size-oldhdr_size-(eh->e32_magic==LXMAGIC?sizeof(lx_map_t):       // broken page table
          sizeof(le_map_t))*eh->e32_mpages<eh->e32_objmap) break;
+      // resident name table len
+      reslen = mod_tabsize((u8t*)eh+eh->e32_restab, size-oldhdr_size-eh->e32_restab);
+      if (reslen==FFFF) { rc=E_MOD_BADRESTAB; break; }
+      // non-resident name table len
+      if (eh->e32_cbnrestab)
+         if ((nreslen = mod_tabsize(img+eh->e32_nrestab,size-eh->e32_nrestab))==FFFF)
+             { rc=E_MOD_BADNRESTAB; break; }
 
       // calculate objects offset & size
       for (ii=0;ii<eh->e32_objcnt;ii++) {
@@ -325,7 +363,7 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       // allocate physical storage for all loadable objects
       ii = sizeof(module)+sizeof(mod_object)*(eh->e32_objcnt-1);
       rc = mod_secondary?0:(EXPORT_THUNK+sizeof(mod_export))*MAX_EXPSTART;
-      mod = hlp_memallocsig(vsize+ii+rc + QS_MAXPATH+2, "MODl", 0);
+      mod = hlp_memallocsig(vsize+ii+rc+QS_MAXPATH+2+reslen+nreslen, "MODl", 0);
 
       // fill module handle data (note: memory zeroed in malloc)
       md  = (module*)((char*)mod + rc + vsize);
@@ -334,7 +372,10 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
          md->thunks = (char*)mod + vsize;  // must be paragraph aligned
          md->exps   = (mod_export*)((u8t*)md->thunks + EXPORT_THUNK*MAX_EXPSTART);
       }
-      md->mod_path  = (char*)md + ii;
+      md->rtab      = (char*)md + ii;
+      if (nreslen) md->nrtab = (char*)md->rtab + reslen;
+
+      md->mod_path  = (char*)md->rtab + reslen + nreslen;
       md->sign      = MOD_SIGN;
       md->usage     = 1;
       md->objects   = eh->e32_objcnt;
@@ -347,8 +388,12 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       tptr = (u8t*)eh+eh->e32_restab;
       ii   = *tptr&E32MODNAME;
       memcpy(md->name, tptr+1, E32MODNAME);
+      // copy name tables
+      memcpy(md->rtab, (u8t*)eh+eh->e32_restab, reslen);
+      if (nreslen) memcpy(md->nrtab, img+eh->e32_nrestab, nreslen);
       // flag pre-applied fixups (not used now)
       //if ((eh->e32_mflags&E32NOINTFIX)!=0) md->flags|=MOD_NOFIXUPS;
+      // log_printf("tablen %u %u\n", reslen, nreslen);
 
       rc = 0;
       // setup selectors & base addr for objects
@@ -599,7 +644,7 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    //log_misc(3, "fixuping %s, obj %d\n", mh->name, object+1);
 #endif
    /* lock it because of module table using (at least in mod_findexport()).
-      unlock placed in callee stub function */
+      unlock placed in the callee stub function */
    ldr_lock();
    *lock_on = 1;
    // process fixups
@@ -627,10 +672,9 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
 
          // new merlin fixups can`t be combined with source list
          if (!slist) start+=2; else
-         if (chfix) FIXUP_ERR('1');
-         // fixup by name or chain fixup with wrong src type
-         if (chfix&&(src&NRSTYP)!=NROFF32 || target==NRRNAM)
-            FIXUP_SUP('2');
+            if (chfix) FIXUP_ERR('1');
+         // chain fixup with wrong src type
+         if (chfix&&(src&NRSTYP)!=NROFF32) FIXUP_SUP('2');
 
          if (flags & NR16OBJMOD) { ord = *(u16t*)start; start++; }
             else ord = *start;
@@ -660,25 +704,45 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
          } else {               // entry table target
             module     *imh = mh;
             mod_export *imp = 0;
-            if (target==NRRORD) { // external entry
+            char      *name = 0;
+            u8t        nlen;
+            if (target==NRRORD || target==NRRNAM) { // external entry
                if (ord>MAX_IMPMOD || chfix) FIXUP_ERR('5');
                imh = mh->impmod[ord-1];
                if (!imh) FIXUP_ERR('6');
-               ord = *start++;
-               if ((flags&NR8BITORD)==0) {
-                  ord |= *start++<<8;   // no 32 bit ordinals
-                  if (flags&NR32BITOFF) FIXUP_SUP('7');
+               if (target==NRRORD) { // import by index
+                  ord = *start++;
+                  if ((flags&NR8BITORD)==0) {
+                     ord |= *start++<<8;   // no 32 bit ordinals
+                     if (flags&NR32BITOFF) FIXUP_SUP('7');
+                  }
+               } else {              // import by name
+                  char *npos = (char*)eh + eh->e32_impproc;
+                  if (flags&NR32BITOFF) {
+                     npos+=*(u32t*)start; start+=4;
+                  } else {
+                     npos+=*(u16t*)start; start+=2;
+                  }
+                  nlen = *(u8t*)npos;
+                  name = npos+1;
+                  ord  = 0;
                }
             }
             if (sflags&MODUNP_FINDEXPORT) {
-               imp=(*strange->findexport)(imh, ord);
+               imp=(*strange->findexport)(imh, ord, name, nlen);
                if (sflags&MODUNP_FINDEXPORTFX) fxcall = 1;
             } else
-               imp = mod_findexport(imh, ord);
+               imp = mod_findexport(imh, ord, name, nlen);
             if (!imp) {
-               // FIXUP_ORD('8');
-               log_printf("no %s.%d\n",imh->name,ord);
-               return E_MOD_NOORD;
+               if (name) {
+                  // we can break module data here because loading failed!
+                  name[nlen] = 0;
+                  log_printf("no %s.%s\n", imh->name, name);
+                  return E_MOD_NONAME;
+               } else {
+                  log_printf("no %s.%d\n", imh->name, ord);
+                  return E_MOD_NOORD;
+               }
             }
             fofs = imp->address;
             fsel = imp->sel;
@@ -732,7 +796,7 @@ log_misc(2, "obj %d page %d sz %d fl %04X ofs %08X\n",object,ii,pgsize,
    return 0;
 }
 
-/** stub for load and unpack objects.
+/** stub for loading and unpacking of objects.
     Do it in this way because of tonns of "return" in fixup handling.
 
     e32_datapage must be changed to offset from LX header, not begin of file */
@@ -750,7 +814,7 @@ static void *mod_getindex(u32t mh, u32t index, int direct) {
    void   *res = 0;
    ldr_lock();
    if (md->sign==MOD_SIGN) {
-      mod_export *exp = mod_findexport(md, index);
+      mod_export *exp = mod_findexport(md, index, 0, 0);
       if (exp) res = (void*)(direct?exp->direct:exp->address);
    }
    ldr_unlock();
@@ -1064,8 +1128,8 @@ int start_it() {
    // mark it as "system"
    mod_start->flags |= MOD_SYSTEM;
    // query "main" address
-   stmain  = mod_findexport(mod_start, 189);
-   stpexit = mod_findexport(mod_start, 187);
+   stmain  = mod_findexport(mod_start, 189, 0, 0);
+   stpexit = mod_findexport(mod_start, 187, 0, 0);
    if (!stmain || !stpexit) return E_MOD_NOORD;
    // make sure mod_self is ready
    if (!mod_self) mod_query(MODNAME_QSINIT, 0);

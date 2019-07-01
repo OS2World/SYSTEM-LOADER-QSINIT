@@ -6,7 +6,6 @@
 #include "signal.h"
 #include "vioext.h"
 #include "errno.h"
-#include "qcl/qslist.h"
 #include "qcl/qsmt.h"
 #include "direct.h"
 #include "qstask.h"

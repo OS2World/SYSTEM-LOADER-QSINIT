@@ -80,7 +80,10 @@ u16t _std int12mem(void);
     @return table with zero length in last entry, memory block must be free()-ed */
 AcpiMemInfo* _std hlp_int15mem(void);
 
-/// internal use only: mounted volumes data
+/** internal use only: mounted volumes data.
+    Note, that VDTA_RO flag is not equal to VIF_READONLY in public
+    disk_volume_data struct. VIF_READONLY means r/o filesystem implementation,
+    but VDTA_RO - r/o volume i/o on the sector level */
 typedef struct {
    u32t                 flags;            ///< flags for volume (VDTA_*)
    u32t                  disk;            ///< disk number
@@ -101,6 +104,7 @@ typedef struct {
 #define VDTA_ON     0x001  // volume available
 #define VDTA_FAT    0x010  // volume mounted to FatFs
 #define VDTA_VFS    0x020  // volume is virtual (no disk i/o)
+#define VDTA_RO     0x040  // volume mounted as read-only
 //@}
 
 #define STOKEY_ZIPDATA  "zip"             ///< key with .ldi file
@@ -145,7 +149,7 @@ typedef struct {
 } cache_extptr;
 
 /** install/remove external cache processor.
-    Call should be made in MT locked state. CACHE module is a single user of
+    Call should be done in MT locked state. CACHE module is a single user of
     this function.
     @param  fptr  Function, use NULL to remove handler.
     @return success flag (1/0) */

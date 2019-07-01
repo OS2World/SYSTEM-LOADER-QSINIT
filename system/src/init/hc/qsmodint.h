@@ -8,6 +8,7 @@
 #include "qsmod.h"
 #include "qsutil.h"
 #include "qssys.h"
+#include "stddef.h"   // for printf_function type
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,7 @@ extern "C" {
 #define MOD_SIGN      0x484D5351   /// QSMH - module struct check signature
 #define MAX_IMPMOD            32   /// maximum number of imported modules
 #define MAX_EXPSTART        1024   /// maximum number of exports in START
+#define MAX_NAMELEN          127   /// import/export name limit
 
 typedef struct {
    void           *address;
@@ -40,6 +42,7 @@ typedef struct {
    u32t               is16;    ///< export is 16 bit
    u16t                sel;    ///< selector field for address
    u16t            forward;    ///< unresolved forwarder entry (mod ord in address)
+   char              *name;    ///< name
 } mod_export;
 
 /// loaded module internal ref
@@ -62,6 +65,8 @@ typedef struct _module {
    mod_export        *exps;    ///< exported functions
    u32t            exports;    ///< number of exports
    u8t             *thunks;    ///< array for thunks, allocated by exports build code
+   void              *rtab,    ///< name tables (internal)
+                    *nrtab;
 
    char name[E32MODNAME+1];    ///< 127 bytes (LX format limit)
    mod_object       obj[1];
@@ -99,6 +104,8 @@ typedef struct _process_context {
 #define RTBUF_ENVORG          11         ///< original environment data
 #define RTBUF_RTFINI          12         ///< exit() support (internal)
 #define RTBUF_RTEXIT          13         ///< exit() support (internal)
+#define RTBUF_ARGV            14         ///< argv array
+#define RTBUF_ARGC            15         ///< argc value
 //@}
 
 #define PCTX_ENVCHANGED        0x0002    ///< envptr was changed by runtime
@@ -186,7 +193,7 @@ typedef struct {
        called when module was exited, can change result code */
    s32t    _std (*exit_cb)(process_context *pq, s32t rc);
    /// hlp_memprint() call, moved to start due lack of space
-   void    _std (*memprint)(void *,void *,u8t *,u32t *,u32t, process_context **);
+   void    _std (*memprint)(printf_function,void*,void*,u8t*,u32t*,u32t,process_context**);
    /** memcpy with catched exceptions.
        see hlp_memcpy().
        @return 0 if exception occured. */
@@ -287,7 +294,7 @@ typedef struct {
    /// flags. See modobj_extreq_flags
    u32t    flags;
    /// find export callback (instead of default search)
-   mod_export* _std (*findexport)(module *mh, u16t ordinal);
+   mod_export* _std (*findexport)(module *mh, u16t ordinal, const char *name, u8t nlen);
    /// apply fixup callback (return 0 to skip fixup)
    u32t _std (*applyfixup)(module *mh, void *addr, u8t type, u16t sel, u32t offset);
    /// object loaded callback (before starting to apply fixups)

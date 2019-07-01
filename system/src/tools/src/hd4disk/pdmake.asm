@@ -135,6 +135,7 @@ _selsetup       proc    near
                 mov     bp,sp                                   ;
                 SaveReg <es,edi,ebx,ecx>                        ;
                 mov     es,_FlatDS                              ;
+                db      66h                                     ; QEMU wants it
                 sgdt    fword ptr gdt_limit                     ;
                 movzx   edi,@@s_sel                             ;
                 add     edi,gdt_base                            ;

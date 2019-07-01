@@ -108,7 +108,7 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
          free(path);
       }
       if (!*pmfsptr || !*pmfssize) 
-         error_exit(10,"Unable to find OS2BOOT file on SOURCE volume!\n");
+         error_exit(10,"Unable to find OS2BOOT file on the SOURCE volume!\n");
    }
    pbpb->BPB_BytesPerSec = vi.SectorSize;
    pbpb->BPB_SecPerClus  = br->BR_BPB.BPB_SecPerClus;

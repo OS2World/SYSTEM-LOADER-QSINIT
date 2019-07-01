@@ -3,7 +3,11 @@
 */
 
 #include "classes.hpp"
+#ifdef __LINUX__
+#include <unistd.h>
+#else
 #include <io.h>
+#endif
 
 #define IMPORT_PREFIX  "__import__"
 

@@ -78,7 +78,7 @@ int get_videomem(u64t *wc_addr, u64t *wc_len, pci_location *dev, int method) {
                      sz = sizes[ii];
                 /** start addr from vesa can be incorrect, so check or addr or 
                     size match */
-                if (va>=_1GB*3 && vmaddr>=va && (vmaddr+vmlen<=va+sz || 
+                if (va>=sys_endofram() && vmaddr>=va && (vmaddr+vmlen<=va+sz || 
                     vmaddr<=va+sz && vmlen==sz)) 
                 {
                    int right = bsf64(sz);
@@ -136,8 +136,9 @@ int main(int argc,char *argv[]) {
    if ((flags&MTRRQ_WRCOMB)==0) error(1, "Write combining is not supported\n");
    if ((state&MTRRS_MTRRON)==0) 
       printf("Warning! MTRR is in disabled state!\nType MTRR ON to turn it back\n");
-   if ((state&MTRRS_DEFMASK)!=MTRRF_UC)
-      error(6,"Default memory type is NOT \"uncacheable\". Unable to operate!\n");
+   ii = state&MTRRS_DEFMASK;
+   if (ii!=MTRRF_UC && ii!=MTRRF_WB)
+      error(6,"Default memory type is not UC nor WB. Unable to operate!\n");
 
    mtrr = (mtrrentry*)malloc(vregs*sizeof(mtrrentry));
    mem_zero(mtrr);
@@ -160,9 +161,9 @@ int main(int argc,char *argv[]) {
 
    printmtrr();
 
-   optrc = mtrropt(wc_addr, wc_len, &memlimit);
+   optrc = mtrropt(wc_addr, wc_len, &memlimit, (state&MTRRS_DEFMASK)==MTRRF_WB);
    switch (optrc) {
-      case OPTERR_VIDMEM3GB: error(4, "Video memory is not in 3..4Gb location\n");
+      case OPTERR_VIDMEM3GB: error(4, "Video memory is not in 2..4Gb location\n");
       case OPTERR_UNKCT    : error(4, "One of WT/WP/WC cache types present\n");
       case OPTERR_INTERSECT: error(4, "Requested block intersects with others\n");
       case OPTERR_SPLIT4GB : error(4, "Error on splitting block on 4Gb border\n");

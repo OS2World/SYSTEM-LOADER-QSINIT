@@ -136,6 +136,8 @@ extern u32t                   vmem_size;
 extern vio_handler                *cvio;
 /// native console mode active (vh_vio)
 extern int                    in_native;
+/// set mode is locked by con_exitmode()
+extern u32t              setmode_locked;
 
 /// current mode index in mode info
 extern int                 current_mode;
@@ -208,6 +210,17 @@ int   con_catchvio(void);
 int   con_releasevio(void);
 
 void  con_addfontmodes(int width, int height);
+
+/** Add new "virtual console" mode.
+    @param  fntx   font width
+    @param  fnty   font height
+    @param  modex  Mode width
+    @param  modey  Mode height
+    @return 0 on success, EINVAL on bad font size, ENODEV - no such mode,
+            EEXIST - mode with same fnt & screen resolution already exists,
+            ENOTTY - no installed font of this size, ENOSPC - mode info
+            array is full */
+int   con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey);
 
 /// emu text mode screen write
 //void _std evio_writebuf(u32t col, u32t line, u32t width, u32t height, 

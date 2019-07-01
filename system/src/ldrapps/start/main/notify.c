@@ -28,7 +28,9 @@ static u32t         cballoc = 0;
                      SECB_SETITLE)
 #define ONCE_MASK   (SECB_QSEXIT|SECB_PAE|SECB_MTMODE)
 // be more quiet in log
-#define QUIET_MASK  (SECB_SETITLE|SECB_DEVADD|SECB_DEVDEL|SECB_SESTART|SECB_SEEXIT)
+#define QUIET_MASK  (SECB_DEVADD|SECB_DEVDEL|SECB_SESTART|SECB_SEEXIT)
+// be silent in log (settile is a noisy nightmare)
+#define SILENT_MASK (SECB_SETITLE)
 
 static qserr notifyevent(u32t eventmask, sys_eventcb cbfunc) {
    qserr rc = E_SYS_NOTFOUND;
@@ -164,7 +166,7 @@ void _std sys_notifyexec(u32t evtype, u32t infovalue) {
             // be a bit more quiet
             if (!called) {
                called = 1;
-               if ((evtype&QUIET_MASK)==0)
+               if ((evtype&(QUIET_MASK|SILENT_MASK))==0)
                   log_it(2, "notify %06X,%X start\n", evtype, infovalue);
             }
             run_notify(cblist[ii].cb, evtype, infovalue, 0, 0, cblist[ii].evmask&
@@ -176,5 +178,6 @@ void _std sys_notifyexec(u32t evtype, u32t infovalue) {
          }
    }
    mt_swunlock();
-   log_it(2, "notify %06X,%X %s\n", evtype, infovalue, called?"done":"no users");
+   if ((evtype&SILENT_MASK)==0)
+      log_it(2, "notify %06X,%X %s\n", evtype, infovalue, called?"done":"no users");
 }

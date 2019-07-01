@@ -1,12 +1,12 @@
 /*
-   this is a first thread example (really), still no sync in many critical parts of
-   QSINIT code, but this code should work :)
+   threads/mutexes/events/queue usage test & example
 */
 #include "stdlib.h"
 #include "qsutil.h"
 #include "qstask.h"
 #include "qsshell.h"
 #include "qsmodext.h"
+#include "qsdump.h"
 #include "time.h"
 #include "math.h"
 #include "qsio.h"
@@ -30,7 +30,7 @@ static void _std start_hook(mt_threadfunc thread, void *arg) {
 
 static u32t _std threadfunc1(void *arg) {
    log_printf("Dumping process tree with me:\n");
-   mt_dumptree();
+   mod_dumptree(0);
    if (arg) free(arg);
    return 777;
 }
@@ -62,7 +62,7 @@ static u32t _std threadfunc2(void *arg) {
    res = mt_muxrelease(mutex);
    if (res) {
       log_printf("I'm tid %2u, mt_muxrelease() = %05X\n", mt_getthread(), res);
-      mt_dumptree();
+      mod_dumptree(0);
    }
    return 0;
 }
@@ -71,10 +71,17 @@ static u32t _std threadfunc3(void *arg) {
    u32t  ii;
    // mark self in thread dump
    mt_threadname("launcher");
+#if 1
+   /* wait until main thread reach mt_waitobject(),
+      see qspdata.inc (3 == THRD_WAITING) */
+   while (mt_checkpidtid(mod_getpid(), 1, &ii)==0)
+      if ((ii&0xFFFF)==3) break; else mt_yield();
+#else
    // sleep a bit
    usleep(32000);
+#endif
    // dump a nice table with 22 threads & wait list in 21 entry ;)
-   mt_dumptree();
+   mod_dumptree(0);
    // go!
    for (ii=0; ii<TEST_THREADS; ii++) mt_resumethread(0, ta[ii]);
    return 0;
@@ -184,7 +191,7 @@ void main(int argc, char *argv[]) {
       Then, in loop - call pulse one and wait for any thread 20 times */
    for (ii=1; ii<=TEST_THREADS; ii++) mt_createthread(threadfunc5, 0, 0, (void*)ii);
    /* let threads above to reach mt_waithandle() string - else first pulse will be
-      lost and code stopped on mt_waitthread() forever */
+      be lost and code stopped on mt_waitthread() forever */
    usleep(32000);
    for (ii=0; ii<TEST_THREADS; ii++) {
       mt_eventact(event, QEVA_PULSEONE);
@@ -196,7 +203,7 @@ void main(int argc, char *argv[]) {
    mt_createthread(threadfunc4, 0, 0, 0);
    mt_createthread(threadfunc4, 0, 0, 0);
 
-   /* event scheduling test.
+   /* queue event scheduling test.
       Post 4 events to the future and then check delivery time */
    res = qe_create(0, &que);
    if (res) { cmd_shellerr(EMSG_QS, res, "Queue creation error: "); return; } else 

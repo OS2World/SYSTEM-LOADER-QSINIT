@@ -36,7 +36,7 @@ BOOTFLAG_CFGEXT    equ 00000010h      ; config.sys .EXT replacement is active
 BOOTFLAG_VESAFNT   equ 00000020h      ; vesa font copy present
 BOOTFLAG_PRELOAD   equ 00000040h      ; preload flag is set
 BOOTFLAG_NOLOGO    equ 00000080h      ; no logo mode active
-BOOTFLAG_DBCS_ON   equ 00000100h      ; DBCS fonts loaded (not used in QSINIT)
+BOOTFLAG_DBCS_ON   equ 00000100h      ; DBCS fonts loaded
 BOOTFLAG_PGINIT    equ 00000200h      ; pginit was done (set by OS/4 kernel)
 BOOTFLAG_EDISK     equ 00800000h      ; boot from emulated disk (QSINIT only)
 BOOTFLAG_NOAF      equ 01000000h      ; do NOT align disk i/o to 4k (QSINIT only)

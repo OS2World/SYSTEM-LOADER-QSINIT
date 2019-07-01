@@ -20,6 +20,7 @@
                 extrn   _edparmtable:byte
                 extrn   _eddparmtable:byte
                 extrn   _i13ext_table:byte
+                extrn   FONT_TABLE:dword
 
 PUBLIC_INFO     segment
                 dw      DOSHLP_SIGN                             ; check bytes
@@ -83,6 +84,20 @@ e@DBCSFontSize  dd      0                                       ;
 e@MemPagesLo    dd      0                                       ;
 e@MemPagesHi    dd      0                                       ;
 e@SavedInt10h   dd      0                                       ;
+e@FontTabOfs    dw      offset FONT_TABLE                       ;
+e@FBDActive     db      0                                       ; not used
+e@FBDBits       db      0                                       ; not used
+e@FBDMemLin     dd      0                                       ; not used
+e@FBDMemPhys    dd      0                                       ; not used
+e@FBDLineLen    dd      0                                       ; not used
+e@FBDModeX      dw      0                                       ; not used
+e@FBDModeY      dw      0                                       ; not used
+e@FBDMaskR      dd      0                                       ; not used
+e@FBDMaskG      dd      0                                       ; not used
+e@FBDMaskB      dd      0                                       ; not used
+e@RMEFList      dd      0FFFFFFFFh                              ; not used
+e@LogMapSize    dd      0                                       ;
+e@CpuFBits      dd      0                                       ;
 ExtFini         label   near                                    ;
 PUBLIC_INFO     ends
 

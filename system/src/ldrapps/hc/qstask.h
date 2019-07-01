@@ -3,7 +3,7 @@
 // multitasking support
 // ----------------------------------------------------
 //
-// !WARNING! this API still unfinished now!
+// !WARNING! this API still a space of changes.
 //
 #ifndef QSINIT_TASKFUNC
 #define QSINIT_TASKFUNC
@@ -63,7 +63,13 @@ typedef struct {
    qserr       errorcode;    ///< creation error code (on exit)
 } mt_ctdata;
 
-/* create thread.
+/* create a thread.
+
+   Note, that creation of a thread in another process context is a bad idea
+   not only because of "security". Thread will inherit your own screen session
+   number in this case and session may stay on screen after your process exit.
+   Use MTCT_DETACHED flag to avoid this.
+
    @param  thread    Thread function
    @param  flags     Flags (MTCT_*)
    @param  optdata   Optional settings, can be 0. Note that all fields (except
@@ -79,6 +85,7 @@ mt_tid   _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optda
 #define MTCT_SUSPENDED    0x0001       ///< create thread in suspended state
 #define MTCT_NOFPU        0x0002       ///< thread will NEVER use FPU (MMX, SSE and so on)
 #define MTCT_NOTRACE      0x0004       ///< TRACE output disabled for this thread
+#define MTCT_DETACHED     0x0008       ///< detach thread from any screen session
 //@}
 
 /** terminate thread.
@@ -127,11 +134,14 @@ u32t     _std mt_getfiber    (void);
 /** validate pid/tid.
    @param  pid           Process ID
    @param  tid           Thread ID or 0 for process check
+   @param  [out] state   Optional ptr to the thread state value (can be 0,
+                         see qspdata.inc: low word is tiState value and high
+                         word - tiWaitReason)
    @retval 0             on success
    @retval E_MT_GONE     process/thread still exists, but gone already
    @retval E_MT_BADPID   unknown pid
    @retval E_MT_BADTID   unknown tid */
-qserr    _std mt_checkpidtid (mt_pid pid, mt_tid tid);
+qserr    _std mt_checkpidtid (mt_pid pid, mt_tid tid, u32t *state);
 
 /// fiber creation data.
 typedef struct {
@@ -144,7 +154,7 @@ typedef struct {
 /* create a new fiber.
    Fiber is a separate execution stream in a thread (looks mostly like
    Windows API fibers).
-   Fiber 0 is always allocated by the system - this is thread function code.
+   Fiber 0 is always allocated by the system - this is a thread function code.
    More fibers can be created via this call.
 
    Switching between fibers is manual procedure. Exiting from the main (0)
@@ -183,9 +193,9 @@ u32t     _std mt_createfiber (mt_threadfunc fiber, u32t flags, mt_cfdata *optdat
 qserr    _std mt_switchfiber (u32t fiber, int free);
 
 /** set thread comment.
-   Actually, comment is simple TLS var (16 bytes), which can be
-   accessed directly. This comment string will be printed in
-   thread dump and trap screen dump, at least.
+   Actually, comment is a simple TLS var (16 bytes), which can be accessed
+   directly. This string will be printed in thread dump, trap screen dump, PS
+   shell command and so on.
 
    @param  str           Comment string */
 qserr    _std mt_threadname  (const char *str);
@@ -196,11 +206,6 @@ qserr    _std mt_threadname  (const char *str);
    @param  buffer        Buffer for the name, at least 17 bytes length
    @return error code or 0 on success */
 qserr    _std mt_getthname   (mt_pid pid, mt_tid tid, char *buffer);
-
-/** dump process/thread list to log (in MT look).
-    This function replaces mod_dumptree() call (Ctrl-Alt-F5) after
-    successful mt_initialize(). */
-void     _std mt_dumptree    (void);
 
 /* TLS */
 
@@ -460,7 +465,7 @@ qserr    _std mt_closehandle (qshandle handle);
 typedef u32t   qe_eid;  ///< event id
 
 /// queue event.
-typedef struct { 
+typedef struct {
    u32t          sign;  ///< signature (filled by system)
    u32t          code;  ///< event code
    clock_t     evtime;  ///< time stamp (filled by system)
@@ -493,7 +498,7 @@ qserr    _std qe_open        (const char *name, qshandle *res);
 qserr    _std qe_close       (qshandle queue);
 
 /** clear queue.
-   This function frees all the events in the specified queue. 
+   This function frees all the events in the specified queue.
    It does not free events that are scheduled for delivery and have yet to
    be sent.
    @param  queue         Queue handle.
@@ -531,13 +536,13 @@ qe_event*_std qe_peekevent   (const qshandle queue, u32t index);
    @return number of available events or -1 if handle is invalid */
 int      _std qe_available   (qshandle queue);
 
-/** place an event into queue. 
+/** place an event into queue.
    @param  queue         Queue handle.
    @param  code          Event code value.
    @return 0 on success of error code. */
 qserr    _std qe_postevent   (qshandle queue, u32t code, long a, long b, long c);
 
-/** place an event into queue. 
+/** place an event into queue.
    @param  queue         Queue handle.
    @param  event         Event data. Only "code" and a,b,c fields are used.
    @return 0 on success of error code. */
@@ -553,7 +558,7 @@ qserr    _std qe_sendevent   (qshandle queue, qe_event *event);
    @return unique identifier for the scheduled event, 0 on error or
            QEID_POSTED if event is just posted to queue because attime is a
            past. In non-MT mode function will always fail. */
-qe_eid   _std qe_schedule    (qshandle queue, clock_t attime, u32t code, 
+qe_eid   _std qe_schedule    (qshandle queue, clock_t attime, u32t code,
                               long a, long b, long c);
 
 /** reschedules an event.
@@ -564,7 +569,7 @@ qe_eid   _std qe_schedule    (qshandle queue, clock_t attime, u32t code,
            just posted to queue because attime is a past. */
 qe_eid   _std qe_reschedule  (qe_eid eventid, clock_t attime);
 
-/** unschedule an event. 
+/** unschedule an event.
    @param  eventid       Event id.
    @return event (in heap block, which must be released by caller), or
            0 on error (event has already been delivered or invalid event id
@@ -574,7 +579,7 @@ qe_event*_std qe_unschedule  (qe_eid eventid);
 
 /* Signals */
 
-/// @name signal values 
+/// @name signal values
 //@{
 #define QMSV_KILL              1       ///< terminate process (process)
 #define QMSV_BREAK             2       ///< break process (Ctrl-C, process)
@@ -585,7 +590,7 @@ qe_event*_std qe_unschedule  (qe_eid eventid);
 
 /** signal processing function.
    Function called in a separate fiber.
-   
+
    longjmp() call will be fatal here, siglongjmp() must be used instead.
 
    @param  signal        Signal to process.
@@ -617,14 +622,14 @@ mt_sigcb _std mt_setsignal   (mt_sigcb cb);
    thread.
 
    This mean, that thread, which waits for a child will deny QMSV_BREAK signal
-   and receive any other only after child`s exit. 
-   
+   and receive any other only after child`s exit.
+
    For mt_waitobject() waitings QWHT_SIGNAL entry can be added to terminate
    call when signal occurs.
 
    Default system processing for QMSV_KILL and QMSV_BREAK signals terminates
    process in the main thread and thread in any other (TID>1).
-   
+
    QMSV_BREAK cause _exit(EXIT_FAILURE) call in the main thread and QMSV_KILL
    just call mod_stop() for the current process.
 
@@ -653,7 +658,7 @@ qserr    _std mt_sendsignal  (u32t pid, u32t tid, u32t signal, u32t flags);
 //@}
 
 /** Function starts a new session.
-    
+
     Caller can query launched process exit code only by mt_waitobject() call.
     To guarantee success QEXS_WAITFOR flag should be added - it suspends new
     process until 1st mt_waitobject() call (in parent process!) with launched
@@ -670,14 +675,14 @@ qserr    _std mt_sendsignal  (u32t pid, u32t tid, u32t signal, u32t flags);
     @param       vdev    List of video devices to use (use 0 for default).
     @param [out] ppid    Pid of new process (on success).
     @param       title   Session title (ignored for QEXS_DETACH), can be 0.
-    @return module load/start error code. Further activity is not depends on
-            caller */
+    @return module load/start error code. Further activity does not depend on
+            caller. */
 qserr    _std mod_execse     (u32t module, const char *env, const char *params,
                               u32t flags, u32t vdev, mt_pid *ppid,
                               const char *title);
 
 /** Stop process (hard kill) function.
-    If caller is a subject to stop too (as member of a tree) - it will be
+    If caller is a subject to stop too (as a member of a tree) - it will be
     stopped last.
     Note, that function starts MT mode as well as mod_execse().
 

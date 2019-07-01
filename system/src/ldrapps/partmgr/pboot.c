@@ -56,7 +56,7 @@ int _std dsk_newmbr(u32t disk, u32t flags) {
       // single GPT stub record
       rec0->PTE_LBAStart = 1;
       rec0->PTE_LBASize  = len>=_4GBLL ? FFFF : len - 1;
-      rec0->PTE_CSStart  = 1;
+      rec0->PTE_CSStart  = 2;
       rec0->PTE_HStart   = 0;
       rec0->PTE_CSEnd    = 0xFFFF;
       rec0->PTE_HEnd     = 0xFE;

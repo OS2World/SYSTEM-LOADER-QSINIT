@@ -1,28 +1,30 @@
 #include <stdio.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <time.h>
 #include "qsmodext.h"
+#include "qsdump.h"
 
 sig_atomic_t   signal_count;
 sig_atomic_t  signal_number;
 jmp_buf              sigout;
 
-void IntHandler( int signo ) {
+void IntHandler(int signo) {
    signal_count++;
    signal_number = signo;
 }
 
-void AlarmHandler( int signo ) {
+void AlarmHandler(int signo) {
    signal_count++;
    signal_number = signo;
-   /* here we in secondary fiber of a main thread,
+   /* here we are in the secondary fiber of a target thread,
       dump process tree to log to check this */
-   mod_dumptree();
+   mod_dumptree(0);
 
    siglongjmp(sigout,1);
 }
 
-int main( void ) {
+int main(void) {
    int ii;
 
    signal_count = 0;
@@ -36,7 +38,7 @@ int main( void ) {
       printf( "Press Ctrl/C\n" );
       for (ii=0; ii<50; ii++) {
          printf( "Iteration # %d\n", ii);
-         usleep(500000); /* sleep for 1/2 second */
+         usleep(CLOCKS_PER_SEC/2); /* sleep for 1/2 second */
          if (signal_count>0) break;
       }
    } else {
@@ -52,8 +54,9 @@ int main( void ) {
    printf("Default signal handling\n");
    for (ii=0; ii<50; ii++) {
       printf( "Iteration # %d\n", ii);
-      usleep(500000); /* sleep for 1/2 second */
+      usleep(CLOCKS_PER_SEC/2); /* sleep for 1/2 second */
       if (signal_count>0) break; /* Won't happen */
    }
    return signal_count;
 }
+

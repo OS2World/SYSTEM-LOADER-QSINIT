@@ -17,6 +17,11 @@ extern "C" {
     module. The only difference is DLL initialization "LibMain" call, executed
     by this function.
 
+    Note, that LibMain for a statically linked DLL module called in the CALLER
+    process context, because there is no new process at this moment. mod_load()
+    for EXE module does not create a new process. In fact, until mod_exec()
+    call - ANY loaded module acts as DLL.
+
     System makes no difference between EXE and DLL modules, except mod_exec(),
     mod_chain() and mod_execse() calls, i.e. EXE module can be used as a
     library and able to export functions.

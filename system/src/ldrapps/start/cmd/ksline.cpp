@@ -23,7 +23,7 @@ enum _keys { kAltE, kAltFX, kAltFXe=5, kCtrlC, kPreload, kLimit, kDbcs,
 /* options to remove from result line.
    there is no more "DISKSIZE", but let it will be here. */
 static const char *emptylist[] = { "DEFAULT", "TIMEOUT", "DISKSIZE", "UNZALL",
-  "SHOWMEM", "TTYMENU", "MENUPALETTE", "RESETMODE", "DISKSIZE", "USEBEEP", 
+  "TTYMENU", "MENUPALETTE", "RESETMODE", "DISKSIZE", "USEBEEP", "NOTASK",
   "HEAPFLAGS", "DEFAULT_PARTITION", "DBFLAGS", "SHAREIRQ", "MFSPRINT",
   "NOCLOCK", "REIPL", "CTRLN", "PCISCAN_ALL", 0 };
 

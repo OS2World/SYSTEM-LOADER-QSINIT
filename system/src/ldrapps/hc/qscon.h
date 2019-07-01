@@ -69,8 +69,8 @@ u32t      _std se_foreground(void);
 /** start new session in the current thread.
     This function creates new session and switches current thread into it.
 
-    Note, that no way to switch thread`s session to the existing one. Only
-    new session can be created.
+    Note, that no way to switch thread`s session to an existing one. Only
+    a new session can be created.
 
     @param devices     list of devices to use (in bits, 0..31). Use zero to
                        clone device list of current session. Note, that this
@@ -90,7 +90,7 @@ u32t      _std se_foreground(void);
 qserr     _std se_newsession(u32t devices, u32t foremask, const char *title,
                              u32t flags);
 
-/** switch session to foreground.
+/** switch session to the foreground.
     @param sesno       session number. Note, that using 0 here is internal
                        case and return no error.
     @param foremask    AND mask for devices to make this session foreground,

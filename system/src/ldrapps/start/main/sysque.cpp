@@ -174,10 +174,9 @@ qserr _std qe_open(const char *name, qshandle *res) {
    fno  = sft_find(name, NAMESPC_QUEUE);
 
    if (!fno) rc = E_SYS_NOPATH; else {
-      mux_handle_int mhi = 0;
-      u32t           pid = mod_getpid();
-      u32t          ifno = ioh_alloc();
-      sft_entry      *fe = sftable[fno];
+      u32t        pid = mod_getpid();
+      u32t       ifno = ioh_alloc();
+      sft_entry   *fe = sftable[fno];
 
       if (!ifno) rc = E_SYS_NOMEM; else
       if (fe->type!=IOHT_QUEUE) rc = E_SYS_INVHTYPE;

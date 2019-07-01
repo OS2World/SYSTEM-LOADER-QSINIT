@@ -45,7 +45,7 @@ Done:
 ; WARNING! This macros assume tiny model (cs==ss)
 ;
 dbg16print      macro   FmtStr,args                             ; do not need to save regs here
-                local   FmtString, StackPtr, BeginPar           ; because _printf16 preserve all
+                local   FmtString, StackPtr                     ; because _printf16 preserve all
 ifdef INITDEBUG                                                 ;
                 _BSS16  segment
 StackPtr:       

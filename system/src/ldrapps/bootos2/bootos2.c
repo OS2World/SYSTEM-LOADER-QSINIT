@@ -24,7 +24,6 @@
 #include "qsinit.h"
 #include "loadmsg.h"
 
-#undef  MAP_A0000                  // make linear address of A0000
 #undef  MAP_LOGADDR                // make linear address of log
 #define MAP_REMOVEHOLES            // mark memory holes as used blocks
 
@@ -67,6 +66,7 @@ void    *mfsdptr = 0;               // pointer to mini-fsd file
 int     twodiskb = 0,               // two disk boot flag
        isos4krnl = 0,               // is OS/4 kernel?
        isdbgkrnl = 0;               // is debug kernel?
+u32t     minhole = 0;               // min hole size to leave it as it is
 str_list  *kparm = 0;               // kernel parameters line
 u32t  lndataaddr = MPDATAFLAT;      // free linear space below kernel code
 
@@ -166,9 +166,6 @@ void upd_physmem(void) {
 /************************************************************************/
 void load_kernel(module  *mi) {
    k_arena  *pa = arena, *t16a;
-#ifdef MAP_A0000
-   k_arena *vma;
-#endif
    u32t      ii,
         lopaddr = 0,                         // phys addr for 1st meg objects
         hipaddr = 0,                         // phys addr for high objects
@@ -386,39 +383,30 @@ void load_kernel(module  *mi) {
    // save linear addr into info structure
    lid->LdrHighFlatBase = laddrnext;
    // setup arena record for rom data
-   pa->a_paddr = (u32t)efd->LowMem<<10;
-   if (pa->a_paddr & PAGEMASK) {
-      pa->a_paddr &=~PAGEMASK;
-      pa->a_size   = PAGESIZE;
-      pa->a_aflags = AF_LADDR;
-      pa->a_laddr  = (laddrnext -= PAGESIZE) + (pa->a_paddr & PAGEMASK);
-      pa->a_owner  = OS2ROMDATA;
 
-      pa[1].a_paddr = pa->a_paddr + pa->a_size;
-      pa++;
-   }
+   pa->a_paddr = (u32t)efd->LowMem<<10;
+   if (pa->a_paddr & PAGEMASK) pa->a_paddr &=~PAGEMASK;
+   // map entire BIOS data area as INVALID
+#if 0
+   pa->a_size   = PAGESIZE;
+   pa->a_aflags = AF_LADDR;
+   pa->a_laddr  = (laddrnext -= PAGESIZE) + (pa->a_paddr & PAGEMASK);
+   pa->a_owner  = OS2ROMDATA;
+   pa[1].a_paddr = pa->a_paddr + pa->a_size;
+   pa++;
+#endif
    // create INVALID entry in case of <640k of memory (boot rom can make this)
    if (pa->a_paddr<_640KB) {
       pa->a_size   = _640KB-pa->a_paddr;
       pa->a_aflags = AF_INVALID;
       pa++;
    }
-   // map entire A0000-FFFFF area as linear space
-   // (it mapped as INVALID space in IBM loader)
    pa->a_paddr  = _640KB;
    pa->a_size   = _1MB - _640KB;
-#ifdef MAP_A0000
-   pa->a_aflags = AF_LADDR | AF_DOSHLP;
-   pa->a_oflags = OBJREAD | OBJWRITE;
-   pa->a_owner  = ALLOCPHYSOWNER;
-   // do not touch lndataaddr until RIPL will be placed
-   vma = pa++;
-#else
    pa->a_aflags = AF_INVALID;
    // incorrect value, but it was used only in removed non-LFB mode
    lid->VMemFlatBase = 1;
    pa++;
-#endif // MAP_A0000
 
    // find first block above or equal to 1meg
    for (ii=0; physmem[ii].startaddr<_1MB; ii++);
@@ -607,11 +595,6 @@ void load_kernel(module  *mi) {
          }
       }
    }
-#ifdef MAP_A0000
-   // assign linear address for A0000-FFFFF block
-   vma->a_laddr = lndataaddr -= vma->a_size;
-   lid->VMemFlatBase = vma->a_laddr;
-#endif
    // invalid arena at the end of 16Mb (need for kernel?)
    pa->a_paddr  = pa[-1].a_paddr + pa[-1].a_size;
    if (pa->a_paddr == _16MB) {
@@ -643,11 +626,10 @@ void load_kernel(module  *mi) {
          pa++;
       }
       /* create log arena.
-         * previous variant allocate linear addr below FF800000 and make
-           used phys mapped arena for it
+         * previous variant used linear addr below FF800000 and arena for it
          * now we just mark it as INVALID and call VMAlloc(phys) in OEMHLP
-           init. This block will be the last in list & kernel removes it, but
-           we still add, at least to see it in arena table */
+           init. This block must be the last in list & kernel removes it, but
+           we still add, to see it in the arena table list ... */
       if (resblock_len && resblock_addr>pb->startaddr &&
         (ii==physmem_entries-1 || resblock_addr<physmem[ii+1].startaddr))
       {
@@ -683,7 +665,10 @@ void load_kernel(module  *mi) {
       k_arena *ppa = arena + ii;
       if (!ppa->a_size) {
          ppa->a_size = arena[ii+1].a_paddr - ppa->a_paddr;
-         if (ppa->a_size && ppa->a_aflags == AF_INVALID) {
+
+         if (ppa->a_size && ppa->a_aflags == AF_INVALID &&
+            (!minhole || ppa->a_size<=minhole)) 
+         {
             ppa->a_aflags = AF_LADDR | AF_DOSHLP;
             ppa->a_laddr  = lndataaddr -= ppa->a_size;
             ppa->a_oflags = OBJREAD | OBJWRITE;
@@ -884,6 +869,7 @@ void memparm_init(void) {
       if (!efd->LogBufSize) efd->LogBufPAddr = 0;
    } else
       efd->LogBufSize = resblock_len;
+   efd->LogMapSize = efd->LogBufSize;
    upd_physmem();
 
    log_printf("physmem after split/resetup:\n");
@@ -1008,6 +994,30 @@ void patch_kernel(module *mi, int isSMP, int branchAT) {
              log_printf("unable to find revision string (%d)\n",err);
       }
    }
+   if (!branchAT) {
+      if ((mi->obj[mi->objects-1].flags & (OBJEXEC|OBJHIMEM)) == (OBJEXEC|OBJHIMEM)) {
+         static u8t cmpcx90000[] = { 0x81, 0xF9, 0, 0, 9, 0 };
+         static u8t cmpcxA0000[] = { 0x81, 0xF9, 0, 0, 0x0A, 0 };
+      
+         u32t   objlen = mi->obj[mi->objects-1].size, stoplen;
+         u8t  *objaddr = (u8t*)mi->obj[mi->objects-1].address;
+      
+         if (!patch_binary(objaddr, objlen, 1, cmpcx90000, sizeof(cmpcx90000),
+                           0, 0, 0, &stoplen))
+         {
+            u8t *pos = objaddr + (objlen - stoplen) + (sizeof(cmpcx90000) - 1);
+            //log_printf("%16b\n", pos);
+            if (memcmp(pos+6, cmpcxA0000, sizeof(cmpcxA0000))==0) {
+               u32t   ltop = (u32t)efd->LowMem<<10;
+               // exact end of low memory
+               if (ltop<0x90000) {
+                  *(u32t*)(pos-4) = ltop;
+                  log_printf("memory end at %X\n", ltop);
+               }
+            }
+         }
+      }
+   }
 }
 
 /************************************************************************/
@@ -1104,7 +1114,7 @@ void load_miscfiles(const char *kernel, int dbcs) {
       check_size(&dbcsfnt, &dbcsfnsize, _256KB-_16KB, "Dbcs font");
       
       if (dbcsfnt)
-         if (dbcsfnsize<16 /*|| memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)*/) {
+         if (dbcsfnsize<16 || memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)) {
             log_printf("Warning! Wrong DBCS font file!\n");
             hlp_memfree(dbcsfnt); dbcsfnt=0;
          }
@@ -1225,7 +1235,7 @@ void main(int argc,char *argv[]) {
    }
    /* some kind of safeness ;) see comment in start\loader\lxmisc.c */
    kernel  = hlp_memrealloc(kernel, kernsize+4);
-   // use OS2LDR.MSG. Default is inverted (on) in compare with QSINIT.
+   // use OS2LDR.MSG. Default is off.
    parmptr = key_present("DEFMSG");
    if (parmptr) defmsg = isdigit(*parmptr) ? strtoul(parmptr,0,0) : 1;
 
@@ -1279,6 +1289,7 @@ void main(int argc,char *argv[]) {
    efd->HD4Page  = sto_dword(STOKEY_VDPAGE);
    // save AMD cpu flag
    if (sys_isavail(SFEA_AMD)) efd->Flags|=EXPF_AMDCPU;
+   efd->CpuFBits = sys_isavail(FFFF);
    /* save int 10h vector because OS2DBCS can be missed or NODBCS option
       forced - both cases cause DBCS system malfunction on boot if we does
       not provide valid vector */
@@ -1368,6 +1379,15 @@ void main(int argc,char *argv[]) {
    // test mode?
    if (key_present("TEST")) testmode = 1;
    if (key_present("VIEWMEM")) memview = 1;
+   // allow holes in memory
+   parmptr = key_present("MINHOLE");
+   if (parmptr) {
+      u32t mh = *parmptr ? strtoul(parmptr,0,0) : 16;
+      if (mh && mh<=3072) {
+         minhole = mh<<20;
+         log_printf("allow holes >%08X\n", minhole);
+      }
+   }
 
    parmptr = key_present("CALL");
    if (parmptr && *parmptr) {
@@ -1398,12 +1418,7 @@ void main(int argc,char *argv[]) {
    efd->LowMem = int12mem();
    // setup flags
    lid->BootFlags = (key_present("NOLOGO")?BOOTFLAG_NOLOGO:0)|
-                    (key_present("NOREV")?BOOTFLAG_NOREV:0)|
-#ifdef MAP_A0000
-                    (key_present("NOLFB")?0:BOOTFLAG_LFB)|
-#else
-                    BOOTFLAG_LFB|
-#endif
+                    (key_present("NOREV")?BOOTFLAG_NOREV:0)|BOOTFLAG_LFB|
                     (key_present("PRELOAD")?BOOTFLAG_PRELOAD:0)|
                     (key_present("CHSONLY")?BOOTFLAG_CHS:0)|
                     (key_present("NOAF")?BOOTFLAG_NOAF:0)|
@@ -1525,12 +1540,9 @@ void main(int argc,char *argv[]) {
    // logo present? add space for saving BIOS font in doshlp
    if ((lid->BootFlags&BOOTFLAG_NOLOGO)==0) {
       vid = (struct VesaInfoBuf*)(flat1000 + lid->VesaInfoOffset);
-#ifndef MAP_A0000
-      if (!vid->LFBAddr) { // no LFB - drop logo
-         lid->BootFlags |= BOOTFLAG_NOLOGO;
-      } else
-#endif
-      {  // future address
+      // no LFB - drop logo
+      if (!vid->LFBAddr) lid->BootFlags |= BOOTFLAG_NOLOGO; else {
+         // future address
          vfonttgt = flat1000 + (vid->FontCopy = respart4k);
          lid->BootFlags |= BOOTFLAG_VESAFNT;
          respart4k      += VESAFONTBUFSIZE;

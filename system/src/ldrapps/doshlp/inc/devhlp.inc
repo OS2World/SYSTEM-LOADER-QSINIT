@@ -171,4 +171,5 @@ VMDHA_PHYS              equ   0010h     ;
 VMDHA_PROCESS           equ   0020h     ;
 VMDHA_SGSCONT           equ   0040h     ;
 VMDHA_RESERVE           equ   0100h     ;
+VMDHA_SHARED            equ   0400h     ; accepted only with VMDHA_PHYS
 VMDHA_USEHIGHMEM        equ   0800h     ;

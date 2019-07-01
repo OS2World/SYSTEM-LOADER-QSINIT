@@ -127,7 +127,6 @@ char *mtitle[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
 
 static char* _asctime_buffer(void) {
    if (!in_mtmode) return &timestr; else {
-      qs_mtlib  mt = get_mtlib();
       char    *res = (char*)(u32t)mt_tlsget(QTLS_ASCTMBUF);
       if (!res) {
          res = (char*)malloc_th(48);
@@ -273,7 +272,7 @@ u32t _std strftime(char *dst, u32t len, const char *fmt, const struct tm *tmv) {
       }
       if (buf[0]) copy_str(buf);
       if (lclen<0) { set_errno(EOVERFLOW); return 0; }
-      dst += lclen;     /* executed every pass thru switch */
+      dst += lclen;
       len -= lclen;
    }
    return dst - start;

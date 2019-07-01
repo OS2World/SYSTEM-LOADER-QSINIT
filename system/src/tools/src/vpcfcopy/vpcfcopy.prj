@@ -18,9 +18,13 @@ ld=wlink
      inc2h $(*cur_name) $@ /p1
 
 *sec=$(outdir)\$(*cur_fp).h|$(secsrc)| @echo $(*cur_fp).h | \
-     bin2h $(secsrc) $@ -an=bsdata -cn=bsdata_size -lxo=3 -ofs=0x0 \
+     bin2h $(secsrc) $@ -an=$(*cur_fp) -cn=$(*cur_fp)_size -lxo=3 -ofs=0x0 \
        -size=0x600 -check=510,0x55 -check=511,0xAA -check=1022,0x55 \
        -check=1023,0xAA -check=1534,0x55 -check=1535,0xAA
+
+*gpt=$(outdir)\$(*cur_fp).h|$(secsrc)| @echo $(*cur_fp).h | \
+     bin2h $(secsrc) $@ -an=$(*cur_fp) -cn=$(*cur_fp)_size -lxo=3 -ofs=0xC00 \
+       -size=0x200 -check=510,0x55 -check=511,0xAA -check=0,0x25 -check=1,0x51
 
 cflags=-4s -zri -zq -fp5 -fpi87 -s -mf -ox $(oskey) \
        -i=$(outdir) -i=..\..\..\ldrapps\fsfat\fatfs -i=..\..\..\ldrapps\partmgr \
@@ -49,6 +53,7 @@ dbtype=-d0
 target=os2v2
 oskey=-bt=os2 -DSP_OS2
 exedir=..\..\t_os2
+cflags=-i=..\..\..\ldrapps\sysview -DPHYS_IO $(cflags)
 
 [vars.win32]
 target=nt
@@ -66,8 +71,12 @@ wipeold=
 
 [files]
 bsdata.sec
+gptboot.gpt
 ..\..\..\hc\inc\parttab.inc
-vpcfcopy.c fmkfs.c
+vpcfcopy.c fmkfs.c gpt.c ..\..\..\init\zip\crc32.c
+
+[files.os/2]
+..\..\..\ldrapps\sysview\pdiskio.c
 
 [make_footer]
 $(outdir) : .DIRECTORY
@@ -77,7 +86,7 @@ MAKEDIRS : $(outdir)
 hello : .SYMBOLIC
     @echo Building $(name)...
 
-nolink : MAKEDIRS hello @@wait $(**sec) $(**inc) @@wait $(**c)
+nolink : MAKEDIRS hello @@wait $(**sec) $(**gpt) $(**inc) @@wait $(**c)
 
 clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo Cleaning $(name)...

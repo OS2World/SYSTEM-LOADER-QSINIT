@@ -151,8 +151,8 @@ void _std switch_context(mt_thrdata *thread, u32t reason) {
             if (cth && cth->tiState==THRD_RUNNING &&
                 (cth->tiMiscFlags&TFLM_NOSCHED)==0)
             {
-               /* thread with zero LastTime has priority above all, which cause
-                  timeslice for any new thread and for all threads just after
+               /* thread with zero LastTime has priority above all, this cause
+                  a timeslice for any new thread and for all threads just after
                   MTLIB start */
                if (!cth->tiLastTime) { thread = cth; pd = 0; break; } else {
                   u64t tdiff = now - cth->tiLastTime;

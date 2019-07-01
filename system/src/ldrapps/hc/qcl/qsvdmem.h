@@ -54,7 +54,7 @@ typedef struct qs_vdisk_s {
    qserr _exicc (*init   )(u32t minsize, u32t maxsize, u32t flags, u32t divpos,
                            char letter1, char letter2, u32t *disk);
 
-   /** load ram disk from disk image file.
+   /** load ram disk from the disk image file.
        Only one disk at time allowed.
        Disk image file - is a plain image or "fixed size" VHD.
        @param  path               File path (can be QSINIT path or file in the

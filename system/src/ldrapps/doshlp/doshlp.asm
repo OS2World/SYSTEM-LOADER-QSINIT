@@ -93,6 +93,11 @@ BaudRateTBSize  equ     ($ - BaudRateTable)/4                   ;
 LogTmpBuf       db      LOGTMP_SIZE dup(0)                      ; temp buffer for log
 LogTmpBufPos    dw      0                                       ;
 LastSerOutChar  db      0                                       ;
+                align   4
+                public KAT
+KAT             KernelAccess <>
+idtinvalidate   dw      7                                       ;
+                dd      0                                       ;
 DOSHLP_DATA     ends
 
 DOSHLP_CODE     segment
@@ -131,7 +136,16 @@ DHSystemDump    endp                                            ;
 DHReboot        proc    far                                     ;
                 assume  cs:DGROUP,ds:DGROUP,es:nothing,ss:nothing
                 call    get_dgroup                              ;
-                mov     ds,ax
+                mov     ds,ax                                   ;
+
+                mov     ax,ROM_DATASEG                          ; same both in RM and PM
+                mov     es,ax                                   ;
+                mov     si,72h                                  ; set warm/cold start indicator
+                mov     word ptr es:[si],1234h                  ;
+
+                test    External.CpuFBits,8000000h              ; in virtual machine?
+                jz      @@dhrb_triplefault                      ; if no then go to the triple fault
+
                 cli                                             ; disable ints
                 mov     al,0Bh                                  ; is anyone still need this clock
                 out     CMOS_ADDR,al                            ; un-setup?
@@ -156,29 +170,22 @@ DHReboot        proc    far                                     ;
                 out     CMOS_ADDR,al                            ;
                 in      al,CMOS_DATA                            ; finishing last access
 
-                mov     ax,ROM_DATASEG                          ; same both in RM and PM
-                mov     es,ax                                   ;
-                mov     si,72h                                  ; set warm/cold start indicator
-                mov     word ptr es:[si],1234h                  ;
                 mov     al,0FEh                                 ; set magic value for reboot...
                 out     KBD_STATUS_PORT,AL                      ;
 @@dhrb_1:
                 mov     cx,5000h                                ; wait a bit
 @@dhrb_2:
                 loop    @@dhrb_2                                ;
+@@dhrb_triplefault:
                 mov     eax,cr0                                 ;
                 test    al,CR0_PE                               ;
                 jnz     @@dhrb_3                                ; go to protected mode
-                call    dword ptr ds:[KAT.GotoProt]             ;
+                call    dword ptr KAT.GotoProt                  ;
 @@dhrb_3:
-                mov     es,ds:KAT.IDTSel                        ;
-                mov     cx,20*8                                 ; invalidate exception handlers
-                xor     di,di                                   ;
-                xor     ax,ax                                   ;
-            rep stosb                                           ;
-                mov     ds,ax                                   ; produce triple exception ;)
-                mov     [di],al                                 ;
-                hlt                                             ; hlt and try again ;)
+                lidt    fword ptr idtinvalidate                 ; linux use this (idt with zero limit)
+                int     3                                       ; so it should be safe
+                sti                                             ;
+                hlt                                             ;
                 jmp     @@dhrb_1                                ;
 DHReboot        endp                                            ;
 
@@ -758,19 +765,29 @@ DHSetRealMask   endp                                            ;
 ; ---------------------------------------------------------------
                 public  DHInt10
 DHInt10         proc    far                                     ;
+                cmp     ah,0Eh                                  ; tty output?
+                jz      @@dhi10_checkmode                       ;
                 cmp     ax,3                                    ; 80x25?
                 jnz     @@dhi10_set                             ;
-                push    ax
-                mov     ah,0Fh                                  ; get current video mode
-                int     10h                                     ;
-                and     al,0F7h                                 ; mask for 07 and 0F modes
-                cmp     al,7                                    ;
-                pop     ax                                      ; is this a monochrome mode?
-                jnz     @@dhi10_set                             ;
-                xor     ah,ah                                   ; yes, set mono 80x25
+                test    cs:External.Flags,EXPF_DISCARDED        ;
+                jz      @@dhi10_set                             ; flag about mode
+                or      cs:External.Flags,EXPF_MODE3            ; reset AFTER PM started
 @@dhi10_set:
                 int     10h                                     ;
                 ret                                             ;
+; kernel without logo just forget to call text mode set before
+; the trap screen printing
+@@dhi10_checkmode:
+                test    cs:External.Flags,EXPF_DISCARDED        ;
+                jz      @@dhi10_set                             ;
+                test    cs:External.Flags,EXPF_MODE3            ;
+                jnz     @@dhi10_set                             ;
+                push    ax                                      ; call self to
+                mov     ax,3                                    ; reset mode
+                push    cs                                      ;
+                call    near ptr DHInt10                        ;
+                pop     ax                                      ;
+                jmp     @@dhi10_set                             ;
 DHInt10         endp                                            ;
 ; ---------------------------------------------------------------
                 public  DHTmr16QueryTime
@@ -1547,11 +1564,6 @@ CommonIRQWarp   label   near                                    ;
                 KJmp    IRQRouter                               ; go to kernel
 
 DOSHLP32_CODE   ends
-
-DOSHLP32_DATA   segment
-                public KAT
-KAT             KernelAccess <>
-DOSHLP32_DATA   ends
 
 BOOTHLP_CODE    segment
                 extrn   DosHlpFunctions:near                    ;

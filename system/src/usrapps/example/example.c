@@ -2,6 +2,7 @@
 #include "qsmodext.h"
 #include "vioext.h"
 #include "qsint.h"
+#include "qsdump.h"
 #include "qsdm.h"
 
 #include "clib.h"
@@ -12,8 +13,6 @@
 #include "direct.h"
 
 jmp_buf jmp;
-
-void  _std log_mdtdump(void);
 
 u32t music[][2] = {
    {175,300},{233,450},{262,300},{294,300},{330,300},{294,300},{262,450},{220,300},{175,450},
@@ -114,7 +113,7 @@ int main(int argc,char *argv[]) {
          cmd_shellcall(shl_trace, "on mtlib", 0);
 
          tid = mt_createthread(threadfunc, MTCT_SUSPENDED|MTCT_NOFPU, 0, 0);
-         mod_dumptree();
+         mod_dumptree(0);
          mt_resumethread(0, tid);
          mt_waitthread(tid);
          // this line should never been printed
@@ -272,16 +271,7 @@ int main(int argc,char *argv[]) {
          } else {
             // 32 sectors before 2Tb
             u32t rc = dsk_gptcreate(disk, 0xFFFFFFE0, 40*1024*1024*2, DFBA_PRIMARY, 0);
-            if (rc) {
-               char topic[16], *msg;
-               sprintf(topic, "_DPTE%02d", rc);
-               msg = cmd_shellgetmsg(topic);
-               if (msg) {
-                  printf("Error: %s\n", msg);
-                  free(msg);
-               } else
-                  printf("Error code 0x%04X\n", rc);
-            }
+            if (rc) cmd_shellerr(EMSG_QS, rc, "Error: ");
          }
       } else
       if (stricmp(argv[1],"p")==0 && argc==3) {

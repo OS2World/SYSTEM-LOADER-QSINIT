@@ -12,6 +12,7 @@
 #include "errno.h"
 #include "qspdata.h"
 #include "qsvdata.h"
+#include "qsdump.h"
 #include "qscon.h"
 #include "seldesc.h"
 #include "efnlist.h"
@@ -23,12 +24,6 @@
 
 /// setup DPMI & real mode interrupt handlers
 u32t _std    sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint);
-/** query last # of APIC timer interrupts in real mode.
-    @return total number of interrupts in high word and confirmed by ISR
-            number of interrupts (with APIC EOI processed) in low word.
-            Counters zeroed by this call.
-            Always return 0 on EFI host. */
-u32t _std    sys_rmtstat(void);
 /** set mt_yield function callback.
     mt_yield() called at least on ANY return from real mode/EFI calls.
     @param func    void callback function pointer
@@ -218,6 +213,8 @@ mt_prcdata*  walk_next     (mt_prcdata *cur);
 /// thread`s exit point
 void         mt_exitthreada(u32t rc);
 #pragma aux mt_exitthreada "_*" parm [eax];
+/// dump process tree to log
+void   _std  mt_dumptree   (printf_function pfn);
 
 void         register_mutex_class(void);
 /// start system idle thread
@@ -298,8 +295,6 @@ mt_prcdata       **pid_ptrs;
 extern
 u32t              pid_alloc,      ///< number of allocated entires in pid_list
                tls_prealloc;      ///< number of preallocated TLS entires
-extern
-mt_thrdata*   tasklists[32];      ///< current active task list for every device (0..31)
 extern
 qe_availfunc     hlp_qavail;      ///< queue check helper from START
 extern

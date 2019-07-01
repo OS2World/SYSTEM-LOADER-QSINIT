@@ -39,7 +39,7 @@ static u32t           pages_lo = 0, // total free pages below 4Gb
                       pages_hi = 0; // total free pages above 4Gb
 
 void setup_memlist(void);
-void hlp_pgprint(void);
+void hlp_pgprint(printf_function pfn);
 
 static u32t _std memisfree(u32t physaddr, u32t length, u32t reserve);
 
@@ -169,22 +169,23 @@ void setup_memory(void) {
    setup_memlist();
    /* print it to log (except safe mode, where it will use too many lines
       on screen) */
-   if (!hlp_insafemode()) hlp_memcprint();
+   if (!hlp_insafemode()) hlp_memcprint(0);
 }
 
-void _std hlp_memcprint(void) {
-   log_it(2,"<=====PC memory dump=====>\n");
+void _std hlp_memcprint(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   pfn("<=====PC memory dump=====>\n");
    // lock pager mutex!
    PAGEMUX_THIS_FUNC lk;
 
    for (u32t ii=0; ii<pcmem.Count(); ii++) {
       u64t start = pcmem[ii].start,
              len = pcmem[ii].len;
-      log_it(2, "%2d. %010LX-%010LX, size: %8u kb, flags %02X %04X\n", ii+1,
-         start, start+len-1, (u32t)(len>>10), pcmem[ii].flags, pcmem[ii].owner);
+      pfn("%2d. %010LX-%010LX, size: %8u kb, flags %02X %04X\n", ii+1, start,
+         start+len-1, (u32t)(len>>10), pcmem[ii].flags, pcmem[ii].owner);
    }
    // print page allocator table
-   hlp_pgprint();
+   hlp_pgprint(pfn);
 }
 
 pcmem_entry* _std sys_getpcmem(int freeonly) {
@@ -265,7 +266,7 @@ static u32t _std sys_markprocess(u64t address, u32t pages, u32t owner) {
    cnt = find_block(address, pages, bf, bl);
    if (!cnt) return ENOENT;
 #if 0
-   hlp_memcprint();
+   hlp_memcprint(0);
    log_printf("cnt=%d, bf=%d, bl=%d\n", cnt, bf, bl);
 #endif
    // check - all requested blocks have compatible type?
@@ -329,7 +330,7 @@ static u32t _std sys_markprocess(u64t address, u32t pages, u32t owner) {
          pcmem.Delete(ii+1);
       } else ii++;
 #if 1
-   hlp_memcprint();
+   hlp_memcprint(0);
 #endif
    return 0;
 }
@@ -685,8 +686,9 @@ void pag_inittables(void) {
    }
 }
 
-void hlp_pgprint(void) {
-   log_it(2,"<=====PG memory dump=====>\n");
+void hlp_pgprint(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   pfn("<=====PG memory dump=====>\n");
    // lock pager mutex!
    PAGEMUX_THIS_FUNC lk;
 
@@ -702,6 +704,6 @@ void hlp_pgprint(void) {
          memx[ii].usage, memx[ii].paddr);
       strcpy(buf+outlen, "\n");
 
-      log_it(2, buf);
+      pfn(buf);
    }
 }

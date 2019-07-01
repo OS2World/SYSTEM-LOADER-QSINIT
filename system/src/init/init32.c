@@ -61,8 +61,6 @@ void _std init_common(void) {
    u8t *crc_table;
    // save storage key with array`s pointer and size
    sto_save(STOKEY_PHYSMEM, &physmem, physmem_entries * sizeof(physmem_block), 0);
-   // init common memory manager
-   memmgr_init();
    // memmgr is ready, allocating memory for unzip tables and other misc stuff
    crc_table   = (u8t*)hlp_memallocsig(CRC32_SIZE + puff_bufsize + OEMTAB_SIZE,
                                        "serv", QSMA_READONLY);
@@ -88,23 +86,22 @@ void _std init_common(void) {
 /// 32-bit main() function
 #ifdef EFI_BUILD
 int _std init32(void) {
+   bootio_avail = qd_bootdisk!=FFFF;
    // pbin_header value filled by 64-bit code
 #else
 int _std init32(u32t rmstack) {
-   pbin_header = &bin_header;
-   qs16base    = (u32t)rm16code<<PARASHIFT;
+   // is disk 0: available?
+   bootio_avail = dd_bootflags&BF_NOMFSHVOLIO ? 0 : 1;
+   pbin_header  = &bin_header;
+   qs16base     = (u32t)rm16code<<PARASHIFT;
    // hello, world!
    if (pminitres) vio_strout("\nA20 error!\n"); else vio_charout('\n');
 #endif // EFI_BUILD
+   // init common memory manager
+   memmgr_init();
    // init internal structs & save some keys for START module
    init_common();
    init_host();
-#ifndef EFI_BUILD
-   // is disk 0: available?
-   bootio_avail = dd_bootflags&BF_NOMFSHVOLIO ? 0 : 1;
-#else
-   bootio_avail = qd_bootdisk!=FFFF;
-#endif // EFI_BUILD
    // init file i/o
    hlp_finit();
    // get some critical keys from .ini
@@ -189,6 +186,8 @@ void exit_restart(char *loader) {
    if (!rc) return;
    // clear screen
    vio_clearscr();
+   // disable micro-FSD "terminate" call
+   mfsd_noterm = 1;
    // and call restart code
    exit_prepare();
 

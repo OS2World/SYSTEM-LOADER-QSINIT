@@ -87,7 +87,7 @@ static u32t pause_println(const char *line, int init_counter=0, u8t color=0) {
          int    len = eolp?eolp-lp+1:strlen(lp);
 
          if (pause_check(init_counter)) return 1;
-      
+
          if (color) vio_setcolor(color);
          fwrite(lp, 1, len, stdo);
          lp += len;
@@ -441,6 +441,8 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                                  rc = io_lasterror(dstf);
                               }
                               len-=copysize; pos+=copysize;
+                              // allow Ctrl-Esc during very long file copying
+                              if (!mt_active()) key_pressed();
                            }
                            if (!sf) hlp_fclose();
                         }
@@ -1213,9 +1215,9 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/q|/u|/v|/list|/l|/np";
+      static char *argstr   = "/q|/u|/list|/l|/np";
       static short argval[] = { 1, 1, 1,    1, 1,  1};
-      process_args(al, argstr, argval, &quiet, &unload, &verb, &list, &list, &nopause);
+      process_args(al, argstr, argval, &quiet, &unload, &list, &list, &nopause);
       // process command
       al.TrimEmptyLines();
       // wrong args?
@@ -1224,58 +1226,43 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
          pause_println(0, nopause?PRNSEQ_INITNOPAUSE:PRNSEQ_INIT);
 
          if (list) {
-            if (verb) {
-               FILE   *ts = tmpfile();
-               qserr perr = 0;
-               if (ts) {
-                  /* save MDT dump into a temporary file and then print it.
-                     This is mandatory way, because LDR mutex locked during
-                     log_mdtdump_int() call and using "pause" on it will stop
-                     any module related activity in other processes */
-                  mt_tlsset(QTLS_TPRINTF, (ptrdiff_t)ts);
-                  log_mdtdump_int(tprintf);
-                  mt_tlsset(QTLS_TPRINTF, 0);
-                  rewind(ts);
-                  qserr perr = cmd_printfile(_os_handle(fileno(ts)), -1, 0, 0);
-                  if (perr==E_SYS_UBREAK) perr = 0;
-                  // auto-delete is on for tmpfile()
-                  fclose(ts);
-               }
-               if (perr || !ts) cmd_printf("Unable to create temporary file.\n");
-            } else {
-               module_information *mi = 0;
-               u32t  cmi = mod_enum(&mi), ii;
+            module_information *mi = 0;
+            u32t     cmi = mod_enum(&mi), ii;
+            int  ioredir = !isatty(fileno(get_stdout()));
 
-               cmd_printf(" Nø  module name               spec   pid   parent  code sz   data sz\n"
-                          "--- --------------------- --- ------ ------ ------ --------- ---------\n");
+            cmd_printf(" Nø  module name               spec   pid   parent  code sz   data sz\n"
+                       "--- --------------------- --- ------ ------ ------ --------- ---------\n");
 
-               for (ii=0; ii<cmi; ii++) {
-                  int islib = mi[ii].flags&MOD_LIBRARY,
-                      issys = mi[ii].flags&MOD_SYSTEM;
-                  char pstr[48], cstr[24], dstr[24];
+            for (ii=0; ii<cmi; ii++) {
+               int islib = mi[ii].flags&MOD_LIBRARY,
+                   issys = mi[ii].flags&MOD_SYSTEM;
+               char pstr[48], cstr[24], dstr[24];
 
-                  if (mi[ii].flags & MOD_EXECPROC) {
-                     u32t ppid = 0,
-                           pid = mod_getmodpid(mi[ii].handle, &ppid);
-                     snprintf(pstr, 48, ppid?"%6u %6u ":"%6u        ", pid, ppid);
-                  } else 
-                     strcpy(pstr, "              ");
+               if (mi[ii].flags & MOD_EXECPROC) {
+                  u32t ppid = 0,
+                        pid = mod_getmodpid(mi[ii].handle, &ppid);
+                  snprintf(pstr, 48, ppid?"%6u %6u ":"%6u        ", pid, ppid);
+               } else 
+                  strcpy(pstr, "              ");
 
-                  u32t dsz = 0, csz = 0, obj, osz, ofl;
-                  for (obj=0; obj<mi[ii].objects; obj++)
-                     if (!mod_objectinfo(mi[ii].handle, obj, 0, &osz, &ofl, 0))
-                        if (ofl&4) csz+=osz; else // OBJEXEC
-                           if ((ofl&0x88)==0) dsz+=osz; // all except OBJRSRC & OBJINVALID
-                  if (csz<1024) strcpy(cstr, csz?"    <1 kb ":"          "); else
-                     snprintf(cstr, 24, " %8s ", dsk_formatsize(1,csz,0,0));
-                  if (dsz<1024) strcpy(dstr, dsz?"    <1 kb ":"          "); else
-                     snprintf(dstr, 24, " %8s ", dsk_formatsize(1,dsz,0,0));
+               u32t dsz = 0, csz = 0, obj, osz, ofl;
+               for (obj=0; obj<mi[ii].objects; obj++)
+                  if (!mod_objectinfo(mi[ii].handle, obj, 0, &osz, &ofl, 0))
+                     if (ofl&4) csz+=osz; else // OBJEXEC
+                        if ((ofl&0x88)==0) dsz+=osz; // all except OBJRSRC & OBJINVALID
+               if (csz<1024) strcpy(cstr, csz?"    <1 kb ":"          "); else
+                  snprintf(cstr, 24, " %8s ", dsk_formatsize(1,csz,0,0));
+               if (dsz<1024) strcpy(dstr, dsz?"    <1 kb ":"          "); else
+                  snprintf(dstr, 24, " %8s ", dsk_formatsize(1,dsz,0,0));
 
+               if (ioredir)
+                  cmd_printf("%3u  %-20s %s %s%s%s%s\n", ii+1, mi[ii].name,
+                     islib?"lib":"EXE", issys?"system":"      ", pstr, cstr, dstr);
+               else
                   cmd_printf("%3u  " ANSI_WHITE "%-20s" ANSI_RESET " %s %s%s%s%s\n",
                      ii+1, mi[ii].name, islib?ANSI_YELLOW "lib" ANSI_RESET:
                         ANSI_LGREEN "EXE" ANSI_RESET, issys?
                            ANSI_LRED "system" ANSI_RESET:"      ", pstr, cstr, dstr);
-               }
             }
             rc = 0;
          } else {
@@ -1851,14 +1838,13 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
                    host = hlp_hosttype(),
                     cmv = hlp_cmgetstate();
          u16t      port = hlp_seroutinfo(&rate);
-         qs_mtlib mtlib = get_mtlib();
 
          printf("%s host.\n", host==QSHT_EFI?"EFI":"BIOS");
          cmd_printseq("%s mode.", -1, VIO_COLOR_LWHITE,
             host==QSHT_EFI?"64-bit paging":(in_pagemode?"PAE paging":"Flat non-paged"));
-         if (mtlib)
-            if (mtlib->active())
-               cmd_printseq("MT mode is active.\n", -1, VIO_COLOR_LGREEN);
+         // should not use get_mtlib() here, because it forces MTLIB loading 
+         if (mt_active())
+            cmd_printseq("MT mode is active.\n", -1, VIO_COLOR_LGREEN);
          if (!port) {
             printf("There is no debug COM port in use now.\n");
          } else {
@@ -1912,6 +1898,40 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
                } else
                   mem_setopts(flags);
             }
+            rc = 0;
+         }
+         if (al.IndexOfName("CPU")>=0) {
+            u32t  len = sys_queryinfo(QSQI_CPUSTRING,0), data[4],
+                  avf = sys_isavail(FFFF);
+            char *cpu = 0;
+            
+            if (len>1) {
+               cpu = (char*)malloc_th(len);
+               sys_queryinfo(QSQI_CPUSTRING,cpu);
+            }
+            if (!cpu) cpu = (char*)sprintf_dyn("CPU is %s", avf&SFEA_INTEL?
+               "Intel":(avf&SFEA_AMD?"AMD":"rare"));
+            // function will return 0 on 486dx :)
+            if (hlp_getcpuid(1,data)) {
+               char sb[40];
+               sprintf(sb, " (%u.%u.%u", data[0]>>8&0xF, data[0]>>4&0xF, data[0]&0xF);
+               cpu = strcat_dyn(cpu, sb);
+               len = avf&(SFEA_PAE|SFEA_PAT|SFEA_X64|SFEA_LAPIC);
+               if (avf&len) {
+                  sprintf(sb, " %s", avf&SFEA_X64?"x64":(avf&SFEA_PAE?"PAE":""));
+                  if (avf&SFEA_PAT) strcat(sb, " PAT");
+                  if (avf&SFEA_LAPIC) strcat(sb, " LAPIC");
+                  cpu = strcat_dyn(cpu, sb);
+               }
+               cpu = strcat_dyn(cpu, ")");
+            }
+            printf("%s\n", cpu);
+            free(cpu);
+            
+            len = fpu_statesize();
+            if (len) printf("FPU state - %u bytes\n", len);
+            len = sys_acpiroot();
+            if (len) printf("ACPI root at %08X\n", len);
             rc = 0;
          }
          if (al.IndexOfName("NORESET")>=0) {
@@ -2344,6 +2364,39 @@ u32t _std shl_delay(const char *cmd, str_list *args) {
    return 0;
 }
 
+u32t _std shl_ver(const char *cmd, str_list *args) {
+   int quiet=0;
+   if (args->count>0) {
+      TPtrStrings al;
+      str_getstrs(args,al);
+      // is it help?
+      int idx = al.IndexOf("/?");
+      if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
+      idx = al.IndexOfName("/q");
+      if (idx>=0) { quiet=1; al.Delete(idx); }
+   }
+   u32t  vlen = sys_queryinfo(QSQI_VERSTR, 0);
+   char *vstr = (char*)malloc_th(vlen+1), *cpos;
+
+   sys_queryinfo(QSQI_VERSTR,vstr);
+   // cut it to "QSinit x.yy, rev zzzz"
+   cpos = strrchr(vstr,',');
+   if (cpos) *cpos = 0;
+
+   if (quiet) {
+      cpos = strrchr(vstr,' ');
+      if (cpos) setenv("QSBUILD",cpos+1,1);
+      cpos = strrchr(vstr,',');
+      if (cpos) *cpos = 0;
+      cpos = strchr(vstr,' ');
+      if (cpos) setenv("QSVER",cpos+1,1);
+   } else
+      printf("%s\n", vstr);
+   free(vstr);
+
+   return 0;
+}
+
 #include "zz.cpp"
 #include "shpci.cpp"
 
@@ -2383,6 +2436,7 @@ void setup_shell(void) {
    cmd_shelladd("REBOOT" , shl_reboot );
    cmd_shelladd("DELAY"  , shl_delay  );
    cmd_shelladd("SM"     , shl_sm     );
+   cmd_shelladd("VER"    , shl_ver    );
 
    // install MODE SYS handler
    cmd_modeadd("SYS", shl_mode_sys);

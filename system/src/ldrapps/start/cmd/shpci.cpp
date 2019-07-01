@@ -189,6 +189,7 @@ u32t _std shl_sm(const char *cmd, str_list *args) {
                ansi_push_set ansion(1);
                u32t          seslim = se_curalloc(),
                               sesno = se_sesno();
+               int          ioredir = !isatty(fileno(get_stdout()));
                cmd_printseq("Session list:", 0, VIO_COLOR_LWHITE);
                // dumb enumeration (but it works for hidden sessions too!)
                for (idx=1; idx<seslim; idx++) {
@@ -212,9 +213,10 @@ u32t _std shl_sm(const char *cmd, str_list *args) {
                      if (!dstr) dstr="no"; else
                         { dstr[dstr.length()-1] = ']'; dstr.insert("[",0); }
 
-                     cmd_printf("%s%3u. %s\n     %ux%u  devices: %s  active on: %s"
-                        ANSI_RESET "\n", sesno==idx?ANSI_WHITE:"", idx, sd->title?
-                           sd->title:"no title", sd->mx, sd->my, dstr(), astr());
+                     cmd_printf("%s%3u. %s\n     %ux%u  devices: %s  active on: %s%s\n",
+                        sesno==idx && !ioredir?ANSI_WHITE:"", idx, sd->title?
+                           sd->title:"no title", sd->mx, sd->my, dstr(), astr(),
+                              ioredir?"":ANSI_RESET);
                      free(sd);
                   }
                }

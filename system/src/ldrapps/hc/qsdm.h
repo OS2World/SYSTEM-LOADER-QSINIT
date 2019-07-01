@@ -476,7 +476,7 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
 //@{
 #define DMAP_PRIMARY   0x0001   ///< Primary partition / possibility to create it
 #define DMAP_ACTIVE    0x0002   ///< Active partition
-#define DMAP_LEND      0x0004   ///< Last entry in list
+#define DMAP_LEND      0x0004   ///< Last entry in the list
 #define DMAP_LOGICAL   0x0008   ///< Logical partition / possibility to create it
 #define DMAP_MOUNTED   0x0010   ///< Partition mounted in QSINIT (DriveQS field is valid)
 #define DMAP_LVMDRIVE  0x0020   ///< LVM drive letter is available

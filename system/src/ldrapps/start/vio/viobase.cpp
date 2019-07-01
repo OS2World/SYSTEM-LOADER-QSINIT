@@ -1315,27 +1315,33 @@ static int _std log_hotkey(u16t key, u32t status, u32t device) {
             return 1;
          }
          // Ctrl-Alt-F2: session list
-         case 0x3C: case 0x5F: case 0x69: log_sedump(); return 1;
+         case 0x3C: case 0x5F: case 0x69: log_sedump(0); return 1;
          // Ctrl-Alt-F3: class list
-         case 0x3D: case 0x60: case 0x6A: exi_dumpall(); return 1;
+         case 0x3D: case 0x60: case 0x6A: exi_dumpall(0); return 1;
          // Ctrl-Alt-F4: file handles
-         case 0x3E: case 0x61: case 0x6B: log_ftdump(); io_dumpsft(); return 1;
+         case 0x3E: case 0x61: case 0x6B:
+            log_ftdump(0); io_dumpsft(0);
+            return 1;
          // Ctrl-Alt-F5: process tree
-         case 0x3F: case 0x62: case 0x6C: mod_dumptree(); return 1;
+         case 0x3F: case 0x62: case 0x6C: mod_dumptree(0); return 1;
          // Ctrl-Alt-F6: gdt dump
-         case 0x40: case 0x63: case 0x6D: sys_gdtdump(); return 1;
+         case 0x40: case 0x63: case 0x6D: sys_gdtdump(0); return 1;
          // Ctrl-Alt-F7: idt dump
-         case 0x41: case 0x64: case 0x6E: sys_idtdump(); return 1;
+         case 0x41: case 0x64: case 0x6E: sys_idtdump(0); return 1;
          // Ctrl-Alt-F8: page tables dump
-         case 0x42: case 0x65: case 0x6F: pag_printall(); return 1;
+         case 0x42: case 0x65: case 0x6F: pag_printall(0); return 1;
          // Ctrl-Alt-F9: dump pci config space
-         case 0x43: case 0x66: case 0x70: log_pcidump(); return 1;
+         case 0x43: case 0x66: case 0x70: log_pcidump(0); return 1;
          // Ctrl-Alt-F10: dump module table
-         case 0x44: case 0x67: case 0x71: log_mdtdump(); return 1;
+         case 0x44: case 0x67: case 0x71: log_mdtdump(0); return 1;
          // Ctrl-Alt-F11: dump main memory table
-         case 0x85: case 0x89: case 0x8B: hlp_memcprint(); hlp_memprint(); return 1;
+         case 0x85: case 0x89: case 0x8B:
+            hlp_memcprint(0); hlp_memprint(0);
+            return 1;
          // Ctrl-Alt-F12: dump memory log
-         case 0x86: case 0x8A: case 0x8C: mem_dumplog("User request"); return 1;
+         case 0x86: case 0x8A: case 0x8C:
+            mem_dumplog(0, "User request");
+            return 1;
       }
    }
    return 0;
@@ -1382,7 +1388,7 @@ qserr sys_modifyhotkey(sys_eventcb cbfunc, u32t code, u32t pid = 0) {
       while (hk_funcs->Count()) {
          u32t  *pos = memchrd((u32t*)hk_funcs->Value(), (u32t)cbfunc, hk_funcs->Count());
          if (!pos) break;
-         u32t   idx = pos - (u32t*)hk_codes->Value();
+         u32t   idx = pos - (u32t*)hk_funcs->Value();
          hk_funcs->Delete(idx); hk_codes->Delete(idx); hk_pid->Delete(idx);
          counter++;
       }
@@ -1451,16 +1457,17 @@ qserr _std hlp_serconsole(u32t sesno) {
    }
 }
 
-void _std log_sedump(void) {
+void _std log_sedump(printf_function pfn) {
    process_context* pq = mod_context();
-   log_it(2,"== Session List ==\n");
+   if (pfn==0) pfn = log_printf;
+   pfn("== Session List ==\n");
    mt_swlock();
    if (ses_list)
       for (u32t ii=0; ii<=Sessions.Max(); ii++) {
          se_sysdata* se = get_se(ii);
          if (se) {
             u32t fl = se->vs_flags;
-            log_it(2,"No %2u. %ux%u >> dev:%03X tb:%08X:%08X %s%s%s [%s]\n", ii,
+            pfn("No %2u. %ux%u >> dev:%03X tb:%08X:%08X %s%s%s [%s]\n", ii,
                se->vs_x, se->vs_y, se->vs_devmask, se->vs_tb, se->vs_tb->memory(),
                   fl&VSF_FOREGROUND?"FG ":"", fl&VSF_NOLOOP?"NOSW ":"",
                      fl&VSF_HIDDEN?"HID ":"", se->vs_title?se->vs_title:"");
@@ -1469,7 +1476,7 @@ void _std log_sedump(void) {
                   if (VH[idx] && Vsn[idx]==se->vs_selfno) {
                      char prnname[32];
                      u32t    caps = VH[idx]->info(0, prnname);
-                     log_it(2,"       vh%u: %-16s %s (%04X)\n", idx, prnname,
+                     pfn("       vh%u: %-16s %s (%04X)\n", idx, prnname,
                         VH[idx]->input()?"in/out":" out  ", caps);
                   }
 
@@ -1481,12 +1488,12 @@ void _std log_sedump(void) {
                   len = se->vs_keyrp;
                   memcpy(&kb_copy[len], &se->vs_keybuf, len<<2);
                }
-               log_it(2,"       kb: %16lb\n", &kb_copy);
+               pfn("       kb: %16lb\n", &kb_copy);
             }
          }
       }
    mt_swunlock();
-   log_it(2,"==================\n");
+   pfn("==================\n");
 }
 
 extern "C" void exi_register_vio(void);

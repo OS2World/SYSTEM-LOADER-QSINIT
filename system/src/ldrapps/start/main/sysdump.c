@@ -12,10 +12,12 @@ void get_idt(struct lidt64_s *idt);
 #endif
 
 /// dump GDT to log
-void _std sys_gdtdump(void) {
+void _std sys_gdtdump(printf_function pfn) {
    struct lidt64_s    gdt;
    u32t      sels, ii, lp;
    struct desctab_s   *gd;
+
+   if (pfn==0) pfn = log_printf;
 
    memset(&gdt, 0, sizeof(struct lidt64_s));
    get_gdt(&gdt);
@@ -23,11 +25,11 @@ void _std sys_gdtdump(void) {
    gd   = (struct desctab_s *)gdt.lidt64_base;
    sels = (gdt.lidt64_limit & 0xFFFF) >> 3;
    if (gdt.lidt64_base>=_4GBLL) {
-      log_it(2,"GDT is above 4Gb\n");
+      pfn("GDT is above 4Gb\n");
       return;
    }
    
-   log_it(2,"== GDT contents ==\n");
+   pfn("== GDT contents ==\n");
    for (ii=0, lp=0; ii<=sels; ii++, gd++) {
       char  outs[128], *cp = outs;
       cp += sprintf(cp, "%04X : ", ii<<3);
@@ -85,19 +87,21 @@ void _std sys_gdtdump(void) {
          lp = ii;
       }
       strcat(cp, "\n");
-      log_it(2, outs);
+      pfn(outs);
    }
 }
 
 /// dump IDT to log
-void _std sys_idtdump(void) {
+void _std sys_idtdump(printf_function pfn) {
    struct lidt64_s  idt;
    u32t    irqs, ii, lp;
+
+   if (pfn==0) pfn = log_printf;
 
    memset(&idt, 0, sizeof(struct lidt64_s));
    get_idt(&idt);
 
-   log_it(2,"== IDT contents ==\n");
+   pfn("== IDT contents ==\n");
 
    if (!sys_is64mode()) {
       struct gate_s   *id = (struct gate_s *)idt.lidt64_base;
@@ -143,14 +147,14 @@ void _std sys_idtdump(void) {
             lp = ii;
          }
          strcat(cp, "\n");
-         log_it(2, outs);
+         pfn( outs);
       }
    } else {
       struct gate64_s *id = (struct gate64_s *)idt.lidt64_base;
       irqs = (idt.lidt64_limit & 0xFFFF) >> 4;
    
       if (idt.lidt64_base>=_4GBLL) {
-         log_it(2,"IDT is above 4Gb\n");
+         pfn("IDT is above 4Gb\n");
          return;
       }
       // dump 64-bit IDT
@@ -184,7 +188,7 @@ void _std sys_idtdump(void) {
             lp = ii;
          }
          strcat(cp, "\n");
-         log_it(2, outs);
+         pfn(outs);
       }
    }
 }

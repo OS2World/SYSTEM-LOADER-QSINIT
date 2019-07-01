@@ -43,6 +43,24 @@ char* _std env_copy(process_context *pq, u32t addspace) {
    return rc;
 }
 
+/** build environment from a string list.
+    @param  env         Source data.
+    @param  addspace    Additional space to allocate in result memory block.
+    @return environment data in process owned heap block, called should free it */
+char* _std env_create(const str_list *env, u32t addspace) {
+   char *res = str_gettostr(env, "\1");
+   u32t  len = strlen(res);
+   // block should be app owned already
+   res = realloc(res, len+1+1+addspace);
+   res[len]   = 0;
+   res[len+1] = 0;
+   if (addspace) memset(res+len+2, 0, addspace);
+   // replace 1 (line splitter) to 0 (eol)
+   replacechar(res, 1, 0);
+   return res;
+}
+
+
 static char *linepos(process_context *pq, const char *en) {
    char  *ep = pq->envptr, enbuf[384];
    u32t  len;
@@ -160,9 +178,11 @@ void __stdcall _searchenv(const char *name, const char *env_var, char *pathname)
          _fullpath(pathname, name, _MAX_PATH+1);
          return;
       }
+      // shell uses such call to get fullpath (why?), so skip env mutex at all
+      if (!env_var) return;
       // lock it to be safe
       env_lock();
-      path = env_var?getenv(env_var):0;
+      path = getenv(env_var);
       if (!path) { env_unlock(); return; } else
       { // searching in specifed directories
          char fpath[QS_MAXPATH+1];
@@ -247,20 +267,6 @@ void _std env_setvar(const char *name, int value) {
    char  vstr[12];
    itoa(value, vstr, 10);
    setenv(name, vstr, 1);
-}
-
-/** get environment variable.
-    Unlike getenv() - function is safe in MT mode.
-    @param name     name of env. string 
-    @return string in heap block (must be free()-ed) or 0. */
-char* _std env_getvar(const char *name) {
-   char *rc;
-   if (!name) return 0;
-   env_lock();
-   rc = getenv(name);
-   if (rc) mem_localblock(rc = strdup(rc));
-   env_unlock();
-   return rc;
 }
 
 /// lock environment access mutex for this process (in MT mode)

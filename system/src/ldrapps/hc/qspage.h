@@ -57,9 +57,6 @@ qserr _std pag_enable(void);
     @return PGEA_* value. */
 u32t  _std pag_query(void *addr);
 
-/// Print all active page tables to log (VERY long dump, especially in EFI).
-void  _std pag_printall(void);
-
 #ifdef __cplusplus
 }
 #endif

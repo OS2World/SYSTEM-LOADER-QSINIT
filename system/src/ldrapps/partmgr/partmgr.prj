@@ -84,6 +84,7 @@ lib %(WATCOM)\lib386\plib3s.lib
 op map=$(name).map
 sort global
 op togglerelocs
+op statics
 op quiet
 op vfr
 op el

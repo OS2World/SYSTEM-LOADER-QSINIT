@@ -44,6 +44,7 @@ copy=cp
 
 [files]
 ..\runtime\partmgr.ord
+..\runtime\console.ord
 extcmd.c mtrrmem.c pci.c vhtty.c extdlg.c pstat.c ..\..\hc\inc\pci.inc
 ..\..\hc\inc\seldesc.inc
 ..\..\init\inc\qspdata.inc

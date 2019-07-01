@@ -38,12 +38,13 @@ static const char *QSBIN1 = "QSINIT",
                  *OS2BOOT = "OS2BOOT",
                   *OS2LDR = "OS2LDR";
 
-char *getfname(int open, const char *custom_title) {
+char *getfname(int open, const char *custom_title, const char *path) {
    static char fname[MAXPATH+1];
-
    TFileDialog *fo = new TFileDialog("*.*", custom_title?custom_title:(
       open?"Import file":"Export to file"), "~F~ile name",
-         open?fdOpenButton:fdOKButton, open?hhSectFnRead:hhSectFnWrite);
+         (open?fdOpenButton:fdOKButton)|(path?fdNoLoadDir:0),
+            open?hhSectFnRead:hhSectFnWrite);
+   if (path) fo->setData((void*)path);
    fo->helpCtx = hcFileDlgCommon;
    int     res = SysApp.execView(fo)==cmFileOpen;
    if (res) fo->getFileName(fname);
@@ -751,7 +752,7 @@ void TSysApp::BootDirect(u32t disk, long index) {
       fs[0] = 0;
       dsk_ptquery64(disk, index, 0, 0, fs, 0);
 
-      if (strcmp(fs,"HPFS")) errDlg(MSGE_FSUNSUITABLE); else {
+      if (strcmp(fs,"HPFS") && strcmp(fs,"JFS")) errDlg(MSGE_FSUNSUITABLE); else {
          TKernBootDlg *dlg = new TKernBootDlg();
          snprintf(fs, 20, "SOURCE=%c", vol+'A');
          if (SetupBootDlg(dlg, "OS2KRNL", fs)) execView(dlg);
@@ -1047,9 +1048,10 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
    hlp_volinfo(vol, &di);
    if (!di.TotalSectors) { errDlg(MSGE_MOUNTERROR); return; }
 
-   int  allow_fat = di.TotalSectors <= 32768 * 65526 / di.SectorSize,
+   int     s_mult = di.SectorSize / 512,
+        allow_fat = di.TotalSectors <= 32768 * 65526 / di.SectorSize * s_mult,
                     // min # of sectors for FAT32 (approx, +1024 for garantee)
-      allow_fat32 = di.TotalSectors >= 65536 + (65536*4*2)/di.SectorSize + 40 + 1024,
+      allow_fat32 = di.TotalSectors >= 65536 + (65536*4*2)/di.SectorSize*s_mult + 40 + 1024,
                     // check 64gb limit & sector size
        allow_hpfs = di.SectorSize==512 && di.TotalSectors < _2GB/512*32,
                     // limitation in format code
@@ -1123,11 +1125,19 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
       /* check for too small FAT32 partition size and adjust unitsize for it
          (else it will be formatted as FAT16) */
       if (fs_index==1) {
-         u32t  csize = _64KB;
+         u32t  csize = _64KB*s_mult;
          // making too big for FAT16 number of clusters
          while (di.TotalSectors * (u64t)di.SectorSize / csize <= _64KB)
             if (csize > di.SectorSize) csize>>=1; else break;
-         if (di.TotalSectors*(u64t)di.SectorSize/csize>_64KB && csize<_64KB)
+         if (di.TotalSectors*(u64t)di.SectorSize/csize>=_64KB)
+            unitsize = csize;
+      } else
+      // force unitsize for FAT on disk with sector >512
+      if (fs_index==0 && s_mult>1) {
+         u32t  csize = _64KB*s_mult;
+         while (di.TotalSectors * (u64t)di.SectorSize / (csize>>1) <= _64KB)
+            if (csize > di.SectorSize) csize>>=1; else break;
+         if (di.TotalSectors*(u64t)di.SectorSize/csize < _64KB)
             unitsize = csize;
       }
    }

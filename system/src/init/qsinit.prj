@@ -25,7 +25,9 @@ name=qsinit
 ; 0.22 - rev 441, HPFS r/o support, file cache
 ; 0.23 - rev 450, signal processing, process kill
 ; 0.24 - rev 458, ramfs for qsinit app disk, 8 years :)
-version=0x0024
+; 0.25 - rev 475, task list added
+; 0.26 - rev 486, JFS r/o support
+version=0x0026
 
 ;
 ; some notes about current crazy linking + WASM:
@@ -106,7 +108,7 @@ start.asm pm_open.asm pm_main.asm meminit.cc misc\timer.asm init32.c
 disk1.c misc\common.c misc\iniparm.c misc\unpack.asm misc\util16.asm
 misc\text.asm misc\util.asm misc\viofunc.c misc\disk.asm misc\wcrt.asm
 misc\membase.c misc\fileio.c misc\rmcall.asm misc\exptable.asm
-fat\diskio.c misc\mdt.c misc\prn16.asm misc\vioroute.asm
+fat\diskio.c misc\mdt.c misc\prn16.asm misc\vioroute.asm misc\ldrrst.asm
 misc\print.c misc\timer32.asm misc\process.c misc\task.asm misc\log.asm
 fat\fatio.c
 zip\puff.c zip\crc32.c zip\unzip.c

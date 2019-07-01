@@ -152,6 +152,9 @@
 #define E_MOD_LIBTERM       (E_TYPE_MOD+0x0033)  ///< DLL term function denied unloading
 #define E_MOD_EXECINPROC    (E_TYPE_MOD+0x0034)  ///< mod_exec() in progress
 #define E_MOD_LIBEXEC       (E_TYPE_MOD+0x0035)  ///< unable to execute DLL module
+#define E_MOD_BADRESTAB     (E_TYPE_MOD+0x0036)  ///< invalid resident name table
+#define E_MOD_BADNRESTAB    (E_TYPE_MOD+0x0037)  ///< invalid non-resident name table
+#define E_MOD_NONAME        (E_TYPE_MOD+0x0038)  ///< imported procedure not found
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_MT_DISABLED       (E_TYPE_MT +0x0001)  ///< MT mode does not started or disabled

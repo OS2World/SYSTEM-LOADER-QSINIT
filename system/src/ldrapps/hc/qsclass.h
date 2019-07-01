@@ -249,9 +249,6 @@ int     _std exi_printclass(u32t classid);
     @return 0 if something wrong */
 int     _std exi_checkstate(void);
 
-/// dump all classes to log
-void    _std exi_dumpall(void);
-
 /** Instance enumeration callback.
     Callback function should be atomic, because entire exi_instenum() call
     locks MT mode.

@@ -1,5 +1,5 @@
 #
-# wmake C++ example
+# wmake makefile
 #
 
 PRJNAME = fixcfg
@@ -24,12 +24,13 @@ BUILDFILES = $(FILE1) $(FILE2)
       $(CPP) $(CPPFLAGS) -fo=$@ $<
 
 $(PRJNAME).exe : $(PRJNAME).lnk $(BUILDFILES)
-      @echo Linking...
+      @echo Linking $(PRJNAME) ...
       @wlink @$(PRJNAME).lnk 
+      @lxlite $(PRJNAME).exe >nul
       @zip -q -9 -X -j $(%QS_BIN)/$(%QS_ARCH) $@
 
 clean: .SYMBOLIC
-      @echo Cleaning ...
+      @echo Cleaning $(PRJNAME) ...
       @if exist *.obj @del *.obj >nul
       @if exist *.lnk @del *.lnk >nul
       @if exist *.map @del *.map >nul

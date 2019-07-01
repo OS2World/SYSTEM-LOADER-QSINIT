@@ -34,7 +34,7 @@ void con_freefonts(void) {
    mt_swunlock();
 }
 
-static fontbits *con_searchfont(int x, int y) {
+fontbits *con_searchfont(int x, int y) {
    fontbits *rc = 0;
    mt_swlock();
    if (sysfnt) {
@@ -42,7 +42,7 @@ static fontbits *con_searchfont(int x, int y) {
       // search for suitable font
       for (ii=0; ii<cnt; ii++) {
          fontbits *fb = (fontbits*)sysfnt->value(ii);
-         if (lpos==FFFF || abs(fb->x-x)<=dx && abs(fb->y-y)<=dx) {
+         if (lpos==FFFF || abs(fb->x-x)<=dx && abs(fb->y-y)<=dy) {
             dx = abs(fb->x-x);
             dy = abs(fb->y-y);
             lpos = ii;
@@ -58,6 +58,23 @@ static void *con_getfont(int x, int y) {
    if (sysfnt) {
       fontbits *fb = con_searchfont(x,y);
       if (fb) return &fb->bin;
+   }
+   return 0;
+}
+
+void* _std con_fontcopy(int width, int height) {
+   fontbits *fb;
+   if (width==9) width = 8;
+   fb = con_searchfont(width, height);
+   // exact match
+   if (fb && width==fb->x && height==fb->y) {
+      u32t msize = (width>>3)*height*256;
+      void   *rc = malloc_th(msize);
+
+      memcpy(rc, &fb->bin, msize);
+      // set caller process as owner
+      mem_localblock(rc);
+      return rc;
    }
    return 0;
 }

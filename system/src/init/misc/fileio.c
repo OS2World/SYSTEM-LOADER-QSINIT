@@ -25,6 +25,7 @@ u8t                         currdisk = 0;
 u8t                           bootFT = 0; ///< boot partition FAT type (FST_*)
 u8t                         pxemicro = 0; ///< PXE micro-fsd?
 u8t                         streamio = 0; ///< use strm_read?
+u8t                      mfsd_noterm = 0; ///< do not call micro-fsd terminate
 
 // micro-fsd call thunks
 extern u16t _std    mfs_open (void);
@@ -282,8 +283,9 @@ void hlp_fdone(void) {
    log_misc(2,"hlp_fdone()\n");
    if (once++) return;
    if (file_in_use) hlp_fclose();
-   if (bootFT) fat_term(); else
-      if (micro) mfs_term();
+   if (!mfsd_noterm)
+      if (bootFT) fat_term(); else
+         if (micro) mfs_term();
    hlp_cachenotify(0, CC_SHUTDOWN);
 }
 

@@ -56,7 +56,7 @@ qserr _std dsk_gptinit(u32t disk) {
 
       pt->GPT_Sign      = GPT_SIGNMAIN;
       pt->GPT_Revision  = 0x10000;
-      pt->GPT_HdrSize   = sizeof(struct GPT_Record);
+      pt->GPT_HdrSize   = sizeof(struct Disk_GPT);
       pt->GPT_Hdr1Pos   = hi->gpthead;
       pt->GPT_Hdr2Pos   = hi->info.TotalSectors - 1;
       pt->GPT_UserFirst = pt->GPT_Hdr1Pos + hi->gpt_sectors + 1;
@@ -90,11 +90,13 @@ static qserr dsk_flushgpt(hdd_info *hi) {
       // check location
       if (!pt->GPT_Hdr2Pos || pt->GPT_Hdr2Pos==FFFF64)
          pt->GPT_Hdr2Pos = hi->info.TotalSectors - 1;
-      if (pt->GPT_Hdr2Pos - hi->gpt_sectors <= pt->GPT_UserLast)
-         return E_PTE_GPTHDR;
+      if (pt->GPT_Hdr2Pos - hi->gpt_sectors <= pt->GPT_UserLast) return E_PTE_GPTHDR;
+      if (pt->GPT_Hdr2Pos >= hi->info.TotalSectors) return E_PTE_GPTHDR;
       // makes a copy
-      hi->ghead2      = pt2 = (struct Disk_GPT *)mem_dup(hi->ghead);
-      pt2->GPT_PtInfo = pt->GPT_Hdr2Pos - hi->gpt_sectors;
+      hi->ghead2       = pt2 = (struct Disk_GPT *)mem_dup(hi->ghead);
+      pt2->GPT_PtInfo  = pt->GPT_Hdr2Pos - hi->gpt_sectors;
+      pt2->GPT_Hdr1Pos = pt->GPT_Hdr2Pos;
+      pt2->GPT_Hdr2Pos = pt->GPT_Hdr1Pos;
    }
    // update crc32 in headers
    pt->GPT_HdrCRC  = 0;
@@ -130,7 +132,7 @@ qserr dsk_gptdel(u32t disk, u32t index, u64t start) {
    u32t       ii;
    if (!hi) return E_DSK_DISKNUM;
    if (hi->scan_rc) return hi->scan_rc;
-   if (!hi->gpt_present) return E_SYS_INVPARM;
+   if (!hi->gpt_present) return E_PTE_MBRDISK;
    /* actually - we can delete pure GPT partitions from hybrid disk, but
       better to not touch it at all */
    if (hi->hybrid) return E_PTE_HYBRID;
@@ -188,7 +190,7 @@ qserr dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid) {
    u32t     ii, widx;
    if (!hi) return E_DSK_DISKNUM;
    if (hi->scan_rc) return hi->scan_rc;
-   if (!hi->gpt_present) return E_PTE_NOFREE;
+   if (!hi->gpt_present) return E_PTE_MBRDISK;
    if (hi->hybrid) return E_PTE_HYBRID;
    // invalid flags
    if (flags&~DFBA_PRIMARY) return E_SYS_INVPARM;
@@ -265,7 +267,8 @@ qserr _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
       This is only GPT record update, so, I hope - it cannot kill ;) */
 
    if (!hi) return E_DSK_DISKNUM; else
-   if (!pinfo) return E_SYS_INVPARM; else {
+   if (!pinfo) return E_SYS_INVPARM; else 
+   if (hi->scan_rc) return hi->scan_rc; else {
       struct GPT_Record  *pte;
       u32t   *pos;
       int    type = dsk_isgpt(disk, index), emptyname;
@@ -367,7 +370,8 @@ qserr _std dsk_gptdset(u32t disk, dsk_gptdiskinfo *dinfo) {
    /* ALLOW hybrid changing in this function, but GUID only,
       not UserFirst/UserLast */
    if (!hi) return E_DSK_DISKNUM; else
-   if (!dinfo) return E_SYS_INVPARM;
+   if (!dinfo) return E_SYS_INVPARM; else
+   if (hi->scan_rc) return hi->scan_rc;
    // this call scan disk if required
    type = dsk_isgpt(disk, -1);
    if (!type) return E_PTE_MBRDISK;
@@ -415,6 +419,7 @@ qserr _std dsk_gptactive(u32t disk, u32t index) {
    u32t  ii, changed;
 
    if (!hi) return E_DSK_DISKNUM;
+   if (hi->scan_rc) return hi->scan_rc;
    // function call rescan if required
    if (dsk_isgpt(disk,-1)<=0) return E_PTE_MBRDISK;
    // check index

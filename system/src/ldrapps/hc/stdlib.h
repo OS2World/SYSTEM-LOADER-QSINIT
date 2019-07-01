@@ -378,7 +378,7 @@ char*  __stdcall _splitfname(const char *fname, char *dir, char *name);
     @return true/false flag */
 int    __stdcall _matchpattern(const char *pattern, const char *str);
 
-/** file name replacement by pattern.
+/** file name replacement by a pattern.
     REN command-like name processing
     @param  [in]  frompattern  Pattern to match.
     @param  [in]  topattern    Destination pattern.
@@ -418,7 +418,7 @@ u32t   __stdcall strccnt(const char *str, char ch);
 /// return last character of string
 char   __stdcall strclast(const char *str);
 
-// bit scan functions, returns -1 if value us 0
+// bit scan functions, returns -1 if value is 0
 #ifdef __WATCOMC__
 int    bsf32(u32t value);
 int    bsr32(u32t value);

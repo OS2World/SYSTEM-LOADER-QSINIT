@@ -242,10 +242,6 @@ FLAT_SSSel      dw      ?                                       ; FLAT SS
 
 DOSHLP_DATA     ends
 
-DOSHLP32_DATA   segment
-                extrn KAT:KernelAccess                          ;
-DOSHLP32_DATA   ends
-
 _TEXT           segment
                 extrn   _VesaDetect:near                        ;
 _TEXT           ends
@@ -788,8 +784,12 @@ DHStubInit      proc    far                                     ; assume can`t h
                 mov     word ptr cs:PrepareOS2DBCS+3,ax         ;
                 mov     word ptr cs:SetDBCSFontCmd+3,ax         ;
                 push    ax                                      ;
+                push    ds                                      ;
                 call    PrepareOS2DBCS                          ;
+                pop     ds                                      ;
+                push    ds                                      ;
                 call    SetDBCSFont                             ;
+                pop     ds                                      ;
                 pop     fs                                      ;
                 mov     eax,fs:[6]                              ;
                 mov     External.SavedInt10h,eax                ;
@@ -824,7 +824,7 @@ DHStubInit      proc    far                                     ; assume can`t h
                 xor     si,si                                   ; replace qsinit to
                 xor     di,di                                   ; boothlp (this code)
                 cld                                             ;
-            rep movs    byte ptr es:[di],byte ptr cs:[si]       ; no return possible below this point!
+            rep movs    byte ptr es:[di],byte ptr cs:[si]       ; no return is possible below this point!
                 push    es                                      ;
                 push    offset @@boothlp_9x00                   ; jump to final
                 retf                                            ; location

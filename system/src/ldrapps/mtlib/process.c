@@ -40,7 +40,7 @@ mt_thrdata* get_by_tid(mt_prcdata *pd, u32t tid) {
       if (rc)
          if (rc->tiTID!=tid) {
             log_it(0, "tid mismatch for pid %u tid %u\n", pd->piPID, tid);
-            mt_dumptree();
+            mt_dumptree(0);
             THROW_ERR_PD(pd);
          }
       return rc;
@@ -158,15 +158,17 @@ u32t* _std mt_pidlist(void) {
    return rc;
 }
 
-qserr _std mt_checkpidtid(mt_pid pid, mt_tid tid) {
+qserr _std mt_checkpidtid(mt_pid pid, mt_tid tid, u32t *state) {
    qserr rc = E_MT_BADPID;
    mt_swlock();
    if (pid) {
       mt_prcdata *pd = get_by_pid(pid);
       if (pd) {
          mt_thrdata *th = get_by_tid(pd, tid?tid:1);
-         if (!th) rc = E_MT_BADTID; else
+         if (!th) rc = E_MT_BADTID; else {
             rc = th->tiState==THRD_FINISHED?E_MT_GONE:0;
+            if (*state) *state = th->tiState | (u32t)th->tiWaitReason<<16;
+         }
       }
    }
    mt_swunlock();
@@ -594,7 +596,8 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
    if (!res)
       if (!mt_on) res = E_MT_DISABLED; else
          if (!thread) res = E_SYS_ZEROPTR; else
-            if (flags&~(MTCT_NOFPU|MTCT_NOTRACE|MTCT_SUSPENDED)) res = E_SYS_INVPARM;
+            if (flags&~(MTCT_NOFPU|MTCT_NOTRACE|MTCT_SUSPENDED|MTCT_DETACHED))
+               res = E_SYS_INVPARM;
    if (!res) {
       if (optdata) {
          if (optdata->stacksize) stacksize = optdata->stacksize;
@@ -640,6 +643,7 @@ mt_tid _std mt_createthread(mt_threadfunc thread, u32t flags, mt_ctdata *optdata
             }
             if (flags&MTCT_NOFPU) th->tiMiscFlags |= TFLM_NOFPU;
             if (flags&MTCT_NOTRACE) th->tiMiscFlags |= TFLM_NOTRACE;
+            if (flags&MTCT_DETACHED) th->tiSession = SESN_DETACHED;
             if ((flags&MTCT_SUSPENDED)==0) th->tiState = THRD_RUNNING;
             tid = th->tiTID;
          }
@@ -929,7 +933,7 @@ void start_idle_thread(void) {
    ctd.stacksize = 4096;
    ctd.pid       = 1;
 
-   tid = mt_createthread(sleeper, MTCT_NOFPU|MTCT_NOTRACE, &ctd, 0);
+   tid = mt_createthread(sleeper, MTCT_NOFPU|MTCT_NOTRACE|MTCT_DETACHED, &ctd, 0);
 
    if (tid) pt_sysidle = get_by_tid(pd_qsinit, tid);
    if (!pt_sysidle) {

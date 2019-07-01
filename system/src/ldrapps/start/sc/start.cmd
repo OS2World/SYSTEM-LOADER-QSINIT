@@ -18,9 +18,6 @@ if NOT %hosttype%=="EFI" goto common0
 rem switch EFI version to virtual console, because EFI`s own is a nightmare
 mode con cols=80 lines=30
 vmtrr
-rem now "apps" menu auto-selected for EFI & non-OS/2 boot, but "start_menu"
-rem still have priority above default logic.
-rem set start_menu = apps
 :common0
 
 rem call additional setup.cmd from the root of boot disk

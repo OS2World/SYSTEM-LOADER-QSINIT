@@ -27,8 +27,6 @@ u32t _std call64 (int function, u32t arg8mask, u32t argcnt, ...);
     @return function result (from rax, returned in edx:eax) */
 u64t _std call64l(int function, u32t arg8mask, u32t argcnt, ...);
 
-// include efnlist.inc to get access
-#ifdef QS_FN64_INDEX
 /** 64-bit exception common handler function.
     Function can show trap screen or/and modify some values and return.
     Interrupts is disabled on entering this function.
@@ -45,6 +43,28 @@ xcpt64proc _std sys_setxcpt64(xcpt64proc cxh);
     @param tmi    Timer interrupt handler function.
     @return return previous handler (or 0 if no one) */
 xcpt64proc _std sys_tmirq64(xcpt64proc tmi);
+
+// include qsint.h to get access
+#ifdef QSINIT_HIDFUNCS
+/** function calls EFI`s ExitBootServices() and return memory map after it.
+    exit_prepare() must be called before this function or it will be called
+    during it.
+
+    Most of complex API calls would fail (or hang) after this call (due lack
+    of EFI boot services).
+
+    QSINIT memory should be aligned to the top of 4th Gb. Size may vary from
+    32Mb to ~2Gb. User must preserve this memory, because it executing in it
+    just now.
+
+    Be careful, this function moves GDT!
+
+    @param [out] loadermem   loader memory start address
+    @param [out] loadersize  loader memory size
+
+    @return PC memory table (after EFI boot services terminaion), with zero
+            length in the last entry, memory block must be free()-ed */
+AcpiMemInfo* _std exit_efi(void **loadermem, u32t *loadersize);
 #endif
 
 #ifdef __cplusplus

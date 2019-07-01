@@ -15,7 +15,7 @@
                 include inc/filetab.inc
                 include inc/seldesc.inc
 
-                PRINT_FNAME  = 1                                ; print file name
+                PRINT_FNAME  = 0                                ; print file name (debug)
 
                 NUM_RETRIES  = 8                                ; sometimes it helps ;)
                 STACK_SIZE   = 4096                             ;
@@ -312,7 +312,7 @@ file_find       label   near                                    ;
                 or      al,al                                   ; zero len?
                 jz      @@ff_nextsector                         ; then next sector
 
-                test    [si].cdd_FlagsISO,ISO_ATTR_MULTI or ISO_ATTR_DIR  
+                test    [si].cdd_FlagsISO,ISO_ATTR_MULTI or ISO_ATTR_DIR
                 jnz     @@ff_nextrec                            ;
                 movzx   cx,[si].cdd_FileIdLen                   ;
                 jcxz    @@ff_nextrec                            ;

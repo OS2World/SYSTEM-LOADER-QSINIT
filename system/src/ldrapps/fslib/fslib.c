@@ -14,8 +14,8 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          log_printf("missing extvol value!\n");
          return 0;
       }
-      // register classes
-      if (/*!register_exfat() ||*/ !register_hpfs()) return 0;
+      // register file system classes
+      if (!register_hpfs() || !register_jfs()) return 0;
       // set system flag on self to prevent unload
       ((module*)hmod)->flags |= MOD_SYSTEM;
    }

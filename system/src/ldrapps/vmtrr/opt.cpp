@@ -64,6 +64,16 @@ static int is_power2(u64t length) {
    return 0;
 }
 
+/// return number of set bits in the value
+static int nbits(u64t value) {
+   int cnt = 0;
+   while (value) {
+      cnt+=value&1;
+      value>>=1;
+   }
+   return cnt;
+}
+
 /// clear register
 static void clearreg(u32t reg) {
    mtrr[reg].start = 0; mtrr[reg].len = 0;  mtrr[reg].cache = MTRRF_UC;
@@ -89,9 +99,9 @@ static int regsavail(void) {
    return cnt;
 }
 
-int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
+int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit, int defWB) {
    u32t        reg;
-   int          ii, 
+   int          ii,
             sv4idx = 0;
    mtrrentry save4[16];
    memset(&save4,0,sizeof(save4));
@@ -106,16 +116,23 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
       mtrr[reg].on    = 1;
       return 0;
    }
-   // video memory in not in 4th GB
-   if (wc_addr<_3GbLL || wc_addr+wc_len>_4GbLL) return OPTERR_VIDMEM3GB;
+   // video memory is not in the 3-4th GB area
+   if (wc_addr<_2GbLL || wc_addr+wc_len>_4GbLL) return OPTERR_VIDMEM3GB;
    /* turn off previous write combine on the same memory,
-      but leave this block to catch low UC border successfully */
-   ii = is_include(wc_addr, wc_len);
-   if (ii>=0 && mtrr[ii].cache==MTRRF_WC) mtrr[ii].cache=MTRRF_UC;
-   // only WB and UC allowed in first 4Gb
-   for (ii=0; ii<regs; ii++) 
-      if (mtrr[ii].on && mtrr[ii].cache!=MTRRF_UC && mtrr[ii].cache!=MTRRF_WB
-         && mtrr[ii].start<_4GbLL) return OPTERR_UNKCT;
+      but leave this block to catch low UC border successfully,
+      also denies any included block other than UC (WT too) */
+   for (ii=0; ii>=0; ) {
+      ii = is_include(wc_addr, wc_len, ii);
+      if (ii>=0)
+         if (mtrr[ii].cache==MTRRF_WC) mtrr[ii].cache=MTRRF_UC; else
+            if (mtrr[ii].cache!=MTRRF_UC) return OPTERR_UNKCT; else ii++;
+   }
+   // only WB and UC/WT allowed in first 4Gb
+   for (ii=0; ii<regs; ii++) {
+      int ct = mtrr[ii].cache;
+      if (mtrr[ii].on && ct!=MTRRF_UC && ct!=MTRRF_WB && ct!=MTRRF_WT &&
+         mtrr[ii].start<_4GbLL) return OPTERR_UNKCT;
+   }
    // is block intersected with someone?
    ii = is_intersection(wc_addr, wc_len);
    if (ii>=0) return OPTERR_INTERSECT;
@@ -147,31 +164,93 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
    u64t  wbend = 0,
        ucstart = FFFF64;
    // searching for upper WB border
+   if (defWB) wbend = _4GbLL;
+      else
    for (ii=0; ii<regs; ii++)
       if (mtrr[ii].on)
          if (mtrr[ii].cache==MTRRF_WB)
             if (mtrr[ii].start+mtrr[ii].len > wbend)
                wbend = mtrr[ii].start+mtrr[ii].len;
-   // searching for lower UC border (but ignore small blocks)
+   // searching for lower UC/WT border (but ignore small blocks)
    for (ii=0; ii<regs; ii++)
-      if (mtrr[ii].on)
-         if (mtrr[ii].cache==MTRRF_UC) {
+      if (mtrr[ii].on) {
+         int ct = mtrr[ii].cache;
+         if (ct==MTRRF_UC || ct==MTRRF_WT) {
             int pwr = bsf64(mtrr[ii].len);
             if (pwr>=27) {
                if (ucstart>mtrr[ii].start) ucstart = mtrr[ii].start;
-               clearreg(ii);
+               if (!defWB && ct==MTRRF_UC) clearreg(ii);
             }
          }
-   // pass #2 - removing small blocks above selected border
-   for (ii=0; ii<regs; ii++)
-      if (mtrr[ii].on)
-         if (mtrr[ii].cache==MTRRF_UC && ucstart<=mtrr[ii].start)
-            clearreg(ii);
-   // if no UC entries - use the end of WB as border
+      }
+   // if no UC entries - use the end of WB as a border
    if (ucstart>wbend) ucstart = wbend;
+   // step #2 - removing small blocks above selected border
+   if (!defWB)
+      for (ii=0; ii<regs; ii++)
+         if (mtrr[ii].on)
+            if (mtrr[ii].cache==MTRRF_UC && ucstart<=mtrr[ii].start)
+               clearreg(ii);
+   // searching for duplicates
+   for (ii=0; ii<regs; ) {
+      if (mtrr[ii].on)
+         if (mtrr[ii].cache==MTRRF_UC) {
+            mtrr[ii].on = 0;
+            int idx = is_include(mtrr[ii].start, mtrr[ii].len);
+            mtrr[ii].on = 1;
+            if (idx>=0 && mtrr[idx].cache==MTRRF_UC) {
+               clearreg(idx);
+               continue;
+            }
+         }
+      ii++;
+   }
    // this can occur on small video memory size (<128Mb)
    if (wc_addr<ucstart) return OPTERR_BELOWUC;
-   // build new WB list
+   // WB default type - find register with UC for video memory area
+   if (defWB) {
+      u64t  len[2] = {0,0};
+      int      vmi = is_included(wc_addr,wc_len);
+
+      if (vmi<0 || mtrr[vmi].cache==MTRRF_WB) return OPTERR_OPTERR;
+
+      len[0] = wc_addr - mtrr[vmi].start,
+      len[1] = mtrr[vmi].start + mtrr[vmi].len - (wc_addr + wc_len);
+      // printf("%08LX %08LX\n", len[0], len[1]);
+
+      /* we need 1 reg for WC (re-used vmi), ALL saved above 4Gb (because they
+         can be UC only for the WB default) and a lot of regs for UC block(s)
+         around video memory */
+      if (regsavail() < sv4idx + nbits(len[0]) + nbits(len[1]))
+         return OPTERR_OPTERR;
+      for (ii=0; ii<2; ii++)
+         if (len[ii]) {
+            u64t  bs = ii ? wc_addr + wc_len : mtrr[vmi].start,
+                  be = bs + len[ii];
+            int  dir = bsf64(bs) > bsf64(be) ? -1 : 1,
+               shift = bsf64(bs);
+            //printf("%08X %08X %i %i\n", (u32t)bs, (u32t)be, dir, shift);
+
+            // process from start position with inc/decreasing block size
+            while (len[ii]) {
+               u64t size = 1<<shift;
+               if (size&len[ii]) {
+                  if (!is_regavail(&reg)) return OPTERR_NOREG; //?
+                  mtrr[reg].start = bs;
+                  mtrr[reg].len   = size;
+                  // UC or WT
+                  mtrr[reg].cache = mtrr[vmi].cache;
+                  mtrr[reg].on    = 1;
+                  len[ii] -= size;
+                  bs      += size;
+               }
+               shift += dir;
+            }
+         }
+      // free splitted register
+      mtrr[vmi].on = 0;
+   } else
+   // UC default type - build new WB list
    if (ucstart<wbend) {
       if (ucstart<_1GbLL) return OPTERR_LOWUC;
 
@@ -228,7 +307,9 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit) {
          mtrr[reg].cache = save4[ii].cache;
          mtrr[reg].on    = 1;
       }
-      // check lost items for included UC entries
+      /* check lost items for included UC entries.
+         should never run this in WB default, because it fails if cannot
+         reserve all sv4idx registers */
       while (ii<sv4idx) {
          if (mtrr[ii].cache==MTRRF_UC) {
             int idx = is_included(save4[ii].start,save4[ii].len);

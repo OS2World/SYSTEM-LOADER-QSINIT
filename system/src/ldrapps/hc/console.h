@@ -13,41 +13,45 @@ extern "C" {
     @return memory size in bytes.*/
 u32t _std con_vmemsize(u64t *fbaddr);
 
-/** Write pixel data to screen.
-    @param  x      Start x point
-    @param  y      Start y point
-    @param  dx     Number of columns
-    @param  dy     Number of lines
-    @param  src    Source data in current mode color format
-    @param  pitch  Source data line length
-    @return true if success */
-u32t _std con_write(u32t x, u32t y, u32t dx, u32t dy, void *src, u32t pitch);
+typedef struct {
+   u32t         size;
+   u32t        flags;    ///< mode information flags (see VMF_* in vio.h)
+   u32t      mode_id;    ///< mode id 
+   u16t           mx;    ///< mode width
+   u16t           my;    ///< mode height
+   u32t         bits;    ///< bits per pixel
+   u32t        pitch;    ///< mode line length
+   u32t        rmask;    ///< red color mask (bpp>=15)
+   u32t        gmask;    ///< green color mask (bpp>=15)
+   u32t        bmask;    ///< blue color mask (bpp>=15)
+   u32t        amask;    ///< reserved bits mask (bpp>=15)
+} con_mode_info;
 
-/** Read pixel data from screen.
-    @param  x      Start x point
-    @param  y      Start y point
-    @param  dx     Number of columns
-    @param  dy     Number of lines
-    @param  dst    Destination data buffer
-    @param  pitch  Destination data line length
-    @return true if success */
-u32t _std con_read(u32t x, u32t y, u32t dx, u32t dy, void *dst, u32t pitch);
+/** return real mode list.
+    Only native modes are returned here.
 
-/** Fills rectangle on screen.
-    @param  x      Start x point
-    @param  y      Start y point
-    @param  dx     Number of columns
-    @param  dy     Number of lines
-    @param  color  Color value in current mode color format
-    @return true if success */
-u32t _std con_clear(u32t x, u32t y, u32t dx, u32t dy, u32t color);
+    Note, that mode_id of graphic modes, returned in this list - may be
+    accepted only by con_exitmode() function, vio_setmodeid() will deny it,
+    because there is no "concept" of graphics mode now.
+
+    @return mode information records in application owned heap block (must
+            be free()-ed). The end of list indicated by con_mode_info.size
+            field = 0. */
+con_mode_info* _std con_gmlist(void);
+
+/** set "shutdown" screen mode.
+    @param   mode_id   mode to set after loader exit instead of restoration
+                       of default mode. Pure graphic mode id from con_gmlist()
+                       accepted here.
+    @return error code or 0. */
+qserr _std con_exitmode(u32t mode_id);
 
 /** Set VGA palette.
-    @param  pal    768 bytes buffer with palette (RGB RGB ...) */
+    @param   pal       768 bytes buffer with palette (RGB RGB ...) */
 void _std con_setvgapal(void *pal);
 
 /** Get VGA palette.
-    @param  pal    768 bytes buffer for pallete (RGB RGB ...) */
+    @param   pal       768 bytes buffer for pallete (RGB RGB ...) */
 void _std con_getvgapal(void *pal);
 
 /** Add or replace one of fonts for graphic console.
@@ -66,16 +70,15 @@ void _std con_fontadd(int width, int height, void *data);
     @return presence flag (1/0) */
 u32t _std con_fontavail(int width, int height);
 
-/** Add new "virtual console" mode.
-    @param  fntx   font width
-    @param  fnty   font height
-    @param  modex  Mode width
-    @param  modey  Mode height
-    @return 0 on success, EINVAL on bad font size, ENODEV - no such mode, 
-            EEXIST - mode with same fnt & screen resolution already exists, 
-            ENOTTY - no installed font of this size, ENOSPC - mode info
-            array is full */
-int _std con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey);
+/** Return a copy of specified font.
+    Note, that function return font on *exact* size match only!
+    Even if con_fontavail() returns true (because graphic console able to use
+    smaller font), this function may return zero.
+
+    @param   width     font width (9==8 here)
+    @param   height    font height
+    @return zero if no font found or application owned heap block with binary data */
+void*_std con_fontcopy(int width, int height);
 
 /** Install screenshot handler.
     The same as MKSHOT ON shell command.

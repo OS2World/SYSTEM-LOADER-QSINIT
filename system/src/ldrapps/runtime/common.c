@@ -7,7 +7,6 @@
 #include "malloc.h"
 #include "qspdata.h"
 #include "qsmodext.h"
-#include "qstask.h"
 
 extern u32t     _RandSeed;
 extern u32t        _IsDll;

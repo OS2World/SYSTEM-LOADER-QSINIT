@@ -29,11 +29,22 @@ TEXT16          segment                                         ;
                 extrn   _checkresetmode:near                    ;
                 extrn   _init16:near                            ;
                 extrn   _settextmode:near                       ;
+                extrn   _LdrRstCS:word                          ;
+                extrn   _dd_bootdisk:byte                       ;
+                extrn   _dd_bootflags:byte                      ;
+                extrn   _dd_bpbofs:word                         ;
+                extrn   _dd_bpbseg:word                         ;
+                extrn   _dd_rootofs:word                        ;
+                extrn   _dd_rootseg:word                        ;
+                extrn   _dd_firstsector:word                    ;
+                extrn   LdrRstSS:word                           ;
+                extrn   LdrRstSP:word                           ;
 TEXT16          ends                                            ;
 
 DATA16          segment                                         ;
                 public  _filetable                              ;
                 public  _minifsd_ptr                            ;
+                public  _logbufseg                              ;
                 public  _DiskBufRM_Seg                          ;
                 public  _rmpart_size, _bin_header, bin32_seg    ;
                 ; ----> must be in the same order and place,
@@ -47,20 +58,19 @@ filetabptr      dd      0                                       ;
 _bin_header     mkbin_info <MKBIN_SIGN, size mkbin_info, 0, offset bssstart>
 _rmpart_size    dw      0                                       ; own size, rounded up to 4k
 bin32_seg       dw      0                                       ; seg of packed 32-bit part
+_logbufseg      dw      0                                       ; rm log buffer segment
 DATA16          ends                                            ;
 
 BSSINIT         segment                                         ;
                 align 2                                         ;
 bssstart        label   word                                    ;
                 public  _pmdataseg                              ;
-                public  _logbufseg                              ;
                 public  _physmem                                ;
                 public  intrmatrix                              ;
                 public  _DiskBufPM                              ;
 init_print_attr db      ?                                       ;
                 align   2                                       ;
 _pmdataseg      dw      ?                                       ; pm data segment
-_logbufseg      dw      ?                                       ; rm log buffer segment
 intrmatrix      db      100h dup(?)                             ; INT redirectors for all INTs
 _physmem        db      100h dup (?)                            ; 32 * 8 (!!)
                 align   4                                       ;
@@ -86,14 +96,13 @@ _int12size      dw      ?                                       ;
 _safeMode       db      ?                                       ;
 _BootBPB        Disk_BPB <>                                     ; BPB
                 align  4                                        ;
-                public  _memblocks, _availmem, _phmembase       ;
+                public  _headblock, _phmembase                  ;
                 public  _highbase, _highstack, _stacksize       ;
-_memblocks      dd      ?                                       ;
-_availmem       dd      ?                                       ;
 _phmembase      dd      ?                                       ;
 _highbase       dd      ?                                       ;
 _highstack      dd      ?                                       ;
 _stacksize      dd      ?                                       ;
+_headblock      dw      ?                                       ;
 _BSS16          ends                                            ;
 
 ;
@@ -109,7 +118,7 @@ _BSS16          ends                                            ;
 ;              BF_MINIFSD      0x04    // mini-FSD flag
 ;              BF_NOPICINIT    0x08    // do not initialize the PIC
 ;              BF_MICROFSD     0x10    // micro-FSD flag
-;              BF_RESERVED     0xE0    // reserved, must be 0
+;              BF_RESERVED     0xA0    // reserved, must be 0
 ;    (DL)    = drive number for the boot disk (ignored if no BF_NOMFSHVOLIO or BF_MINIFSD)
 ;    (DS:SI) = address of BOOT MEDIA'S bpb (ignored if no BF_NOMFSHVOLIO or BF_MINIFSD)
 ;    (ES:DI) = address of root directory / micro-fsd file table
@@ -128,20 +137,20 @@ _BSS16          ends                                            ;
 INITCODE        segment                                         ;
                 assume  cs:G16, ds:G16, es:nothing, ss:G16      ;
 start:
-                mov     word ptr cs:[_dd_bpbseg],ds             ;
+                mov     cs:_dd_bpbseg,ds                        ;
                 mov     ax,cs                                   ;
                 mov     ds,ax                                   ;
-                mov     word ptr [LdrRstSS],ss                  ; saving start values for restart
-                mov     word ptr [LdrRstSP],sp                  ; loader function
-                mov     word ptr [_dd_bootdisk],dx              ;
+                mov     LdrRstSS,ss                             ; saving start values for restart
+                mov     LdrRstSP,sp                             ; loader function
+                mov     word ptr _dd_bootdisk,dx                ;
                 mov     minifsd_flags,dx                        ;
-                mov     word ptr [_dd_bpbofs],si                ;
-                mov     word ptr [_dd_firstsector],bx           ;
-                mov     word ptr [_dd_rootseg],es               ;
-                mov     word ptr [_dd_rootofs],di               ;
-                mov     word ptr [_LdrRstCS],cs                 ;
-                mov     word ptr [filetabptr+2],es              ; save filetable/rootdir pointer
-                mov     word ptr [filetabptr],di                ;
+                mov     _dd_bpbofs,si                           ;
+                mov     _dd_firstsector,bx                      ;
+                mov     _dd_rootseg,es                          ;
+                mov     _dd_rootofs,di                          ;
+                mov     _LdrRstCS,cs                            ;
+                mov     word ptr filetabptr+2,es                ; save filetable/rootdir pointer
+                mov     word ptr filetabptr,di                  ;
                 jmp     @@init_process                          ;
 
                 db      10,10                                   ;
@@ -415,8 +424,12 @@ endif
                 call    write_dot                               ;
                 call    init_memory                             ; get system memory info
                 call    write_dot                               ;
+
+                test    byte ptr _dd_bootflags,BF_NOPICINIT     ;
+                jnz     @@init_skippic                          ;
                 call    remap_pic                               ; remap PIC1 to int 50h
                 call    write_dot                               ;
+@@init_skippic:
                 call    settimerirq                             ; set own irq0 handler
                 call    write_dot                               ;
                 push    ds                                      ;
@@ -614,7 +627,6 @@ endif
 
 INITCODE        ends
 
-                include misc/ldrrst.inc
                 include misc/meminit.inc
                 include misc/mappic.inc
 

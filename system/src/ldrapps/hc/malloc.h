@@ -17,13 +17,17 @@ But there are four types of allocation available:
 @li thread-owned memory, which is auto-released when THREAD exits -
     malloc_thread(), calloc_thread(), realloc_thread().
 
-@li belonging to DLL module. This type is set by default by any malloc(),
+@li belonging to a DLL module. This type is set by default by any malloc(),
     realloc() and free() inside DLL module code. It works as shared until
     DLL unload - then all such blocks will be released.
 
-    @attention Note, that such type is returned by this 3 functions only,
-    other clib and APIs still returns process owned memory when called from
-    DLL!
+    @attention Note, that such type is returned by these 3 functions only,
+    any other clib and APIs still return process owned memory when called
+    from a DLL! Runtime is *always* dynamically linked, so it cannot make
+    difference between caller`s module type.
+
+    Also note, that block can be owned by EXE module as well, but this looks
+    similar with process-owned ones.
 
 @li shared over system, which can be released only by free() function:
     malloc_shared(), realloc_shared(), calloc_shared().
@@ -39,9 +43,17 @@ thread memory, even it wasn`t so before.
 
 In practice, this mean, what EXE module writing supplied with automatic garbage
 collection on exit. DLL module writing is a bit harder task, because API
-functions returns blocks, attached to current process context, although DLL
-modules are global and shared over system. This requires additional block type
-setup call in some cases. */
+functions returns blocks, attached to the current process context, although
+DLL modules are global and shared over system. This requires additional block
+type setup call in some cases.
+
+Note, that maximum block size is 2Gb - 64k.
+
+Also note, that block address is ALWAYS aligned to 16 bytes.
+
+It is a good practice to use malloc_thread() for any temporary buffer. Killing
+this thread will release such block immediately.
+*/
 
 #ifndef QSINIT_MALLOC
 #define QSINIT_MALLOC

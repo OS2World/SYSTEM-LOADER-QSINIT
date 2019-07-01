@@ -597,6 +597,7 @@ static fontbits *addfont(int ebx, fontbits *fb) {
    rr.r_ebx = ebx<<8;
    if (!int10h(&rr)) return 0;
    font = (u8t*)(hlp_segtoflat(rr.r_es)+(rr.r_ebp&0xFFFF));
+   if (rr.r_es==0) return 0;
 
    switch (ebx) {
       case 3:
@@ -650,9 +651,11 @@ static void out_addfonts(void) {
    if (fb) addfont(5,fb);
 #endif
    fb = addfont(6,0);     // 8 x 16, 9 x 16
-   if (fb) addfont(7,fb);
+   if (fb) addfont(7,fb); else
+      log_it(2,"8x16 font error!\n");
    fb = addfont(3,0);     // 8 x 8
-   if (fb) addfont(4,fb);
+   if (fb) addfont(4,fb); else
+      log_it(2,"8x8 font error!\n");
 }
 
 int plinit_vesa(void) {

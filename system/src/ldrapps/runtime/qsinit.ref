@@ -30,16 +30,16 @@ exports = {
   _log_vprintf     = { index=18 }                                 # vprintf to log
   _hlp_tscread     = { index=19 }                                 # safe rdtsc call
 
-  _hlp_memalloc    = { index=20 }                                 # global malloc
-  _hlp_memfree     = { index=21 }                                 # global free
-  _hlp_memrealloc  = { index=22 }                                 # global realloc
+  _hlp_memalloc    = { index=20 group="sysmem"  format="p@u@u" }  # global malloc
+  _hlp_memfree     = { index=21 group="sysmem"  format="vp" }     # global free
+  _hlp_memrealloc  = { index=22 group="sysmem"  format="pp@u" }   # global realloc
   _hlp_memavail    = { index=23 }                                 # query available memory
   _hlp_memqconst   = { index=24 }                                 # internal
   _hlp_memused     = { index=25 group="sysmem"  format="uu" }     # query memory usage
   _hlp_memprint    = { index=26 }                                 # print tables to log
   _hlp_memgetsize  = { index=27 }                                 # query block size
   _hlp_memreserve  = { index=28 group="sysmem"  format="ppu&*u" } # reserve mem at phys addr
-  _hlp_memallocsig = { index=29 }                                 # global malloc with signature
+  _hlp_memallocsig = { index=29 group="sysmem"  format="p@us@u" } # global malloc with signature
 
   _hlp_fopen       = { index=31 group="mfs"     format="us"     } # open file
   _hlp_fread       = { index=32 group="mfs"     format="u@upu"  } # read file
@@ -142,7 +142,7 @@ exports = {
   _sys_setxcpt64   = { index=151 group="system" format="pp"    }  # setup exceptions on EFI host
   _sys_tmirq32     = { index=152 group="system" format="upbb"  }  # LAPIC timer setup
   _sys_tmirq64     = { index=153 group="system" format="pp"    }  # timer irq on EFI host
-  _sys_rmtstat     = { index=154 }                                # internal timer irq counters
+  _exit_efi        = { index=154 }                                # exit from UEFI
   _mt_yield        = { index=155 }                                # yields CPU to other threads
   _mt_swlock       = { index=156 }                                # inc global mt lock
   _exit_inprocess  = { index=157 group="system" format="uv"    }  # is exit in process?
@@ -179,7 +179,7 @@ exports = {
   _tm_calibrate    = { index=194 }                                # calibrate i/o delay
   _clock           = { index=195 group="time"   format="@qv" }    # just clock()
   _hlp_tscin55ms   = { index=196 group="system" format="@qv" }    # rtdsc cycles in 55 ms
-  _sys_clock       = { index=197 group="time"   format="@qv" }    # mks sys reboot
+  _sys_clock       = { index=197 }                                # mks counter
 
   _vio_getshape    = { index=200 group="vio"    format="hv"  }    # get cursor shape
   _vio_getpos      = { index=201 }                                # get cursor pos

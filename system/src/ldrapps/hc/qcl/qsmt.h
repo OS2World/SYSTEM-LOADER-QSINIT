@@ -31,7 +31,7 @@ typedef struct qs_mtlib_s {
    /** start multi-tasking.
        Function is simulate to mt_initialize().
 
-       @retval E_OK            on success	
+       @retval E_OK            on success
        @retval E_MT_DISABLED   library disabled by "set MTLIB = off"
        @retval E_SYS_NOFILE    unable to load MTLIB module
        @retval E_MT_TIMER      unable to install timer handlers
@@ -76,14 +76,17 @@ typedef struct qs_mtlib_s {
    /** validate pid/tid.
        @param  pid             pid value
        @param  tid             tid value or 0 for process check
+       @param  [out] state     Optional ptr to the thread state value (can be 0,
+                               see qspdata.inc: low word is tiState value and
+                               high word - tiWaitReason)
        @retval 0               on success
        @retval E_MT_GONE       thread still exists, but gone already
        @retval E_MT_BADPID     unknown pid
        @retval E_MT_BADTID     unknown tid */
-   qserr    _exicc (*checkpidtid) (mt_pid pid, mt_tid tid);
+   qserr    _exicc (*checkpidtid) (mt_pid pid, mt_tid tid, u32t *state);
    /** opens a task list on specified device(s).
        @param  devmask         devices to show task list (bit mask, set
-                               bit 0 for screen).
+                               bit 0 for the screen).
        @return error value or 0. */
    qserr    _exicc (*tasklist)    (u32t devmask);
 } _qs_mtlib, *qs_mtlib;

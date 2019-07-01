@@ -230,7 +230,7 @@ qserr _std pag_enable(void) {
    pag_inittables();
    log_it(2, "tables created\n");
 #if 0
-   pag_printall();
+   pag_printall(0);
 #endif
    /* change reversed FLAT data selector to plain mode.
       registers will be updated after next switch to RM (interrupt) or

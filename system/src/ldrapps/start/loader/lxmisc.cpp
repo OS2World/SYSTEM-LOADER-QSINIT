@@ -48,7 +48,8 @@ void         trace_pid_start(void);
 // decompression routines
 u32t _std    DecompressM2(u32t DataLen, u8t* Src, u8t *Dst);
 u32t _std    DecompressM3(u32t DataLen, u8t* Src, u8t *Dst, u8t *Buffer);
-void _std    log_memtable(void*, void*, u8t*, u32t*, u32t, process_context **);
+void _std    log_memtable(printf_function pfn, void*, void*, u8t*, u32t*,
+                          u32t, process_context **);
 // cache routines
 void _std    cache_ioctl (u8t vol, u32t action);
 u32t _std    cache_read  (u32t disk, u64t pos, u32t ssize, void *buf);
@@ -151,6 +152,28 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
          exp[ii].direct = addr;
       }
    }
+   /* parse name tables.
+      (tables validated in mdt.c) */
+   u8t *src = (u8t*)mh->rtab;
+   idx = 0;
+   while (*src) {
+      u8t  len = *src++&0x7F;
+      u16t ord = *(u16t*)(src+len);
+      // log_it(2, "ord %u len %u\n", ord, len);
+      if (ord)
+         for (u32t ii=0; ii<cnt; ii++)
+            if (exp[ii].ordinal==ord) {
+               // make zero-term string (overwrite ord)
+               src[len] = 0;
+               exp[ii].name = src;
+               src = 0;
+               break;
+            }
+      if (!src) break;
+      src+=len+2;
+      // switch to the non-res table
+      if (!*src && !idx && mh->nrtab) { idx=1; src=(u8t*)mh->nrtab; }
+   }
    return 0;
 }
 
@@ -182,12 +205,11 @@ u32t _std mod_searchload(const char *name, u32t flags, qserr *error) {
 }
 
 /* unpack code works as IBM one and it search for zero at the end of iterated
-   data, but who can guarantee his presence? it really can be missed, at least
+   data, but who guarantee its presence? it really can be missed, at least
    in ITERDATA pages.
    so we add it ;) we can save 4 bytes after source data because both mdt.c and
-   bootos2.exe code allocate buffer with additional dword.
-   it is an impossible case to reach the end of memory block by modifying
-   those 4 bytes, but we still add it ;)
+   bootos2.exe code allocate buffer with additional dword (even if it is an
+   impossible case to reach the end of memory block)
 
    note: this comment applied to mod_unpack2 code too. */
 
@@ -311,7 +333,7 @@ void unzip_delaylist(void) {
 }
 
 /* unzip one of delayed EXE/DLL from the saved QSINIT.LDI data.
-   When all files will be done - LDI data released */
+   After all files unpacked - LDI data will be released */
 int _std unzip_ldi(void *mem, u32t size, const char *path) {
    char drv = toupper(path[0]);
    // we should receive a full path here, but it can be both 1: & B:
@@ -338,13 +360,13 @@ int _std unzip_ldi(void *mem, u32t size, const char *path) {
    // ???
    if (!dm_cnt) return 0;
 
-   log_it(2, "Delayed unpack: %s, %d bytes (%d)\n", cpath(), size, dm_cnt);
+   log_it(2, "unpack %s, %d bytes (%d)\n", cpath(), size, dm_cnt);
    if (cmd_shellcall(shl_unzip, callstr(), 0)) return 0;
 
    u32t  bsize = 0;
    void *fdata = freadfull(path, &bsize);
    if (bsize==size && fdata) {
-      // all delayed modules unpacked! then free ZIP data (500k now!)
+      // all delayed modules unpacked! then free ZIP data (650k now!)
       if (dm_cnt<=1) release_ldi();
       memcpy(mem, fdata, size);
    } else bsize=0;
@@ -447,14 +469,21 @@ int unpack_ldi(void) {
     have protection from second open in caller. */
 u16t _std io_mfs_open(const char *name, u32t *filesize) {
    if (mfs_handle) return 1; else {
-      char      fnn[24];
+      char     *fnn;
       u32t   action;
       u64t      fsz;
       qserr      rc;
-      snprintf(fnn, 24, "A:\\%s", name);
+      /* simulate UEFI mfs open: \EFI\BOOT by default and direct path
+         by / or \\ */
+      if (hlp_hosttype()==QSHT_EFI)
+         fnn = sprintf_dyn(name[0]=='/'||name[0]=='\\'?"A:%s":"A:\\EFI\\BOOT\\%s", name);
+      else
+         fnn = sprintf_dyn("A:\\%s", name);
+
       rc = io_open(fnn, IOFM_READ|IOFM_OPEN_EXISTING|IOFM_SHARE_READ|
          IOFM_SHARE_REN|IOFM_SHARE_DEL, &mfs_handle, &action);
       if (rc) log_printf("mfs open(%s) = %X\n", fnn, rc);
+      free(fnn);
       if (!rc) rc = io_size(mfs_handle, &fsz);
       if (!rc && fsz>_2GB+_1GB) rc = E_SYS_TOOLARGE;
       if (!rc) rc = io_setstate(mfs_handle, IOFS_DETACHED, 1);
@@ -601,7 +630,7 @@ u32t _std mod_checkpid(u32t pid) {
             pq = pq->pctx;
          }
       } else
-         return get_mtlib()->checkpidtid(pid,0)==0 ? 1 : 0;
+         return get_mtlib()->checkpidtid(pid,0,0)==0 ? 1 : 0;
    return 0;
 }
 

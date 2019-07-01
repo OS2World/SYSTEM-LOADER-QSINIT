@@ -169,7 +169,6 @@
                 extrn   _hlp_diskstruct :near
                 extrn   _exit_restirq   :near
                 extrn   _hlp_rmcallreg  :near
-                extrn   _sys_rmtstat    :near
                 extrn   _mt_yield       :near
                 extrn   _hlp_tscread    :near
                 extrn   _hlp_tscin55ms  :near
@@ -204,6 +203,7 @@
                 extrn   _mod_chain      :near
                 extrn   _hlp_memused    :near
                 extrn   _hlp_cachenotify:near
+                extrn   _exit_efi       :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -377,7 +377,7 @@ _exptable_data:
                 dd      offset _sys_setxcpt64                   ;
                 dd      offset _sys_tmirq32                     ;
                 dd      offset _sys_tmirq64                     ;
-                dd      offset _sys_rmtstat                     ;
+                dd      offset _exit_efi                        ;
                 dd      offset _mt_yield                        ;
                 dd      offset _mt_swlock                       ;
                 dd      offset _exit_inprocess                  ;

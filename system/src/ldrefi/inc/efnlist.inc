@@ -46,7 +46,7 @@
           EFN_VIOGETMODE    = 18                                ;
 ;void vio_setmode(u32t lines);
           EFN_VIOSETMODE    = 19                                ;
-;void init15mem(void);
+;void int15mem(void *buffer, u32t exitbootservices, void **ldrmem, u32t *ldrsize);
           EFN_INIT15MEM     = 20                                ;
 ;void vio_showcursor(u32t state);
           EFN_VIOSHOWCURSOR = 21                                ;

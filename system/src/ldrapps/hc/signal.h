@@ -36,25 +36,27 @@ typedef void (_std *__sig_function)(int);
 
     * any call to kill(), tkill() and alarm() will turn MT mode ON
 
-    * kill() will send signal to the main thread of specified process, tkill()
-      to a thread in current process.
+    * kill() will send a signal to the main thread of specified process,
+      tkill() to a thread in current process.
 
-    * signal handler called in the *separate fiber*. Signal delivery will be
-      delayed if thread is in the waiting state or current fiber is not 0
-      (main thread stream).
+    * signal handler called in a *separate fiber*. Signal delivery will be
+      delayed if thread in waiting state or current fiber is not 0 (main
+      thread stream).
 
     * siglongjmp() MUST be used instead of longjmp() in the signal handler.
 
     * default processing reacts on SIGINT, SIGKILL and SIGABRT only. It
-      terminates process in the main thread and thread in secondary. */
+      terminates process in the main thread and thread in secondary.
+
+    * use mod_stop() to kill processes with absolute guarantee ;) */
 __sig_function _std signal(int sig, __sig_function);
 
-/** send signal to a process or process tree
+/** send a signal to a process or process tree
     Function turns on MT mode in any case (even with sig==0).
 
-    Sig==0 cannot check pid - because error will be returned too if main thread
-    of target is suspended or waits for something. mod_checkpid() should be used
-    to validate pid.
+    Sig==0 cannot check pid, because error will be returned if main thread
+    of a target is suspended or waits for something. mod_checkpid() should be
+    used to validate pid.
 
     @param  pid      process id, pid>0 - specified one, 0 - current and all of
                      its children, pid==-1 - any process except pid 1,
@@ -73,7 +75,7 @@ int            _std tkill (u32t tid, int sig);
 #define raise(sig) kill(getpid(),(sig))
 
 /** posix alarm function.
-    Note, that this function hiddenly turns on MT mode, because signal
+    Note, that function hiddenly turns MT mode on, because signal
     processing requires it mandatory.
 
     Alarm timer is unique for every thread.

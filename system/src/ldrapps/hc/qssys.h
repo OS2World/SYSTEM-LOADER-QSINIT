@@ -48,7 +48,7 @@ int      _std sys_setint(u8t vector, u64t *addr, u32t type);
 int      _std sys_intgate(u8t vector, u16t sel);
 
 /** allocate TSS selector.
-    Function allocates selector pair - TSS and writable TSS+8 for
+    Function allocates selector pair - TSS and writeable TSS+8 for
     easy access.
     @param   tssdata       TSS data (must not cross page boundary, as Intel says)
     @param   limit         TSS limit (use 0 for default)
@@ -116,11 +116,11 @@ u32t     _std sys_acpiroot(void);
 u32t     _std fpu_statesize(void);
 
 /** save FPU state.
-    Buffer must be aligned to 64 byte. */
+    Buffer address must be aligned to 64 bytes. */
 void     _std fpu_statesave(void *buffer);
 
 /** restore FPU state.
-    Buffer must be aligned to 64 byte. */
+    Buffer address must be aligned to 64 bytes. */
 void     _std fpu_staterest(void *buffer);
 
 /// @name bit flags for sys_isavail
@@ -138,6 +138,7 @@ void     _std fpu_staterest(void *buffer);
 #define SFEA_XSAVE   0x00000400            ///< XSAVE available
 #define SFEA_SSE1    0x00000800            ///< SSE available
 #define SFEA_SSE2    0x00001000            ///< SSE2 available
+#define SFEA_INVM    0x08000000            ///< running in virtual machine
 #define SFEA_INTEL   0x10000000            ///< CPU is Intel
 #define SFEA_AMD     0x20000000            ///< CPU is AMD
 //@}
@@ -202,12 +203,6 @@ u32t     _std sys_unmarkmem(u64t address, u32t pages);
     @return page aligned address */
 u32t     _std sys_endofram(void);
 
-/// dump GDT to log
-void     _std sys_gdtdump(void);
-
-/// dump IDT to log
-void     _std sys_idtdump(void);
-
 /** memcpy for memory above 4Gb border.
     @attention Function will turn PAE mode on if requested address above 4Gb.
 
@@ -236,6 +231,7 @@ u32t     _std sys_queryinfo(u32t index, void *outptr);
 #define QSQI_VERSTR       0x0000    ///< version string
 #define QSQI_OS2LETTER    0x0001    ///< boot drive letter from bpb or 0
 #define QSQI_OS2BOOTFLAGS 0x0002    ///< OS/2 boot flags (BF_*, defined in filetab.inc)
+#define QSQI_CPUSTRING    0x0003    ///< CPU name string (decoded from cpuid)
 #define QSQI_TLSPREALLOC  0x0010    ///< number of constantly used TLS entries
 //@}
 

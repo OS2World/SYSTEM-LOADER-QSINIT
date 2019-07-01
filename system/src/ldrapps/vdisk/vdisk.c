@@ -262,26 +262,22 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
 unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
    if (!termination) {
       if (mod_query(mod_getname(hmod,0), MODQ_LOADED|MODQ_NOINCR)) {
-         vio_setcolor(VIO_COLOR_LRED);
          printf("Module \"%s\" already loaded!\n", mod_getname(hmod,0));
-         vio_setcolor(VIO_COLOR_RESET);
          return 0;
       }
       if (hlp_hosttype()==QSHT_EFI) {
-         vio_setcolor(VIO_COLOR_LRED);
-         log_printf("Ram disk is incompatible with EFI host (at least, now)!\n");
-         vio_setcolor(VIO_COLOR_RESET);
+         log_printf("Not supported EFI host!\n");
          return 0;
       }
       // register classes
       if (!register_class()) {
-         log_printf("unable to register class!\n");
+         log_printf("Unable to register class!\n");
          return 0;
       }
       // install shell command
       cmd_shelladd(CMDNAME, shl_ramdisk);
    } else {
-      // unregister class(es), cancel unload it unsuccess
+      // unregister class(es), cancel unloading if failed
       if (!unregister_class()) return 0;
       // remove shell command
       cmd_shellrmv(CMDNAME, shl_ramdisk);

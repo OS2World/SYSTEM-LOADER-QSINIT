@@ -220,7 +220,7 @@ u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data) {
                vol_data *vdta = extvol + drv;
                u32t       res = 0;
                mt_swlock();
-               if (vdta->flags&VDTA_VFS) res = 0; else
+               if (vdta->flags&(VDTA_VFS|VDTA_RO)) res = 0; else
                   if (vdta->flags&VDTA_ON) res = hlp_diskwrite(vdta->disk|
                      QDSK_IGNACCESS, vdta->start+sector, count, data);
                mt_swunlock();

@@ -213,11 +213,11 @@ u32t _std shl_mtrr(const char *cmd, str_list *args) {
 }
 
 u32t _std shl_mem(const char *cmd, str_list *args) {
-   static char *argstr   = "/a|/o|/m|/np|/log|hide|save";
-   static short argval[] = { 1, 1, 1,  1,   2,   1,   1 };
+   static char *argstr   = "/a|/o|/m|/np|/log|hide|save|clear";
+   static short argval[] = { 1, 1, 1,  1,   2,   1,   1,    1 };
    u32t  maxblock, total, avail;
    int  acpitable = 0, os2table = 0, nopause = 0, idx, tolog = 0, mtrr = 0,
-             hide = 0, save = 0;
+             hide = 0, save = 0, clear = 0;
    qserr      res = E_SYS_INVPARM;
    int      nomsg = 0;
    // help is in the priority
@@ -226,7 +226,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       return 0;
    }
    args = str_parseargs(args, 0, 1, argstr, argval, &acpitable, &os2table, 
-                        &mtrr, &nopause, &tolog, &hide, &save);
+                        &mtrr, &nopause, &tolog, &hide, &save, &clear);
 
    if (save && !hide && (args->count==3 || args->count==2 &&
       stricmp(args->item[1],"ALL")==0) && !acpitable && !os2table && !mtrr)
@@ -292,7 +292,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
                }
          }   
    } else
-   if (hide && !save && !mtrr) {
+   if (hide && !save && !mtrr && !clear) {
       int        ii;
       // merge it back to get comma separated list
       char    *line = str_gettostr(args, " ");
@@ -355,7 +355,11 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       }
       free(cml);
    } else 
-   if (args->count>0 || hide || save) {
+   if (clear && !save && !mtrr && !hide && args->count==0) {
+      sys_notifyexec(SECB_LOWMEM, 0);
+      res = 0;
+   } else
+   if (args->count>0 || hide || save || clear) {
       // unknown / invalid combination of arguments in source string
       res = E_SYS_INVPARM;
    } else
@@ -368,7 +372,7 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       return qserr2errno(res);
    }
    if (save) return 0;
-   // continue with /o or /a even after hide/save command
+   // continue with /o or /a even after hide command
    if (hide && !os2table && !acpitable) return 0;
 
    cmd_printseq(0, 1+tolog, 0);

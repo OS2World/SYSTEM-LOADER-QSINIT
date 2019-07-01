@@ -16,7 +16,7 @@
 
 extern vol_data *_extvol;
 
-u32t register_exfat(void);
 u32t register_hpfs(void);
+u32t register_jfs(void);
 
 #endif // QSINIT_FSIO_INT

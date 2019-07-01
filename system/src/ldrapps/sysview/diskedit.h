@@ -13,7 +13,7 @@
 #include "rundlg.h"
 #include "kdlghelp.h"
 #include "kdlghist.h"
-#include "diskio.h"
+#include "pdiskio.h"
 #include <qstypes.h>
 #include "longedit.h"
 #include "binedit.h"
@@ -39,7 +39,7 @@ u64t  getui64(TInputLine *ln);
 void  setstr (TInputLine *ln, const char *str);
 void  setstrn(TInputLine *ln, const char *str, int maxlen);
 /// "Import file"/"Export to file" file name dialog
-char *getfname(int open, const char *custom_title = 0);
+char *getfname(int open, const char *custom_title = 0, const char *path = 0);
 /// return truncated to 23 chars file name (with leading "...", in static buffer!)
 char *getsname(const char *filename);
 

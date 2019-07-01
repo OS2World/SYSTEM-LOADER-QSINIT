@@ -5,7 +5,7 @@
 #endif
 #ifndef SP_QSINIT
 #include <math.h>
-#if !defined(__GNUC__)&&!defined(KYLIX)
+#if !defined(__GNUC__)&&!defined(KYLIX)&&!defined(__LINUX__)
 #include <io.h>
 #else
 #ifdef KYLIX

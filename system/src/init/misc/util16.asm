@@ -2,7 +2,7 @@
 ; QSINIT
 ; help calls, 16-bit part
 ; --------------------------------------------------------------------
-; 16 & 32 function must be separated, because wasm make wrong 16-bit
+; 16 & 32 function must be separated, because wasm makes wrong 16-bit
 ; offsets when import 16-bit data
 
                 NOSTORSAVE  = 1
@@ -44,7 +44,7 @@ mini_gdt        desctab_s <0,0,0,0,0,0>                         ;
                 desctab_s <0FFFFh,0,0,D_DATA0,D_DBIG or D_GRAN4K or D_AVAIL or 0Fh,0>
 mini_gdt_ptr    dw      $-mini_gdt-1, offset mini_gdt, 0, 0     ;
 
-; in non-paged mode FLAT DS have no 0 page.
+; in non-paged mode FLAT DS has no 0 page.
 ; in paged mode, zero page mapped as r/o, and separately as r/w.
 ; This is page 0 access actual far32 pointer, this value updated
 ; by START module when it turns on PAE.
@@ -429,8 +429,11 @@ _seroutchar_w   proc    near                                    ;
                 mov     di,cs:_logrmpos                         ;
                 cmp     di,LOGBUF_SIZE-5-4                      ; rm buffer is full?
                 jnc     @@serout16_logskip                      ;
+                mov     dx,cs:_logbufseg                        ; is it inited at all?
+                or      dx,dx                                   ;
+                jz      @@serout16_logskip                      ;
                 push    es                                      ;
-                mov     es,cs:_logbufseg                        ;
+                mov     es,dx                                   ;
                 cld                                             ;
                 or      di,di                                   ; 1st line in buffer?
                 jz      @@serout16_firstline                    ;

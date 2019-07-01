@@ -45,7 +45,7 @@ str_list* _std str_splitargs(const char *str);
 /// copy a number of strings into new list
 str_list* _std str_copylines(str_list*list, u32t first, u32t last);
 
-/// merge list to command line (wrap "" around lines with spaces)
+/// merge list to the command line (wrap "" around lines with spaces)
 char*     _std str_mergeargs(str_list*list);
 
 /** delete entry from the list.
@@ -54,11 +54,18 @@ char*     _std str_mergeargs(str_list*list);
     do nothing */
 void      _std str_delentry (str_list*list, u32t index);
 
-/// read current environment to string list
+/** read current environment to a string list.
+    See also env_create() for reverse operation.
+    @return string list in the process owned heap block. */
 str_list* _std str_getenv   (void);
 
+/** get a subset of current process arguments.
+    @return string list, in application owned heap block. List returned even
+            on incorrect range (with list->count==0) */
+str_list* _std str_getargs  (u32t first, u32t last);
+
 /// get text to single string (must be free() -ed).
-char*     _std str_gettostr (str_list*list, char *separator);
+char*     _std str_gettostr (const str_list*list, char *separator);
 
 /** search for key value in string list.
     Function searches for key=value string, starting from *pos or 0 if pos=0.
@@ -117,8 +124,10 @@ void      _std env_setvar(const char *name, int value);
 /** get environment variable.
     Unlike getenv() - function is safe in MT mode.
     @param name     name of env. string 
+    @param shint    flag 1 to subst shell "internal" variables like DBPORT,
+                    SAFEMODE and so on (see "if /?" for the full list)
     @return string in heap block (must be free()-ed) or 0. */
-char*     _std env_getvar(const char *name);
+char*     _std env_getvar(const char *name, int shint);
 
 //===================================================================
 //  execution (shell)
@@ -437,6 +446,8 @@ u32t      _std shl_sm     (const char *cmd, str_list *args);
 u32t      _std shl_stop   (const char *cmd, str_list *args);
 /// PS command.
 u32t      _std shl_ps     (const char *cmd, str_list *args);
+/// VER command.
+u32t      _std shl_ver    (const char *cmd, str_list *args);
 
 
 #ifdef __cplusplus

@@ -59,7 +59,7 @@ void init_vol0() {
       vdta->length     = qs_bootlen;
       vdta->start      = qs_bootstart;
       vdta->disk       = qd_bootdisk;
-      vdta->flags      = VDTA_ON;
+      vdta->flags      = VDTA_ON|VDTA_RO;
       vdta->sectorsize = qd_array[qd_bootdisk+MAX_QS_FLOPPY].qd_sectorsize;
       log_printf("vol.0: %02X %LX %08X \n", vdta->disk, vdta->start, vdta->length);
    }

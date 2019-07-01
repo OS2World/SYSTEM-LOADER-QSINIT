@@ -116,16 +116,16 @@ volatile static long    UniquePool   = 0;
 #define HeaderSize      long(sizeof(QSMCC))
 // ** changeable constants
 #define MAX_MEM_SIZE    (1<<28)          // 256Mb - total memory size (<=4Gb ;)
-#define MaxLargePower2  25               // 32Mb - max large block size (must be >64k)
+#define MaxLargePower2  31               // 2Gb - max large block size (must be >64k)
 #define PoolBlocks      (1<<18)          // 256k - one pool size (64k..1Mb)
 // ********
-#define LargeShift      (MaxLargePower2-16)
+#define LargeShift      16               // sys alloc is always rounded to 64k
 #define LargeRoundMask  ((1<<LargeShift)-1)
 #define MaxPool         (MAX_MEM_SIZE/PoolBlocks) // max. number of small pools
 #define ExtPool         256                       // number of ext. small variable
                                                   // size pools
-#define MaxSmallCanBe   ((1<<16)-HeaderSize-16)   // max small block
-#define MaxSmallAlloc   ((48*1024)-HeaderSize)    // max small block
+#define MaxSmallCanBe   ((1<<16)-HeaderSize-16)   // max small block (abs.limit)
+#define MaxSmallAlloc   ((56*1024)-HeaderSize)    // max small block
 #define MaxLargeAlloc   ((1<<MaxLargePower2)-(LargeRoundMask+1))
 #define MaxLargePool    (MAX_MEM_SIZE/MaxSmallAlloc)
                                          // max. number of large pools
@@ -141,7 +141,6 @@ typedef QSMCC*CacheArray[TinySize16];
 typedef void (*MemMgrError)(u32t ErrType, const char *FromHere,
                             u32t Caller,void *Pointer);
 static  void CheckMgr(u32t Caller);
-static  void DumpNewReport(QSMCC*P,u32t idx);
 extern "C" void mem_init(void);
 
 volatile static MemMgrError MemError=NULL;
@@ -900,33 +899,35 @@ extern "C" void mem_statinfo(u32t itype, mem_statdata *info) {
    mt_swunlock(); //if (MultiThread) LeaveUniqueSection(&SynchroG);
 }
 
-static void PrintBlock(QSMCC *ptr, QSMCC *prev, QSMCC *pool) {
+static void PrintBlock(printf_function pfn, QSMCC *ptr, QSMCC *prev, QSMCC *pool) {
    u8t    *addr[2];
    u32t    size[2];
+   if (!pfn) pfn = log_printf;
    if (!prev)
       if ((u32t)ptr-(ptr->Link<<4)-(u32t)pool<PoolBlocks-32)
          prev=(QSMCC*)((u8t*)ptr-(ptr->Link<<4)); else
-            log_printf("Unable to get prev - BackLink field destroyd\n");
+            pfn("Unable to get prev - BackLink field destroyd\n");
    addr[0]=(u8t*)prev; if (prev) size[0]=prev->Size>16?16:prev->Size;
    addr[1]=(u8t*)ptr; size[1]=16;
 
    for (int pass=0; pass<2; pass++) {
       if (addr[pass]) {
-         log_printf(pass?"Block start>>>\n":"Previous block start>>>\n");
+         pfn(pass?"Block start>>>\n":"Previous block start>>>\n");
          for (int lines=0; lines<size[pass]; lines++) {
             u8t* lp = addr[pass]+(lines<<4);
-            log_printf("%8.8X: %16b\n", lp, lp);
+            pfn("%8.8X: %16b\n", lp, lp);
          }
       }
    }
 }
 
-static void DumpBlock(QSMCC *ptr) {
+static void DumpBlock(printf_function pfn, QSMCC *ptr) {
+   if (!pfn) pfn = log_printf;
    if (ptr) {
-      log_printf("Block dump>>>\n");
+      pfn("Block dump>>>\n");
       for (int lines=0; lines<10; lines++) {
          u8t* lp = (u8t*)ptr+(lines<<4);
-         log_printf("%8.8X: %16b\n", lp, lp);
+         pfn("%8.8X: %16b\n", lp, lp);
       }
    }
 }
@@ -938,9 +939,9 @@ static void PrintMCBErr(QSMCC*ptr, int type, QSMCC *pool) {
       log_printf("FirstFree %d: [",FirstFree);
       for (ii=0;ii<FirstFree;ii++) log_printf(" %08X",SmallPool[ii]);
       log_printf(" ]\n");
-      if (ptr) PrintBlock(ptr,0,pool);
+      if (ptr) PrintBlock(0,ptr,0,pool);
    } else {
-      if (ptr) DumpBlock(ptr);
+      if (ptr) DumpBlock(0,ptr);
    }
 }
 
@@ -1009,63 +1010,65 @@ static void CheckMgr(u32t Caller) {
    if (!mem_checkmgr()) (*MemError)(_RET_CHECKFAILED,"mem_checkmgr()",Caller,0);
 }
 
-static void DumpNewReport(QSMCC*P, u32t idx) {
+static void DumpNewReport(printf_function pfn, QSMCC*P, u32t idx) {
    u32t owner = (u32t)P->GlobalID,
          pool = (u32t)P->ObjectID;
+   if (!pfn) pfn = log_printf;
    if (owner>=QSMEMOWNER_LINENUM && owner<FREEQSMCC) {
       long line = (owner&~QSMEMOWNER_LINENUM)+1;
-      log_printf("%4d.[%8.8X] #%s %u - %u\n", idx, P,  pool>0x1000?
+      pfn("%4d.[%8.8X] #%s %u - %u\n", idx, P,  pool>0x1000?
          get_file_name(pool):"(null)", line, actsize(P));
    } else
    if (owner==QSMEMOWNER_COTHREAD) {
       mt_thrdata *th = (mt_thrdata*)pool;
       if ((u32t)th<0x1000 || th->tiSign!=THREADINFO_SIGN)
-         log_printf("%4d.[%8.8X] !!! wrong tcb = %08X !!!\n", idx, P, th);
+         pfn("%4d.[%8.8X] !!! wrong tcb = %08X !!!\n", idx, P, th);
       else
-         log_printf("%4d.[%8.8X] pid %5d  tid %4d   - % 8d %s\n", idx, P,
+         pfn("%4d.[%8.8X] pid %5d  tid %4d   - % 8d %s\n", idx, P,
             th->tiPID, th->tiTID, actsize(P), th->tiParent->piModule->mod_path);
    } else
    if (owner==QSMEMOWNER_COPROCESS) {
       mt_prcdata *pd = (mt_prcdata*)pool;
-      log_printf("%4d.[%8.8X] pid %5d             - % 8d %s\n", idx, P, pd->piPID,
+      pfn("%4d.[%8.8X] pid %5d             - % 8d %s\n", idx, P, pd->piPID,
          actsize(P), pd->piModule->mod_path);
    } else
    if (owner==QSMEMOWNER_COLIB) {
       module *mh = (module*)pool;
-      log_printf("%4d.[%8.8X] %-21s - %8d\n", idx, P, mh->name, actsize(P));
+      pfn("%4d.[%8.8X] %-21s - %8d\n", idx, P, mh->name, actsize(P));
    } else {
       const char *cc = owner==GETOWNERID?"<memGetUniqueID>": (owner==FREEQSMCC?"free":"");
-      log_printf("%4d.[%8.8X] %10d %10d - %8d %s\n", idx, P, owner, pool, actsize(P), cc);
+      pfn("%4d.[%8.8X] %10d %10d - %8d %s\n", idx, P, owner, pool, actsize(P), cc);
    }
 }
 
 #define LOG_PRN_BUFLEN    80
 
-static void _memDumpLog(const char *TitleString, int DumpAll) {
+static void _memDumpLog(printf_function pfn, const char *Title, int DumpAll) {
    if (!MMInited) return;
    long ii,nbb;
    qsmcc  P;
    QSMCC *prev;
-   log_printf("%s\n",TitleString);
+   if (!pfn) pfn = log_printf;
+   if (Title) pfn("%s\n", Title);
    mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
    for (ii=0;ii<FirstFree;ii++) {
       /* some assumes used here:
          QSINIT always return memory aligned to 64k from own alloc. So if we
          have 64k aligned block - this is a common 256k pool, else - a part of
          64k block from r/o allocation */
-      log_printf("**** Small Pool %d (0x%08X,%d)\n",ii,SmallPool[ii],
+      pfn("**** Small Pool %d (0x%08X,%d)\n",ii,SmallPool[ii],
          (u32t)SmallPool[ii]&0xFFFF?_64KB-((u32t)SmallPool[ii]&0xFFFF):_256KB);
 
       P=SmallPool[ii]; nbb=0; prev=0;
       while (true) {
          if (P->Signature!=QSMCC_SIGN) {
-            if (!DumpAll) DumpNewReport(prev,nbb);
-            log_printf("Block header destroyd!\n");
-            PrintBlock(P,prev,SmallPool[ii]);
+            if (!DumpAll) DumpNewReport(pfn,prev,nbb);
+            pfn("Block header destroyd!\n");
+            PrintBlock(pfn,P,prev,SmallPool[ii]);
             break;
          }
          nbb++;
-         if (DumpAll) DumpNewReport(P,nbb);
+         if (DumpAll) DumpNewReport(pfn,P,nbb);
          if (P->GlobalID==FREEQSMCC&&P->Size>0) {
             LC(P)->PoolIdx = ii;
             LC(P)->PoolPos = nbb;
@@ -1077,21 +1080,21 @@ static void _memDumpLog(const char *TitleString, int DumpAll) {
    }
    // if (MultiThread) MutexRelease(SynchroL);
    // if (MultiThread) MutexGrab(SynchroG);
-   log_printf("**** Large Pool (%d blocks)\n",LargeFree);
+   pfn("**** Large Pool (%d blocks)\n",LargeFree);
    for (ii=0;ii<LargeFree;ii++)
       if (LargePool[ii]) {
          P=LargePool[ii];
-         DumpNewReport(P,ii+1);
+         DumpNewReport(pfn,P,ii+1);
          if (P->Signature!=QSMCL_SIGN) {
-            log_printf("Block header destroyd!\n");
-            DumpBlock(P);
+            pfn("Block header destroyd!\n");
+            DumpBlock(pfn,P);
          }
       }
    mt_swunlock(); // if (MultiThread) MutexRelease(SynchroG);
 
    if (DumpAll) {
       mt_swlock(); // if (MultiThread) MutexGrab(SynchroL);
-      log_printf("**** Free Block Stack\n",LargeFree);
+      pfn("**** Free Block Stack\n",LargeFree);
 
       for (long jj=0;jj<2;jj++)
          for (ii=jj==0?3:0;ii<TinySize16;ii++) {
@@ -1117,7 +1120,7 @@ static void _memDumpLog(const char *TitleString, int DumpAll) {
                      bBL->PoolPos, badtype[err], err>=3?",<<broken>>":(bBL->CNext?",":""));
 
                   if (slen<++len) {
-                     log_printf("%s\n",linebuf);
+                     pfn("%s\n",linebuf);
                      linebuf[0] = 0;
                      slen = LOG_PRN_BUFLEN;
                   }
@@ -1127,19 +1130,19 @@ static void _memDumpLog(const char *TitleString, int DumpAll) {
                   // is CNext valid?
                   if (err>=3) break; else bbl = bBL->CNext;
                }
-               if (linebuf[0]) log_printf("%s\n",linebuf);
+               if (linebuf[0]) pfn("%s\n",linebuf);
             }
          }
       mt_swunlock(); // if (MultiThread) MutexRelease(SynchroL);
    }
 
-   log_printf("*************************************\n");
-   log_printf("* Total used            : %d\n",CurMemUsed);
-   log_printf("* Peak memory usage     : %d\n",MaxMemUsed);
+   pfn("*************************************\n");
+   pfn("* Total used            : %d\n",CurMemUsed);
+   pfn("* Peak memory usage     : %d\n",MaxMemUsed);
 }
 
-extern "C" void mem_dumplog(const char *TitleString) {
-   _memDumpLog(TitleString,true);
+extern "C" void mem_dumplog(printf_function pfn, const char *TitleString) {
+   _memDumpLog(pfn,TitleString,true);
 }
 
 extern "C" void mem_setopts(u32t Options) {
@@ -1169,7 +1172,7 @@ void DefMemError(u32t ErrType,const char *FromHere, u32t Caller, void *Pointer) 
    if (mi) len+=snprintf(msg+len, 256-len, "\"%s\" %u:%08X.", mi->name, object+1, offset);
       else len+=snprintf(msg+len, 256-len, "unknown (%08X).", Caller);
    if (locaddr) snprintf(msg+len, 256-len, " Location %08X.", Pointer);
-   _memDumpLog(msg,0);
+   _memDumpLog(0,msg,0);
 
    /* a kind of trap screen,
       all output should not use memory manager, at least it looks so. */
@@ -1204,7 +1207,7 @@ void DefMemError(u32t ErrType,const char *FromHere, u32t Caller, void *Pointer) 
          addr+=16;
       }
    }
-   _memDumpLog("Full memory dump",1);
+   _memDumpLog(0,"Full memory dump",1);
    reipl(QERR_MCBERROR);
 }
 

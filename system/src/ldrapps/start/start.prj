@@ -1,6 +1,6 @@
 [project]
 name=start
-version=0x0024
+version=0x0026
 
 [config]
 0=Common
@@ -98,7 +98,7 @@ cmd\ldrini.cpp = cmd\pubini.cpp
 db 'QSinit $(vershort), rev $(revnum)',0
 
 [&lnk]
-sys os2v2_dll
+sys os2v2 dll
 name $(outname)
 op redefsok
 file /[[$(**c)! !,]]

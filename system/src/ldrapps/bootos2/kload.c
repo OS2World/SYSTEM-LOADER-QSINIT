@@ -129,7 +129,9 @@ void krnl_fixuptable(u32t *fixtab, u16t *fixcnt) {
    *fixcount = 0;
 }
 
-static mod_export* _std findexport(module *mh, u16t ordinal) {
+static mod_export* _std findexport(module *mh, u16t ordinal, const char *name,
+                                   u8t nlen)
+{
    if (ordinal!=ORD_DOSIODELAYCNT) return 0;
    return &iodelay_exp;
 }

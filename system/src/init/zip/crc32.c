@@ -11,7 +11,7 @@
 /* @(#) $Id$ */
 
 #include "qstypes.h"
-#include "qsint.h"
+//#include "qsint.h"
 
 u32t *crc_table;
 

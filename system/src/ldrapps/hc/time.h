@@ -69,6 +69,9 @@ clock_t _std clock(void);
 /// return # of microseconds since reboot
 qsclock _std sys_clock(void);
 
+/// neutral time value for the unknown/error cases (now is 1.1.2017)
+#define ERROR_TIME_T     0x58681C50
+
 #ifdef __cplusplus
 }
 #endif

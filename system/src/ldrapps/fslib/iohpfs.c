@@ -13,7 +13,7 @@
 
 struct _dir_data;
 
-/// 32 bytes
+/// directory entry data (32 bytes)
 typedef struct {
    u32t               size;  ///< file size
    u32t              vsize;  ///< size of valid data in the file
@@ -549,7 +549,7 @@ static qserr _exicc hpfs_open(EXI_DATA, const char *name, u32t mode,
                   fi.size  = de->size;
                   fi.vsize = de->vsize;
                   loc->add(0);
-                  res = fd->init(&fi, (cc_loc*)loc->array(), FCCF_READONLY);
+                  res = fd->init(&fi, fi.size?(cc_loc*)loc->array():0, FCCF_READONLY);
 
                   if (!res) {
                      fh = (file_handle*)malloc(sizeof(file_handle));

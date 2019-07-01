@@ -181,13 +181,27 @@ void volume_close(volh handle) {
 #include <os2.h>
 #include <string.h>
 
+#define DSK_GETPHYSDRIVE      0x68
+
 typedef struct {
-   HFILE               dh;
+   HFILE               dh;  // disk/physdisk handle (depends on pdsk)
    u32              ssize;
    u32            volsize;
    char             drive;
+   u8                pdsk;  // 0 if unknown, else 1..255
    BIOSPARAMETERBLOCK bpb;
 } voldata;
+
+/* two bad news here:
+   1). primary partition, located AFTER extended looks unreadable ...
+       DASD (or who?) assumed start of EXTENDED as a start of this volume!!!
+       I.e. "bpb.cHiddenSectors" does not match to the read position in
+       DSK_READTRACK/DSK_WRITETRACK.
+       So, if bpb.cHiddenSectors > spt - just route i/o to the physical disk
+       ioctl!
+   2). spt value retuned from BPB in case above, i.e. we get 63 instead of 127
+       in DSK_GETDEVICEPARAMS on 1Tb hdd if partition was formatted in Windows.
+       So need to read PDSK_GETPHYSDEVICEPARAMS too */
 
 Bool volume_open (char letter, volh *handle) {
    char openpath[8];
@@ -206,17 +220,21 @@ Bool volume_open (char letter, volh *handle) {
    {
       voldata *vh = (voldata*)malloc(sizeof(voldata));
       struct { b Infotype, DriveUnit; } DriveRequest;
-      d psize  = sizeof(DriveRequest),
-        dsize  = sizeof(vh->bpb);
+      d  psize, dsize;
 
       memset(vh, 0, sizeof(voldata));
       vh->dh   = dh;
+      psize    = 0;
+      dsize    = sizeof(vh->pdsk);
+      /* query physical disk from a logical drive (unoff DASD IOCTL) */
+      if (DosDevIOCtl(dh,IOCTL_DISK,DSK_GETPHYSDRIVE,0,0,&psize,
+         (PVOID)&vh->pdsk,sizeof(vh->pdsk),&dsize)) vh->pdsk = 0;
 
-      /* good news is that real BPB returned with REAL sectors per track value,
-         not written into FAT spt field. This is actual for 127/255 spt disks,
-         formatted to FAT in Windows (where FAT spt is 63) */
-      DriveRequest.Infotype =1; //0;
-      DriveRequest.DriveUnit=0;
+      psize = sizeof(DriveRequest);
+      dsize = sizeof(vh->bpb);
+      // get recommended BPB ...
+      DriveRequest.Infotype  = 0;
+      DriveRequest.DriveUnit = 0;
 
       if (DosDevIOCtl(dh,IOCTL_DISK,DSK_GETDEVICEPARAMS,(PVOID)&DriveRequest,
         sizeof(DriveRequest),&psize,(PVOID)&vh->bpb,sizeof(vh->bpb),&dsize)==0)
@@ -233,7 +251,39 @@ Bool volume_open (char letter, volh *handle) {
          vh->volsize = ((u64)fa.cSectorUnit*fa.cbSector*fa.cUnit)/fa.cbSector;
          vh->ssize   = fa.cbSector;
       }
+      if (vh->pdsk) {
+         char    dsk[8];
+         HFILE   pdh;
+         int  noswap = 1;
+         sprintf(dsk, "%u:", (u32)vh->pdsk);
 
+         if (DosPhysicalDisk(INFO_GETIOCTLHANDLE,&pdh,2,dsk,strlen(dsk)+1)==0) {
+            DEVICEPARAMETERBLOCK dpb;
+            u8 ci = 0;
+            psize = 1;
+            dsize = sizeof(DEVICEPARAMETERBLOCK);
+
+            if (DosDevIOCtl(pdh,IOCTL_PHYSICALDISK,PDSK_GETPHYSDEVICEPARAMS,
+               &ci,1,&psize,&dpb,sizeof(DEVICEPARAMETERBLOCK),&dsize)==0)
+            {
+               // fix spt to physical disk value!
+               vh->bpb.usSectorsPerTrack = dpb.cSectorsPerTrack;
+               // !!! switch i/o to physical as described above
+               if (vh->bpb.cHiddenSectors > dpb.cSectorsPerTrack) {
+                  vh->bpb.cHeads     = dpb.cHeads;
+                  vh->bpb.cCylinders = dpb.cCylinders;
+
+                  DosClose(vh->dh);
+                  vh->dh = pdh;
+                  noswap = 0;
+               }
+            }
+            if (noswap) {
+               vh->pdsk = 0;
+               DosPhysicalDisk(INFO_FREEIOCTLHANDLE,0,0,&pdh,2);
+            }
+         }
+      }
       vh->drive   = letter;
       *handle = vh;
       return True;
@@ -257,6 +307,10 @@ static u32 volume_action(volh handle, u32 action, u32 sector, u32 count, void *d
    if (!vh->bpb.cCylinders || !vh->bpb.cHeads || !vh->bpb.usSectorsPerTrack)
       return 0;
    sector += vh->bpb.cHiddenSectors;
+
+   if (vh->pdsk) action = action ? PDSK_WRITEPHYSTRACK : PDSK_READPHYSTRACK;
+      else action = action ? DSK_WRITETRACK : DSK_READTRACK;
+
    while (count) {
       TRACKLAYOUT td;
       u32  sptrc = vh->bpb.usSectorsPerTrack,
@@ -264,17 +318,24 @@ static u32 volume_action(volh handle, u32 action, u32 sector, u32 count, void *d
           psize  = sizeof(TRACKLAYOUT),
           dsize  = vh->bpb.usBytesPerSector;
       td.bCommand      = 0;
-      td.usFirstSector = sector%spcyl%sptrc;
+      td.usFirstSector = 0;
       td.usHead        = sector%spcyl/sptrc;
       td.usCylinder    = sector/spcyl;
       td.cSectors      = 1;
-      td.TrackTable[0].usSectorNumber = td.usFirstSector + 1;
+      td.TrackTable[0].usSectorNumber = sector%spcyl%sptrc + 1;
       td.TrackTable[0].usSectorSize   = vh->bpb.usBytesPerSector;
-
+#if 0
+      printf("heads:%u  spt:%u  cyls:%u  hidden:%u(%X)\n", vh->bpb.cHeads,
+         vh->bpb.usSectorsPerTrack, vh->bpb.cCylinders, vh->bpb.cHiddenSectors,
+            vh->bpb.cHiddenSectors);
+      printf("sector %X c:%u h:%u s:%u\n", sector, (u32)td.usCylinder, (u32)td.usHead,
+         (u32)td.usFirstSector);
+#endif
       if (td.usCylinder>vh->bpb.cCylinders) return 0;
-
-      if (DosDevIOCtl(vh->dh,IOCTL_DISK,action,(PVOID)&td,psize,&psize,bptr,
-         dsize,&dsize)==0)
+      // check volume size here, because we can use physical disk i/o!
+      if (sector-vh->bpb.cHiddenSectors < vh->volsize &&
+         DosDevIOCtl(vh->dh, vh->pdsk?IOCTL_PHYSICALDISK:IOCTL_DISK, action,
+            (PVOID)&td, psize, &psize, bptr, dsize, &dsize)==0)
       {
          bptr += vh->bpb.usBytesPerSector;
          sector++;
@@ -287,16 +348,19 @@ static u32 volume_action(volh handle, u32 action, u32 sector, u32 count, void *d
 }
 
 u32  volume_read (volh handle, u32 sector, u32 count, void *data) {
-   return volume_action(handle,DSK_READTRACK,sector,count,data);
+   return volume_action(handle, 0, sector, count, data);
 }
 
 u32  volume_write(volh handle, u32 sector, u32 count, void *data) {
-   return volume_action(handle,DSK_WRITETRACK,sector,count,data);
+   return volume_action(handle, 1, sector, count, data);
 }
 
 void volume_close(volh handle) {
    voldata *vh = (voldata*)handle;
-   DosClose(vh->dh);
+
+   if (vh->pdsk) DosPhysicalDisk(INFO_FREEIOCTLHANDLE, 0, 0, &vh->dh, 2);
+      else DosClose(vh->dh);
+
    memset(vh, 0, sizeof(voldata));
    free(vh);
 }

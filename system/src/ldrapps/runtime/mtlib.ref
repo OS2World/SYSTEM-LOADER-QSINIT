@@ -17,7 +17,7 @@ exports = {
    _mt_createfiber      = { index = 19  group="mt"      format="up@upp"  }
 
    _mt_dumptree         = { index = 30  group="misc"    format="vv"      }
-   _mt_checkpidtid      = { index = 31  group="misc"    format="@uuu"    }
+   _mt_checkpidtid      = { index = 31  group="misc"    format="@uuu&*@u" }
 
    _mt_waitobject       = { index = 40  group="sync"    format="@upu@u&*u" }
 
@@ -49,7 +49,7 @@ class = {
       sendsignal   = "@uppuuu@u"
       setsignal    = "pppp"
       stop         = "@uppuiu"
-      checkpidtid  = "@uppuu"
+      checkpidtid  = "@uppuu&*@u"
       tasklist     = "@upp@u"
    }
 }

@@ -589,14 +589,15 @@ int fcloseall_as(u32t pid) {
 
 int __stdcall fcloseall(void) { return fcloseall_as(mod_getpid()); }
 
-void _std log_ftdump(void) {
-   log_it(2,"== clib file handles ==\n");
+void _std log_ftdump(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   pfn("== clib file handles ==\n");
    if (opened_files) {
       u32t ii=0;
 
       mt_swlock();
       if (opened_files->count())
-         log_it(2, "     file name          |   fno   | pid |  handle  | lasterr\n");
+         pfn("     file name          |   fno   | pid |  handle  | lasterr\n");
       for (ii=0; ii<opened_files->count(); ii++) {
          char buf[128];
          FileInfo *fp = (FileInfo*)opened_files->value(ii);
@@ -610,7 +611,7 @@ void _std log_ftdump(void) {
 
             buf[pos++] = '\n';
             buf[pos] = 0;
-            log_it(2, buf);
+            pfn(buf);
          }
       }
       mt_swunlock();

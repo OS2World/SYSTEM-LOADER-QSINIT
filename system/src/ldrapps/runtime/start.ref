@@ -331,7 +331,7 @@ exports = {
    # ordinal 110 removed (memFreeByPool)
    _mem_freeowner    = { index =111  group = "memmgr"  format = "uu"    }
    _mem_statinfo     = { index =112  group = "memmgr"  format = "vip"   }
-   _mem_dumplog      = { index =113  group = "memmgr"  format = "vs"    }
+   _mem_dumplog      = { index =113  group = "memmgr"  format = "vps"   }
    _mem_checkmgr     = { index =114  group = "memmgr"  format = "iv"    }
    _mem_stat         = { index =115  group = "memmgr"  format = "vv"    }
    _mem_statmax      = { index =116  group = "memmgr"  format = "vi"    }
@@ -347,7 +347,8 @@ exports = {
    _str_copylines    = { index =141  group = "strlist" format = "ppuu"  }
    _str_splitargs    = { index =142  group = "strlist" format = "ps"    }
    _str_getenv       = { index =143  group = "strlist" format = "pv"    }
-   # ordinals 144-145 removed (ini functions)
+   _str_getargs      = { index =144  group = "strlist" format = "puu"   }
+   # ordinal 145 removed (ini functions)
    _log_printlist    = { index =146  group = "strlist" format = "vsp"   }
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
@@ -383,8 +384,9 @@ exports = {
    _cmd_argtype      = { index =491  group = "shell"   format = "u!s"   }
    _env_istrue       = { index =492  group = "shell"   format = "is"    }
    _env_setvar       = { index =493  group = "shell"   format = "vsi"   }
-   _env_getvar       = { index =494  group = "shell"   format = "ss"    }
-   _env_copy         = { index =495  group = "shell"   format = "ppu"   }
+   _env_getvar       = { index =494  group = "shell"   format = "ssi"   }
+   _env_copy         = { index =495  group = "module"  format = "ppu"   }
+   _env_create       = { index =496  group = "module"  format = "ppu"   }
 
    # modules
 
@@ -441,7 +443,7 @@ exports = {
    _exi_free         = { index =206  group = "exi"     format = "vp"    }
    _exi_printclass   = { index =207  group = "exi"     format = "i@u"   }
    _exi_checkstate   = { index =208  group = "exi"     format = "iv"    }
-   _exi_dumpall      = { index =209  group = "exi"     format = "vv"    }
+   _exi_dumpall      = { index =209  group = "exi"     format = "vp"    }
    _exi_queryid      = { index =210  group = "exi"     format = "@us"   }
    _exi_chainon      = { index =211  group = "exi"     format = "i@u"   }
    _exi_thunklist    = { index =212  group = "exi"     format = "p@u"   }
@@ -478,7 +480,7 @@ exports = {
    _shl_time         = { index =340  group = "shell"   format = "usp"   }
    _shl_msgbox       = { index =341  group = "shell"   format = "usp"   }
    _shl_mode         = { index =342  group = "shell"   format = "usp"   }
-   # ordinal 343 reserved (moved to EXTCMD)
+   _shl_ver          = { index =343  group = "shell"   format = "usp"   }
    _shl_attrib       = { index =344  group = "shell"   format = "usp"   }
    _shl_pushd        = { index =345  group = "shell"   format = "usp"   }
    _shl_popd         = { index =346  group = "shell"   format = "usp"   }
@@ -510,6 +512,7 @@ exports = {
    _vio_modeinfo     = { index =256  group = "vio"     format = "puui"  }
    _vio_setmodeid    = { index =257  group = "vio"     format = "@u@u"  }
    _vio_showlist     = { index =258  group = "vio"     format = "usp@u" }
+   _vio_drawshadow   = { index =259  group = "vio"     format = "vuuuu" }
 
    # storage
 
@@ -547,7 +550,7 @@ exports = {
    _hlp_mtrrapply    = { index =282  group = "system"  format = "vp"    }
    _hlp_pciread      = { index =283  group = "pci"     format = "uhbbbb" }
    _hlp_pciwrite     = { index =284  group = "pci"     format = "vhbbbbu" }
-   _log_pcidump      = { index =285  group = "pci"     format = "vv"    }
+   _log_pcidump      = { index =285  group = "pci"     format = "vp"    }
    _hlp_pcifind      = { 
                          index =286  group = "pci"     format = "i@h@hhpi"
                          expname = "__hlp_pcifind"
@@ -562,7 +565,7 @@ exports = {
    _hlp_memcpy       = { index =371  group = "system"  format = "uppui" }
    _hlp_insafemode   = { index =372  group = "system"  format = "uv"    }
    _hlp_setupmem     = { index =373  group = "system"  format = "@uu*!up@u" }
-   _hlp_memcprint    = { index =374  group = "system"  format = "vv"    }
+   _hlp_memcprint    = { index =374  group = "system"  format = "vp"    }
    _hlp_cmgetstate   = { index =375  group = "system"  format = "uv"    }
    _hlp_cmsetstate   = { 
                          index =376  group = "system"  format = "uu"
@@ -571,6 +574,8 @@ exports = {
    _hlp_mtrrsum      = { index =377  group = "system"  format = "u@q@q" }
    _hlp_pciatoloc    = { index =378  group = "pci"     format = "usp"   }
    _hlp_pcifindaddr  = { index =379  group = "pci"     format = "u@qp"  }
+
+   _hlp_pcimaxbus    = { index =590  group = "pci"     format = "uv"    }
 
    # additional shell
 
@@ -586,7 +591,7 @@ exports = {
    _pag_physmap      = { index =300  group = "system"  format = "p@quu" }
    _pag_physunmap    = { index =301  group = "system"  format = "up"    }
    _pag_enable       = { index =302  group = "system"  format = "@uv"   }
-   _pag_printall     = { index =303  group = "system"  format = "vv"    }
+   _pag_printall     = { index =303  group = "system"  format = "vp"    }
    _pag_query        = { index =304  group = "system"  format = "up"    }
 
    # disk/volume functions
@@ -616,8 +621,8 @@ exports = {
    _sys_tssfree      = { index =381  group = "system"  format = "i@h"   }
    _sys_notifyexec   = { index =382  group = "system"  format = "v@u@u" }
    _sys_notifyevent  = { index =383  group = "system"  format = "u@up"  }
-   _sys_gdtdump      = { index =384  group = "system"  format = "vv"    }
-   _sys_idtdump      = { index =385  group = "system"  format = "vv"    }
+   _sys_gdtdump      = { index =384  group = "system"  format = "vp"    }
+   _sys_idtdump      = { index =385  group = "system"  format = "vp"    }
    _sys_is64mode     = { index =386  group = "system"  format = "iv"    }
    _sys_isavail      = { index =387  group = "system"  format = "@u@u"  }
    _sys_getlapic     = { index =388  group = "system"  format = "pv"    }
@@ -770,7 +775,7 @@ exports = {
    _io_mount         = { index =639  group = "io"      format = "@u@b@u@q@q" }
    _io_unmount       = { index =640  group = "io"      format = "@u@b@u" }
    _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@ui" }
-   _io_dumpsft       = { index =642  group = "io"      format = "vv"    }
+   _io_dumpsft       = { index =642  group = "io"      format = "vp"    }
    _io_blocksize     = { index =643  group = "io"      format = "u@u"   }
    _io_registerfs    = { index =644  group = "io"      format = "@u@u"  }
 

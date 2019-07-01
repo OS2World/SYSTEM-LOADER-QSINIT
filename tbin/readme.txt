@@ -93,10 +93,9 @@ no "kernel" one.
   -----------------------------------------------------------------------
 
    Package  contain  two parts: basic loader (named OS2LDR) and zip archive
-with  apps  and data (named QSINIT.LDI). Duaring init this archive unpacked
-to  small  virtual disk in memory (for self usage only, this memory will be
-available  for  OS/2)  and "system" operates with data on it as with normal
-files.
+with apps and data (named QSINIT.LDI). During init this archive unpacked to
+a  small  virtual "system" volume in memory (for self use only, this memory
+will be released for OS/2).
 
    Installation mode is determining by OS2BOOT file presence in the root of
 boot drive (OS/2 is always have it).
@@ -129,24 +128,24 @@ QSINIT apps menu, or type "tetris" in shell.
 file and so on; just remember - this is not a BIG OS).
 
    Some shell features:
-   * "sysview" app include text & binary file editors, log viewer, disk
-      management dialog, memory editor, sector-based physical disk editor and
-      other options.
+   * "sysview" app includes text & binary file editors, log viewer, disk
+      management dialog, memory editor, sector-based physical disk editor,
+      calculator and other options.
 
       It plays a GUI role, actually :)
 
-   * "mount" command allow to mount any FAT16/FAT32/exFAT partition to QSINIT
+   * "mount" command allows to mount any FAT16/FAT32/exFAT partition to QSINIT
       and read/write to it:
           dmgr list hd0     <- list partitions on hd0
-          mount 2: hd0 4    <- mount 4th partition of hd0 as drive 2:/C:
+          mount c: hd0 4    <- mount 4th partition of hd0 as drive C:/2:
 
-      HPFS is available to mount too, but with read-only access.
+      HPFS and JFS are available to mount too, but with read-only access.
        
-      Kernel from this partition can be selected for boot by typing it 
-      full name in kernel options dialog, something like: 
+      Kernel file from a such partition can be used for boot by typing it full
+      path in the kernel options dialog or in the bootos2.exe command line:
           c:\kernels\os2k_105
 
-    * files can be copied in PXE boot mode from TFTP server to local
+    * during PXE boot files can be copied from TFTP server to the local
       mounted partitions (only with PXEOS4 package):
          copy /boot file_on_tftp local_name 
       or unzipped:
@@ -171,8 +170,7 @@ file and so on; just remember - this is not a BIG OS).
       850 used, but it can be selected in "chcp" command from a short list of
       available in QSINIT.
 
-    * possibility of launching boot sector from any of primary or logical
-      partitions. Command:
+    * possibility of launching a boot sector from any partition. Command:
 
         dmgr mbr hd0 boot 1
 
@@ -187,7 +185,7 @@ file and so on; just remember - this is not a BIG OS).
       These options also available from Disk Management dialog in SysView app.
 
       Note: all of such boot types starts with A20 gate opened. Modern systems
-      have no problem with it, but oldest versions of DOS`s himem can hang.
+      works fine with it, but old versions of DOS himem.sys can hang.
 
     * "dmgr pm" command allow to create and delete both primary and logical
       partitions. The same options available from Disk Management dialog in
@@ -196,16 +194,16 @@ file and so on; just remember - this is not a BIG OS).
       Partitions will be created in OS/2 LVM geometry if it present on this
       disk.
 
-      GPT partition table is supported by this command too and by additional
-      command "gpt" for minor operations.
+      GPT partition table is supported by this command too. Additional
+      command "gpt" provide a special functions for it.
 
     * "dmgr clone" command can clone partition structure and data to another
       disk.
-      It knows nothing about file systems, but simple copying usually can
-      be done without changes in file system.
+      It knows nothing about file systems, but simple copying can be done
+      without changes in any file system.
 
-      In case of FAT/exFAT/HPFS/JFS QSINIT updates boot sector of target
-      partition after cloning (update information about volume location).
+      In case of FAT/exFAT/HPFS/JFS QSINIT updates boot sector of a target
+      partition after cloning (set information about new volume location).
 
     * "lvm" command can change OS/2 LVM drive letters, write LVM signatures
       to disk and some misc.
@@ -216,51 +214,55 @@ file and so on; just remember - this is not a BIG OS).
         lvm query "[F32_PT1]" ft_disk ft_index
         mount c: %ft_disk% %ft_index%
 
-    * FAT cache available, QSINIT load it on first "mount" command.
+    * sector-level cache available, QSINIT load it on first "mount" command.
       Cache is non-destructive on power outs (read-ahead only), boot partition
-      is not cached at all. Cache size it limited to 1/2 of memory, available
-      for QSINIT, but no more 1Gb.
+      is not cached at all. Cache size is limited to 1/2 of available memory, 
+      but no more 1Gb.
 
       To manual use, type "cache /?" for help.
 
       Suitable if you want to copy a large amount of data in QSINIT.
 
-    * to copy those "large amount of data" use xcopy.cmd in shell ;)
+      HPFS and JFS access code uses file-level cache as well (this is a part
+      of its implementation).
 
-    * "chcp" command can be used to select codepage for FAT/FAT32/exFAT
-      (single byte only, no DBCS now, sorry). Without this command any files
-      with national language letters will be unaccessible.
+    * to copy "large amount of data" use xcopy.cmd in shell ;)
+
+    * "chcp" command can be used to select codepage for FAT/FAT32/exFAT/JFS
+      (single byte only, no DBCS now, sorry). Without this command any file
+      names with national language letters will be unaccessible.
       note: this command only makes these names operable, not displayable.
 
-    * "mem hide" command can be used to hide some memory ranges from
-      OS/2 (for example, if memory tests show errors in this range)
+    * "mem hide" command can be used to hide memory ranges from OS/2
+      (if memory tests show error in this range, for example)
 
-    * more of it in the section 5 below.
+    * look for more in the section 5 below.
 
    QSINIT can be loaded by "WorkSpace On-Demand" PXE loader, but further
 loading process is untested.
 
    And a little note about QSINIT internal disks and it`s naming. QSINIT
-use ChaN`s FatFs code to access FAT/FAT32/exFAT partitions and follow its
+uses ChaN`s FatFs code to access FAT/FAT32/exFAT partitions and follow its
 naming convention: all internal disks has an additional names 0:, 1:,
-2: .. 9:.  A:-J: naming is supported as well.  Shell accept both variants,
+2: .. 9:.  A:-J: naming is supported as well.  Shell accepts both variants,
 apps based on Turbo Vision library - accept A:-J: letters only.
 
    Virtual disk with QSINIT apps and data is always mapped to drive B:/1:
 
    On FAT/FAT32/exFAT boot - boot partition is available as drive A:/0: and
-you can modify it freely (edit text files, copy files in shell and so on...).
+you can modify it freely (edit files, copy them in shell and so on...). With
+one exception - in UEFI version it mounted as r/o, because this is UEFI
+service partition and access to it is shared with UEFI firmware.
 
-   HPFS file i/o is supported, but read-only.
-
-   JFS on the boot partition is mapped to the drive A:/0: too, but only for
-per-sector access, because QSINIT does not know this filesystem. But drive
-letter still can be used somewhere, for example to show boot partition BPB:
-
-      dmgr bs 0: bpb
+   HPFS and JFS volumes are also supported, but read-only.
 
    Other 8 disk numbers/letters ( C:/2: - J:/9: ) are free to mount of any
-FAT/FAT32/exFAT/HPFS partition in the system.
+FAT/FAT32/exFAT/HPFS/JFS partition in the system.
+
+   For unknown file system types mount is possible as well, but for access
+on a sector level only, for example - to show partition BPB:
+
+      dmgr bs c: bpb
 
   =======================================================================
    4. Additional customization.
@@ -280,8 +282,7 @@ variable
 
       copy /boot menu.ini b:\menu.ini
 
-   This allow to make an easy changes in menu without editing of QSINIT.LDI
-archive.
+   This allow to make changes in the menu without editing of QSINIT.LDI.
 
    4.2 Switching to simple "boot manager" mode.
   ----------------------------------------------
@@ -365,10 +366,10 @@ base functionality (when it must fit into diskette image for CD boot, for
 example).
    cache.dll   - sector-level cache, used only for caching of FAT volumes
                  (if cruel life forces you to use QSINIT as copy utility ;)
-   cplib.dll   - CHCP command, this module provides code pages for FAT/exFAT
-                 and for HPFS formatting.
+   cplib.dll   - CHCP command, this module provides code pages for
+                 FAT/exFAT/JFS and for HPFS formatting.
    fsfat.dll   - FAT/exFAT support
-   fslib.dll   - HPFS r/o support
+   fslib.dll   - HPFS/JFS r/o support
    vdisk.dll   - PAE ramdisk
    vhdd.dll    - VHDD shell command
    mtlib.dll   - threads, sessions (see below, not required for OS/2 boot)
@@ -439,7 +440,7 @@ cards (Intel and NV go crazy on this ;)). Command is:
   ------------------------------
 
    One of non-obvious features is on-fly boot partition changing, without
-booting from boot sector (this works with FAT & HPFS only).
+booting from a boot sector.
 
    Default HPFS boot sector code depends on OS/2 MBR code or VPart/AirBoot.
 If both is absent - it can fail. In this case such emergency way can be used.
@@ -452,7 +453,7 @@ If both is absent - it can fail. In this case such emergency way can be used.
    and system will start from this partition, without use of boot sector code.
 
    This mean that you can load QSINIT from flash drive with FAT32 and then
-switch boot to HPFS partition on HDD, for example.
+switch boot to HPFS/JFS partition on HDD, for example.
 
    5.3 "Dirty" flag setup.
   -------------------------
@@ -477,10 +478,8 @@ available for intensive testing of a large number of different kernel files.
    To use this feature you should pack kernel files into REV_ARCH.ZIP file
 and then put it into the root of boot drive.
 
-   This ZIP will be loaded by pressing "IMPORT" button and any file from it
-can be selected as a kernel for current boot. This method works on FAT, HPFS
-and PXE, but may fail on old-formatted JFS (just try newer build`s sysinstx
-on it first).
+   This ZIP will be loaded by pressing "IMPORT" button and any file in it
+can be selected as a kernel for current boot.
 
    ZIP file name can be overridden by REV_ARCH_PATH environment variable
 (add set REV_ARCH_PATH = ... into qssetup.cmd - see note above about it).
@@ -528,7 +527,7 @@ on it first).
    prior to EFI, have this bug.
 
  * write access to exFAT still looks dangerous a bit - this is own FatFs lib
-   troubles. Author regularly corrects them, and also adds new ones.
+   bugs. Author regularly corrects them and adds new as well.
 
  * some ugly BIOS coders (HP laptops, for example) does not return disk size
    information at all. This should not affect to OS/2 boot, but using this
@@ -546,7 +545,10 @@ on it first).
    incorrect port address in os2ldr.ini.
 
    [[Loading]] message should be red in this mode. If it is green, then you
-   have missed and are too slow :)
+   have missed and too slow :)
+
+ * F10 key in the start menu resets console mode to default 80x25 in the BIOS
+   hosted version and default console the UEFI version.
 
   =======================================================================
    7. QSINIT boot details.
@@ -556,24 +558,24 @@ on it first).
 
    * via OS/2 boot FSD mechanism - i.e. QSINIT loader looks like OS2LDR for
      micro-FSD code.
-     Files OS2LDR and QSINIT.LDI just placed to the root of boot disk.
+     OS2LDR and QSINIT.LDI should be placed just to the root of boot volume.
 
    * via OS/2 PXE boot - the same.
      Files OS2LDR and QSINIT.LDI must be accessed from TFTP.
 
    * from FAT12/FAT16/FAT32/exFAT - by using OWN boot sector. Boot sector can
      be installed by tool\bootset? command.
-     Boot sector assume QSINIT file name for base loader (not OS2LDR as on
+     Boot sector assumes QSINIT file name for base loader (not OS2LDR as in
      FSD mechanism).
 
      I.e. files QSINIT and QSINIT.LDI must be in the root of boot disk.
 
-     This mechanism must work on HDD/floppy/flash drives, really ;)
+     FAT boot should anywhere - HDD/floppy/flash drives, really ;)
 
    * from CD/DVD in "no-emulation" mode. In this case bootstrap code of
      CD disk is a micro-FSD. Look into CDBOOT directory for details.
 
-   QSINIT provide own MBR code both for MBR and GPT partition tables. It is
+   QSINIT provides own MBR code both for MBR and GPT partition tables. It is
 optional and can be installed to empty disk, for example, or in emergency
 case.
 
@@ -582,8 +584,9 @@ partition and launch it.
    In addition - it have special Boot Manager support (as OS/2 MBR).
 
    MBR code for GPT disks searches for 1st partition with "BIOS Bootable"
-attribute ON (google UEFI Wiki about it) and then launch it. But, if partition
-is completely above 2Tb border - only exFAT supports booting from it.
+attribute ON (google UEFI Wiki about it) and then launches it. It should work
+for any partition, _started_ below 2Tb border. If partition starts above 2Tb -
+only exFAT able to boot from it.
 
    You can set "BIOS Bootable" attribute via "gpt" command or "sysview" app.
 
@@ -599,8 +602,7 @@ is completely above 2Tb border - only exFAT supports booting from it.
    * then you can choose in EFI BIOS boot devices menu: "YOUR DRIVE" or 
      "UEFI: YOUR DRIVE", 1st will be QSINIT and 2nd - EFI boot.
 
-   Note, that flash drive can use GPT, even if Windows does not recognize it
-in this case. BIOS will see it normally and should able to boot from it.
+   Note, that flash drive able to use GPT too.
  
    QSINIT also provides own code for FAT/FAT32/exFAT/HPFS boot record. This
 code has no dependence on Boot Manager and OS/2 MBR. You can install it on
@@ -691,7 +693,7 @@ list available via Ctrl-Esc (Ctrl-B).
 
    START command is a new session launch, STOP - process kill and DETACH -
 a kind of OS/2 command analogue, still useful for long actions, like copying
-a huge zip from TFTP server (PXE boot):
+of a huge zip from TFTP server (PXE boot):
 
      detach copy /boot /beep huge_file_via_pxe.zip c:\
 
@@ -704,7 +706,7 @@ should make PC more quiet and peaceful ;)
 can cause huge delays for other threads, but, hey!! - this is not a premium
 desktop OS and it uses BIOS as a driver layer!
    At least, you can play tetris while second session searches data on huge
-HDD - this is real.
+HDD (in SysView) - this is real.
 
    Additional setup is available, by SET string in qssetup.cmd:
 
@@ -766,7 +768,7 @@ QSINIT should load any of this kernel`s revisions.
       hd1/0 = Boot 1nd partition of disk 1
       hd2   = Boot MBR of disk 2 (with MTRR reset), nomtrr
 
-      ; comments supported only on 1st posistion of the line
+      ; comments supported only on 1st position of the line
       
    A new section "[partition]" is available in OS2LDR.INI. It defines a list
 of partitions to boot and available from "Boot partition" menu in QSINIT.
@@ -797,21 +799,20 @@ of them are supported now: CPUCLOCK and NOMTRR.
                Supported values: 150,300,600,1200,2400,4800,9600,19200,38400,
                57600 and 115200.
 
- * CALL=batch_file - call QSINIT batch file just before starting kernel.
+ * CALL=batch_file - call QSINIT batch file just before starting the kernel.
                "batch_file" must be a fully qualified path in QSINIT!
-               I.e. A:\BATCH.CMD (boot disk, possible on FAT/HPFS boot only),
-               or C:\dir1\batch.cmd (from mounted volume).
-               VIEWMEM (if specified) will be called after this batch file and
-               then kernel will be launched.
+               I.e. A:\BATCH.CMD (boot disk), or C:\dir1\batch.cmd (from a
+               mounted volume). VIEWMEM (if specified) will be called after
+               this batch file and then kernel will be launched.
 
-               At this CALL time kernel was loaded and fixuped in their memory
+               At this time kernel is loaded and fixuped in final memory
                location, but QSINIT still fully functional. This is possible
                because QSINIT never touches kernel memory areas.
 
  * CFGEXT=EXT - use CONFIG.EXT file instead of CONFIG.SYS. File must be placed
                in the root directory. EXT - extension, up to 3 chars.
 
- * CHSONLY   - ansient HDDs supports (switch BIOS disk i/o to CHS mode during
+ * CHSONLY   - ancient HDDs supports (switch BIOS disk i/o to CHS mode during
                kernel boot).
                This mode can also be set by DMGR MODE command in QSINIT shell.
 
@@ -822,7 +823,7 @@ of them are supported now: CPUCLOCK and NOMTRR.
                Clock modulation available on P4 and later CPUs. It can be
                used to slow down DOS, launched from partition menu, for
                example. With 12.5% on 3100 MHz Core Duo it shows ~400-600 Mhz
-               in DOS performance tests. This can be usefull for some old
+               in DOS performance tests. This can be useful for some old
                games, at least.
 
                Or you can look how badly you optimized your software code,
@@ -831,7 +832,7 @@ of them are supported now: CPUCLOCK and NOMTRR.
                This key works both in OS/2 boot and partition menu.
 
  * CTRLC=1   - (OS/4, >=2970) enable Ctrl-C check for kernel debugger. This
-               options slows the system reasonably. It fources kernel debugger
+               options slows the system reasonably. It forces kernel debugger
                to check for incoming Ctrl-C via serial port periodically.
 
  * CTRLN=1   - use Ctrl-N for session switching (in addition to Alt-Esc) and
@@ -845,7 +846,7 @@ of them are supported now: CPUCLOCK and NOMTRR.
                port. In addition, this command will enable device i/o if it
                turned off by BIOS or UEFI.
                
-               Optional "index" (1..x) can be used if your adaper mapped on
+               Optional "index" (1..x) can be used if your adapter mapped on
                multiple functions or you have two or more adapters with the
                same vendor:device ID.
 
@@ -879,11 +880,11 @@ of them are supported now: CPUCLOCK and NOMTRR.
 
  * LOGSIZE=value - set log size for resident part of loader, in kb. This value
                will rounded down to nearest 64k.
-               Boot log is avalable on OS/2 user level:
+               Boot log is available on OS/2 user level:
                   "copy ___hlp$ boot.log"  - with ACPI.PSD running
                   "copy oemhlp$ boot.log"  - without ACPI.PSD
 
- * LOGLEVEL=0..3 - maximim level of QSINIT log messages to copy to OS/2 kernel
+ * LOGLEVEL=0..3 - maximum level of QSINIT log messages to copy to OS/2 kernel
                log. By default - messages are not copied at all.
 
  * LOGOMASK=value - (OS/4) bit mask to disable vesa mode usage for new logo.
@@ -915,8 +916,8 @@ of them are supported now: CPUCLOCK and NOMTRR.
                own micro-FSD :)
 
  * NOAF      - turn OFF Advanced Format aligning for disk read/write ops.
-               Affect both QSINIT and OS/2 boot (until IDE/SATA driver load).
-               By default most of long i/o ops is aligned to 4k.
+               Affect both QSINIT and OS/2 boot (until IDE/SATA driver loaded).
+               By default most of long i/o ops are aligned to 4k.
 
  * NOCLOCK=1 - turn off clock in QSINIT menus, -1 forces to show both date
                and time instead.
@@ -926,7 +927,7 @@ of them are supported now: CPUCLOCK and NOMTRR.
                and has no any other special effects (except missing graphic
                console during early boot stage).
 
- * NOLOGO    - do not show kernel logo.
+ * NOLOGO    - do not show the kernel logo.
 
  * NOMTRR    - do not use MTRR changes, was done in QSINIT for OS/2 boot.
 
@@ -956,15 +957,13 @@ of them are supported now: CPUCLOCK and NOMTRR.
                kernel selection menu as another OS2LDR (loader, not a kernel).
 
                I.e. this is "restart loader" option.
-               It does not work for PXE boot (ask Moveton why).
 
                You can load Windows XP NTLDR on FAT16 partition too :) As said
                above, this is the legacy of time, when MS & IBM were friends.
 
  * SOURCE=X  - this option replaces boot partition for OS/2 boot. X is QSINIT
-               drive letter of mounted (to QSINIT!) FAT or HPFS partition.
-               I.e. this key able to change boot partition to any available
-               FAT or HPFS - without reboot.
+               drive letter of mounted (to QSINIT!) FAT, HPFS or JFS volume.
+               I.e. this key able to change boot partition without reboot.
 
                Basically, it designed to boot from the PAE RAM disk, but works
                fine for any partition too.
@@ -979,9 +978,9 @@ of them are supported now: CPUCLOCK and NOMTRR.
                every boot (unstable PXE connection, ugly SSD support in old
                BIOS, devices with bad sectors and so on).
 
- * USEBEEP=1 - turn PC speaker sound in kernel selection menu (for monitor-less
-               configurations). It will beep with one tone on the first line
-               and another tone on any other.
+ * USEBEEP=1 - turn on PC speaker sound in the kernel selection menu (for
+               monitor-less configurations). It will beep with one tone on
+               the first line and another tone on any other.
 
  * VALIMIT[=value] (OS/4, >=4199) VIRTUALADDRESSLIMIT value, in Mb.
                Key can be used without memory size value, in this case value

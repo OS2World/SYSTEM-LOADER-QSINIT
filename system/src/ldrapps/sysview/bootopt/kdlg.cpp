@@ -14,13 +14,16 @@ TKernBootDlg::TKernBootDlg() :
    source  =  0;
    valimit = -1;
 
-   k_name = new TInputLine(TRect(16, 2, 51, 3), 33);
+   k_name = new TInputLine(TRect(16, 2, 44, 3), 33);
    k_name->helpCtx = hcKernName;
    insert(k_name);
-   insert(new THistory(TRect(51, 2, 54, 3), k_name, hhKernelName));
+   insert(new THistory(TRect(44, 2, 47, 3), (TInputLine*)k_name, 1));
    insert(new TLabel(TRect(2, 2, 15, 3), "Kernel file:", k_name));
 
-   control = new TButton(TRect(54, 2, 64, 4), "~I~mport", cmImportKernel, bfNormal);
+   control = new TButton(TRect(47, 2, 57, 4), "~S~elect", cmLoadKernel, bfNormal);
+   control->helpCtx = hcKernName;
+   insert(control);
+   control = new TButton(TRect(57, 2, 64, 4), "~I~mp", cmImportKernel, bfNormal);
    control->helpCtx = hcKernImport;
    insert(control);
 
@@ -30,7 +33,7 @@ TKernBootDlg::TKernBootDlg() :
    insert(new THistory(TRect(51, 4, 54, 5), cmd_name, hhBatchName));
    insert(new TLabel(TRect(2, 4, 14, 5), "Call batch:", cmd_name));
 
-   control = new TButton(TRect(54, 4, 64, 6), "~S~elect", cmLoadBatchFile, bfNormal);
+   control = new TButton(TRect(54, 4, 64, 6), "Select", cmLoadBatchFile, bfNormal);
    control->helpCtx = hcKernBatchName;
    insert(control);
 
@@ -45,7 +48,7 @@ TKernBootDlg::TKernBootDlg() :
       new TSItem("Reset MTRR", 0)))))))));
    k_opts->helpCtx = hcKernOptions;
    insert(k_opts);
-   insert(new TLabel(TRect(2, 6, 10, 7), "Options", k_opts));
+   insert(new TLabel(TRect(2, 6, 10, 7), "Op~t~ions", k_opts));
 
    k_pkey = new TInputLine(TRect(25, 7, 34, 8), 11);
    k_pkey->helpCtx = hcKernPushKey;
@@ -102,7 +105,7 @@ TKernBootDlg::TKernBootDlg() :
       new TSItem("Verbose log", 0))));
    deb_opts->helpCtx = hcKernDebOptions;
    insert(deb_opts);
-   insert(new TLabel(TRect(2, 15, 16, 16), "Debug options", deb_opts));
+   insert(new TLabel(TRect(2, 15, 16, 16), "~D~ebug options", deb_opts));
 
    deb_port = new TInputLine(TRect(25, 16, 34, 17), 10);
    deb_port->helpCtx = hcKernCOMPortAddr;
@@ -166,6 +169,12 @@ void TKernBootDlg::handleEvent( TEvent& event) {
          case cmLoadBatchFile: {
             char *bn = getfname(1, "Select batch file");
             if (bn) cmd_name->setData(bn);
+            clearEvent(event);
+            break;
+         }
+         case cmLoadKernel: {
+            char *bn = getfname(1, "Select kernel file", "A:\\OS*");
+            if (bn) k_name->setData(bn);
             clearEvent(event);
             break;
          }

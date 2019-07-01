@@ -1,5 +1,5 @@
 Setup under OS/2 and Windows:
-   1. set WATCOM=....  in path
+   1. set WATCOM=....
    2. copy src\setup.cmd.template src\setup.cmd
    3. edit src\setup.cmd
    4. if QS is not in the root, update Doxyfile INPUT (optional)
@@ -53,7 +53,7 @@ Source tree:
    system\src\ldrapps\doshlp       - doshlp (binary file)
    system\src\ldrapps\extcmd       - some large shell commands & optional code
    system\src\ldrapps\fsfat        - FAT/FAT32/exFAT support (FatFs)
-   system\src\ldrapps\fslib        - HPFS r/o support
+   system\src\ldrapps\fslib        - HPFS/JFS r/o support
    system\src\ldrapps\mtlib        - threads support (still in progress)
    system\src\ldrapps\partmgr      - partition management module
    system\src\ldrapps\sysview      - UI app (req. Turbo Vision)
@@ -83,7 +83,7 @@ Source tree:
    system\src\tools\src\hd4disk    - OS/2 basedev driver for PAE RAM disk
    system\src\tools\src\mkbin      - tool for making QSINIT binary file
    system\src\tools\src\tinc2h     - .inc to .h simple converter
-   system\src\tools\src\vpcfcopy   - write files to FAT disk image
+   system\src\tools\src\vpcfcopy   - write files to a FAT disk image
    system\src\tools\src\watsym     - watcom .map to .sym converter
 
 ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@
 #define RFS_DBLEVEL     0
 
 #define FDCE_WAIT_TIME  10    ///< seconds to wait before resize memory
-#define FSIZE_MAX       x7FFF ///< file size limit
+#define FSIZE_MAX       x7FFF ///< file size limit (malloc will limit us on 2Gb-64k)
 
 struct file_data {
    u32t           sign;     ///< RFSFD_SIGN

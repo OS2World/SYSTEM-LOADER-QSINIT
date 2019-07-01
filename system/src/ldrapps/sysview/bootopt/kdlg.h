@@ -25,6 +25,7 @@
 #define cmImportKernel  500
 #define cmLaunchKernel  501
 #define cmLoadBatchFile 502
+#define cmLoadKernel    503
 
 class TKernBootDlg : public TDialog {
 public:

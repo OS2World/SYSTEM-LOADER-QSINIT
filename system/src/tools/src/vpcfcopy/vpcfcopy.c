@@ -14,14 +14,17 @@
 #undef  _WIN32
 #include "ff.h"
 #include <sys/stat.h>
+#ifdef __LINUX__
+#include <unistd.h>
+#else
 #include <io.h>
+#endif
 #include <time.h>
-#include <stdio.h>
 #include <ctype.h>
-#include "bsdata.h"
+#include "bsdata.h"      // MBR boot code
+#include "gptboot.h"     // GPT boot code
 // include FAT code directly here, to let them catch _USE_LFN above ;)
 #include "ff.c"
-#include "msvhd.h"
 #include "lvmdat.h"
 
 const BYTE TBL_CT437[128] = {
@@ -35,21 +38,8 @@ const BYTE TBL_CT437[128] = {
    0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF};
 const BYTE* __stdcall ExCvt = TBL_CT437;
 
-#define swapdw(x) ((((x)&0xFF)<<8)|(((x)>>8)&(0xFF)))
-u32t    swapdd(u32t value);
-u64t    swapdq(u64t value);
 u32t    rndint(u32t range);
 u32t    _randseed = 0;
-
-#pragma aux swapdd =  \
-    "bswap   eax"     \
-    parm [eax] value [eax] modify exact [eax];
-
-#pragma aux swapdq =  \
-    "bswap   eax"     \
-    "bswap   edx"     \
-    "xchg    eax,edx" \
-    parm [edx eax] value [edx eax] modify exact [edx eax];
 
 #pragma aux rndint =        \
     "mov     eax,8088405h"  \
@@ -63,11 +53,14 @@ u32t    _randseed = 0;
 
 #define CRC_POLYNOMIAL    0xEDB88320
 u32t    CRC_Table[256];
-FILE       *disk;
+FILE       *disk = 0;
 FATFS        fat;
 FIL          dst;
-u32t   Disk1Size;
-int   was_inited = 0;
+u32t   disk_size = 0, // in sectors
+      disk_start = 0; // in sectors !!
+int   was_inited = 0,
+         phys_io = 0;
+u32t   phys_disk = 0;
 
 static const char *diskspath = "0:";
 
@@ -111,7 +104,7 @@ u32t _std lvm_crc32(u32t crc, void *Buffer, u32t BufferSize) {
    return crc;
 }
 
-u32t  fsize(FILE *fp) {
+u32t fsize(FILE *fp) {
    u32t  size_of_file,
              save_pos = ftell(fp);
    fseek(fp, 0, SEEK_END);
@@ -142,7 +135,12 @@ DRESULT disk_read (
    if (!count) return RES_OK;
    switch (drv) {
       case 0:
-         if (fseek(disk,sector<<9,SEEK_SET)) return RES_ERROR;
+#ifdef PHYS_IO
+         if (phys_io)
+            return dsk_read(phys_disk, disk_start+sector, count, buff)==count?
+               RES_OK:RES_ERROR;
+#endif
+         if (fseek(disk,disk_start+sector<<9,SEEK_SET)) return RES_ERROR;
          if (fread(buff,1,count<<9,disk)!=count<<9) return RES_ERROR;
          break;
       default:
@@ -160,10 +158,10 @@ DRESULT disk_ioctl (
    //log_misc("disk_ioctl(%d,%d,%x)\n",(DWORD)drv,(DWORD)ctrl,buff);
    switch (drv) {
       case 0:
-         if (!Disk1Size) return RES_NOTRDY;
+         if (!disk_size) return RES_NOTRDY;
          if (ctrl==GET_SECTOR_SIZE) *(WORD*)buff=512; else
          if (ctrl==GET_BLOCK_SIZE) *(DWORD*)buff=512; else
-         if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff=Disk1Size>>9; else
+         if (ctrl==GET_SECTOR_COUNT) *(DWORD*)buff=disk_size; else
          if (ctrl!=CTRL_SYNC) return RES_PARERR;
          return 0;
       case 2:
@@ -171,6 +169,13 @@ DRESULT disk_ioctl (
    }
    return RES_PARERR;
 }
+
+#ifdef PHYS_IO
+void disk_write_error(u32t sector) {
+   printf("Disk %u write error at sector %u\n", phys_disk, sector);
+   exit(2);
+}
+#endif
 
 DRESULT disk_write (
    BYTE drv,          /* Physical drive number (0..) */
@@ -180,7 +185,12 @@ DRESULT disk_write (
 ) {
    //log_misc("disk_write(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
    if (drv>0) return RES_WRPRT;
-   if (fseek(disk,sector<<9,SEEK_SET)) return RES_ERROR;
+#ifdef PHYS_IO
+   if (phys_io)
+      return dsk_write(phys_disk, disk_start+sector, count, (void*)buff)==count?
+         RES_OK:RES_ERROR;
+#endif
+   if (fseek(disk,disk_start+sector<<9,SEEK_SET)) return RES_ERROR;
    if (fwrite(buff,1,count<<9,disk)!=count<<9) return RES_ERROR;
    return 0;
 }
@@ -229,114 +239,192 @@ static u32t vpc_checksum(u8t* buf, u32t len) {
    return ~res;
 }
 
-void create_disk(char *imgname, char *sizestr) {
+void check_phys_io(const char *name) {
+#ifdef PHYS_IO
+   if (name[0]==':' && name[1]==':' && isdigit(name[2])) {
+      phys_disk = strtoul(name+2,0,0);
+      phys_io   = 1;
+   }
+#endif
+}
+
+void update_mbr(char *mbrdata) {
+   if (!phys_io) {
+      rewind(disk);
+      fwrite(mbrdata, 1, 512, disk);
+   } else {
+#ifdef PHYS_IO
+      if (!dsk_write(phys_disk, 0, 1, mbrdata)) disk_write_error(0);
+#endif
+   }
+}
+
+void create_disk(char *imgname, char *sizestr, int is_gpt) {
    int    is_hdd = 0;
    u32t   unitsz = 0;
    u32t    heads = 0,
              spt = 0,
-         rootdir = 512;
-   if (strcmp(sizestr,"1.44")==0) {
-      Disk1Size = 2880*512; unitsz = 1; heads = 2; spt = 18; rootdir = 224;
+         rootdir = 512,
+      altvolsize = 0;
+   char     *buf;
+
+   check_phys_io(imgname);
+
+   // disk_start should be always zero in this function
+   if (!is_gpt && !phys_io && strcmp(sizestr,"1.44")==0) {
+      disk_size = 2880; unitsz = 1; heads = 2; spt = 18; rootdir = 224;
    } else
-   if (stricmp(sizestr,"XDF")==0) {
-      Disk1Size = 3680*512; unitsz = 1; heads = 2; spt = 23; rootdir = 224;
+   if (!is_gpt && !phys_io && stricmp(sizestr,"XDF")==0) {
+      disk_size = 3680; unitsz = 1; heads = 2; spt = 23; rootdir = 224;
    } else
-   if (strcmp(sizestr,"2.88")==0) {
-      Disk1Size = 5760*512; unitsz = 2; heads = 2; spt = 36; rootdir = 240;
+   if (!is_gpt && !phys_io && strcmp(sizestr,"2.88")==0) {
+      disk_size = 5760; unitsz = 2; heads = 2; spt = 36; rootdir = 240;
    } else {
       int len = atoi(sizestr);
 
       if (len<=0 || len>2047) {
-         printf("invalid image size: %u\n", len);
+         printf("invalid %s size: %u\n", phys_io?"FAT volume":"image", len);
          exit(1);
       }
-      Disk1Size = (unsigned)len << 20;
+      disk_size = (unsigned)len << 20 - 9;
       is_hdd    = 1;
    }
-   disk = fopen(imgname,"w+b");
-   if (!disk) {
-      printf("unable to create disk file \"%s\"\n", imgname);
-      exit(2);
-   } else
-   if (chsize(fileno(disk),Disk1Size)) {
-      printf("unable to expand new disk file to specified size (%u kb)\n", Disk1Size>>10);
-      fclose(disk);
-      remove(imgname);
-      exit(2);
-   } else {
-      u32t        vol_start, vol_size, cyls_bios, cyls;
-      u16t       heads_bios;
+   buf = calloc(1,512);
+#ifdef PHYS_IO
+   if (phys_io) {
+      struct Disk_MBR  *mbr = (struct Disk_MBR*)buf;
+      if (!dsk_read(phys_disk, 0, 1, buf)) {
+         printf("unable to read disk %u MBR sector\n", phys_disk);
+         exit(2);
+      }
+      if (mbr->MBR_Signature==0xAA55) {
+         printf("disk %u is not empty!\n", phys_disk);
+         exit(2);
+      }
+
+   } else 
+#endif
+   {
+      disk = fopen(imgname,"w+b");
+      if (!disk) {
+         printf("unable to create disk file \"%s\"\n", imgname);
+         exit(2);
+      } else
+      if (chsize(fileno(disk),disk_size<<9)) {
+         printf("unable to expand disk file to specified size (%u kb)\n", disk_size>>1);
+         fclose(disk);
+         remove(imgname);
+         exit(2);
+      }
+   }
+   if (1) {
+      u32t        vol_start, vol_size, cyls;
       int             fmres;
       u32t           is_vhd = 0;
-      char             *buf = calloc(1,512);
       struct Disk_MBR  *mbr = (struct Disk_MBR*)buf;
       struct MBR_Record *r0 = (struct MBR_Record*)(buf + MBR_Table);
-
+      
       if (is_hdd) {
-         u32t nsec = Disk1Size>>9;
-         is_vhd = strlen(imgname)>4 && stricmp(imgname+strlen(imgname)-4, ".vhd")==0 ? 1 : 0;
-         cyls = 1024; spt = 17; heads = 3;
+         u32t nsec;
 
-         while (cyls*spt*heads < nsec) {
-            if (spt<63) {
-               spt   = (spt   + 1 & 0xF0) * 2 - 1; continue;
+         if (!phys_io) {
+            nsec   = disk_size;
+            is_vhd = strlen(imgname)>4 && stricmp(imgname+strlen(imgname)-4, ".vhd")==0 ? 1 : 0;
+            cyls   = 1024; spt = 17; heads = 3;
+            
+            while (cyls*spt*heads < nsec) {
+               if (spt<63) {
+                  spt   = (spt   + 1 & 0xF0) * 2 - 1; continue;
+               }
+               if (heads<255) {
+                  heads = (heads + 1) * 2 - 1; continue;
+               }
+               break;
             }
-            if (heads<255) {
-               heads = (heads + 1) * 2 - 1; continue;
+            cyls = nsec / (spt*heads);
+            nsec = cyls*heads*spt;
+            // vhd wants dumb bios geometry in header, at least, as QEMU says
+            if (is_vhd && heads>16) {
+               u32t  heads_bios = 16,
+                      cyls_bios = nsec / (spt*16);
+               while (cyls_bios*heads_bios*spt < cyls*spt*heads) cyls_bios++;
+               heads = heads_bios;
+               cyls  = cyls_bios;
+               nsec  = cyls*heads*spt;
             }
-            break;
-         }
-         cyls = nsec / (spt*heads);
-         nsec = cyls*spt*heads;
-         // vhd wants dumb bios geometry in header, at least, as QEMU says
-         if (is_vhd && heads>16) {
-            heads_bios = 16;
-            cyls_bios  = nsec / (spt*16);
-            while (cyls_bios*heads_bios*spt < cyls*spt*heads) cyls_bios++;
+            // adjust disk size
+            if (nsec + is_vhd != disk_size) {
+               disk_size = nsec;
+               chsize(fileno(disk), disk_size+is_vhd << 9);
+            }
          } else {
-            heads_bios = heads;
-            cyls_bios  = cyls;
+#ifdef PHYS_IO
+            dsk_geo_data geo;
+            nsec  = dsk_size(phys_disk, 0, &geo);
+            cyls  = geo.Cylinders;
+            spt   = geo.SectOnTrack;
+            heads = geo.Heads;
+            altvolsize = disk_size;
+            disk_size  = nsec;
+#endif
          }
-         // adjust disk size a bit
-         if (cyls_bios*heads_bios*spt+is_vhd != Disk1Size>>9) {
-            Disk1Size  = cyls_bios*heads_bios*spt << 9;
-            chsize(fileno(disk), Disk1Size + (is_vhd<<9));
+         if (is_gpt) {
+            vol_size = altvolsize;
+            disk_init(nsec, &vol_start, &vol_size);
+      
+            memcpy(mbr, &gptboot, 512);
+      
+            r0->PTE_LBAStart = 1;
+            r0->PTE_LBASize  = nsec - 1;
+            r0->PTE_Type     = PTE_EE_UEFI;
+
+            if (altvolsize<vol_size) vol_size = altvolsize;
+         } else {
+            memcpy(mbr, &bsdata, 512);
+            vol_start = spt;
+            vol_size  = nsec - spt; 
+            // alt volume size
+            if (altvolsize && altvolsize<vol_size) {
+               u32t ep = vol_start + altvolsize;
+               ep = ep / (heads*spt) * (heads*spt);
+               if (ep>vol_start+vol_size) vol_size = ep - vol_start;
+            }
+            r0->PTE_LBAStart = vol_start;
+            r0->PTE_LBASize  = vol_size;
+            r0->PTE_Active   = 0x80;
+            r0->PTE_Type     = PTE_06_FAT16;
          }
-         memcpy(mbr, &bsdata, 512);
-
-         r0->PTE_LBAStart = vol_start = spt;
-         r0->PTE_LBASize  = vol_size  = nsec - spt;
-         r0->PTE_Active   = 0x80;
-         r0->PTE_Type     = PTE_06_FAT16;
-
-         lba2chs(heads, spt, spt, &r0->PTE_HStart, &r0->PTE_CSStart);
+         lba2chs(heads, spt, r0->PTE_LBAStart, &r0->PTE_HStart, &r0->PTE_CSStart);
          lba2chs(heads, spt, nsec-1, &r0->PTE_HEnd, &r0->PTE_CSEnd);
+
+         update_mbr(buf);
       } else {
          vol_start = 0;
-         vol_size  = Disk1Size>>9;
+         vol_size  = disk_size;
          cyls = vol_size / (spt*heads);
       }
-      rewind(disk);
-      fwrite(buf, 1, 512, disk);
       // volume serial will use it
       set_fattime(time(0));
-
+#if 0
+      printf("formatting to FAT: start sector %X, %X sectors\n", vol_start, vol_size);
+#endif      
       fmres = format(vol_start, vol_size, unitsz, heads, spt, rootdir);
       if (fmres<0) {
          printf("mkfs error %i\n", -fmres);
-         fclose(disk);
-         remove(imgname);
+         if (!phys_io) {
+            fclose(disk);
+            remove(imgname);
+         }
          exit(4);
       } else
       if (is_hdd) {
          // update partition type
-         if (vol_start+vol_size < 65536) {
+         if (!is_gpt && vol_start+vol_size < 65536) {
             r0->PTE_Type = fmres==FST_FAT12 ? PTE_01_FAT12 : PTE_04_FAT16;
-            rewind(disk);
-            fwrite(buf, 1, 512, disk);
+            update_mbr(buf);
          }
          // write LVM information
-         if (1) {
+         if (!is_gpt) {
             DLA_Table_Sector *ld = (DLA_Table_Sector*)buf;
             DLA_Entry        *de = &ld->DLA_Array[0];
             time_t           now = time(0);
@@ -345,7 +433,7 @@ void create_disk(char *imgname, char *sizestr) {
             for (ii=1; ii<spt-1; ii++) disk_write(0, buf, ii, 1);
             // else disk serial may be 0
             _randseed = time(0) + clock();
-
+      
             ld->DLA_Signature1     = DLA_TABLE_SIGNATURE1;
             ld->DLA_Signature2     = DLA_TABLE_SIGNATURE2;
             ld->Disk_Serial        = rndint(FFFF);
@@ -354,25 +442,25 @@ void create_disk(char *imgname, char *sizestr) {
             ld->Heads_Per_Cylinder = heads;
             ld->Sectors_Per_Track  = spt;
             strftime(ld->Disk_Name, LVM_NAME_SIZE, "vhd%y%m%d_%H%M", localtime(&now));
-
+      
             de->Volume_Serial      = rndint(FFFF);
             de->Partition_Serial   = rndint(FFFF);
             de->Partition_Size     = vol_size;
             de->Partition_Start    = vol_start;
-
+      
             strncpy(de->Volume_Name, "V1", LVM_NAME_SIZE);
             memcpy(&de->Partition_Name, &de->Volume_Name, LVM_NAME_SIZE);
-
+      
             lvm_buildcrc();
             ld->DLA_CRC = lvm_crc32(LVM_INITCRC, buf, 512);
-
+      
             disk_write(0, buf, spt-1, 1);
          }
          // write VHD header
          if (is_vhd) {
             vhd_footer  *vh = (vhd_footer*)buf;
             time_t   crtime = time(0) - VHD_TIME_BASE;
-
+      
             memset(buf, 0, 512);
             memcpy(&vh->creator, "conectix", 8);
             memcpy(&vh->appname, "vpc ", 4);
@@ -383,29 +471,34 @@ void create_disk(char *imgname, char *sizestr) {
             vh->crtime   = swapdd(crtime);
             vh->major    = swapdw(5);
             vh->minor    = swapdw(3);
-            vh->org_size = swapdq(cyls_bios*heads_bios*spt << 9);
+            vh->org_size = swapdq(cyls*heads*spt << 9);
             vh->cur_size = vh->org_size;
-            vh->cyls     = swapdw(cyls_bios);
-            vh->heads    = heads_bios;
+            vh->cyls     = swapdw(cyls);
+            vh->heads    = heads;
             vh->spt      = spt;
             vh->type     = swapdd(2);
-
+      
             makeguid(&vh->uuid);
-
+      
             vh->checksum = swapdd(vpc_checksum(buf, sizeof(vhd_footer)));
-
+      
             fseek(disk, -512, SEEK_END);
             fwrite(buf, 1, 512, disk);
          }
       }
-      printf("%s disk raw image created - %u kb.\n"
-             "%s%5u cyls %3u heads %3u sectors per track.\n", is_hdd?"Hard":"Floppy",
-             Disk1Size>>10, is_hdd&&is_vhd?"LVM geo: ":"chs:", cyls, heads, spt);
-      if (is_vhd) printf("VHD geo: %5u cyls %3u heads %3u sectors per track.\n",
-         cyls_bios, heads_bios, spt);
-      fclose(disk);
-      free(buf);
+      if (!phys_io) {
+         printf("%s disk %s image created - %u kb.\n"
+                "chs:%5u cyls %3u heads %3u sectors per track.\n",
+                is_hdd?"Hard":"Floppy", is_vhd?"VHD":"raw", disk_size>>1,
+                cyls, heads, spt);
+         fclose(disk);
+      } else {
+         printf("Disk initialized - %u mb (FAT volume - %u kb).\n"
+                "chs:%5u cyls %3u heads %3u sectors per track.\n",
+                disk_size>>11, vol_size>>1, cyls, heads, spt);
+      }
    }
+   free(buf);
 }
 
 void update_boot(char *imgname, char *bsfile, char *bootname) {
@@ -413,6 +506,8 @@ void update_boot(char *imgname, char *bsfile, char *bootname) {
    u8t    bscode[512];
    u32t    bslen = 0;
    FRESULT    rc;
+   char     *buf = 0;
+   media     dst;
 
    if (bsfile) {
       FILE *bs = fopen(bsfile,"rb");
@@ -440,167 +535,270 @@ void update_boot(char *imgname, char *bsfile, char *bootname) {
          for (; ii<11; ii++) bfname[ii]=' '; bfname[12]=0;
       }
    }
-   disk = fopen(imgname,"r+b");
-   if (!disk) {
-      printf("unable to open disk file \"%s\"\n", imgname);
-      exit(2);
-   } else {
-      char  *buf = malloc(512);
-      struct Boot_Record    *brw = (struct Boot_Record*)buf;
-      struct Boot_RecordF32 *brd = (struct Boot_RecordF32*)buf;
-      Disk1Size = fsize(disk);
-      do {
-         u32t  vpos;
-         u16t   bps;
-         rc = f_mount(&fat, diskspath, 1);
-         if (rc!=FR_OK) { printf("FAT mount error %d\n", rc); break; }
-         vpos = fat.volbase;
-         rc   = disk_read(0, buf, vpos, 1);
-         if (rc!=FR_OK) { printf("Boot sector read error!\n"); break; }
-
-         bps  = brw->BR_BPB.BPB_BytePerSect;
-         // byte per sector valid?
-         if (bps!=512) { printf("Unsupported sector size (%u)!\n", bps); break; }
-         // boot sector copy location
-         bps  = 0;
-         /* even if header says about missing FAT32 support, we still write
-            external sector here, but 512 bytes only! This makes this option
-            void for common boot code - like Windows one. BUT two and more
-            sectors require smart logic of boot area updating, with additional
-            parameters to setup */
-         if (fat.fs_type==FS_FAT32) {
-            struct Boot_RecordF32 *sbtd = bslen?(struct Boot_RecordF32 *)&bscode:
-                                                (struct Boot_RecordF32 *)&bsdata[1024];
-            memcpy(brd, sbtd, 11);
-            memcpy(brd+1, sbtd+1, 512-sizeof(struct Boot_RecordF32));
-            /* looks like every one happy without this string, but still
-               make the image more general */
-            if (!bslen) memcpy(&brw->BR_OEM, "MSWIN4.1", 8);
-            // zero value will be ignored too
-            if (brd->BR_F32_BPB.FBPB_BootCopy!=0xFFFF)
-               bps = brd->BR_F32_BPB.FBPB_BootCopy;
-         } else {
-            struct Boot_Record *sbtw = bslen?(struct Boot_Record *)&bscode:
-                                             (struct Boot_Record *)&bsdata[512];
-            memcpy(brw, sbtw, 11);
-            memcpy(brw+1, sbtw+1, 512-sizeof(struct Boot_Record));
-            // the same as above
-            if (!bslen) memcpy(&brw->BR_OEM, "MSDOS5.0", 8);
-         }
-         // update boot file name in self-provided code
-         if (!bslen) {
-            void *ps = findstr(buf, 512, "QSINIT");
-            if (ps) memcpy(ps, &bfname, 11);
-         }
-         rc = disk_write(0, buf, vpos, 1);
-         if (rc!=FR_OK) { printf("Boot sector write error %u!\n", rc); break; }
-         // a copy of boot sector on FAT32 (save it, but ignore write error)
-         if (bps)
-            if (disk_write(0, buf, vpos+bps, 1) != FR_OK)
-               printf("Warning! Boot sector backup write error\n");
-      } while(0);
-
-      fclose(disk);
-      free(buf);
-      if (rc!=FR_OK) exit(4);
+   check_phys_io(imgname);
+   // target media
+   dst.phys = phys_io;
+   if (phys_io) dst.dsk = phys_disk; else {
+      disk = fopen(imgname,"r+b");
+      if (!disk) {
+         printf("unable to open disk file \"%s\"\n", imgname);
+         exit(2);
+      }
+      dst.df = disk;
    }
+
+   disk_check(&dst, &disk_start, &disk_size);
+   do {
+      struct Boot_Record    *brw;
+      struct Boot_RecordF32 *brd;
+      u32t   vpos;
+      u16t    bps;
+
+      buf = malloc(512);
+      brw = (struct Boot_Record*)buf;
+      brd = (struct Boot_RecordF32*)buf;
+
+      rc = f_mount(&fat, diskspath, 1);
+      if (rc!=FR_OK) { printf("FAT mount error %d\n", rc); break; }
+      vpos = fat.volbase;
+      rc   = disk_read(0, buf, vpos, 1);
+      if (rc!=RES_OK) { printf("Boot sector read error!\n"); break; }
+
+      bps  = brw->BR_BPB.BPB_BytePerSect;
+      // byte per sector valid?
+      if (bps!=512) { printf("Unsupported sector size (%u)!\n", bps); break; }
+      // boot sector copy location
+      bps  = 0;
+      /* even if header says about missing FAT32 support, we still write
+         external sector here, but 512 bytes only! This makes this option
+         void for common boot code - like Windows one. BUT two and more
+         sectors require smart logic of boot area updating, with additional
+         parameters to setup */
+      if (fat.fs_type==FS_FAT32) {
+         struct Boot_RecordF32 *sbtd = bslen?(struct Boot_RecordF32 *)&bscode:
+                                             (struct Boot_RecordF32 *)&bsdata[1024];
+         memcpy(brd, sbtd, 11);
+         memcpy(brd+1, sbtd+1, 512-sizeof(struct Boot_RecordF32));
+         /* looks like every one happy without this string, but still
+            make the image more general */
+         if (!bslen) memcpy(&brw->BR_OEM, "MSWIN4.1", 8);
+         // zero value will be ignored too
+         if (brd->BR_F32_BPB.FBPB_BootCopy!=0xFFFF)
+            bps = brd->BR_F32_BPB.FBPB_BootCopy;
+      } else {
+         struct Boot_Record *sbtw = bslen?(struct Boot_Record *)&bscode:
+                                          (struct Boot_Record *)&bsdata[512];
+         memcpy(brw, sbtw, 11);
+         memcpy(brw+1, sbtw+1, 512-sizeof(struct Boot_Record));
+         // the same as above
+         if (!bslen) memcpy(&brw->BR_OEM, "MSDOS5.0", 8);
+      }
+      // update boot file name in self-provided code
+      if (!bslen) {
+         void *ps = findstr(buf, 512, "QSINIT");
+         if (ps) memcpy(ps, &bfname, 11);
+      }
+      rc = disk_write(0, buf, vpos, 1);
+      if (rc!=RES_OK) { printf("Boot sector write error %u!\n", rc); break; }
+      // a copy of boot sector on FAT32 (save it, but ignore write error)
+      if (bps)
+         if (disk_write(0, buf, vpos+bps, 1) != RES_OK)
+            printf("Warning! Boot sector backup write error\n");
+   } while(0);
+   if (!phys_io) fclose(disk);
+   if (buf) free(buf);
+   if (rc!=FR_OK) exit(4);
 }
+
+void print_dir(char *imgname, const char *dirname) {
+   FRESULT    rc;
+   media     dst;
+   char   *dpath = 0, *cp;
+
+   check_phys_io(imgname);
+   // target media
+   dst.phys = phys_io;
+   if (phys_io) dst.dsk = phys_disk; else {
+      disk = fopen(imgname,"r+b");
+      if (!disk) {
+         printf("unable to open disk file \"%s\"\n", imgname);
+         exit(2);
+      }
+      dst.df = disk;
+   }
+   disk_check(&dst, &disk_start, &disk_size);
+   do {
+      DIR      dp;
+      rc = f_mount(&fat, diskspath, 1);
+      if (rc!=FR_OK) { printf("FAT mount error %d\n", rc); break; }
+
+      while (*dirname=='/' || *dirname=='\\') dirname++;
+      dpath = (char*)malloc(2+strlen(dirname)+strlen(diskspath));
+      strcpy(dpath, diskspath);
+      strcat(dpath, "\\");
+      strcat(dpath, dirname);
+
+      while ((cp = strchr(dpath,'/'))) *cp = '\\';
+
+      rc = f_opendir(&dp, dpath);
+      if (rc) { 
+         printf("Unable to open directory \"%s\"\n", dpath+3);
+         break;
+      } else
+         printf("Directory of %s\n", dpath+2);
+
+      do {
+         u32t     tm;
+         u8t    attr;
+         FILINFO  fi;
+         char   size[12];
+         fi.fname[0] = 0;
+
+         rc = f_readdir(&dp, &fi);
+
+         if (!fi.fname[0]) break;
+         tm   = (u32t)fi.fdate<<16|fi.ftime;
+         attr = fi.fattrib;
+
+         if (attr&AM_DIR) strcpy(size, "  <DIR>  ");
+            else ultoa(fi.fsize, size, 10);
+
+         printf("%-12s %10s %02u.%02u.%04u %02u:%02u:%02u %c%c%c%c\n",
+            fi.fname, size, tm>>16&0x1F, tm>>21&0xF,
+               (tm>>25) + 1980, tm>>11&0x1F, tm>>5&0x3F, (tm&0x1F)<<1,
+                  attr&AM_RDO?'R':'-', attr&AM_HID?'H':'-',
+                     attr&AM_SYS?'S':'-', attr&AM_ARC?'A':'-');
+
+      } while (rc==0);
+
+      f_closedir(&dp);
+   } while(0);
+   if (!phys_io) fclose(disk);
+   if (dpath) free(dpath);
+   if (rc!=FR_OK) exit(4);
+}
+
 
 int main(int argc, char *argv[]) {
    if (argc<4) {
       printf("usage: vpcfcopy disk_image dst_pathname src_pathname\n"
-             "       only short names accepted in \"dst_pathname\"\n\n"
+             "         copy file to a path on FAT/FAT32 volume in the disk image\n"
+             "          * only short names accepted as \"dst_pathname\"\n"
+             "          * disk image can be floppy, HDD with single FAT/FAT32 primary\n"
+             "            MBR partition or HDD with EFI boot GPT partition\n"
+             "          * [OS/2 build] disk_image can be a physical disk, in form ::?\n"
+             "            where ? - physical disk number\n\n"
+             "   or: vpcfcopy /dir disk_image directory\n"
+             "         print directory contents (short names only!)\n\n"
              "   or: vpcfcopy /boot disk_image boot_file_name\n"
-             "       update boot sector, example of \"boot_file_name\" is OS2LDR\n"
-             "       FAT and FAT32 supported\n\n"
+             "         update boot sector, example of \"boot_file_name\" is OS2LDR\n"
+             "          * FAT and FAT32 supported\n\n"
              "   or: vpcfcopy /bootext disk_image boot_sector_file\n"
-             "       replace boot sector code to another one from a file\n"
-             "       FAT only is supported\n\n"
+             "         replace boot sector code to another one from a file\n"
+             "          * FAT only\n\n"
              "   or: vpcfcopy /create disk_image 1.44|XDF|2.88|size\n"
-             "       where \"size\" 1..2047 (mb) - for a RAW hard disk image,\n"
-             "       use disk_image.VHD to create fixed size VHD image\n"
-             "       hdd image will have single FAT partition and valid LVM information\n");
+             "         where \"size\" 1..2047 (mb) - for a RAW hard disk image,\n"
+             "          * use disk_image.VHD to create a fixed size VHD image\n"
+             "          * hdd image will have single FAT partition and valid LVM data\n\n"
+             "   or: vpcfcopy /creategpt disk_image size\n"
+             "         same as \"/create\", but HDD only, GPT partition table, with\n"
+             "         single EFI FAT boot volume on it.\n\n"
+             "   note: \"create\" and \"creategpt\" commands accept only empty physical disk\n"
+             "         and \"size\" parameter means target FAT volume size in this case\n");
       return 1;
    }
-   if (stricmp(argv[1],"/create")==0) create_disk(argv[2], argv[3]); else
+   if (stricmp(argv[1],"/create")==0) create_disk(argv[2], argv[3], 0); else
+   if (stricmp(argv[1],"/creategpt")==0) create_disk(argv[2], argv[3], 1); else
    if (stricmp(argv[1],"/boot")==0) update_boot(argv[2], 0, argv[3]); else
-   if (stricmp(argv[1],"/bootext")==0) update_boot(argv[2], argv[3], 0);
+   if (stricmp(argv[1],"/bootext")==0) update_boot(argv[2], argv[3], 0); else
+   if (stricmp(argv[1],"/dir")==0) print_dir(argv[2], argv[3]);
    else {
-      disk = fopen(argv[1],"r+b");
-      if (!disk) {
-         printf("unable to open disk file \"%s\"\n", argv[1]);
-         return 2;
-      } else {
-         struct stat si;
-         FILE   *src = 0;
-         u32t   size;
-         UINT    act;
-         FRESULT  rc = FR_OK;
-         void  *data = 0;
-         // get file time
-         if (!stat(argv[3],&si)) set_fattime(si.st_mtime);
-         // read file
-         src = fopen(argv[3],"rb");
-         do {
-            if (!src) {
-               printf("unable to open source file \"%s\"\n",argv[3]);
-               break;
-            }
-            size = fsize(src);
-            if (size) {
-               data = malloc(size);
-               act  = fread(data,1,size,src);
-               if (act!=size) { fclose(src); src=0; break; }
-            }
-            Disk1Size = fsize(disk);
-            rc = f_mount(&fat, diskspath, 1);
-            if (rc!=FR_OK) { printf("FAT mount error %d\n",rc); break; }
-            // drop r/o attr if this file is present on disk
-            f_chmod(argv[2], 0, AM_RDO|AM_HID|AM_SYS);
-            // and re-write it
-            rc = f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
-            // no such path? trying to create it
-            if (rc==FR_NO_PATH) {
-               char *fncopy = strdup(argv[2]),
-                        *cc = fncopy;
-               do {
-                  cc = strchr(cc,'/');
-                  if (cc) *cc='\\';
-               } while (cc);
-               cc = fncopy;
-               if (*cc=='\\') cc++;
+      struct stat si;
+      FILE      *src = 0;
+      u32t      size;
+      UINT       act;
+      FRESULT     rc = FR_OK;
+      void     *data = 0;
 
-               do {
-                  cc = strchr(cc,'\\');
-                  if (cc) {
-                     *cc = 0;
-                     rc  = f_mkdir(fncopy);
-                     *cc++='\\';
-                     if (rc!=FR_EXIST || rc!=FR_OK) break;
-                  }
-               } while (cc);
-               free(fncopy);
-               // open file again
-               rc = f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
-            }
-            if (rc!=FR_OK) {
-               printf("Invalid destination file name (\"%s\")\n", argv[2]);
-               break;
-            }
-            if (size) {
-               rc = f_write(&dst, data, size, &act);
-               if (rc!=FR_OK || size!=act) {
-                  printf("File \"%s\" write error!\n", argv[2]);
-                  break;
-               }
-               f_close(&dst);
-            }
-         } while(0);
+      check_phys_io(argv[1]);
 
-         fclose(disk);
-         if (!src) return 3; else fclose(src);
-         if (rc!=FR_OK) return 4;
+      if (!phys_io) {
+         disk = fopen(argv[1],"r+b");
+         if (!disk) {
+            printf("unable to open disk file \"%s\"\n", argv[1]);
+            return 2;
+         }
       }
+      // get file time
+      if (!stat(argv[3],&si)) set_fattime(si.st_mtime);
+      // read file
+      src = fopen(argv[3],"rb");
+      do {
+         media mdst;
+
+         if (!src) {
+            printf("unable to open source file \"%s\"\n",argv[3]);
+            break;
+         }
+         size = fsize(src);
+         if (size) {
+            data = malloc(size);
+            act  = fread(data,1,size,src);
+            if (act!=size) { fclose(src); src=0; break; }
+         }
+         // target media
+         mdst.phys = phys_io;
+         if (phys_io) mdst.dsk = phys_disk; else mdst.df = disk;
+         // get partition
+         disk_check(&mdst, &disk_start, &disk_size);
+
+         rc = f_mount(&fat, diskspath, 1);
+         if (rc!=FR_OK) { printf("FAT mount error %d\n",rc); break; }
+         // drop r/o attr if this file is present on disk
+         f_chmod(argv[2], 0, AM_RDO|AM_HID|AM_SYS);
+         // and re-write it
+         rc = f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
+         // no such path? trying to create it
+         if (rc==FR_NO_PATH) {
+            char *fncopy = strdup(argv[2]),
+                     *cc = fncopy;
+            do {
+               cc = strchr(cc,'/');
+               if (cc) *cc='\\';
+            } while (cc);
+            cc = fncopy;
+            if (*cc=='\\') cc++;
+
+            do {
+               cc = strchr(cc,'\\');
+               if (cc) {
+                  *cc = 0;
+                  rc  = f_mkdir(fncopy);
+                  *cc++='\\';
+                  if (rc!=FR_EXIST && rc!=FR_OK) break;
+               }
+            } while (cc);
+            free(fncopy);
+            // open file again
+            rc = f_open(&dst, argv[2], FA_WRITE|FA_CREATE_ALWAYS);
+         }
+         if (rc!=FR_OK) {
+            printf("Invalid destination file name (\"%s\") (error %u)\n", argv[2], rc);
+            break;
+         }
+         if (size) {
+            rc = f_write(&dst, data, size, &act);
+            if (rc!=FR_OK || size!=act) {
+               printf("File \"%s\" write error!\n", argv[2]);
+               break;
+            }
+            f_close(&dst);
+         }
+      } while(0);
+
+      if (!phys_io) fclose(disk);
+      if (!src) return 3; else fclose(src);
+      if (rc!=FR_OK) return 4;
    }
    return 0;
 }

@@ -15,6 +15,7 @@
 
 #undef  COLOR_SEL  // dialog color changing by 1..4 + up & down arrows
 
+// msgbox colors (still ugly, after many changes ;)). Define above is for such tests
 static u8t mb_color[MSG_WHITE+1][4] = { // box text button selbutton
 //   { 0x7F, 0x7F, 0x2A, 0x2E },  // gray
    { 0x7F, 0x7F, 0x8F, 0x2E },  // gray
@@ -28,7 +29,7 @@ static u8t mb_color[MSG_WHITE+1][4] = { // box text button selbutton
 //   { 0x9F, 0x9F, 0xF1, 0xBC },  // light blue
    { 0x9F, 0x9F, 0xF1, 0xCE },  // light blue
 //   { 0x4C, 0x4E, 0x71, 0xF9 },  // red
-   { 0x4C, 0x4E, 0x65, 0xFC },  // red
+   { 0x4C, 0x4E, 0x6C, 0xFC },  // red
 //   { 0xCF, 0xCF, 0x3F, 0xEC },  // light red
    { 0xCF, 0xCF, 0x4C, 0xEC },  // light red
 //   { 0xF1, 0xF1, 0x1B, 0xCE }}; // white
@@ -74,9 +75,9 @@ static void drawkeys(u32t km, u32t ypos, u32t scheme, u32 &selected) {
    vio_setcolor(VIO_COLOR_RESET);
 }
 
-static void draw_shadow(u32t x, u32t y, u32t dx, u32t dy) {
+void _std vio_drawshadow(u32t x, u32t y, u32t dx, u32t dy) {
    if (dx<3||dx>1024) return;
-   u16t *buf = (u16t*)malloc_local(dx*2);
+   u16t *buf = (u16t*)malloc_th(dx*2);
    vio_readbuf(x+2, y+dy, dx-1, 1, buf, 0);
    u32t ii,jj;
    for (ii=0; ii<dx-1; ii++) buf[ii] = buf[ii]&0xFF|0x0800;
@@ -239,7 +240,7 @@ drawagain:
 #endif
    // draw box
    draw_border(m_x, m_y, width, lines, mb_color[cs][0]);
-   if (shadow) draw_shadow(m_x, m_y, width, lines);
+   if (shadow) vio_drawshadow(m_x, m_y, width, lines);
    // draw header text
    vio_setcolor(mb_color[cs][0]);
    vio_setpos(m_y, m_x+(width-hdr.length()-2>>1));
@@ -274,7 +275,7 @@ drawagain:
       u8t  keyl = key, keyh = key>>8;
       u32t selprev = sel;
 #ifdef COLOR_SEL
-      if (keyl>='1'&&keyl<='4') act=keyl-'1';
+      if (keyl>='1'&&keyl<='4') act = keyl-'1';
 #endif
       if (keyl==27) { // esc
          dlgres = 0;
@@ -315,7 +316,7 @@ drawagain:
       if (selprev!=sel) drawkeys(keymode, m_y + 3 + vislines, cs, sel);
    }
 #ifdef COLOR_SEL
-   log_it(3, "scheme=%04b\n",&mb_color[cs]);
+   log_it(3, "scheme=%04b\n", &mb_color[cs]);
 #endif
    if (cbfunc)
       if ((cbrc=cbfunc(KEY_LEAVEMBOX))>=0) dlgres = cbrc;
@@ -558,7 +559,7 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
             vio_setcolor(mb_color[cs][0]);
 
             char right = sym[lt][3];
-            if (sblen>=0 && lt==2)
+            if (sblen>=0 && lt>=2)
                if (ii==0) right = 0x1E; else
                   if (ii==sy-3) right = 0x1F; else
                      right = ii-1<sbofs || ii-1>sbofs+sblen?0xB0:0xB2;
@@ -583,7 +584,7 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
                   vio_setpos(posy, posx+(sx-2-hstr.length()>>1));
                   vio_charout(' '); vio_strout(hstr()); vio_charout(' ');
                }
-               if (shadow) draw_shadow(posx, posy, sx, sy);
+               if (shadow) vio_drawshadow(posx, posy, sx, sy);
             }
 
          }
@@ -612,12 +613,13 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
          vio_listkey *ak = akref->akey + ii;
          if ((key&ak->mask)==ak->key) {
             if (hint) { key_push(key); akres = 1; } else {
-               int action = ak->cb ? ak->cb(akref,key) : INT_MAX;
+               u32t    id = ref->id ? ref->id[_ls] : _ls+1;
+               int action = ak->cb ? ak->cb(akref,key,id) : INT_MAX;
 
                if (action==0) { keyh = 0; akres = -1; } else
                   if (action==INT_MIN) { dlgres = 0; akres = 1; } else
                      if (action==INT_MAX) {
-                        dlgres = (ref->id ? ref->id[_ls] : _ls+1) | ak->id_or;
+                        dlgres = id | ak->id_or;
                         akres  = 1;
                      } else {
                         move   = action;
@@ -723,4 +725,3 @@ u32t  _std vio_showlist(const char *header, vio_listref *ref, u32t flags, u32t f
 
    return rc;
 }
-

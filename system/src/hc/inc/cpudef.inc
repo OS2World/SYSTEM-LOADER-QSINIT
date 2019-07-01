@@ -35,6 +35,7 @@ CPUID_FI1_OSXSAVE     = 08000000h        ;/< Enabled XSETBV/XGETBV
 CPUID_FI1_AVX         = 10000000h        ;/< AVX instructions
 CPUID_FI1_F16C        = 20000000h        ;/< 16-bit FP conversion instructions
 CPUID_FI1_RDRAND      = 40000000h        ;/< RDRAND Available
+CPUID_FI1_INVM        = 80000000h        ;/< Hypervisor active
 
 ; eax = 1, edx bits
 CPUID_FI2_FPU         = 00000001h        ;/< Floating Point Unit On-Chip

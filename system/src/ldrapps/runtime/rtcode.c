@@ -3,7 +3,7 @@
 // le/lx module init/runtime code
 //
 
-#define ARGV_LIMIT 128
+#define ARGV_LIMIT 256
 #define EXTL_LIMIT  32
 
 char *_argv[ARGV_LIMIT];
@@ -79,7 +79,11 @@ u32t __stdcall _parse_cmdline(char *cmd, char *argvb) {
       *tch++=0;
    }
    _argv[argc]=0;
-
+   // save argv/argc to use in called DLL code
+   if (pq) {
+      pq->rtbuf[RTBUF_ARGV] = (u32t)&_argv;
+      pq->rtbuf[RTBUF_ARGC] = argc;
+   }
    return argc;
 }
 

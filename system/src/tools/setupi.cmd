@@ -38,23 +38,7 @@ set BUILD_HERE=NT
 set PATH=%windir%;%windir%\system32;%WATCOM%\BINNT;
 set TOOL_INC=%WATCOM%\H;%WATCOM%\H\NT;%WATCOM%\H\OS2
 set BCKEY=-bc
-rem produce smaller environment to help for dos part of link.exe
-rem (not use it now, but still can, so leave this here).
 set LIB=
-set APPDATA=
-set COMMONPROGRAMFILES=
-set HOMEPATH=
-set PATHEXT=
-set PROCESSOR_IDENTIFIER=
-set USERPROFILE=
-set NUMBER_OF_PROCESSORS=
-set PROCESSOR_ARCHITECTURE=
-set ALLUSERSPROFILE=
-set PROCESSOR_REVISION=
-set PROCESSOR_LEVEL=
-set WHTMLHELP=
-set COMPUTERNAME=
-set ProgramFiles=
 if "%USER%".=="". set USER=%USERNAME%
 :cont
 
@@ -71,5 +55,5 @@ set QS_WCCINC=-i%QS_BASE%\hc -i%QS_APPINC% -i%QS_BASE%\init\hc
 rem /dev/null path
 set DEVNUL=nul
 
-rem replace default tooo loong path variable for the link.exe again ;)
+rem replace default tooo long path to safer value
 set PATH=%QS_BASE%\tools\t_%BUILD_HERE%;%QS_BASE%\tools;%PATH%;%WATCOM%\BINW;

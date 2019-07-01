@@ -19,9 +19,7 @@ u32t _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf) {
    u32t ii;
 
    if (st==DSKST_BOOTFAT) {
-      strncpy(filesys, br->BR_BPB.BPB_RootEntries==0?
-        ((struct Boot_RecordF32*)br)->BR_F32_EBPB.EBPB_FSType:
-           br->BR_EBPB.EBPB_FSType,8);
+      strncpy(filesys, br->BR_BPB.BPB_RootEntries==0?"FAT32":br->BR_EBPB.EBPB_FSType, 8);
       filesys[8]=0;
    } else
    if ((st==DSKST_BOOTBPB||st==DSKST_BOOT) && strnicmp(br->BR_OEM,"NTFS",4)==0) {

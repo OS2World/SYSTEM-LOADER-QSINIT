@@ -49,6 +49,7 @@
 #include "diskedit.h"
 #include "tcolortx.h"
 #include "calendar.h"
+#include "puzzle.h"
 #include "winlist.h"
 #include "ptabdlg.h"
 #include "bpbdlg.h"
@@ -105,6 +106,7 @@
 #define cmBinNew       147
 #define cmBinLoad      148
 #define cmProcInfo     150
+#define cmPuzzle       151
 
 #define cmHelpIndex    200
 #define cmHelpCont     201
@@ -660,6 +662,14 @@ void TSysApp::handleEvent(TEvent& event) {
          }
          break;
       }
+      case cmPuzzle   : {
+         TPuzzleWindow *pzl=(TPuzzleWindow *)validView(new TPuzzleWindow);
+         if (pzl) {
+            //pzl->helpCtx = hcCalendar;
+            deskTop->insert(pzl);
+         }
+         break;
+      }
       case cmCalculator : {
          TCalculatorWindow *win = (TCalculatorWindow*)windows[AppW_Calc];
 
@@ -782,6 +792,7 @@ TMenuBar *CreateMenuBar( TRect r ) {
       newLine()+
       *new TMenuItem("Calc",cmCalculator,kbF9,hcCalculator,"F9")+
       *new TMenuItem("Ca~l~endar",cmCalendar,kbNoKey,hcCalendar,0)+
+      *new TMenuItem("Puzzle",cmPuzzle,kbNoKey,hcNoContext,0)+
       newLine()+
       *new TMenuItem( "~A~bout",cmAbout,kbNoKey, hcNoContext,"")
   );

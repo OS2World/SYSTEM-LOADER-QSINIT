@@ -28,8 +28,7 @@ extern u16t          int12size;     // int 12 value
 extern 
 struct filetable_s   filetable;
 extern MKBIN_HEADER bin_header;
-extern u32t          memblocks;     // number of 64k blocks
-extern u32t           availmem;     // total avail memory (above 16M, including those arrays)
+extern u16t          headblock;
 extern u32t          phmembase;     // physical address of used memory (16Mb or larger on PXE)
 extern u32t           highbase,     // base of 32bit object
                      highstack;     // end of 32bit object stack (initial esp)
@@ -205,10 +204,10 @@ void hlp_basemem(void) {
 }
 
 int init16(void) {
-   u32t  ii, mpos, fsdlen = 0, obj32size;
+   u32t  initlen, mpos, fsdlen = 0, obj32size;
 
    hlp_basemem();
-   // use 16Mb as low own memory border
+   // use 16Mb as low memory border
    mpos = _16MB;
    // and PXE cache can grow above it :(
    if (filetable.ft_cfiles==5) {
@@ -216,16 +215,17 @@ int init16(void) {
       if (resend > mpos) mpos = Round64k(resend);
    }
    // searching for whole 8Mb
-   for (ii=0; ii<physmem_entries; ii++) {
-      register physmem_block *pmb = physmem + ii;
+   for (headblock=0; headblock<physmem_entries; headblock++) {
+      register physmem_block *pmb = physmem + headblock;
       if (pmb->startaddr>=_16MB && pmb->startaddr+pmb->blocklen>mpos) {
+         u32t bsize;
          if (pmb->startaddr>mpos) mpos = pmb->startaddr;
-         availmem = pmb->startaddr + pmb->blocklen - mpos;
-         if (availmem>=_16MB/2) break;
+         bsize = pmb->startaddr + pmb->blocklen - mpos;
+         if (bsize>=_16MB/2) break;
       }
    }
    // no - error!
-   if (ii>=physmem_entries) return 8; // QERR_NOMEMORY
+   if (headblock>=physmem_entries) return 8; // QERR_NOMEMORY
 
    if (dd_bootflags&BF_MINIFSD) fsdlen = filetable.ft_mfsdlen;
    /* get memory for 32-bit part & mini-FSD buffer.
@@ -236,15 +236,12 @@ int init16(void) {
    if (stacksize<QSM_STACK32) stacksize = QSM_STACK32;
 
    obj32size = Round4k(bin_header.pmSize + (bin_header.pmTotal - bin_header.pmStored));
-   ii        = Round64k(obj32size + stacksize + fsdlen);
-   stacksize = ii - obj32size - fsdlen & ~0xF;
+   initlen   = Round64k(obj32size + stacksize + fsdlen);
+   stacksize = initlen - obj32size - fsdlen & ~0xF;
    highbase  = mpos;
    unpbuffer = mpos + obj32size;
    highstack = unpbuffer + stacksize;
    if (fsdlen) minifsd_ptr = highstack;
-   phmembase = mpos + ii;
-   // truncate to nearest 64k
-   availmem  = availmem - ii & 0xFFFF0000;
-   memblocks = availmem>>16;
+   phmembase = mpos + initlen;
    return 0;
 }

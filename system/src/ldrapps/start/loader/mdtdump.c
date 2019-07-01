@@ -15,11 +15,12 @@
 extern module * _std mod_list, * _std mod_ilist; // loaded and loading module lists
 extern mt_proc_cb   _std           mt_exechooks;
 
-void log_mdtdump_int(printf_function pfn) {
+void _std log_mdtdump(printf_function pfn) {
    int ii=2, obj;
+   if (pfn==0) pfn = log_printf;
    pfn("== MDT contents ==\n");
    pfn("* Loaded list:\n");
-   // use QSINIT binary internal mutex to serialize access to module lists
+   // use QSINIT binary internal mutex to serialize access to the module lists
    if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
 
    while (ii--) {
@@ -65,7 +66,7 @@ void log_mdtdump_int(printf_function pfn) {
          if (md->exports) {
             pfn("\n");
             pfn("  exports:\n");
-            for (obj=0;obj<md->exports;obj++) {
+            for (obj=0; obj<md->exports; obj++) {
                mod_export *ee=md->exps+obj;
                if ((obj&3)==0) len=sprintf(st,"  ");
                if (ee->forward) len+=sprintf(st+len,"%4d.<FORWARD> ",ee->ordinal); else
@@ -88,15 +89,12 @@ void log_mdtdump_int(printf_function pfn) {
    pfn("==================\n");
 }
 
-void _std log_mdtdump(void) {
-   log_mdtdump_int(log_printf);
-}
-
 static u32t* sv_mt = 0;
 
 // print memory control table contents (debug)
-void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
-                       u32t *memsignlst, u32t memblocks, process_context **memowner)
+void _std log_memtable(printf_function pfn, void* memtable, void* memftable,
+                       u8t *memheapres, u32t *memsignlst, u32t memblocks,
+                       process_context **memowner)
 {
    auto u32t*         mt = sv_mt = memtable;
    auto free_block **mft = memftable;
@@ -105,10 +103,12 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
    char        sigstr[8];
    sigstr[4] = 0;
 
+   if (pfn==0) pfn = log_printf;
+
    mt_swlock();
-   log_it(2,"<=====QS memory dump=====>\n");
-   log_it(2,"Total : %d kb\n", memblocks<<6);
-   log_it(2,"        addr        sign   pid         size\n");
+   pfn("<=====QS memory dump=====>\n");
+   pfn("Total : %d kb\n", memblocks<<6);
+   pfn("        addr        sign   pid         size\n");
    for (ii=0,cnt=0; ii<memblocks; ii++,cnt++) {
       free_block *fb=(free_block*)((u32t)mt+(ii<<16));
       if (mt[ii]&&mt[ii]<FFFF) {
@@ -125,27 +125,27 @@ void _std log_memtable(void* memtable, void* memftable, u8t *memheapres,
                mt[ii]);
          while (len<58) len = strlen(strcat(buffer, " "));
          if (mi) strcat(buffer, "// ");
-         log_it(2,"%s%s\n", buffer, mi?mi->name:"");
+         pfn("%s%s\n", buffer, mi?mi->name:"");
       } else
       if (!mt[ii]&&ii&&mt[ii-1]) {
-         if (fb->sign!=FREE_SIGN) log_it(2,"free header destroyd!!!\n");
-            else log_it(2,"%5d. %08X - <free>         %7d kb\n",cnt,fb,fb->size<<6);
+         if (fb->sign!=FREE_SIGN) pfn("free header destroyd!!!\n");
+            else pfn("%5d. %08X - <free>         %7d kb\n",cnt,fb,fb->size<<6);
       }
    }
-   log_it(2,"%5d. %08X - end\n",cnt,(u32t)mt+(memblocks<<16));
+   pfn("%5d. %08X - end\n",cnt,(u32t)mt+(memblocks<<16));
 
-   log_it(2,"Free table:\n");
+   pfn("Free table:\n");
    for (ii=0; ii<memblocks; ii++)
       if (mft[ii]) {
          free_block *fb=mft[ii];
-         log_it(2,"%d kb (%d):",ii<<6,ii);
+         pfn("%d kb (%d):",ii<<6,ii);
          while (fb) {
-            log_it(2," %08X",fb);
-            if (fb->size!=ii) log_it(2,"(%d!)",fb->size);
-            if (fb->sign!=FREE_SIGN) log_it(2,"(S:%08X!)",fb->sign);
+            pfn(" %08X",fb);
+            if (fb->size!=ii) pfn("(%d!)",fb->size);
+            if (fb->sign!=FREE_SIGN) pfn("(S:%08X!)",fb->sign);
             fb=fb->next;
          }
-         log_it(2,"\n");
+         pfn("\n");
       }
    mt_swunlock();
 }
@@ -228,55 +228,57 @@ void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
    reipl(QERR_MCBERROR);
 }
 
-void _std log_dumppctx(process_context* pq) {
+void _std log_dumppctx(process_context* pq, printf_function pfn) {
    char     fmtstr[32];
    u32t         ii;
    mt_prcdata  *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
+   if (pfn==0) pfn = log_printf;
 
-   log_it(2," PID %4d : %s\n", pq->pid, pq->self->name);
+   pfn(" PID %4d : %s\n", pq->pid, pq->self->name);
    if (pq->self)
-      log_it(2,"   module : %08X, path : %s\n", pq->self, pq->self->mod_path);
+      pfn("   module : %08X, path : %s\n", pq->self, pq->self->mod_path);
    if (pq->parent)
-      log_it(2,"   parent : %08X, path : %s\n", pq->parent, pq->parent->mod_path);
-   log_it(2,"    flags : %08X\n", pq->flags);
-   log_it(2,"  env.ptr : %08X\n", pq->envptr);
+      pfn("   parent : %08X, path : %s\n", pq->parent, pq->parent->mod_path);
+   pfn("    flags : %08X\n", pq->flags);
+   pfn("  env.ptr : %08X\n", pq->envptr);
 
    // buffers can grow in next revisions - so print it in this way
    ii = sizeof(pq->rtbuf)/4;
    snprintf(fmtstr, 24, "    rtbuf : %%%dlb\n", ii/2);
-   log_it(2, fmtstr, pq->rtbuf);
+   pfn(fmtstr, pq->rtbuf);
    memcpy(fmtstr, "          ", 10);
-   log_it(2, fmtstr, pq->rtbuf+ii/2);
+   pfn(fmtstr, pq->rtbuf+ii/2);
 
    ii = sizeof(pq->userbuf)/4;
    snprintf(fmtstr, 24, "  userbuf : %%%dlb\n", ii/2);
-   log_it(2, fmtstr, pq->userbuf);
+   pfn(fmtstr, pq->userbuf);
    memcpy(fmtstr, "          ", 10);
-   log_it(2, fmtstr, pq->userbuf+ii/2);
+   pfn(fmtstr, pq->userbuf+ii/2);
 
-   if (!pd) log_it(2,"  procinfo ptr is NULL!\n"); else {
+   if (!pd) pfn("  procinfo ptr is NULL!\n"); else {
       char *cdv = pd->piCurDir[pd->piCurDrive];
-      log_it(2,"  cur.dir : %c:\\%s\n", pd->piCurDrive+'A', cdv?cdv+3:"");
+      pfn("  cur.dir : %c:\\%s\n", pd->piCurDrive+'A', cdv?cdv+3:"");
    }
 }
 
 /** dump process tree to log.
     This dump replaced by MTLIB when it active */
-void _std START_EXPORT(mod_dumptree)(void) {
+void _std START_EXPORT(mod_dumptree)(printf_function pfn) {
    process_context* pq = mod_context();
-   log_it(2,"== Process Tree ==\n");
+   if (pfn==0) pfn = log_printf;
+   pfn("== Process Tree ==\n");
    while (pq) {
       mt_prcdata *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
-      log_dumppctx(pq);
-      if (pd) log_it(2,"  procinfo: %08X, tid 1: %08X\n", pd, pd->piList[0]);
+      log_dumppctx(pq,pfn);
+      if (pd) pfn("  procinfo: %08X, tid 1: %08X\n", pd, pd->piList[0]);
       pq = pq->pctx;
-      log_it(2,"------------------\n");
+      pfn("------------------\n");
    }
    if (mt_exechooks.mtcb_cfpt)
-      log_it(2,"FPU owner pid %u\n", mt_exechooks.mtcb_cfpt->tiPID);
+      pfn("FPU owner pid %u\n", mt_exechooks.mtcb_cfpt->tiPID);
    else
-      log_it(2,"FPU is not used\n");
-   log_it(2,"==================\n");
+      pfn("FPU is not used\n");
+   pfn("==================\n");
 }
 
 static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
@@ -420,6 +422,7 @@ u32t _std mod_processenum(process_information **ppdl) {
 
          rp->pid     = pd->piPID;
          rp->threads = pd->piThreads;
+         rp->flags   = pd->piMiscFlags;
          rp->ti      = ctp;
          rp->ncld    = pl[ii];
          rp->cll     = rpcs;

@@ -16,6 +16,8 @@ typedef signed   ssize_t;
 typedef long       off_t;
 
 #define offsetof(type,field) FIELDOFFSET(type,field)
+// printf compatible function type
+typedef int __cdecl (*printf_function)(const char *fmt, ...);
 
 #ifdef __cplusplus
 }

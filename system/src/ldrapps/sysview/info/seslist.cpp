@@ -142,7 +142,7 @@ void TSysApp::SessionNew() {
    CheckMTMode();
    if (mt_active()) {
       qserr  err = 0;
-      char *cmdp = env_getvar("COMSPEC");
+      char *cmdp = env_getvar("COMSPEC", 0);
       u32t   cmd = mod_searchload(cmdp?cmdp:"cmd.exe", 0, &err);
       if (cmdp) free(cmdp);
       if (cmd) err = mtl->execse(cmd,0,0,0,0,0,0);

@@ -30,8 +30,6 @@ _DiskBufRM_Seg  dw      0                                       ;
 exp64_tab       label   near
                 dd      exp64_tab_end - exp64_tab
                 dd      offset init32call
-_memblocks      dd      0
-_availmem       dd      0
 _phmembase      dd      0
 _highbase       dd      0
 _highlen        dd      0
@@ -63,15 +61,16 @@ _qs_bootstart   dq      0
 _qd_bootdisk    dd      0
 _countsIn55ms   dq      0
 _acpitable      dd      0
+_int12msize     dd      0
 exp64_tab_end   label   near
 
-                public  _memblocks, _availmem, _phmembase, _highbase
+                public  _phmembase, _highbase
                 public  _logrmbuf, _logrmpos, _DiskBufPM, _qd_fdds
                 public  _qd_hdds, _gdt_pos, _gdt_size, _gdt_lowest
                 public  _pbin_header, _IODelay, _sel64, _ofs64
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
                 public  _cvio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
-                public  _qd_bootdisk, _countsIn55ms, _acpitable
+                public  _qd_bootdisk, _countsIn55ms, _acpitable, _int12msize
 
 _DATA           ends
                 end

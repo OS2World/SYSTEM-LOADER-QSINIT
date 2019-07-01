@@ -9,7 +9,7 @@ export BUILD_HERE=unx
 
 export PATH=$QS_BASE/tools/t_$BUILD_HERE:$QS_BASE/tools:$PATH:$WATCOM/binl
 
-export INCLUDE=$WATCOM/h:$QS_BASE/hc
+export INCLUDE=$WATCOM/lh:$QS_BASE/hc
 
 # no watcom libs, structs packed to 1 byte,
 # inline FP code, unmangled stdcall (runtime functions), favor size

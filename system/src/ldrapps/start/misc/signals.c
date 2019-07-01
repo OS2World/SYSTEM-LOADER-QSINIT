@@ -16,8 +16,6 @@ typedef struct {
    __sig_function fn[SIGUSR3+1]; // signal() functions
 } sig_state;
 
-static int mtcb_on = 0;          // callback on MT start is installed
-
 // QS <-> clib signal value match
 static const u32t cvt_matrix[SIGUSR3+1] = { 0, 0, QMSV_BREAK, 0, 0, 0,
    QMSV_CLIB, 0, 0, QMSV_KILL, 0, 0, 0, 0, QMSV_ALARM, 0, QMSV_CLIB+1,
@@ -169,7 +167,7 @@ __sig_function _std signal(int sig, __sig_function sf) {
          static const char *panic = "signal() record broken!";
          // just hang to catch it
          log_printf("%08X: %16b\n", ti, ti);
-         mem_dumplog(panic);
+         mem_dumplog(0, panic);
          _throwmsg_(panic);
       }
       pv = ti->fn[sig];

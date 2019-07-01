@@ -81,6 +81,62 @@ cmd_state _std cmd_initbatch(const str_list* cmds,const str_list* args) {
    return cmd_init2(file,arglist);
 }
 
+static spstr env_getvar_int(spstr &ename, int shint) {
+   spstr eval;
+   if (ename.upper()=="CD") {
+      getcwd(eval.LockPtr(NAME_MAX+1),NAME_MAX+1);
+      eval.UnlockPtr();
+   } else
+   if (ename=="DATE"||ename=="TIME") {
+      struct tm tmv;
+      time_t    tme;
+      time(&tme);
+      localtime_r(&tme,&tmv);
+      if (ename[0]=='D')
+         eval.sprintf("%02d.%02d.%04d",tmv.tm_mday,tmv.tm_mon+1,tmv.tm_year+1900);
+      else
+         eval.sprintf("%02d:%02d:%02d",tmv.tm_hour,tmv.tm_min,tmv.tm_sec);
+   } else
+   if (ename=="RANDOM") {
+      eval = random(32768);
+   } else
+   if (ename=="SAFEMODE") {
+      eval = hlp_insafemode();
+   } else
+   if (ename=="LINES") {
+      u32t lines = 25;
+      vio_getmode(0, &lines);
+      eval = lines;
+   } else
+   if (ename=="COLUMNS") {
+      u32t cols = 80;
+      vio_getmode(&cols, 0);
+      eval = cols;
+   } else
+   if (ename=="RAMDISK") {
+      char *dn = (char*)sto_data(STOKEY_VDNAME);
+      eval = dn?dn:"?";
+   } else
+   if (ename=="DBPORT") {
+      u32t port = hlp_seroutinfo(0);
+      if (port) eval = port;
+   } else {
+      env_lock();
+      eval = getenv(ename());
+      env_unlock();
+   }
+   return eval;
+}
+
+char* _std env_getvar(const char *name, int shint) {
+   if (!name) return 0;
+   spstr ename(name),
+           res = env_getvar_int(ename, shint);
+   char    *rc = 0;
+   if (res.length()) mem_localblock(rc = strdup(res()));
+   return rc;
+}
+
 static spstr &subst_env(spstr &str,session_info *si) {
   l ll,epos,start=0;
   if (si) // replace script arguments
@@ -101,45 +157,7 @@ static spstr &subst_env(spstr &str,session_info *si) {
         }
         if (!ename || ename.cpos(' ')>=0) start=epos;
         else {
-           if (ename.upper()=="CD") {
-              getcwd(eval.LockPtr(NAME_MAX+1),NAME_MAX+1);
-              eval.UnlockPtr();
-           } else
-           if (ename=="DATE"||ename=="TIME") {
-              struct tm tmv;
-              time_t    tme;
-              time(&tme);
-              localtime_r(&tme,&tmv);
-              if (ename[0]=='D')
-                 eval.sprintf("%02d.%02d.%04d",tmv.tm_mday,tmv.tm_mon+1,tmv.tm_year+1900);
-              else
-                 eval.sprintf("%02d:%02d:%02d",tmv.tm_hour,tmv.tm_min,tmv.tm_sec);
-           } else
-           if (ename=="RANDOM") {
-              eval = random(32768);
-           } else
-           if (ename=="SAFEMODE") {
-              eval = hlp_insafemode();
-           } else
-           if (ename=="LINES") {
-              u32t lines = 25;
-              vio_getmode(0, &lines);
-              eval = lines;
-           } else
-           if (ename=="COLUMNS") {
-              u32t cols = 80;
-              vio_getmode(&cols, 0);
-              eval = cols;
-           } else
-           if (ename=="RAMDISK") {
-              char *dn = (char*)sto_data(STOKEY_VDNAME);
-              eval = dn?dn:"?";
-           } else
-           if (ename=="DBPORT") {
-              u32t port = hlp_seroutinfo(0);
-              if (port) eval = port;
-           } else
-              eval = getenv(ename());
+           eval = env_getvar_int(ename, 1);
            // substring expansion/replacement (same as in WinXP cmd.exe)
            if (opstr.length()) {
               if (opstr[0]=='~') {
@@ -414,8 +432,10 @@ static u32t cmd_process(spstr ln, session_info *si) {
          cmd_shellerr(EMSG_CLIB,EINVAL,0);
       } else {
          plist[0].upper();
-         int icase = plist[0]=="/I", exec=0, bootvol = plist[0]=="/B";
-         if (icase || bootvol) plist.Delete(0);
+         // /b cannot be mixed with /d because micro-FSD has no dir/attrs support
+         int icase = plist[0]=="/I", exec=0, bootvol = plist[0]=="/B",
+             isdir = plist[0]=="/D";
+         if (icase || bootvol || isdir) plist.Delete(0);
          int  _not = plist[0].upper()=="NOT"?1:0;
          if (_not) plist.Delete(0);
          spstr next(plist[0].upper());
@@ -428,17 +448,17 @@ static u32t cmd_process(spstr ln, session_info *si) {
                if (bootvol) {
                   exec = hlp_fexist(plist[1]())?1:0;
                } else {
-                  char buf[QS_MAXPATH+1];
-                  *buf = 0;
-                  _searchenv(plist[1](), 0, buf);
-                  exec = *buf!=0;
+                  io_handle_info fi;
+                  qserr iores = io_pathinfo(plist[1](), &fi);
+                  // without /d it accepts any type, with /d - dirs only
+                  exec = iores==0 && (!isdir || (fi.attrs&IOFA_DIR));
                }
             } else {
                exec = atoi(getenv("ERRORLEVEL"))>=plist[1].Int();
             }
             if (_not) exec=!exec;
             if (exec) {
-               ps2=parm.wordpos(3+_not+icase);
+               ps2=parm.wordpos(3+_not+icase+bootvol+isdir);
                if (ps2>0) parm=parm.right(parm.length()-ps2).trim(); else
                   parm.clear();
             }

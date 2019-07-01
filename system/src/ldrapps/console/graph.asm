@@ -106,7 +106,7 @@ _con_drawchar   proc    near
                 jz      @@dch_putpix2                           ;
 @@dch_putpix3:
                 stosw                                           ;
-                shl     eax,16                                  ;
+                shr     eax,16                                  ;
                 stosb                                           ;
                 jmp     @@dch_pix_next                          ;
 @@dch_putpix1:

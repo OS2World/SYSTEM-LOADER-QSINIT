@@ -148,20 +148,44 @@ void init_host(void) {}
 void int15mem_int(void);
 #endif
 
+//must be called inside lock
+AcpiMemInfo* int15mem_copy(void) {
+   typedef struct {
+      u64t   BaseAddr;
+      u64t     Length;
+      u32t       Type;
+   } MemEntry;
+   MemEntry  *rc, 
+            *tbl = (MemEntry*)DiskBufPM;
+   u32t      cnt = 0;
+   while (tbl[cnt].Length) cnt++;
+   cnt++;
+   cnt *= sizeof(MemEntry);
+   rc   = (MemEntry*)mod_secondary->mem_realloc(0, cnt);
+   // optimize it a bit (merge blocks)
+   cnt  = 0;
+   while (tbl->Length) {
+      if (cnt && rc[cnt-1].Type==tbl->Type &&
+         rc[cnt-1].BaseAddr+rc[cnt-1].Length==tbl->BaseAddr)
+      {
+         rc[cnt-1].Length+=tbl->Length;
+         tbl++;
+         continue;
+      }
+      memcpy(rc+cnt++, tbl++, sizeof(MemEntry));
+   }
+   memset(rc+cnt, 0, sizeof(MemEntry));
+
+   return (AcpiMemInfo*)rc;
+}
+
 AcpiMemInfo* _std hlp_int15mem(void) {
    if (!mod_secondary) return 0; else {
-      AcpiMemInfo *rc, *rtbl;
-      u32t        cnt;
-
+      AcpiMemInfo *rc;
+      // static buffer (disk i/o buffer) is used here
       mt_swlock();
       int15mem_int();
-      rtbl = (AcpiMemInfo*)DiskBufPM;
-      cnt  = 0;
-      while (rtbl[cnt].LengthLow || rtbl[cnt].LengthHigh) cnt++;
-      cnt++;
-      cnt *= sizeof(AcpiMemInfo);
-      rc   = (AcpiMemInfo*)mod_secondary->mem_realloc(0, cnt);
-      memcpy(rc, rtbl, cnt);
+      rc = int15mem_copy();
       mt_swunlock();
 
       return rc;

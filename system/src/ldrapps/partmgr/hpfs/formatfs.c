@@ -10,7 +10,7 @@
 
 #define PERCENTS_PER_DISKCHECK   90
 #define WRITE_CODEPAGES           1
-/* unsuccess try to prevent autocheck on HPFS386.
+/* unsuccessfull try to prevent autocheck on HPFS386.
    Still can be used to write single small file to a formatted partition */
 #define WRITE_CHKDSKLOG           0
 

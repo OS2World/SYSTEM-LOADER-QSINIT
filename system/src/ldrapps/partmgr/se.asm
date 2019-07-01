@@ -4,10 +4,10 @@
 ;
 ; 1. partition table code for MBR disk: _psect
 ;    * move self to 0:0600
-;    * save I13X flag to 3000:0, but only for BM active partition (this will
-;      make problems if we`re booting FAT with IBM os2boot/os2ldr. Not
+;    * save I13X flag to 3000:0, but only for the active BM partition (this
+;      will make problems if we`re booting FAT with IBM os2boot/os2ldr. Not
 ;      _bsect16, nor qsinit os2ldr does not require this flag).
-;    * if no active partitions - Boot Manager will be used if present.
+;    * if there is no active partitions - existing Boot Manager will be used.
 ;    * no fixups in code
 ;
 ; 2. boot sector: _bsect16
@@ -16,14 +16,14 @@
 ;    * supports both fdd & hdd boot
 ;    * load FAT12/16 by FAT chains, not contigous files only.
 ;    * load file to 2000:0, use 0:7E00 for directory and 1000:0 for FAT cache
-;    * no fixups in code, but assume 0:7C00 as location
+;    * no fixups in code, but assumes 0:7C00 as location
 ;    * uses disk number from DL
 ;    * checks file attribute for Vol & Dir
 ;
 ; 3. boot sector: _bsect32
 ;    * load FAT32 by FAT chains, not contigous files only.
 ;    * load file to 2000:0, use 1000:0 for directory and FAT cache
-;    * no fixups in code, but assume 0:7C00 as location
+;    * no fixups in code, but assumes 0:7C00 as a constant location
 ;    * uses disk number from DL
 ;    * checks file attribute for Vol & Dir
 ;    * checks "active FAT copy" bits as windows boot sector do.
@@ -33,10 +33,10 @@
 ; 3. boot sector: _bsectexf
 ;    * load exFAT by FAT chains, not contigous files only
 ;    * load file to 2000:0, uses 1000:0 for directory and FAT cache
-;    * no fixups in code, but assume 0:7C00 as location
+;    * no fixups in code, but assumes 0:7C00 as a location
 ;    * uses disk number from DL
 ;    * able to boot from partition beyond 2Tb border
-;    * boot file size limited to 448k-1 (but no checks via int 12h!)
+;    * boot file size is limited to 448k-1 (but no checks via int 12h!)
 ;    * ignores "active FAT copy" bit, because FasFs can`t work in two-FAT mode
 ;
 ; 4. boot sector: _bsectdb
@@ -48,12 +48,12 @@
 ;    * move self to 0:0600
 ;    * panic if no i13x (CHS+GPT makes me ill, sorry)
 ;    * detects sector size via int 13h ah=48h call (to calc number of GPT
-;      records per sector)
-;    * assume 32bit sector number for 1st GPT copy
+;      records per sector). If no 48h, assumes 512-byte sector.
+;    * assumes 32bit sector number for the 1st GPT copy
 ;    * get FIRST found UEFI in MBR as GPT main header
-;    * searching in GPT records for "BIOS Bootable" attribute bit, gets first
-;    * checks bytes per sector BPB field and if it 512/1024/2048/4096 - assume
-;      BPB in boot sector and update "Hidden Sectors" value in it.
+;    * searches in GPT records for "BIOS Bootable" attribute bit, gets first
+;    * checks bytes per sector BPB field and for 512/1024/2048/4096 value
+;      assumes BPB in the boot sector and updates "Hidden Sectors" value in it
 ;    * no fixups in code
 ;
 ; tools\bootset.exe compilation assumes FAT sector at 200h, FAT32 at 400h

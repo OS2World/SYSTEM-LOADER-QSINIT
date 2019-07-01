@@ -275,31 +275,37 @@ static int exi_countinst(const char *clname, cl_ref *ref, int trap, u32t free_pi
    return rc;
 }
 
-int _std exi_printclass(u32t classid) {
+static int _std exi_printclass_int(printf_function pfn, u32t classid) {
    MTLOCK_THIS_FUNC lk;
+   if (pfn==0) pfn = log_printf;
    if (!refs || !classid || classid>refs->Count()) return 0;
    cl_ref *ref = refs->Objects(classid-1);
 
-   if (!ref->fncount) log_it(2,"%2d. class \"%s\" is unregistered\n", classid,
+   if (!ref->fncount) pfn("%2d. class \"%s\" is unregistered\n", classid,
       (*refs)[classid-1]());
    else {
-      log_it(2,"%2d. class \"%s\", %d methods, %d bytes data%s%s%s\n", classid,
+      pfn("%2d. class \"%s\", %d methods, %d bytes data%s%s%s\n", classid,
          (*refs)[classid-1](), ref->fncount, ref->datasize, ref->flags&EXIC_GMUTEX?
             ", gmutex":"", ref->flags&EXIC_PRIVATE?", private":"",
                ref->flags&EXIC_EXCLUSIVE?", exclusive":"");
       int cnt = exi_countinst((*refs)[classid-1](), ref, 1, 0);
-      log_it(2,"    %i instance(s), source module \"%s\"\n", cnt,
+      pfn("    %i instance(s), source module \"%s\"\n", cnt,
          mod_getname(ref->module,0));
    }
    return 1;
 }
 
-void _std exi_dumpall(void) {
+int _std exi_printclass(u32t classid) {
+   return exi_printclass_int(0, classid);
+}
+
+void _std exi_dumpall(printf_function pfn) {
    MTLOCK_THIS_FUNC lk;
-   log_it(2,"<====== Class list ======>\n");
+   if (pfn==0) pfn = log_printf;
+   pfn("<====== Class list ======>\n");
    if (!refs || !refs->Count()) return;
-   log_it(2,"%d classes:\n", refs->Count());
-   for (u32t ii=0; ii<refs->Count(); ii++) exi_printclass(ii+1);
+   pfn("%d classes:\n", refs->Count());
+   for (u32t ii=0; ii<refs->Count(); ii++) exi_printclass_int(pfn,ii+1);
 }
 
 void exi_free_as(u32t pid) {

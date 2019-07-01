@@ -160,7 +160,8 @@ static u32t calcsector(u64t pos, u32t size, u32t secshift, u32t *first, u32t *la
       *first = una;
       pos   += una;
       size  -= una;
-   }
+   } else
+      *first = 0;
    una = size & secsz - 1;
    if (una) {
       *last  = una;
@@ -379,7 +380,7 @@ static fcentry *cc_alloc(filedata *fd, u32t index) {
    return fe;
 }
 
-// custom message forces panic here
+// custom message forced panic here
 static void cc_check(fcentry *fe, char *msg) {
    if (!fe || fe->sign!=FDCE_SIGN || msg) {
       log_printf("invalid cache blk: %08X\n", fe);
@@ -853,7 +854,12 @@ static qserr rwaction(filedata *fd, u64t pos, void *buf, u32t size, u32t *act,
       if (una1 || una2)
          if (!fd->sector) fd->sector = (u8t*)malloc(1<<fd->secshift);
 
-      while (una1 || una2 || nsec) {
+      res = cc_listpos(fd, pos>>fd->secshift, &rws);
+#if FCC_DEBUG>1
+      log_it(3, "%c nc: %X pos=%Lu size=%u %u %u %u\n", wr?'w':'r', fd, pos,
+         size, nsec, una1, una2);
+#endif
+      while (!res && (una1 || una2 || nsec)) {
          u32t opsize;
          // read/update first/last misaligned sector
          if (una1 || !nsec && una2) {
@@ -862,12 +868,12 @@ static qserr rwaction(filedata *fd, u64t pos, void *buf, u32t size, u32t *act,
             if (res) return res;
 
             if (wr) {
-               if (una1) memcpy(fd->sector+(secsize-una1), bp, una1); else
-                  memcpy(fd->sector, bp, una2);
+               if (una1) memcpy(fd->sector+((u32t)pos & secsize-1), bp, una1);
+                  else memcpy(fd->sector, bp, una2);
                res = rwcall(fd, &rws, 1, fd->sector, RW_WRITE, &rwres);
                if (res) return res;
             } else
-               if (una1) memcpy(bp, fd->sector+(secsize-una1), una1); else
+               if (una1) memcpy(bp, fd->sector+((u32t)pos & secsize-1), una1); else
                   memcpy(bp, fd->sector, una2);
             *act  += opsize;
             if (una1) una1 = 0; else una2 = 0;
@@ -881,6 +887,7 @@ static qserr rwaction(filedata *fd, u64t pos, void *buf, u32t size, u32t *act,
          }
          size -= opsize;
          bp   += opsize;
+         pos  += opsize;
       }
    }
    if (wr && !res) io_timetoio(&fd->wtime, time(0));

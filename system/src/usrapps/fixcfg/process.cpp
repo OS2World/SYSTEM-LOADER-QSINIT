@@ -1,3 +1,7 @@
+//
+//
+//
+//
 #include "classes.hpp"
 #include <stdlib.h>
 #include "qshm.h"
@@ -6,7 +10,8 @@
 const char *BASEDEV = "BASEDEV",
               *UHCD = "USBUHCD.SYS",
               *OHCD = "USBOHCD.SYS",
-              *EHCD = "USBEHCD.SYS";
+              *EHCD = "USBEHCD.SYS",
+              *XHCD = "USBXHCD.SYS";
 
 int finddev(TStrings &cfg, const char *key, const char *name, int startfrom = 0) {
    int ii;
@@ -35,6 +40,29 @@ void wipedev(TStrings &cfg, const char *key, const char *name, int all, int star
    } 
 }
 
+/** find a string in form "SET name = ...."
+    @param  cfg        config.sys text
+    @param  name       set variable name
+    @param  nodupes    wipe all duplications of this variable
+    @param  startfrom  starting line to search from
+    @return line number or -1 */
+l index_of_set(TStrings &cfg, const char *name, int nodupes = 1, int startfrom = 0) {
+   int  rc = -1, ii;
+   spstr SetN(name);
+   SetN.upper();
+
+   for (ii=startfrom; ii<cfg.Count(); ) {
+      spstr key = cfg.Name(ii).trim().upper();
+      if (key.word(1)=="SET" && key.word(2)==SetN)
+         if (rc>=0) { cfg.Delete(ii); continue; } else {
+            rc = ii; 
+            if (nodupes==0) break;
+         }
+      ii++;
+   }
+   return rc;
+}
+
 extern "C"
 int process(const char *cmdline) {
    TStrings args, cfg;
@@ -49,6 +77,7 @@ int process(const char *cmdline) {
    }
 
    l shell = args.IndexOfName("-shell"),
+     video = args.IndexOfName("-video"),
       verb = args.IndexOfICase("-verbose")>=0 || args.IndexOfICase("-v")>=0;
    /* just rem, but not delete original PROTSHELL variable */
    if (shell>=0) {
@@ -60,7 +89,21 @@ int process(const char *cmdline) {
       cfg.Insert(0,psname);
    }
 
-   if (args.IndexOfICase("-usb")>=0) {
+   if (video>=0) {
+      spstr dstr = "SET VIO_SVGA=DEVICE(",
+            vstr = "SET VIDEO_DEVICES=VIO_SVGA",
+            mstr = args.Value(video);
+      if (mstr.length()) {
+         l    ps = index_of_set(cfg, "VIDEO_DEVICES"),
+             vps = index_of_set(cfg, "VIO_SVGA");
+         dstr+=mstr;
+         dstr+=")";
+         if (vps>=0) cfg[vps] = dstr; else cfg.Add(dstr);
+         if (ps >=0) cfg[ps]  = vstr; else cfg.Add(vstr);
+      }
+   }
+
+   if (args.IndexOfICase("-usb")>=0 || args.IndexOfICase("-usb3")>=0) {
       u16t uc=0, oc=0, ec=0, xc=0, index=0;
       pci_location  devinfo;
       // enum class/subclass
@@ -78,14 +121,17 @@ int process(const char *cmdline) {
 
       int ucpos = finddev(cfg, BASEDEV, UHCD),
           ocpos = finddev(cfg, BASEDEV, OHCD),
-          ecpos = finddev(cfg, BASEDEV, EHCD), ii;
+          ecpos = finddev(cfg, BASEDEV, EHCD), 
+          xcpos = finddev(cfg, BASEDEV, XHCD), ii;
 
       wipedev(cfg, BASEDEV, UHCD, 1);
       wipedev(cfg, BASEDEV, OHCD, 1);
       wipedev(cfg, BASEDEV, EHCD, 1);
+      wipedev(cfg, BASEDEV, XHCD, 1);
 
       if (ocpos>=0 && ocpos<ucpos) ucpos = ocpos;
       if (ecpos>=0 && ecpos<ucpos) ucpos = ecpos;
+      if (xcpos>=0 && xcpos<ucpos) ucpos = xcpos;
       if (ucpos<0) ucpos = 0;
 
       spstr dn;
@@ -101,8 +147,11 @@ int process(const char *cmdline) {
          dn.sprintf("%s=%s%s", BASEDEV, EHCD, verb?" /V":"");
          for (ii=0; ii<ec; ii++, ucpos++) cfg.Insert(ucpos,dn);
       }
+      if (xc && args.IndexOfICase("-usb3")>=0) {
+         dn.sprintf("%s=%s%s", BASEDEV, XHCD, verb?" /V":"");
+         for (ii=0; ii<xc; ii++, ucpos++) cfg.Insert(ucpos,dn);
+      }
    }
-   
    
    if (!cfg.SaveToFile(fname())) {
       printf("unable to save \"%s\"\n", fname());

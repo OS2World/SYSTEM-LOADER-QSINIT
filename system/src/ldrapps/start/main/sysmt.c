@@ -139,7 +139,7 @@ static u32t _std sys_servicethread(void *arg) {
    kbask_clk = kbask_ms*1000;
    // log it
    log_it(3, "memstat %s, kb poll = %i ms!\n", memstat_on?"on":"off", kbask_ms);
-   /* switch this thread into separate invisible console.
+   /* switch this thread into a separate invisible console.
       This console used, at least for memmgr error message during session
       exit. I.e. mod_exitcb() validation calls may produce error message
       screen. It showed in the current console for common modules, but for
@@ -275,7 +275,7 @@ void _std mt_pexitcb(mt_thrdata *td, int stage) {
          trace_pid_done();
          /* here too - this will free all instances before the moment of imported
             DLL mod term function. I.e. if we will call it after DLL fini - DLL
-            can deny unload if it provides class for us */
+            can deny unload if it provides a class for us */
          exi_free_as(pid);
       }
       // in MT mode only
@@ -589,7 +589,7 @@ void _std mt_getdata(mt_prcdata **ppd, mt_thrdata **pth) {
    if ((u32t)th<0x1000 || th->tiSign!=THREADINFO_SIGN || !th->tiParent) {
       log_printf("tcb: %08X\n", th);
       if ((u32t)th>0x1000) log_printf("tcb: %8lb\n", th);
-      mod_dumptree();
+      mod_dumptree(0);
       _throwmsg_("Current thread state damaged");
    }
    if (ppd) *ppd = th->tiParent;

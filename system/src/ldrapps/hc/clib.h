@@ -169,6 +169,38 @@ u32t _bitreset(u32t *dst, u32t bit);
     "setc    al"           \
     parm [ecx] [eax] value [eax] modify exact [eax];
 
+u32t inp(u32t port);
+#pragma aux inp =          \
+    "xor     eax,eax"      \
+    "in      al,dx"        \
+    parm [edx] value [eax] modify exact [eax];
+
+u32t inpw(u32t port);
+#pragma aux inpw =         \
+    "xor     eax,eax"      \
+    "in      ax,dx"        \
+    parm [edx] value [eax] modify exact [eax];
+
+u32t inpd(u32t port);
+#pragma aux inpd =         \
+    "in      eax,dx"       \
+    parm [edx] value [eax] modify exact [eax];
+
+u32t outp(u32t port, u32t value);
+#pragma aux outp =         \
+    "out     dx,al"        \
+    parm [edx] [eax] value [eax] modify exact [];
+
+u32t outpw(u32t port, u32t value);
+#pragma aux outpw =        \
+    "out     dx,ax"        \
+    parm [edx] [eax] value [eax] modify exact [];
+
+u32t outpd(u32t port, u32t value);
+#pragma aux outpd =        \
+    "out     dx,eax"       \
+    parm [edx] [eax] value [eax] modify exact [];
+
 #ifdef __cplusplus
 }
 #endif

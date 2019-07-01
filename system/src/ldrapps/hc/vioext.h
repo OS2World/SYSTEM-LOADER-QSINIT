@@ -195,7 +195,7 @@ struct _vio_list;
     @return 0 - to ignore key, INT_MIN to exit from the list with 0 result,
             INT_MAX to exit with id|id_or value, any other - list`s focus
             position diff (+/-) */
-typedef int _std (*vio_lstkeycb)(struct _vio_list *ref, u16t key);
+typedef int _std (*vio_lstkeycb)(struct _vio_list *ref, u16t key, u32t id);
 
 typedef struct {
    u16t         key;  ///< key code (with applying "mask" value before)

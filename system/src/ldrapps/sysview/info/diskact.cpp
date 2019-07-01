@@ -672,7 +672,7 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
          knowntype fs = ddta[cur_disk].fstype[Index];
 
          if (!efiboot && (fs<=FAT64 || fs==HPFS)) AddAction(lst_a, actp_dirty);
-         if (!efihost && fs==HPFS) AddAction(lst_a, actp_bootos2);
+         if (!efihost && (fs==HPFS || fs==JFS)) AddAction(lst_a, actp_bootos2);
          // not in a single dialog mode
          if (!SysApp.bootcmd) AddAction(lst_a, actp_view);
          /* writing to EFI boot partition while we share it with EFI BIOS

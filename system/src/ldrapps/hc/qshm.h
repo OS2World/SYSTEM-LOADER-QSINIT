@@ -212,9 +212,6 @@ u32t  _std hlp_pciread    (u16t bus, u8t slot, u8t func, u8t offs, u8t size);
 void  _std hlp_pciwrite   (u16t bus, u8t slot, u8t func, u8t offs, u8t size,
                            u32t value);
 
-/// dump PCI config space to log
-void _std log_pcidump(void);
-
 #pragma pack(1)
 typedef struct {
    u16t         bus;
@@ -291,6 +288,9 @@ u32t  _std hlp_pciatoloc  (const char *str, pci_location *dev);
 #define PCILOC_VENDOR     1
 #define PCILOC_BUSSLOT    2
 //@}
+
+/// return maximum PCI bus number
+u32t  _std hlp_pcimaxbus  (void);
 
 #ifdef __cplusplus
 }

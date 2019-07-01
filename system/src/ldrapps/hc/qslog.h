@@ -90,16 +90,6 @@ int   _std  log_push(int level, const char *str);
     @return success flag */
 int   _std  log_pushtm(int level, const char *str, u32t time);
 
-/// dump MDT table
-void  _std  log_mdtdump(void);
-
-/// dump opened files
-void  _std  log_ftdump(void);
-
-/// dump session list
-void  _std  log_sedump(void);
-
-
 #ifdef __WATCOMC__
 /** dump CPU registers into log & debug port.
     Function preserves all registers and flags, ss selector must be FLAT.

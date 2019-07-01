@@ -21,7 +21,7 @@ extern "C" {
 #define OPTERR_NOREG        0x00007  ///< no free reg
 #define OPTERR_OPTERR       0x00008  ///< optimization error
 
-int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit);
+int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit, int defWB);
 
 typedef struct {
    u64t    start;

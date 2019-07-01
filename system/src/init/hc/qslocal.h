@@ -46,7 +46,8 @@ extern u32t             DiskBufPM;
 extern u8t           bootio_avail,
                          pxemicro,
                          streamio,
-                         safeMode;
+                         safeMode,
+                      mfsd_noterm;
 
 extern u16t           ComPortAddr;
 extern u32t              BaudRate;

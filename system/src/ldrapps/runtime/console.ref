@@ -2,17 +2,20 @@ type = dll
 name = "CONSOLE"
 
 exports = {
-   _con_vmemsize    = { index=1  group="stat"  format="u@u&*@q" } # memory size & addr
+   _con_vmemsize    = { index=1  group="stat"   format="u&*@q"  } # memory size & addr
+   _con_gmlist      = { index=2  group="stat"   format="pv"     }
+   _con_exitmode    = { index=3  group="system" format="@u@u"   }
 
-   _con_setvgapal   = { index=12 group="draw"  format="vp"      } #
-   _con_getvgapal   = { index=13 group="draw"  format="vp"      } #
+   _con_setvgapal   = { index=12 group="draw"   format="vp"     } #
+   _con_getvgapal   = { index=13 group="draw"   format="vp"     } #
 
-   _con_instshot    = { index=25 group="sshot" format="is"      } # screen shot functions
-   _con_removeshot  = { index=26 group="sshot" format="vv"      } #
-   _con_makeshot    = { index=27 group="sshot" format="iusi"    } #
+   _con_instshot    = { index=25 group="sshot"  format="is"     } # screen shot functions
+   _con_removeshot  = { index=26 group="sshot"  format="vv"     } #
+   _con_makeshot    = { index=27 group="sshot"  format="iusi"   } #
 
-   _shl_mkshot      = { index=30 group="shell" format="usp"     } # mkshot command
+   _shl_mkshot      = { index=30 group="shell"  format="usp"    } # mkshot command
 
-   _con_fontadd     = { index=35 group="font"  format="viip"    } # add/replace font
-   _con_fontavail   = { index=36 group="font"  format="uii"     } # query font presence
+   _con_fontadd     = { index=35 group="font"   format="viip"   } # add/replace font
+   _con_fontavail   = { index=36 group="font"   format="uii"    } # query font presence
+   _con_fontcopy    = { index=37 group="font"   format="pii"    } # query font bits
 }

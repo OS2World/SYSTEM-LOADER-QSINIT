@@ -218,6 +218,20 @@ str_list* __stdcall str_splitargs(const char *str) {
    return str_getlist_local(lst.Str);
 }
 
+str_list* _std str_getargs(u32t first, u32t last) {
+   TStrings lst;
+   if (first<=last) {
+      process_context *pq = mod_context();
+      char         **argv = (char**)pq->rtbuf[RTBUF_ARGV];
+      u32t           argc = pq->rtbuf[RTBUF_ARGC];
+
+      // such method makes list _exactly_ the same with argv array
+      if (argv && argc)
+         while (first<=last && first<argc) lst.Add(argv[first++]);
+   }
+   return str_getlist_local(lst.Str);
+}
+
 void _std str_delentry(str_list *list, u32t index) {
    if (!list) return;
    if (index>=list->count) return;
@@ -236,7 +250,7 @@ str_list* get_keylist(TINIFile  *ini, const char *Section, str_list**values) {
    } else {
       TStrings vlst;
       ini->ReadSectionValues(Section,vlst);
-      int ii;
+      int ii = 0;
       while (ii<=lst.Max()) {
          spstr sk(lst[ii]), sv(vlst[ii]);
          if (!sk.trim().length() && !sv.trim().length())
@@ -253,10 +267,12 @@ str_list* _std cmd_shellmsgall(str_list**values) {
    return get_keylist(msg, "help", values);
 }
 
-char* _std str_gettostr(str_list*list, char *separator) {
+char* _std str_gettostr(const str_list*list, char *separator) {
    TStrings lst;
    str_getstrs(list,lst);
-   return lst.GetText(separator?separator:"");
+   char *res = lst.GetText(separator?separator:"");
+   mem_localblock(res);
+   return res;
 }
 
 char* _std str_mergeargs(str_list*list) {

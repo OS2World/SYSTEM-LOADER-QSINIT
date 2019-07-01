@@ -79,7 +79,6 @@ CODE32          segment dword public USE32 'CODE'
                 extrn   _exit_pm32:near
                 extrn   __longjmp:near
                 extrn   _key_read:near
-                extrn   _sys_idtdump:near
 
                 public  _except_init
 ;----------------------------------------------------------------

@@ -159,7 +159,10 @@ static u32t hicolor_cvt(u8t rc, u8t gc, u8t bc, u32t mode) {
       case 15: res = bc>>3 | gc>>3<<5 | rc>>3<<10; break;
       case 16: res = bc>>3 | gc>>2<<5 | rc>>3<<11; break;
       case 24:
-      case 32: res = bc | gc<<8 | rc<<16; break;
+      case 32:
+         if (modes[mode]->rmask==0xFF) res = rc | gc<<8 | bc<<16; 
+            else res = bc | gc<<8 | rc<<16;
+         break;
    }
    return res;
 }
@@ -228,6 +231,7 @@ void evio_shutdown() {
 
 static qserr _exicc gc_setmode(EXI_DATA, u32t cols, u32t lines, void *extmem) {
    if (extmem) return E_SYS_INVPARM;
+   if (setmode_locked) return E_CON_DETACHED;
 /*
    if (cols==80 && (lines==25 || lines==43 || lines==50)) {
       cvio->vh_setmode(lines);
@@ -239,12 +243,14 @@ static qserr _exicc gc_setmode(EXI_DATA, u32t cols, u32t lines, void *extmem) {
 }
 
 static qserr _exicc gc_setmodeid(EXI_DATA, u16t modeid) {
+   if (setmode_locked) return E_CON_DETACHED;
    if (--modeid>=mode_cnt) return E_CON_BADMODEID;
    return pl_setmodeid(modeid)?0:E_CON_MODERR;
 }
 
 static qserr _exicc gc_reset(EXI_DATA) {
    u32t mx, my;
+   if (setmode_locked) return E_CON_DETACHED;
    con_unsetmode();
    cvio->vh_resetmode();
    cvio->vh_getmfast(&mx, &my);

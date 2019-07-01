@@ -34,7 +34,9 @@ static void fillinfo(u32t lowdd, char *tgt, u64t patmsr, int big) {
    tgt[14] = 0;
 }
 
-static void dump_pagedir(u64t *pd, u64t vbase, u64t patmsr, int is64) {
+static void dump_pagedir(printf_function prf, u64t *pd, u64t vbase,
+                         u64t patmsr, int is64)
+{
    u32t ii, lnp = 0;
 
    for (ii=0; ii<512; ii++) {
@@ -50,15 +52,15 @@ static void dump_pagedir(u64t *pd, u64t vbase, u64t patmsr, int is64) {
          fillinfo(pv, astr, patmsr, 1);
 
          if (pv&PD_BIGPAGE) {
-            log_it(2, "%s big page (%012LX) %s\n", va_str, paddr&~(u64t)((1<<PD2M_ADDRSHL)-1),
+            prf("%s big page (%012LX) %s\n", va_str, paddr&~(u64t)((1<<PD2M_ADDRSHL)-1),
                astr);
          } else
          if (paddr>=_4GBLL) {
-            log_it(2, "%s page table above 4Gb! (%012LX) %s\n", va_str, paddr, astr);
+            prf("%s page table above 4Gb! (%012LX) %s\n", va_str, paddr, astr);
          } else {
             u32t pti;
             u64t *pt = (u64t*)paddr;
-            log_it(2, "%s page tab (%012LX) %s\n", va_str, paddr, astr);
+            prf("%s page tab (%012LX) %s\n", va_str, paddr, astr);
             for (pti=0; pti<512; pti++) {
                u64t ptv = pt[pti];
                paddr    = ptv & ((u64t)1<<PT64_MAXADDR)-PAGESIZE;
@@ -66,23 +68,24 @@ static void dump_pagedir(u64t *pd, u64t vbase, u64t patmsr, int is64) {
 
                if (ptv&PT_PRESENT) {
                   fillinfo(ptv, astr, patmsr, 0);
-                  log_it(2, "%s          (%012LX) %s\n", va_str, paddr, astr);
+                  prf("%s          (%012LX) %s\n", va_str, paddr, astr);
                } else
-                  log_it(2, "%s np\n", va_str);
+                  prf("%s np\n", va_str);
             }
          }
          lnp = 0;
       } else
-      if (!lnp) { log_it(2, "%s not present\n", va_str, addr); lnp = 1; }
+      if (!lnp) { prf("%s not present\n", va_str, addr); lnp = 1; }
 
    }
 }
 
 // it is not locked!
-void _std pag_printall(void) {
+void _std pag_printall(printf_function prf) {
    u32t  ii, pi, cr0v, cr3v, cr4v;
    u64t  patmsr;
-   log_it(2,"<====== Page table ======>\n");
+   if (prf==0) prf = log_printf;
+   prf("<====== Page table ======>\n");
    cr0v = getcr0();
    cr3v = getcr3();
    cr4v = getcr4();
@@ -91,17 +94,17 @@ void _std pag_printall(void) {
 
    if (sys_isavail(SFEA_PAT)) {
       hlp_readmsr(MSR_IA32_PAT, (u32t*)&patmsr, (u32t*)&patmsr + 1);
-      log_it(2,"PAT (0..7): %8b\n", &patmsr);
+      prf("PAT (0..7): %8b\n", &patmsr);
    } else
       patmsr = FFFF64;
 
    if (sys_is64mode()) {
       u64t  cr3x, *pmlt;
       u32t  pmli, lnp = 0;
-      log_it(2,"64-bit mode!\n");
+      prf("64-bit mode!\n");
       cr3x = call64l(EFN_HLPSETREG, 2, 2, SETREG64_CR3, FFFF64);
-      if (cr3x==FFFF64) { log_it(2,"Version mismatch!\n"); return; }
-      if (cr3x>=_4GBLL) { log_it(2,"Page table above 4GB!\n"); return; }
+      if (cr3x==FFFF64) { prf("Version mismatch!\n"); return; }
+      if (cr3x>=_4GBLL) { prf("Page table above 4GB!\n"); return; }
 
       pmlt = (u64t*)((u32t)cr3x & PT_ADDRMASK);
 
@@ -115,7 +118,7 @@ void _std pag_printall(void) {
             fillinfo(pv, astr, patmsr, 1);
             lnp = 0;
 
-            log_it(2, "PML4E[%d]: %012LX %s\n", pmli, pdpt, astr);
+            prf("PML4E[%d]: %012LX %s\n", pmli, pdpt, astr);
 
             if (pdpt>=_4GBLL) continue;
 
@@ -128,29 +131,29 @@ void _std pag_printall(void) {
                if (pv&PT_PRESENT) {
                   lnp = 0;
                   if (pv&PD_BIGPAGE) {
-                     log_it(2, "%012LX: big page (%012LX) %s\n", staddr,
+                     prf("%012LX: big page (%012LX) %s\n", staddr,
                         paddr&~(u64t)((1<<PD1G_ADDRSHL)-1), astr);
                   } else
                   if (paddr>=_4GBLL) {
-                     log_it(2, "%012LX: PDPTE above 4Gb! (%012LX) %s\n", staddr,
+                     prf("%012LX: PDPTE above 4Gb! (%012LX) %s\n", staddr,
                         paddr, astr);
                   } else {
-                     log_it(2, "%012LX: PDPTE (%012LX) %s\n", staddr, paddr, astr);
-                     dump_pagedir((u64t*)paddr, staddr, patmsr, 1);
+                     prf("%012LX: PDPTE (%012LX) %s\n", staddr, paddr, astr);
+                     dump_pagedir(prf, (u64t*)paddr, staddr, patmsr, 1);
                   }
                } else
-               if (!lnp) { log_it(2, "%012LX: not present\n", staddr); lnp = 1; }
+               if (!lnp) { prf("%012LX: not present\n", staddr); lnp = 1; }
             }
          } else
-         if (!lnp) { log_it(2, "%012LX: not present\n", staddr); lnp = 1; }
+         if (!lnp) { prf("%012LX: not present\n", staddr); lnp = 1; }
       }
    } else {
       u64t *pdpt = (u64t*)(cr3v&~(1<<CR3PAE_PDPSHL-1));
 
       for (ii=0; ii<4; ii++) {
          u32t lnp = 0;
-         log_it(2, "PDPTE[%d]: %010LX\n", ii, pdpt[ii]);
-         dump_pagedir((u64t*)(pdpt[ii]&~(u64t)PAGEMASK), ii*_1GB, patmsr, 0);
+         prf("PDPTE[%d]: %010LX\n", ii, pdpt[ii]);
+         dump_pagedir(prf, (u64t*)(pdpt[ii]&~(u64t)PAGEMASK), ii*_1GB, patmsr, 0);
       }
    }
 }

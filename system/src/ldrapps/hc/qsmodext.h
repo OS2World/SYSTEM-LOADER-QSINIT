@@ -11,6 +11,7 @@ extern "C" {
 #endif
 #include "qstypes.h"
 #include "qsmodint.h"
+#include "qsshell.h"
 
 #ifndef QSINIT_CHAININC
 typedef struct mod_chaininfo_s {
@@ -267,6 +268,7 @@ typedef struct _process_info {
    struct _process_info **cll,    ///< child list
                       *parent;    ///< parent process (0 for pid 1)
    thread_information     *ti;    ///< thread list
+   u32t                 flags;    ///< PFLM_* flags
 } process_information;
 
 /** enum all processes in the system.
@@ -278,16 +280,17 @@ typedef struct _process_info {
     @return number of processes in list */
 u32t  _std mod_processenum(process_information **ppdl);
 
-/// dump process tree to log
-void  _std mod_dumptree(void);
-/// dump single process context to log
-void  _std log_dumppctx(process_context* pq);
-
 /** makes a copy of process environment for mod_exec() function.
     @param  pq          Process context
     @param  addspace    Additional space to allocate in result memory block.
-    @return environment data in application heap block (use free() to release it). */
+    @return environment data in process owned heap block, called should free it */
 char* _std env_copy    (process_context *pq, u32t addspace);
+
+/** build environment from a string list.
+    @param  env         Source data.
+    @param  addspace    Additional space to allocate in result memory block.
+    @return environment data in process owned heap block, called should free it */
+char* _std env_create  (const str_list *env, u32t addspace);
 
 #ifdef __cplusplus
 }

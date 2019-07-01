@@ -1616,12 +1616,13 @@ mt_prcdata *get_procinfo(void) {
    return (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT];
 }
 
-void _std io_dumpsft(void) {
-   log_it(2,"===== SFT list =====\n");
+void _std io_dumpsft(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   pfn("===== SFT list =====\n");
    if (sftable_alloc) {
       u32t ii = 0;
 
-      log_it(2, "     file name          |   fno   | brk | type  | ptr      |\n");
+      pfn("     file name          |   fno   | brk | type  | ptr      |\n");
       mt_swlock();
 
       for (ii=0; ii<sftable_alloc; ii++)
@@ -1650,8 +1651,8 @@ void _std io_dumpsft(void) {
                snprintf(astr, ASTRLEN, "%i events, %u scheds", evnum, n_sched);
             }
 
-            log_it(2, "%3d. %-18s |%8i |  %i  | %-5s | %08X | %s\n", ii, fe->fpath, fe->pub_fno,
-               fe->broken, tpos<0?"??":tname[tpos], fe, astr);
+            pfn("%3d. %-18s |%8i |  %i  | %-5s | %08X | %s\n", ii, fe->fpath,
+               fe->pub_fno, fe->broken, tpos<0?"??":tname[tpos], fe, astr);
 
             astr[0] = 0;
             idx = fe->ioh_first;
@@ -1684,12 +1685,12 @@ void _std io_dumpsft(void) {
 
                idx = hd->next;
                if (strlen(astr)>ASTRLEN-24 || !idx)
-                  { log_it(2, "%s\n", astr); astr[0] = 0; }
+                  { pfn( "%s\n", astr); astr[0] = 0; }
             }
          }
       mt_swunlock();
    }
-   log_it(2,"====================\n");
+   pfn("====================\n");
 }
 
 qserr _std io_registerfs(u32t classid) {
@@ -1820,8 +1821,8 @@ void setup_fio() {
    FS by signature and load FS lib for it */
 void mount_vol0(void) {
    vol_data *vdta = _extvol + DISK_BOOT;
-   // disable EFI boot volume mount on EFI host
-   if ((vdta->flags&VDTA_ON)!=0 && hlp_hosttype()!=QSHT_EFI) {
+   // we can mount FAT on EFI host because volume is mounted as r/o
+   if ((vdta->flags&VDTA_ON)!=0 /*&& hlp_hosttype()!=QSHT_EFI*/) {
       qs_sysvolume vol = 0;
       qserr        res = io_findfs(DISK_BOOT, 0, &vol);
 

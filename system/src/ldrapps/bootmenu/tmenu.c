@@ -464,6 +464,64 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
    if (!menu) return 0;
    keys = m_ini->keylist(menu, &values);
    if (!keys) return 0;
+
+   /* process conditions in form:
+      @@[!]b/e|Line = ...   - bios/efi host only
+      @@[!][i]%var%value|Line = ...   - check env. var value
+      conditions can be ANDed in form
+      @@c1@@c2@@c3|Line = ....
+      ! mean NOT operator
+      i mean ignore case
+      no spaces allowed until |, except in "value" */
+   for (ii=0; ii<keys->count; ) {
+      char *key = keys->item[ii];
+      if (key[0]=='@' && key[1]=='@') {
+         char *ep = strchr(key, '|');
+         int  del = 0;
+         if (ep) {
+            *ep++ = 0;
+            while (key[0]=='@' && key[1]=='@' && del==0) {
+               int _std (*cmp)(const char*, const char*) = strcmp;
+               int inv = 0;
+               key  += 2;
+               while (*key=='!' || *key=='i' || *key=='I') {
+                  if (*key=='!') inv=1; else cmp=stricmp;
+                  key++;
+               }
+               if (*key=='%') {
+                  char *ve = strchr(++key, '%');
+                  if (!ve || (u32t)key>(u32t)ep || (u32t)ve>(u32t)ep) del = -1; else {
+                     char *estr;
+                     *ve++ = 0;
+                     estr  = env_getvar(key, 1);
+                     key   = strstr(ve,"@@");
+                     if (key) *key = 0;
+                     del   = cmp(estr?estr:"", ve)?1:0;
+                     if (estr) free(estr);
+                     // point it to next @@ or to 0
+                     if (key) *key = '@'; else key = ve-1;
+                  }
+               } else
+               if (*key=='e' || *key=='E') { del = hlp_hosttype()!=QSHT_EFI; key++; }
+                  else
+               if (*key=='b' || *key=='B') { del = hlp_hosttype()!=QSHT_BIOS; key++; }
+                  else del = -1;
+               // all cases except wrong condition
+               if (del>=0 && inv) del = !del;
+            }
+            while (*ep==' ') ep++;
+            keys->item[ii] = ep;
+         }
+         if (del) {
+            if (del<0) log_printf("bad cond. in \"%s\" in [%s]\n", ep, menu);
+            str_delentry(keys, ii);
+            str_delentry(values, ii);
+            continue;
+         }
+      }
+      ii++;
+   }
+
    if (!keys->count) { free(keys); free(values); return 0; }
 
    vio_getmode(0,&lines);
@@ -473,6 +531,8 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
 
    strncpy(menu_title, menu, sizeof(menu_title));
    menu_title[sizeof(menu_title)-1] = 0;
+   // try to fix position to horz. line
+   while (strcmp(keys->item[selected-1],"-")==0 && selected<keys->count) selected++;
 
    vio_clearscr();
    DrawMenuTop(1);

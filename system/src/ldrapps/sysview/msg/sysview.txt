@@ -11,7 +11,7 @@ Common key sequences:
  * Alt-X  / Ctrl-W - exit from app
 
 Also note, that Ctrl-E/S/D/X acts as arrow keys in Turbo Vision, this
-may help in terminal session.
+may help in the terminal session.
 
 .topic about_this_file=2
 This file requires Borland C++ tvhc.exe to compile Ü
@@ -19,6 +19,57 @@ This file requires Borland C++ tvhc.exe to compile Ü
 
 It is not supplied with QSINIT, because this is temporary, first time
 help implementation.
+
+.topic KernName=2000
+ Kernel file name Ü
+  ßßßßßßßßßßßßßßßßß
+Type kernel file name here directly or press "Select" to list mounted volumes.
+
+Note, that missing path here means the root of boot volume, as well as "a:\".
+
+.topic KernOptions=2001
+ OS/2 boot options Ü
+  ßßßßßßßßßßßßßßßßßß
+"Preload BASEDEV" - (OS/4, >=2075) preload all files for BASEDEV boot stage
+before starting to launch them (as Windows do).
+
+"Edit CONFIG.SYS" - (OS/4) invoke embedded CONFIG.SYS editor during kernel startup.
+
+"No logo" - do not show the kernel logo.
+
+"No revision" - hide kernel revision string.
+
+"Use OS2LDR.MSG" - use OS2LDR.MSG file instead of embedded messages.
+
+"View memory" - open memory editor just before starting of kernel (when it
+loaded and ready to launch).
+
+"No AF alignment" - turn OFF Advanced Format aligning for the disk i/o. By
+default most of long i/o ops are aligned to 4k (until IDE/SATA driver).
+
+"Reset MTRR" - reset MTRR regisers to state before QSINIT was loaded.
+
+.topic KernImport=2017
+ Import kernel file Ü
+  ßßßßßßßßßßßßßßßßßßß
+To use this feature you should pack kernel files into REV_ARCH.ZIP file
+and then put it into the root of boot drive.
+
+This ZIP will be loaded by pressing "Imp[ort]" button and any file in it
+can be selected as a kernel for current boot.
+
+This option is available for intensive testing of a large number of different
+kernel files. 
+
+ZIP file name can be overridden by REV_ARCH_PATH environment variable.
+
+.topic KernMemLimit=2018
+ Memory limit for OS/2 Ü
+  ßßßßßßßßßßßßßßßßßßßßßß
+Limit available memory for OS/2 to specified value in Mb.
+Value >=16 & less than total available memory below 4Gb.
+
+Warp 3 kernels are always limited to <=1Gb, even without this parameter.
 
 .topic RunExecute=2029
  System³Run Ü    (F4)
@@ -50,7 +101,7 @@ View internal QSINIT log.
 Log saved in cycled buffer with 64-256kb size, and sorted by time. Output
 can be slightly different in compare with COM port logging.
 
-Also, output can be distorted if you changed system time by the "time" command.
+Also, output can be distorted if you changed the system time via "time" command.
 
 .topic PowerOff=2031
  System³Power off Ü
@@ -74,12 +125,12 @@ Read Intel/AMD CPU manuals for details about every marked feature.
   ßßßßßßßßßßßßßßßß
 Save internal QSINIT log to a file.
 
-Remember - drive B: is a QSINIT virtual memory drive.
+Remember - drive B: is QSINIT virtual memory drive.
+
+Drive A: is a boot volume (during FAT boot it is writable too).
 
 To save log on real disk use "mount" command in shell to mount physical
 FAT/FAT32/exFAT partition to drive letters C:..J:
-
-During FAT boot drive A: is accessible too - this is boot partition.
 
 .topic MBRCode=2035
  Disk³MBR code Ü
@@ -306,7 +357,7 @@ shell.
 Shell invoked by F3 key from boot time menu, or type "cmd" in
 {run dialog:RunExecute} in this program.
 
-Full shell command list available by single "help" command.
+Full shell command list is available via single "help" command.
 
 .topic ViewAsBPB=2070
  Disk³View as Boot sector Ü    (Ctrl-F3)
@@ -389,7 +440,7 @@ check should start on system boot.
 * "Create primary" - create primary partition on selected free space
 
 * "Boot OS/2" - boot OS/2 kernel from this partition without using bootstrap
-code. Option available for HPFS only.
+code. Option available for HPFS and JFS only.
 
 * "Sector view" - opens disk editor window on one of known sectors on
 partition`s filesystem / on first sector of free space.
@@ -414,7 +465,7 @@ partition action list.
 .topic DmgrDiskAction=2078
  Disk actions Ü
   ßßßßßßßßßßßßß
-This list contain actions on entire disk. Be cafrefully with all of it:
+This list contain actions on entire disk. Be careful with any of this:
 
 * "Boot" - boot MBR code of this disk
 
@@ -429,21 +480,21 @@ only if exist empty disk of appropriate size.
 * "Init disk" - initialize MBR on empty disk (i.e. prepare it to use).
 This action can optionally write LVM signature.
 
-* "Init disk (GPT)" - write GPT partition table to empty disk (GPT is not
+* "Init disk (GPT)" - write GPT partition table to the empty disk (GPT is not
 supported by OS/2, but QSINIT can operate it).
 
 * "Replace MBR code" - replace MBR code to provided by QSINIT. This code is
 compatible with OS/2 boot. Option is available for GPT disks too.
 
 * "Restore MBR backup" - restore partition structure from backup image file. Option
-available only when disk is empty, i.e. MBR destroyd (sector have no 55 AA signature).
+available only when disk is empty, i.e. MBR destroyed (sector have no 55 AA signature).
 
-* "Update LVM info" - update LVM info (option available only when LVM tables
-have one or more correctable errors).
+* "Update LVM info" - update LVM info (option available only when LVM data
+has one or more correctable errors).
 
 * "Save MBR backup" - save partition structure to VHDD image file. This file can
 be used to restore it (when MBR will be damaged). File also can be mounted by
-VHDD shell command as QSINIT common disk.
+VHDD shell command as a QSINIT common disk.
 
 * "Wipe disk" - wipe partition table (ENTIRE DISK!)
 
@@ -564,9 +615,9 @@ partition.
 To change disk just type A: or B: (and so on) in file name`s edit line.
 This is QSINIT internal drive letter, not OS/2.
 
-* A: - boot partition (FAT/FAT32/exFAT, HPFS is read-only, file i/o on JFS is not supported)
+* A: - boot partition (FAT/FAT32/exFAT - writeable, HPFS and JFS - read-only)
 
-* B: - small ram disk with QSINIT apps (contents of QSINIT.LDI archive)
+* B: - virtual disk with QSINIT apps (contents of QSINIT.LDI archive)
 
 * C:..J: - available to mount (use disk management dialog or MOUNT command)
 
@@ -579,7 +630,7 @@ You can select code page from a short list of supported by QSINIT here.
 
 Code page affects on some things over system:
 
-* long names with national symbols (chr codes > 127) on FAT volumes. These
+* file names with national symbols (chr codes > 127) on FAT and JFS volumes. These
 files unaccessible without codepage selected.
 
 * HPFS format. Without code page selection, HPFS format assumes page 850 (which
@@ -636,6 +687,45 @@ the IBM`s attempt to resolve drive letter conflicts, not sure is it used at all.
 * "Boot manager" - volume/partition is on the Boot Manager Menu. Note, that
 this option is only a flag in LVM information record, you need to update the
 Boot Manager to include this partition into its list.
+
+.topic KernLogSize=2140
+ OEMHLP log size Ü
+  ßßßßßßßßßßßßßßßß
+Set log size for the resident part of the loader, in kb. This value
+will rounded down to nearest 64k.
+
+Boot log is available on OS/2 user level:
+
+"copy ___hlp$ boot.log"  - with ACPI.PSD running
+
+"copy oemhlp$ boot.log"  - without ACPI.PSD
+
+.topic KernConfigExt=2141
+ Change CONFIG.SYS extension Ü
+  ßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+Use CONFIG.EXT file instead of CONFIG.SYS. File must be placed
+in the root directory. EXT - extension, up to 3 chars.
+
+.topic KernBatchName=2142
+ Call batch file Ü
+  ßßßßßßßßßßßßßßßß
+Call QSINIT batch file just before starting the kernel.
+
+Batch file name must be a fully qualified path in QSINIT! I.e. A:\BATCH.CMD
+(boot disk), or C:\dir1\batch.cmd (from a mounted volume). "View memory" (if
+specified) will be called just after and then kernel will be launched.
+
+At this time kernel is loaded and fixuped in final memory location, but QSINIT
+still fully functional. This is possible because QSINIT never touches kernel
+memory areas.
+
+.topic KernLogLevel=2143
+ Log level Ü
+  ßßßßßßßßßß
+Maximum level of QSINIT log messages to copy to OS/2 kernel log. By
+default - messages are not copied at all.
+
+You should set log size too to use this option.
 
 .topic SesNew=2144
  System|New session Ü

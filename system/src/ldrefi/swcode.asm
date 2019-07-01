@@ -158,6 +158,9 @@ xcpt64entry     proc    near
                 mov     ds,ax                                   ; allocated by 64-bit part
                 mov     es,ax                                   ;
 
+                xor     ax,ax                                   ;
+                mov     fs,ax                                   ;
+                mov     gs,ax                                   ;
 ;                mov     eax,cr4                                 ;
 ;                mov     ecx,_syscr4                             ;
 ;                or      ecx,eax                                 ;

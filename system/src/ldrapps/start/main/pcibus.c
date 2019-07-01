@@ -10,26 +10,28 @@
 static u32t num_buses = 0;
 static u8t *funcmask  = 0;     ///<256 * 32 array of bits for function presence
 
-static void pci_devdump(u8t bus, u8t slot, u8t func) {
+static void pci_devdump(printf_function pfn, u8t bus, u8t slot, u8t func) {
    u32t  buf[4];
    int    ii;
-   log_it(3, "pci %02X:%02X.%d config space:\n", bus, slot, func);
+   if (pfn==0) pfn = log_printf;
+   pfn("pci %02X:%02X.%d config space:\n", bus, slot, func);
    for (ii=0; ii<64; ii++) {
       buf[ii&3] = hlp_pciread(bus, slot, func, ii<<2, 4);
-      if ((ii&3)==3) log_it(3,"%03X: %16b\n", (ii&~3)<<2, &buf);
+      if ((ii&3)==3) pfn("%03X: %16b\n", (ii&~3)<<2, &buf);
    }
 }
 
 // do not use max values here for debug reason
-void _std log_pcidump(void) {
+void _std log_pcidump(printf_function pfn) {
    u32t bus, slot, func;
    log_it(3, "all 256 buses scan can take a minutes on old PCs!\n");
+   if (pfn==0) pfn = log_printf;
    for (bus=0; bus<256; bus++)
       for (slot=0; slot<32; slot++)
          for (func=0; func<8; func++) {
             if (hlp_pciread(bus,slot,func,PCI_CLASS_REV,4) == 0xFFFFFFFF)
                continue;
-            pci_devdump(bus, slot, func);
+            pci_devdump(pfn, bus, slot, func);
 
             if (func == 0)
                if ((hlp_pciread(bus,slot,func,PCI_HEADER_TYPE,1)&0x80) == 0)
@@ -41,10 +43,10 @@ static void init_enum(void) {
    static int processing = 0;
    mt_swlock();
    // simultaneous init call from different threads?
-   if (processing) { 
+   if (processing) {
       mt_swunlock();
       while (processing) usleep(32000);
-      return; 
+      return;
    } else {
       u32t bus, slot, func;
       u32t scan_all = sto_dword(STOKEY_PCISCAN),
@@ -56,7 +58,7 @@ static void init_enum(void) {
       mem_zero(funcmask);
       // ask PCI BIOS
       if (!scan_all) max_bus = (hlp_querybios(QBIO_PCI)>>8&0xFF) + 1;
-      
+
       for (bus=0; bus<max_bus; bus++)
          for (slot=0; slot<32; slot++)
             for (func=0; func<8; func++) {
@@ -65,7 +67,7 @@ static void init_enum(void) {
                // update max values
                funcmask[bus<<5|slot]|=1<<func;
                if (rc<=bus) rc = bus+1;
-      
+
                if (func == 0)
                   if ((hlp_pciread(bus,slot,func,PCI_HEADER_TYPE,1)&0x80) == 0)
                      break;
@@ -326,4 +328,9 @@ u32t  _std hlp_pciatoloc(const char *str, pci_location *dev) {
       }
    }
    return PCILOC_ERROR;
+}
+
+u32t _std hlp_pcimaxbus(void) {
+   if (!num_buses) init_enum();
+   return num_buses ? num_buses-1 : num_buses;
 }

@@ -28,6 +28,7 @@ u32t         vmem_addr =  0, // final detected/forced memory address
              vmem_size =  0;
 vio_handler      *cvio =  0;
 int          in_native =  0;   /// native console mode active (vh_vio)
+u32t    setmode_locked =  0;
 
 platform_setmode     pl_setmode = 0;
 platform_setmodeid pl_setmodeid = 0;
@@ -205,7 +206,63 @@ u32t __stdcall con_setmode(u32t x, u32t y, u32t flags) {
    return pl_setmode(x,y,flags);
 }
 
-int _std con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey) {
+con_mode_info* _std con_gmlist(void) {
+   con_mode_info *rc = 0;
+   u32t      ii, idx;
+
+   rc = (con_mode_info*)malloc_th(sizeof(con_mode_info)*mode_cnt + 4);
+   mem_zero(rc);
+   /* mode_cnt can grow by "emulated" modes only - so it is safe to lock MT
+      after malloc() */
+   mt_swlock();
+
+   for (ii=0, idx=0; ii<mode_cnt; ii++) {
+      modeinfo  *ci = modes[ii];
+
+      if ((ci->flags&CON_EMULATED)==0) {
+         con_mode_info *mi = rc+idx;
+
+         mi->size    = sizeof(con_mode_info);
+         mi->mx      = ci->width;
+         mi->my      = ci->height;
+         mi->mode_id = ii+1;
+         if ((ci->flags&CON_GRAPHMODE)==0) {
+            mi->pitch   = mi->mx<<1;
+         } else {
+            mi->pitch   = ci->mempitch;
+            mi->bits    = ci->bits;
+            mi->flags   = VMF_GRAPHMODE|(ci->bits==8?VMF_VGAPALETTE:0);
+            mi->rmask   = ci->rmask;
+            mi->gmask   = ci->gmask;
+            mi->bmask   = ci->bmask;
+            mi->amask   = ci->amask;
+         }
+         idx++;
+      }
+   }
+   mt_swunlock();
+
+   // realloc output buffer to smaller size
+   if (idx<mode_cnt)
+      rc = (con_mode_info*)realloc(rc, sizeof(con_mode_info)*idx + 4);
+   // change owner to process
+   mem_localblock(rc);
+
+   return rc;
+}
+
+qserr _std con_exitmode(u32t modeid) {
+   qserr rc = E_CON_BADMODEID;
+   mt_swlock();
+   if (modeid) {
+      rc = pl_setmodeid(modeid-1)?0:E_CON_MODERR;
+      if (!rc) setmode_locked = modeid;
+   }
+   mt_swunlock();
+   return rc;
+}
+
+int con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey) {
    u32t   charx, chary, ii;
    modeinfo        *mi;
    int            midx;
@@ -282,7 +339,8 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                       cmid = 0;
          se_sysdata    *sd = 0;
          dq_list       lst = NEW(dq_list);
-         int       current = -1;
+         int       current = -1,
+                   ioredir = !isatty(fileno(stdout));
 
          while (mp->size) {
             lst->add((u64t)mp->my<<48|(u64t)mp->mx<<32|(mp->mode_id&0xFFFF)<<16
@@ -322,15 +380,18 @@ u32t _std con_handler(const char *cmd, str_list *args) {
             if (current<0 && (cmid && (va>>16&0xFFFF)==cmid || !cmid &&
                sesx==mi->mx && sesy==mi->my)) current = 1;
             // print with pause
-            if (cmd_printseq(ANSI_LGREEN "%c" ANSI_RESET
-               "%4u |%4u ³ %3ux%-3u³ %4u  %s", 0, 0,
-                  current>0 ? '\x1A' : ' ', mi->mx, mi->my,
-                     mi->fontx, mi->fonty, (u32t)va>>16, etext))
-                        { rc = EINTR; break; }
+            if (cmd_printseq("%s%4u |%4u ³ %3ux%-3u³ %4u  %s", 0, 0,
+               current>0 ? (ioredir? "*" : ANSI_LGREEN "\x1A" ANSI_RESET) : " ", 
+                  mi->mx, mi->my, mi->fontx, mi->fonty, (u32t)va>>16, etext))
+                     { rc = EINTR; break; }
             if (current>0) current = 0;
          }
          DELETE(lst);
          vio_setansi(svstate);
+      } else
+      if (stricmp(fp,"RESET")==0) {
+         vio_resetmode();
+         rc = 0;
       } else
       if (stricmp(fp,"SELECT")==0) {
          qs_extcmd  ec = NEW(qs_extcmd);
@@ -407,13 +468,13 @@ u32t _std con_handler(const char *cmd, str_list *args) {
          if (verbose>0) {
             out = sprintf_dyn(
                " Available graphic modes:\n"
-               " ÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ\n"
-               " ## ³  mode size  ³bits³    red   ³   green  ³   blue   ³  alpha   \n"
-               " ÄÄÄÅÄÄÄÄÄÄÂÄÄÄÄÄÄÅÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄ\n");
+               " ÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄ\n"
+               " ## ³  mode size  ³bits³    red   ³   green  ³   blue   ³  alpha   ³ pitch \n"
+               " ÄÄÄÅÄÄÄÄÄÄÂÄÄÄÄÄÄÅÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄ\n");
             for (ii=0, cnt=0; ii<mode_cnt; ii++) {
                modeinfo *mi = modes[ii];
                if ((mi->flags&CON_GRAPHMODE)!=0) {
-                  char rgbuf[64], *pl;
+                  char rgbuf[96], *pl;
                   if (mi->bits>8) {
                      int pos;
                      if (mi->bits>16) {
@@ -425,12 +486,13 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                            mi->rmask, mi->gmask, mi->bmask);
                         if (mi->amask) sprintf(rgbuf + pos, "    %04X", mi->amask);
                      }
+                     if (!mi->amask) strcat(rgbuf, "        ");
                   } else
-                     strcpy(rgbuf,"         ³          ³          ³");
+                     strcpy(rgbuf,"         ³          ³          ³         ");
 
                   // print with pause
-                  pl = sprintf_dyn("%3u ³%5u |%5u ³ %2u ³ %s\n", ++cnt,
-                     mi->width, mi->height, mi->bits, rgbuf);
+                  pl = sprintf_dyn("%3u ³%5u |%5u ³ %2u ³ %s ³%5u\n", ++cnt,
+                     mi->width, mi->height, mi->bits, rgbuf, mi->mempitch);
                   out = strcat_dyn(out, pl);
                   free(pl);
                }

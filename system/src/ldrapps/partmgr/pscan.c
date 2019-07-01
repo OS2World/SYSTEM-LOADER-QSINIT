@@ -68,7 +68,8 @@ static struct Disk_GPT *read_hdr2(u32t disk, u64t pos) {
 static u32t scan_gpt(hdd_info *drec) {
    struct Disk_GPT *pt;
    char        guidstr[40];
-   u32t          stype, recinsec;
+   u32t          stype, recinsec, crc;
+   int        table_ok = 0;
    // buffers for both headers
    drec->ghead  = (struct Disk_GPT *)mem_allocz(memOwner, memPool, MAX_SECTOR_SIZE);
    drec->ghead2 = (struct Disk_GPT *)mem_allocz(memOwner, memPool, MAX_SECTOR_SIZE);
@@ -94,11 +95,28 @@ static u32t scan_gpt(hdd_info *drec) {
       log_it(3, "misaligned GPT?\n");
       drec->gpt_sectors++;
    }
+   // viewable index for GPTs 
+   drec->gpt_index = (u32t*)mem_alloc(memOwner, memPool, drec->gpt_size*4);
+   memset(drec->gpt_index, 0xFF, drec->gpt_size*4);
+   // allocate and read partition data
+   drec->ptg = (struct GPT_Record*)mem_alloc(memOwner, memPool,
+      sizeof(struct GPT_Record) * pt->GPT_PtCout);
+   if (!drec->ptg) return E_PTE_GPTLARGE; else {
+      mem_zero(drec->ptg);
 
+      table_ok = hlp_diskread(drec->disk, pt->GPT_PtInfo, drec->gpt_sectors,
+                              drec->ptg) == drec->gpt_sectors;
+      if (!table_ok) {
+         log_it(0, "GPT records read error!\n");
+         mem_zero(drec->ptg);
+      }
+   }
    // read header #2
    if (pt->GPT_Hdr2Pos && pt->GPT_Hdr2Pos!=FFFF64) {
-      if (pt->GPT_Hdr2Pos >= drec->info.TotalSectors) return E_PTE_GPTHDR;
-
+      if (pt->GPT_Hdr2Pos >= drec->info.TotalSectors) {
+         log_it(0, "GPT header #2 position error (%LX>%LX)!\n", pt->GPT_Hdr2Pos, drec->info.TotalSectors);
+         return E_PTE_GPTHDR;
+      }
       stype = dsk_sectortype(drec->disk, pt->GPT_Hdr2Pos, (u8t*)drec->ghead2);
       if (stype != DSKST_GPTHEAD) {
          log_it(0, "GPT header #2 error (%u)!\n", stype);
@@ -113,35 +131,25 @@ static u32t scan_gpt(hdd_info *drec) {
       } else
          if (drec->ghead2->GPT_PtInfo <= pt->GPT_UserLast) return E_PTE_GPTHDR2;
    }
-   // allocate and read partition data
-   drec->ptg = (struct GPT_Record*)mem_alloc(memOwner, memPool,
-      sizeof(struct GPT_Record) * pt->GPT_PtCout);
-   
-   if (!drec->ptg) return E_PTE_GPTLARGE; else {
-      u32t   crc;
-      // unable to read first header, use second
-      if (hlp_diskread(drec->disk, pt->GPT_PtInfo, drec->gpt_sectors,
+   if (!table_ok) {
+      // header #2 available?
+      if (!drec->ghead2) return E_DSK_ERRREAD;
+      // unable to read partition records?
+      if (hlp_diskread(drec->disk, drec->ghead2->GPT_PtInfo, drec->gpt_sectors,
          drec->ptg) != drec->gpt_sectors)
-      {
-         log_it(0, "GPT records read error!\n");
-         mem_zero(drec->ptg);
-         // header #2 available?
-         if (!drec->ghead2) return E_DSK_ERRREAD;
-         // unable to read partition records?
-         if (hlp_diskread(drec->disk, drec->ghead2->GPT_PtInfo, drec->gpt_sectors,
-            drec->ptg) != drec->gpt_sectors) return E_DSK_ERRREAD;
+      {   
+         log_it(0, "Error readind table 2 (sector %LX)!\n", drec->ghead2->GPT_PtInfo);
+         return E_DSK_ERRREAD;
       }
-      // check crc32, but ignore it
-      crc = crc32(0,0,0); 
-      crc = crc32(crc, (u8t*)drec->ptg, sizeof(struct GPT_Record) * pt->GPT_PtCout);
-
-      if (pt->GPT_PtCRC != crc)
-         log_it(2, "GPT records CRC mismatch: %08X instead of %08X!\n", crc,
-            pt->GPT_PtCRC);
-      // viewable index for GPTs 
-      drec->gpt_index = (u32t*)mem_alloc(memOwner, memPool, drec->gpt_size*4);
-      memset(drec->gpt_index, 0xFF, drec->gpt_size*4);
    }
+   // check crc32, but ignore it
+   crc = crc32(0,0,0); 
+   crc = crc32(crc, (u8t*)drec->ptg, sizeof(struct GPT_Record) * pt->GPT_PtCout);
+
+   if (pt->GPT_PtCRC != crc)
+      log_it(2, "GPT records CRC mismatch: %08X instead of %08X!\n", crc,
+         pt->GPT_PtCRC);
+   
    return 0;      
 }
 
@@ -247,7 +255,7 @@ static u32t scan_disk(hdd_info *drec) {
                      drec->gpt_present++;
                   }
                   // too low partition?
-                  if (rec->PTE_LBAStart<drec->lvm_spt) drec->non_lvm = 1;
+                  if (rec->PTE_LBAStart<16) drec->non_lvm = 1;
                   // remember lowest LBA value for DLAT searching
                   if (lowestLBA && rec->PTE_LBAStart<lowestLBA || !lowestLBA)
                      lowestLBA = rec->PTE_LBAStart;
@@ -280,7 +288,7 @@ static u32t scan_disk(hdd_info *drec) {
                   if (ofs) ofs++;
                   break;
             }
-            if (!ofs || ii && lowestLBA && lowestLBA<ofs) break;
+            if (!ofs || ii && lowestLBA && lowestLBA<ofs) continue;
 
             if (hlp_diskread(drec->disk, offset + ofs - 1, 1, pt_buffer)) {
                DLA_Table_Sector *dlat = (DLA_Table_Sector *)&pt_buffer;
@@ -734,8 +742,10 @@ static void scan_disk_mt(hdd_info *drec) {
       ctd.size      = sizeof(mt_ctdata);
       ctd.stacksize = _64KB;
       ctd.pid       = 1;
-
-      service_tid = mtlib->thcreate(scan_thread, MTCT_NOFPU/*|MTCT_NOTRACE*/, &ctd, 0);
+      /* create thread with session 0, else it will have caller`s session!!!
+         such case is very bad, because "lost session" may remain on the
+         screen until thread exit (45 seconds!) */
+      service_tid = mtlib->thcreate(scan_thread, MTCT_NOFPU|MTCT_DETACHED, &ctd, 0);
       // just panic, should never occurs
       if (!service_tid) _throwmsg_("partmgr: scan thread start error!");
    }
@@ -821,7 +831,8 @@ void remove_hooks(void) {
 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
-   int  verbose = 0, force = 0;
+   int  verbose = 0, force = 0,
+        ioredir = !isatty(fileno(stdout));
    u32t      ii;
    if (args->count>=pos+1) {
       static char *argstr   = "force|/v";
@@ -868,9 +879,9 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
             } else {
                stext = "    no info";
             }
-            if (shellprn(verbose?" %cDD %i =>%-4s: \x1B[1;37m%s\x1B[0m %s":
-               " %cDD %i =>%-4s: %s", dsk&QDSK_FLOPPY?'F':'H', 
-                  dsk&QDSK_DISKMASK, dskname, stext, sizebuf)) break;
+            if (shellprn(verbose?" %cDD %i =>%-4s: %s%s%s %s":" %cDD %i =>%-4s: %s%s%s",
+               dsk&QDSK_FLOPPY?'F':'H', dsk&QDSK_DISKMASK, dskname, ioredir?"":ANSI_WHITE,
+                  stext, ioredir?"":ANSI_RESET, sizebuf)) break;
             if (verbose) {
                disk_geo_data ldata;
                qs_extdisk     edsk;
@@ -926,10 +937,10 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
             strcat(lvmname,lvmi.Name);
             strcat(lvmname,">");
          }
-         out = sprintf_dyn(ANSI_WHITE " %s %i: %s (%LX sectors), %d partition%s%s"
-            ANSI_RESET "\n", disk&QDSK_FLOPPY?"Floppy disk":"HDD", disk&QDSK_DISKMASK,
-               stext, hi->info.TotalSectors, hi->gpt_view, hi->gpt_view==1?"":"s",
-                  lvmname);
+         out = sprintf_dyn("%s %s %i: %s (%LX sectors), %d partition%s%s%s\n",
+            ioredir?"":ANSI_WHITE, disk&QDSK_FLOPPY?"Floppy disk":"HDD",
+               disk&QDSK_DISKMASK, stext, hi->info.TotalSectors, hi->gpt_view,
+                  hi->gpt_view==1?"":"s", lvmname, ioredir?"":ANSI_RESET);
 
          switch (hi->scan_rc) {
             case E_DSK_ERRREAD:
@@ -947,8 +958,10 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
             default :
                if (hi->scan_rc) {
                   char *err = make_errmsg(hi->scan_rc, "Scan error");
+                  out = strcat_dyn(out, ANSI_LRED " ");
                   out = strcat_dyn(out, err);
                   free(err);
+                  out = strcat_dyn(out, ANSI_RESET "\n");
                }
                break;
          }

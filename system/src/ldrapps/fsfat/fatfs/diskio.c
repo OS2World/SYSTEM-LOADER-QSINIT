@@ -21,7 +21,9 @@ DSTATUS disk_initialize(BYTE drv) {
 
 // Return Disk Status
 DSTATUS disk_status(BYTE drv) {
-   return drv>=DISK_COUNT?STA_NOINIT:0;
+   if (!_extvol || drv>=DISK_COUNT) return STA_NOINIT;
+
+   return _extvol[drv].flags&VDTA_RO ? STA_PROTECT : 0;
 }
 
 DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
@@ -54,20 +56,15 @@ DRESULT disk_read(BYTE drv, BYTE *buff, DWORD sector, UINT count) {
    if (!buff   ) return RES_PARERR;
    if (!_extvol) return RES_NOTRDY;
    //log_it(2,"disk_read(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
-   if (drv==DISK_LDR) {
-      return hlp_diskread(drv|QDSK_VOLUME, sector, count, (void*)buff)==count?
-         RES_OK:RES_ERROR;
-   } else {
-      if (drv<DISK_COUNT) {
-         vol_data *vdta = _extvol + drv;
-         DRESULT    res = RES_OK;
-         mt_swlock();
-         if (drv&&!vdta->flags) res = RES_NOTRDY; else
+   if (drv<DISK_COUNT) {
+      vol_data *vdta = _extvol + drv;
+      DRESULT    res = RES_OK;
+      mt_swlock();
+      if (drv&&!vdta->flags) res = RES_NOTRDY; else
          if (hlp_diskread(vdta->disk|QDSK_IGNACCESS, vdta->start+sector,
             count, (void*)buff) != count) res = RES_ERROR;
-         mt_swunlock();
-         return res;
-      }
+      mt_swunlock();
+      return res;
    }
    return RES_ERROR;
 }
@@ -77,20 +74,16 @@ DRESULT disk_write(BYTE drv, const BYTE *buff, DWORD sector, UINT count) {
    if (!buff   ) return RES_PARERR;
    if (!_extvol) return RES_NOTRDY;
    //log_it(2,"disk_write(%d,%x,%d,%d)\n",(DWORD)drv,buff,sector,(DWORD)count);
-   if (drv==DISK_LDR) {
-      return hlp_diskwrite(drv|QDSK_VOLUME, sector, count, (void*)buff)==count?
-         RES_OK:RES_ERROR;
-   } else {
-      if (drv<DISK_COUNT) {
-         vol_data *vdta = _extvol + drv;
-         DRESULT    res = RES_OK;
-         mt_swlock();
-         if (drv&&!vdta->flags) res = RES_NOTRDY; else
-         if (hlp_diskwrite(vdta->disk|QDSK_IGNACCESS, vdta->start+sector,
-            count, (void*)buff) != count) res = RES_ERROR;
-         mt_swunlock();
-         return res;
-      }
+   if (drv<DISK_COUNT) {
+      vol_data *vdta = _extvol + drv;
+      DRESULT    res = RES_OK;
+      mt_swlock();
+      if (drv&&!vdta->flags) res = RES_NOTRDY; else
+         if (vdta->flags&VDTA_RO) res = RES_WRPRT; else
+           if (hlp_diskwrite(vdta->disk|QDSK_IGNACCESS, vdta->start+sector,
+              count, (void*)buff) != count) res = RES_ERROR;
+      mt_swunlock();
+      return res;
    }
    return RES_ERROR;
 }

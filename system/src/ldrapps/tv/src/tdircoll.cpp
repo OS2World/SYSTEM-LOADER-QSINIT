@@ -42,7 +42,7 @@ Boolean driveValid(char drive) {
    return Boolean(!DosQueryFSInfo(drive - '@', FSIL_ALLOC, &a, sizeof(a)));
 #elif defined(__NT__)
    DWORD mask = 0x01 << (drive - 'A');
-   return (Boolean)(GetLogicalDrives() & mask);
+   return GetLogicalDrives() & mask ? True : False;
 #elif defined(__QSINIT__)
    return (Boolean)(io_ismounted(drive - 'A', 0));
 #else

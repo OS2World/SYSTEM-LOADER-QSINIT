@@ -6,6 +6,7 @@
 #define QSINIT_EXTMEMMGR
 
 #include "qstypes.h"
+#include "stddef.h"
 
 /// @name mem_setopts() Flags
 //@{
@@ -71,7 +72,10 @@ u32t  _std mem_freepool  (long owner, long pool);
     @return number of freed blocks */
 u32t  _std mem_freeowner (long owner);
 
-void  _std mem_dumplog   (const char *title);
+/** prints entire heap block list.
+    @param  pfn           printf function for the dump, use 0 for log_printf()
+    @param  title         title string, can be 0 */
+void  _std mem_dumplog   (printf_function pfn, const char *title);
 int   _std mem_checkmgr  ();
 
 /// print short statistic. Warning!! it gets ~1kb in stack

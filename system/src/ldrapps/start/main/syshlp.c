@@ -810,6 +810,7 @@ u32t _std sys_isavail(u32t flags) {
       if (idbuf[3]&CPUID_FI2_SSE)   sflags|=SFEA_SSE1;
       if (idbuf[3]&CPUID_FI2_SSE2)  sflags|=SFEA_SSE2;
       if (idbuf[2]&CPUID_FI1_XSAVE) sflags|=SFEA_XSAVE;
+      if (idbuf[2]&CPUID_FI1_INVM)  sflags|=SFEA_INVM;
 
       family   = idbuf[0]>>8&0xF;
       model    = idbuf[0]>>4&0xF;
@@ -819,8 +820,8 @@ u32t _std sys_isavail(u32t flags) {
       cpu_lim8000 = idbuf[0];
 
       hlp_getcpuid(0,idbuf);
-       *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[3];
-       *((u32t*)idstr+2)=idbuf[2]; idstr[12]=0;
+      *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[3];
+      *((u32t*)idstr+2)=idbuf[2]; idstr[12]=0;
 
       if (strcmp(idstr,"GenuineIntel")==0) sflags|=SFEA_INTEL; else
       if (strcmp(idstr,"AuthenticAMD")==0) {
@@ -846,6 +847,31 @@ u32t _std sys_isavail(u32t flags) {
       if ((sflags&SFEA_INTEL) && family==6 && model==9 && (sflags&SFEA_PAE)==0)
          sflags|=SFEA_PAE;
 
+      if (sflags&SFEA_INVM) {
+         memset(&idbuf, 0, sizeof(idbuf));
+         hlp_getcpuid(0x40000000,idbuf);
+         if (idbuf[1]) {
+            *((u32t*)idstr+0)=idbuf[1]; *((u32t*)idstr+1)=idbuf[2];
+            *((u32t*)idstr+2)=idbuf[3]; idstr[12]=0;
+            log_it(3, "Hypervisor vendor string: %s\n", idstr);
+         }
+      } else
+      // detect VBox 4.x (it has no special bit in cpuid).
+      if (sys_acpiroot())
+         if (patch_binary((u8t*)sys_acpiroot()+8,8,1,"VBOX",4,0,0,0,0)==0)
+            sflags|=SFEA_INVM;
+      /* we have CMOV and have no LAPIC? this can be a Virtual PC, but also
+         this can be an old P2 with disabled LAPIC */
+      if ((sflags&(SFEA_INVM|SFEA_CMOV|SFEA_LAPIC))==SFEA_CMOV) {
+         _try_ {
+            __asm {  // VPC get time from host
+               db  0Fh, 3Fh, 3, 0
+            }
+            sflags|=SFEA_INVM;
+         }
+         _catch_(xcpt_all) {}
+         _endcatch_
+      }
       log_it(3, "SFEA_* = %08X (%u.%u.%u)\n", sflags, family, model, stepping);
    }
    return flags&sflags;
@@ -1089,9 +1115,8 @@ static void _std cm_restore(sys_eventinfo *info) {
 static int check_rsdp(u32t mem) {
    static const char *sig = "RSD PTR ";
    u8t *ptr = (u8t*)mem;
-   u32t  ii;
    if (!ptr) return 0;
-   if (!memcmp(ptr,sig,8)) {
+   if (*(u64t*)ptr==*(u64t*)sig) {
       u8t sum = 0, ii = 0;
       // check standard checksum only, this is well enough for us
       while (ii<ACPI_RSDP_LENGTH) sum += ptr[ii++];
@@ -1142,6 +1167,47 @@ u32t _std sys_queryinfo(u32t index, void *outptr) {
          return boot_info.boot_flags;
       case QSQI_TLSPREALLOC:
          return QTLS_MAXSYS+1;
+      case QSQI_CPUSTRING: {
+         static char idstr[50] = {0}, *cp;
+         u32t        idlen;
+         str_list    *flst;
+
+         if (!idstr[0]) {
+            u32t  dd[4], maxlevel = 0, ii;
+            if (hlp_getcpuid(0x80000000,dd)) maxlevel = dd[0];
+
+            if (maxlevel>=0x80000004) {
+               u32t level = 0x80000002;
+               cp  = idstr;
+               *cp = 0;
+               while (level<0x80000005) {
+                 hlp_getcpuid(level, dd);
+                 memcpy(cp+(level++-0x80000002)*16, dd, 16);
+               }
+               cp[48] = 0;
+               for (ii=0;ii<48;ii++)
+                  if (cp[ii]==0) cp[ii]=' ';
+               for (ii=48;ii>0;)
+                  if (cp[--ii]!=' ') break; else cp[ii]=0;
+               if (cp[0]==' ') {
+                  char *ps=cp;
+                  while (*ps==' ') ps++;
+                  ii=ps-cp;
+                  if (ii==48) *cp=0; else
+                     memmove(cp,ps,48-ii+1);
+               }
+            }
+            // clean multiple spaces inside of the name
+            flst = str_split(idstr, " ");
+            cp   = str_gettostr(flst, " ");
+            free(flst);
+            strncpy(idstr,cp,50); idstr[49] = 0;
+            free(cp);
+         }
+         idlen = strlen(idstr)+1;
+         if (outptr) memcpy(outptr, idstr, idlen);
+         return idlen;
+      }
    }
    return 0;
 }

@@ -75,10 +75,10 @@ outdir=$(bld_dir)\$(config).$(build_osc)
 [files]
 ..\..\hc\inc\qsconst.inc ..\..\hc\inc\cpudef.inc ..\..\hc\inc\parttab.inc
 ..\..\hc\inc\filetab.inc
-tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp diskio.c
+tvext\binedit.cpp diskedit.cpp diskfunc.cpp memview.cpp pdiskio.c
 tvext\tcolortx.cpp tvext\tinplong.cpp tvext\tcombo.cpp tvext\tnocstr.cpp
 tvext\calendar.cpp tvext\winlist.cpp tvext\calc.cpp info\seslist.cpp
-info\miscdlg.cpp info\diskdlg.cpp
+info\miscdlg.cpp info\diskdlg.cpp tvext\puzzle.cpp
 bootopt\kdlg.cpp bootopt\kdlgset.cpp bootopt\ldrdlg.cpp bootopt\opts.cpp
 bootopt\rundlg.cpp bootopt\zipload.cpp info\cpuinfo.cpp info\ptabdlg.cpp
 longedit.cpp editor.cpp info\helpwin.cpp info\bpbdlg.cpp info\diskact.cpp

@@ -279,8 +279,8 @@ static mt_sigcb _exicc cmt_setsignal(EXI_DATA, mt_sigcb cb)
 static qserr _exicc cmt_stop        (EXI_DATA, mt_pid pid, int tree, u32t result)
 {  return mod_stop(pid, tree, result); }
 
-static qserr _exicc cmt_checkpidtid (EXI_DATA, mt_pid pid, mt_tid tid)
-{  return mt_checkpidtid(pid, tid); }
+static qserr _exicc cmt_checkpidtid (EXI_DATA, mt_pid pid, mt_tid tid, u32t *state)
+{  return mt_checkpidtid(pid, tid, state); }
 
 static qserr _exicc cmt_tasklist    (EXI_DATA, u32t devmask)
 {  return se_tasklist(devmask); }
@@ -302,7 +302,7 @@ qserr new_session(str_list *args, u32t flags, u32t devlist, const char *taskname
       lptype = cmd_argtype(lp);
       if (lptype==ARGT_SHELLCMD || lptype==ARGT_BATCHFILE) {
          parms = sprintf_dyn(lptype==ARGT_BATCHFILE?" /c \"%s\"":" /c %s", lp);
-         cmd   = env_getvar("COMSPEC");
+         cmd   = env_getvar("COMSPEC", 0);
          strncpy(lp, cmd?cmd:"CMD.EXE", QS_MAXPATH);
          if (cmd) free(cmd);
          lp[QS_MAXPATH] = 0;
@@ -465,8 +465,6 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
          log_printf("unable to import APIs!\n");
          return 0;
       }
-      memset(&tasklists, 0, sizeof(tasklists));
-
       pxcpt_top   = mt_exechooks.mtcb_pxcpttop;
       // shared class for indirect import of MTLIB functions by side code
       classid     = exi_register("qs_mtlib", methods_list,

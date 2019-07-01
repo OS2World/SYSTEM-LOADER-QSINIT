@@ -86,6 +86,8 @@ IOCTLTable      label   word                                    ;
                 dw      FN_ERR                                  ; F - unsupported
                 dw      GET_DEVHLP_ADDR                         ;10 - return DevHlp address
                 dw      GET_MEM_INFO_EX                         ;11 - return extended memory info
+                dw      FN_ERR                                  ;12 - get video frame buffer
+                dw      LOG_WRITE                               ;13 - write to the log/debug port
 IOCTLTable_Size equ     $-offset IOCTLTable                     ;
 
 ;
@@ -179,6 +181,7 @@ SVGAInfo_s      ends                                            ;
 ScreenDDName    db      "SCREEN$ "                              ; name of PDD we communicate with
 SVGAInfo        SVGAInfo_s <NO_ADAPTER_SET,0,0100000h>          ;
 UNKNOWN_DISPLAY EQU     -1                                      ;
+VGA_COLOR       EQU     8                                       ;
 DisplayCode     db      UNKNOWN_DISPLAY                         ;
 DisplayMisc     db      0                                       ; Misc. state info
 
@@ -187,7 +190,8 @@ VGA_BIT         equ     8                                       ;
 MAX_FONTS       equ     6                                       ;
 FONT_SIZE       equ     4*MAX_FONTS
 
-FONT_TABLE      dd      0,0,0,0,0,0                             ;
+                public  FONT_TABLE                              ;
+FONT_TABLE      dd      0,0,0,0,0,0,0                           ;
 ;
 ; DBCS data GDT selectors list (6 words)
 ; ---------------------------------------------------------------
@@ -262,6 +266,7 @@ OEMHLPStrategy  proc    far                                     ;
                 shl     si,1                                    ;
                 push    es                                      ;
                 push    bx                                      ;
+                push    dx                                      ;
 if oemhlp_debug GT 1
                 dbg16print <"OEMHLP strat %x",10>,<ax>          ;
                 call    OEMHLPTable[si]                         ; process request
@@ -269,6 +274,7 @@ if oemhlp_debug GT 1
 else
                 call    OEMHLPTable[si]                         ; process request
 endif
+                pop     dx                                      ;
                 pop     bx                                      ;
                 pop     es                                      ;
 @@oemstrat_exit:
@@ -323,7 +329,7 @@ CopyDataPacket  proc   near
                 push    di                                      ;
                 mov     ax,word ptr es:[bx].GIODataPack+2       ; check cx bytes
                 mov     di,word ptr es:[bx].GIODataPack         ; data access.
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessW                                   ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 jc      @@ExitCDP                               ;
                 les     di,es:[bx].GIODataPack                  ;
@@ -409,7 +415,7 @@ GET_VIDEO_INFO  proc    near                                    ;
                 add     cx,3                                    ; dword parameter
 @@gvi_2:                                                        ;
                 mov     ax,word ptr es:[bx].GIODataPack+2       ; verify access
-                Dev_Hlp VerifyAccess
+                VerifyAccessW                                   ;
                 mov     ax,STERR+ERROR_I24_INVALID_PARAMETER    ;
                 jc      @@gvi_exit                              ; exit with error
 
@@ -485,14 +491,13 @@ GET_VIDEO_INFO  endp
 ;
 ; query font IOCTL routine
 ; ---------------------------------------------------------------
-                Public  GET_FONTS
 GET_FONTS       proc    near                                    ;
                 push    cx                                      ;
                 push    di                                      ;
                 mov     ax,word ptr es:[bx].GIODataPack+2       ; check access
                 mov     di,word ptr es:[bx].GIODataPack         ;
                 mov     cx,FONT_SIZE                            ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessW                                   ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 jc      @@qfnt_err                              ;
                 les     di,es:[bx].GIODataPack                  ;
@@ -515,26 +520,22 @@ GET_FONTS       endp
 ;
 ; DBCS services IOCTL routine
 ; ---------------------------------------------------------------
-                public  GET_DBCS_INFO                           ;
 GET_DBCS_INFO   proc    near                                    ;
-                push    bx                                      ;
                 push    cx                                      ;
-                push    dx                                      ;
                 push    di                                      ;
-                push    es                                      ;
                 cmp     word ptr es:[bx].GIOParaLen,4           ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 jnz     @@dbcsi_ret                             ;
                 mov     ax,word ptr es:[bx].GIOParaPack+2       ; check access
                 mov     di,word ptr es:[bx].GIOParaPack         ;
                 mov     cx,word ptr es:[bx].GIOParaLen          ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessR                                   ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 jc      @@dbcsi_ret                             ;
                 mov     ax,word ptr es:[bx].GIODataPack+2       ;
                 mov     di,word ptr es:[bx].GIODataPack         ;
                 mov     cx,word ptr es:[bx].GIODataLen          ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessW                                   ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 jc      @@dbcsi_ret                             ;
                 push    es                                      ;
@@ -562,11 +563,8 @@ endif
 @@dbcsi_noerr:
                 xor     ax, ax                                  ;
 @@dbcsi_ret:
-                pop     es                                      ;
                 pop     di                                      ;
-                pop     dx                                      ;
                 pop     cx                                      ;
-                pop     bx                                      ;
                 ret                                             ;
 GET_DBCS_INFO   endp                                            ;
 
@@ -653,7 +651,6 @@ DBCS_INT10VEC   endp                                            ;
 ;
 ; read log from user space (copy OEMHLP$ boot.log)
 ; ---------------------------------------------------------------
-                public  FN_LOGREAD
 FN_LOGREAD      proc    near                                    ;
                 xor     ax,ax                                   ;
                 push    esi                                     ;
@@ -721,7 +718,6 @@ FN_LOGREAD      endp                                            ;
 ;
 ; write text to log from user space (echo Hi!>OEMHLP$)
 ; ---------------------------------------------------------------
-                public  FN_LOGWRITE
 FN_LOGWRITE     proc    near                                    ;
                 xor     ax,ax                                   ;
                 pusha                                           ;
@@ -758,6 +754,40 @@ FN_LOGWRITE     proc    near                                    ;
 FN_LOGWRITE     endp
 
 ;
+; same as FN_LOGWRITE, but via ioctl
+; ---------------------------------------------------------------
+LOG_WRITE       proc    near                                    ;
+                mov     ax,word ptr es:[bx].GIOParaPack+2       ; check disk number byte
+                mov     di,word ptr es:[bx].GIOParaPack         ;
+                mov     cx,2                                    ;
+                VerifyAccessR
+                jc      @@logwr_fail                            ;
+                push    es                                      ;
+                les     di,es:[bx].GIOParaPack                  ;
+                mov     cx,word ptr es:[di]                     ; size to write
+                pop     es                                      ;
+                jcxz    @@logwr_done                            ;
+                mov     ax,word ptr es:[bx].GIODataPack+2       ; 
+                mov     di,word ptr es:[bx].GIODataPack         ; access to string
+                mov     si,cx                                   ;
+                VerifyAccessR                                   ;
+                jc      @@logwr_fail                            ;
+                mov     cx,si                                   ;
+                les     si,es:[bx].GIODataPack                  ;
+@@logwr_loop:
+                lods    byte ptr es:[si]                        ;
+                push    cs                                      ;
+                call    DHSerOut                                ;
+                loop    @@logwr_loop                            ;
+@@logwr_done:
+                xor     ax,ax                                   ;
+                ret                                             ;
+@@logwr_fail:
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                ret                                             ;
+LOG_WRITE       endp                                            ;
+
+;
 ; stub
 ; ---------------------------------------------------------------
 FN_NONDESRD     proc    near                                    ;
@@ -768,19 +798,16 @@ FN_NONDESRD     endp                                            ;
 ;
 ; PCI function select
 ; ---------------------------------------------------------------
-                public  PciCall                                 ;
 PciCall         proc    near                                    ;
                 push    di                                      ;
                 push    ecx                                     ;
                 push    ebx                                     ;
-                push    dx                                      ;
                 push    fs                                      ;
 
                 mov     ax,word ptr es:[bx].GIOParaPack+2       ;
                 mov     di,word ptr es:[bx].GIOParaPack         ;
                 mov     cx,PCI_PBI_PARM_SIZE                    ; verify packet
-                mov     dh,DHVA_ACCESS_READ                     ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessR                                   ;
                 jc      @@pcc_err                               ;
                 mov     fs,ax                                   ; read subfn
                 xor     eax,eax                                 ; check subfn number
@@ -795,7 +822,6 @@ if oemhlp_debug GT 2
                 dbg16print <"Leaving PciCall: rc %x",10>,<ax>   ;
 endif
                 pop     fs                                      ;
-                pop     dx                                      ;
                 pop     ebx                                     ;
                 pop     ecx                                     ;
                 pop     di                                      ;
@@ -825,8 +851,7 @@ VrfyPCIData     macro   DataSize
                 mov     @@selDataPack,ax                        ;
                 mov     @@offDataPack,di                        ;
                 mov     cx,DataSize                             ;
-                mov     dh,DHVA_ACCESS_WRITE                    ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessW                                   ;
                 endm
 
 ; verify parm packet accessibility
@@ -834,8 +859,7 @@ VrfyPCIParm     macro   ParmSize
                 mov     ax,@@selParmPack                        ;
                 mov     di,@@offParmPack                        ;
                 mov     cx,ParmSize                             ;
-                mov     dh,DHVA_ACCESS_READ                     ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessR                                   ;
                 endm
 ;
 ; PCI Bios Presence Check
@@ -1248,17 +1272,15 @@ endif ; oemhlp_walk > 0
                 public  QUERY_DISK_INFO                         ;
 QUERY_DISK_INFO proc    near                                    ;
                 push    ds                                      ;
-                mov     dh, DHVA_ACCESS_READ                    ;
                 mov     ax, word ptr es:[bx].GIOParaPack+2      ; check disk number byte
                 mov     di, word ptr es:[bx].GIOParaPack        ;
                 mov     cx, 1                                   ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessR                                   ;
                 jc      @@qdi_fail                              ;
                 mov     ax, word ptr es:[bx].GIODataPack+2      ; check out table buffer
                 mov     di, word ptr es:[bx].GIODataPack        ;
                 mov     cx, size EDDParmTable + size EDParmTable
-                mov     dh, DHVA_ACCESS_WRITE                   ;
-                Dev_Hlp VerifyAccess                            ;
+                VerifyAccessW                                   ;
                 jc      @@qdi_fail                              ;
                 push    ds                                      ;
                 lds     si, es:[bx].GIOParaPack                 ;
@@ -1365,7 +1387,7 @@ DI20:
                 mov     eax,External.MemPagesHi                 ;
                 mov     MEMORYEX_Data.MiHighPages,eax           ;
 
-                mov     ecx,External.LogBufSize                 ; map log buffer
+                mov     ecx,External.LogMapSize                 ; map log buffer
                 jecxz   @@DI_NoLogMap                           ; to linear address
                 shl     ecx,16                                  ;
                 push    edi                                     ;
@@ -1430,7 +1452,6 @@ IDENTIFY_MACHINE endp                                           ;
 ;
 ; GetVideoInfo - initialize display code and font table
 ; ---------------------------------------------------------------
-; This code practically a garbage, especially on Intel adapters
 ;
                 public  GetVideoInfo                            ;
 GetVideoInfo    proc    near                                    ;
@@ -1444,7 +1465,7 @@ GetVideoInfo    proc    near                                    ;
                 mov     ax,1B00h                                ;
                 xor     bx,bx                                   ;
                 int     10h                                     ;
-                mov     bl,UNKNOWN_DISPLAY                      ;
+                mov     bl,VGA_COLOR                            ;
                 cmp     al,1Bh                                  ; not supported?
                 jnz     @@gvi_noinfo                            ;
                 mov     bh,es:[di+2Dh]                          ;
@@ -1453,7 +1474,7 @@ GetVideoInfo    proc    near                                    ;
                 jz      @@gvi_noinfo                            ;
                 mov     bl,es:[di+25h]                          ;
 @@gvi_noinfo:
-                add     sp,0040H                                ; restore stack
+                add     sp,0040h                                ; restore stack
                 mov     DisplayCode,bl                          ;
                 mov     bl,8                                    ; get 6 fonts
                 mov     si,offset FONT_TABLE                    ;

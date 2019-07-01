@@ -3,11 +3,13 @@ rem   sys command
 rem --===========--
 
 if "%1".=="". goto about
-md 1:\boot.tmp
-pushd 1:\boot.tmp
+md b:\boot.tmp
+pushd b:\boot.tmp
 copy /boot /q QSINIT.LDI QSINIT.LDI
 copy /boot /q QSINIT QSINIT
 if not exist QSINIT copy /boot /q OS2LDR QSINIT
+if not exist QSINIT copy /q b:\OS2LDR QSINIT
+if not exist QSINIT copy /q b:\QSINIT QSINIT
 if not exist QSINIT goto read_err
 if not exist QSINIT.LDI goto read_err
 rem replace boot sector
@@ -23,7 +25,7 @@ if not exist %1\QSINIT goto err
 if not exist %1\QSINIT.LDI goto err
 attrib +r +s +h %1\QSINIT
 attrib +r +s +h %1\QSINIT.LDI
-rem delete IBM`s OS2BOOT if exist (it not required)
+rem delete IBM`s OS2BOOT if exist one (new FAT bootsector works without it)
 if not exist %1\OS2BOOT goto ready
 attrib -r -s -h %1\OS2BOOT
 del /qn /af %1\OS2BOOT
@@ -54,7 +56,7 @@ goto fini
 
 :about
 echo
-echo Install QSINIT to the FAT/FAT32 partition as BOOT FILE.
+echo Install QSINIT to the FAT/FAT32/exFAT volume as a BOOT FILE.
 echo
 echo Usage: sys.cmd drive:
 echo

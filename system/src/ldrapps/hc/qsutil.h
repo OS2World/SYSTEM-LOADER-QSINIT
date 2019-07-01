@@ -20,7 +20,7 @@ extern "C" {
 //@{
 /** Allocate unresizeable block until the end of work.
     Block cannot be freed. Available part of it (all blocks are rounded
-    up to 64k) will be used internally for small block heap */
+    up to 64k) will be used internally for a small block heap */
 #define QSMA_READONLY 0x001
 /// return 0 instead of immediate panic on block alloc failure
 #define QSMA_RETERR   0x002
@@ -29,12 +29,20 @@ extern "C" {
 /** allocated block will be released after process exit.
     This flag is ignored when used with QSMA_READONLY. */
 #define QSMA_LOCAL    0x008
+/// align block to the top of memory (maximum possible address)
+#define QSMA_MAXADDR  0x010
+/// align block to the start of memory (minimum possible address)
+#define QSMA_MINADDR  0x020
 //@}
 
 /** allocate and zero fill memory.
     This is "global" allocation, memory block is shared over system by
-    default and always zero filled.
-    Any allocation is rounded up to 64k internally. */
+    default and zero filled.
+    Any allocation is rounded up to 64k internally.
+    
+    On BIOS host - when both QSMA_MINADDR/QSMA_MAXADDR are missing, MINADDR
+    is used to preserve space at the end of ram, which can be useful for OS/2
+    boot. */
 void* _std hlp_memalloc(u32t size, u32t flags);
 
 /** allocate and zero fill memory with info signature.
@@ -65,10 +73,10 @@ u32t  _std hlp_memgetsize(void *addr);
     This call allocates memory at specified physical address - if this
     range included into memory manager space and not used.
 
-    QSINIT memory manager uses memory starting from 16Mb to first hole
-    in PC memory map.
-    Use of memory below 16Mb is prohibited (it reserved for OS/2 boot).
-    Other memory (not belonging to memory manager) can be allocated by
+    QSINIT memory manager uses memory starting from 16Mb up to the end
+    of RAM in first 4Gb area.
+    Using of memory below 16Mb is prohibited (it reserved for OS/2 boot).
+    Other memory (not belonging to memory manager) can be reserved by
     sys_markmem() call in qssys.h.
 
     Function returns aligned down to 64k address of reserved block (block
@@ -78,6 +86,9 @@ u32t  _std hlp_memgetsize(void *addr);
     @attention block length can be smaller than requested, it must be
     checked by hlp_memgetsize() call. This can occur on reserving memory
     at the end of memory manager space.
+
+    Also note, that existing holes in PC memory address space already marked
+    as reserved by memory manager itself (with rounding to 64k, of course).
 
     @param physaddr       Physical address.
     @param length         Length of memory to reserve.
@@ -106,13 +117,6 @@ u32t  _std hlp_memavail(u32t *maxblock, u32t *total);
     @return used memory size in bytes (rounded up to 64k because of
             system memory manager alignment). */
 u32t  _std hlp_memused (u32t pid);
-
-/// dump global memory table to log/serial port
-void  _std hlp_memprint(void);
-
-/** dump complete memory table to log/serial port.
-    This function print entire PC memory, including blocks above 4Gb */
-void  _std hlp_memcprint(void);
 
 //===================================================================
 //  boot filesystem (OS/2 micro-FSD) file management
@@ -218,19 +222,21 @@ u32t  _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo);
     @return number of sectors on disk */
 u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 
-/** read physical disk.
-    @param  disk      Disk number.
+/** read a physical disk.
+    @param  disk      Disk number. Note, that QDSK_VOLUME can be added for
+                      a mounted volume. In this case function acts as volume-level
+                      sector i/o api.
     @param  sector    Start sector
     @param  count     Number of sectors to read
     @param  data      Buffer for data
     @return number of sectors was actually readed */
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
 
-/** write to physical disk.
+/** write to a physical disk.
     Be careful with QDSK_VOLUME flag! 0x100 value mean boot partition, 0x102 -
     volume C: (if mounted one) and so on!
 
-    @param  disk      Disk number.
+    @param  disk      Disk number. hlp_diskread() note applied here too.
     @param  sector    Start sector
     @param  count     Number of sectors to write
     @param  data      Buffer with data
@@ -288,7 +294,7 @@ u32t _std hlp_diskmode(u32t disk, u32t flags);
     @return HDT_* value */
 u32t _std hlp_disktype(u32t disk);
 
-/** try to mount a part of disk as a known filesystem (any FAT type or HPFS).
+/** try to mount a part of disk as a known filesystem (any FAT type or HPFS/JFS).
     This is low level mount function, use vol_mount() for partition based
     mounting.
     @param  drive     Drive number: 2..9 only, remounting of 0,1 is not allowed.

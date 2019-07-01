@@ -1,3 +1,7 @@
+//
+// QSINIT "extcmd" module
+// Optional system API and shell commands, loaded on call.
+// 
 #include "stdlib.h"
 #include "qslog.h"
 #include "qsmodext.h"

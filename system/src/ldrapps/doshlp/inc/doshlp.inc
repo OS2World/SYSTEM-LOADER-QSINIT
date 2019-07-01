@@ -82,9 +82,23 @@ DBCSFontSize    dd      ?                                       ; > OS2DBCS.FNT 
 MemPagesLo      dd      ?                                       ; > # of memory pages below 4Gb (except 1st Mb)
 MemPagesHi      dd      ?                                       ; > # of memory pages above 4Gb
 SavedInt10h     dd      ?                                       ; BIOS int10h vector
+FontTabOfs      dw      ?                                       ; FONT_TABLE offset in OEMHLP
+FBDActive       db      ?                                       ; >
+FBDBits         db      ?                                       ; >
+FBDMemLin       dd      ?                                       ; FBD* are not used in QSINIT
+FBDMemPhys      dd      ?                                       ; >
+FBDLineLen      dd      ?                                       ; >
+FBDModeX        dw      ?                                       ; >
+FBDModeY        dw      ?                                       ; >
+FBDMaskR        dd      ?                                       ; >
+FBDMaskG        dd      ?                                       ; >
+FBDMaskB        dd      ?                                       ; >
+RMEFList        dd      ?                                       ; > not used in QSINIT
+LogMapSize      dd      ?                                       ; > log area map size, in 64kb
+CpuFBits        dd      ?                                       ; > sys_isavail() result
 ExportFixupData ends
 
-; ExportFixupData.Flags bits
+; ExportFixupData.Flags bits (loader information & state)
 EXPF_PCI        equ     1                                       ; PCI present
 EXPF_DHINIT     equ     2                                       ; DHInit was done
 EXPF_DISCARDED  equ     4                                       ; Boot part was discarded
@@ -93,6 +107,7 @@ EXPF_FULLCABLE  equ    10h                                      ; COM port full 
 EXPF_COMINITED  equ    20h                                      ; COM port inited at least once
 EXPF_AMDCPU     equ    40h                                      ; this is AMD CPU
 EXPF_DBCSI10H   equ    80h                                      ; DBCS int 10h call done
+EXPF_MODE3      equ   100h                                      ; set 80x25 mode was called after EXPF_DISCARDED
 
 KernelAccess    struc                                           ;
 ; AllocGDT call:                                                ;
@@ -232,6 +247,17 @@ Dev_Hlp         macro  function
                 mov     dl, DevHlp_&function
                 call    [DEVHLP]
 endm
+
+VerifyAccessR   macro  function                                 ;
+                mov     dx, 27h                                 ; DevHlp_VerifyAccess
+                call    [DEVHLP]                                ;
+endm                                                            ;
+
+VerifyAccessW   macro  function                                 ;
+                mov     dx, 127h                                ; DevHlp_VerifyAccess
+                call    [DEVHLP]                                ;
+endm                                                            ;
+
 
 msr_setup_entry struc                                           ;
 mse_regnum      dw      ?                                       ;

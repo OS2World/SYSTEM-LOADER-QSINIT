@@ -340,9 +340,6 @@ qserr    _std io_move     (const char *src, const char *dst);
 void     _std io_timetoio (io_time *dst, time_t src);
 time_t   _std io_iototime (io_time *src);
 
-/// dump system file table to log
-void     _std io_dumpsft  (void);
-
 #ifdef __cplusplus
 }
 #endif
