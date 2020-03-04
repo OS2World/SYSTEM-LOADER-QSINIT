@@ -39,10 +39,12 @@ qs_fpustate   fpu_intdata = 0;
 pf_selquery _sys_selquery = 0;
 pf_sedataptr  _se_dataptr = 0;
 qshandle            sys_q = 0;
-u8t           sched_trace = 0;
+u8t           sched_trace = 0,
+              noapic_mode = 0;
 u32t            mh_qsinit = 0,
                  mh_start = 0;
 u32t           *pxcpt_top = 0; // ptr to xcpt_top in START module (xcption stack)
+mtlib_timer      tmr_mode = TmAPIC;
 
 /// 64-bit timer interrupt callback
 void _std timer64cb  (struct xcpt64_data *user);
@@ -63,9 +65,10 @@ void update_clocks(void) {
    log_it(2, "new clocks: %u timer=%08X rdtsc=%LX shift=%u tsc100=%LX\n",
       tick_ms, tick_timer, tick_rdtsc, tsc_shift, tsc_100mks);
 
-   apic[APIC_TMRDIV]     = 3;
-   apic[APIC_TMRINITCNT] = tick_timer;
-
+   if (apic) {
+      apic[APIC_TMRDIV]     = 3;
+      apic[APIC_TMRINITCNT] = tick_timer;
+   }
    next_rdtsc = hlp_tscread() + tick_rdtsc;
 }
 
@@ -95,15 +98,16 @@ static u32t catch_functions(void) {
 }
 
 void timer_reenable(void) {
-   apic[APIC_TMRDIV]     = 3;
-   apic[APIC_LVT_TMR]    = 0x20000|apic_timer_int;
-   apic[APIC_TMRINITCNT] = tick_timer;
-   apic[APIC_SPURIOUS]   = APIC_SW_ENABLE|INT_SPURIOUS;
+   if (apic) {
+      apic[APIC_TMRDIV]     = 3;
+      apic[APIC_LVT_TMR]    = 0x20000|apic_timer_int;
+      apic[APIC_TMRINITCNT] = tick_timer;
+      apic[APIC_SPURIOUS]   = APIC_SW_ENABLE|INT_SPURIOUS;
+   }
    log_it(2, "timer_reenable()\n");
 }
 
 static qserr mt_start(void) {
-   u64t    tscv;
    u32t     tmv, rc;
    char  *mtkey = getenv("MTLIB");
    u32t      ii;
@@ -120,7 +124,8 @@ static qserr mt_start(void) {
          // str_split() gracefully trims spaces around "=" for us
          if (strnicmp(lp,"TIMERES=",8)==0) tick_ms  = strtoul(lp+8, 0, 0); else
          if (strnicmp(lp,"DUMPLVL=",8)==0) dump_lvl = strtoul(lp+8, 0, 0); else
-         if (strnicmp(lp,"SCHT",4)==0) sched_trace = 1;
+         if (stricmp(lp,"SCHT")==0) sched_trace = 1; else
+         if (stricmp(lp,"NOAPIC")==0) tmr_mode = TmIrq0;
          ii++;
       }
       free(lst);
@@ -129,40 +134,52 @@ static qserr mt_start(void) {
    // adjust ticks to default
    sys64 = sys_is64mode();
    if (tick_ms<4 || tick_ms>128) tick_ms = sys64?4:16;
+   if (sys64) tmr_mode = TmAPIC;
 
-   apic  = (u32t *)sys_getlapic();
-   if (!apic) {
-      log_it(2, "There is no Local APIC in CPU or software failure occured!\n");
-      return E_MT_OLDCPU;
+   apic = 0;
+   if (tmr_mode==TmAPIC) {
+      apic = (u32t *)sys_getlapic();
+      if (!apic) tmr_mode = TmIrq0;
+   }
+   if (tmr_mode==TmIrq0) {
+      // how it can be? but exit, anyway
+      if (sys64) {
+         log_it(2, "No APIC?\n");
+         return E_MT_OLDCPU;
+      }
    }
    rdtsc55 = hlp_tscin55ms();
    if (!rdtsc55) {
       log_it(2, "rdtsc calc failed!?\n");
       return E_MT_OLDCPU;
    }
-   // div to 16
-   apic[APIC_TMRDIV]     = 3;
-   apic[APIC_TMRINITCNT] = FFFF;
-   // one shot, masked int
-   apic[APIC_LVT_TMR]    = APIC_DISABLE;
+   if (apic) {
+      u64t   tscv;
+      // div to 16
+      apic[APIC_TMRDIV]     = 3;
+      apic[APIC_TMRINITCNT] = FFFF;
+      // one shot, masked int
+      apic[APIC_LVT_TMR]    = APIC_DISABLE;
 
-   tscv   = hlp_tscread();
-   // wait 55 ms (approx)
-   while (hlp_tscread()-tscv < rdtsc55) usleep(1);
+      tscv   = hlp_tscread();
+      // wait 55 ms (approx)
+      while (hlp_tscread()-tscv < rdtsc55) usleep(1);
 
-   tmv    = FFFF - apic[APIC_TMRCURRCNT];
-   tics55 = tmv;
-   tscv   = (u64t)tmv * 16;
-   tscv   = tscv * 1000000 / 54932;
+      tmv    = FFFF - apic[APIC_TMRCURRCNT];
+      tics55 = tmv;
+      tscv   = (u64t)tmv * 16;
+      tscv   = tscv * 1000000 / 54932;
 
-   tmv    = tscv/100000;
-   tmv    = tmv/10 + (tmv%10>=5?1:0);
-   log_it(2, "approx bus freq %u MHz (%u, %X)\n", tmv, tics55, rdtsc55);
+      tmv    = tscv/100000;
+      tmv    = tmv/10 + (tmv%10>=5?1:0);
+      log_it(2, "approx bus freq %u MHz (%u, %X)\n", tmv, tics55, rdtsc55);
+
+      apic_timer_int = INT_TIMER;
+   }
    // catch some functions, critical for timer calculation
    rc = catch_functions();
    if (rc) return rc;
 
-   apic_timer_int = INT_TIMER;
    // stack for timer32(). used in 64-bit mode too (mt_yield callback)
    tmstack32 = (u8t*)malloc_shared(INT_STACK32);
    if (!tmstack32) return E_SYS_NOMEM;
@@ -181,22 +198,23 @@ static qserr mt_start(void) {
          sys_tmirq64(0);
          return E_MT_TIMER;
       }
-   } else {
+   } else 
+   if (apic) {
       u64t int_tm = ((u64t)get_flatcs()<<32) + (u32t)&timer32,
            int_sp = ((u64t)get_flatcs()<<32) + (u32t)&spurious32;
-      // query active tss - any other will deny task switching in timer
-      main_tss = get_taskreg();
-
+      
       if (!sys_setint(INT_TIMER, &int_tm, SINT_INTGATE) ||
           !sys_setint(INT_SPURIOUS, &int_sp, SINT_INTGATE))
       {
          log_it(2, "Unable to install 32-bit int vectors!\n");
          return E_MT_TIMER;
       }
-      if (!sys_tmirq32((u32t)apic, INT_TIMER, INT_SPURIOUS))
-         log_it(0, "sys_tmirq32() call error!\n");
+      if (!sys_tmirq32((u32t)apic, INT_TIMER, INT_SPURIOUS, 0))
+         log_it(0, "sys_tmirq32(apic) failed!\n");
    }
-   apic[APIC_SPURIOUS] = APIC_SW_ENABLE|INT_SPURIOUS;
+   if (apic) apic[APIC_SPURIOUS] = APIC_SW_ENABLE|INT_SPURIOUS;
+   // query active tss - any other will deny task switching in timer
+   if (!sys64) main_tss = get_taskreg();
    // calc timer vars
    update_clocks();
    // number of preallocated TLS entries
@@ -208,10 +226,16 @@ static qserr mt_start(void) {
    // !!!
    mt_on = 1;
    // start timer, at last!
-   apic[APIC_TMRDIV]     = 3;
-   apic[APIC_LVT_TMR]    = 0x20000|apic_timer_int;
-   // reload it with enabled periodic interrupt!
-   apic[APIC_TMRINITCNT] = tick_timer;
+   if (apic) {
+      apic[APIC_TMRDIV]     = 3;
+      apic[APIC_LVT_TMR]    = 0x20000|apic_timer_int;
+      // reload it with enabled periodic interrupt!
+      apic[APIC_TMRINITCNT] = tick_timer;
+   } else {
+      // timer32 called at the end of irq0 interrupt
+      if (!sys_tmirq32(0, 0, 0, timer32))
+         log_it(0, "sys_tmirq32(tmr) failed!\n");
+   }
    // launch system idle thread
    start_idle_thread();
    /* inform START about MT is happen ;)
@@ -450,14 +474,14 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       /* import some functions directly, to free it from thunks and any
          possible chaining.
          Use of TRACE on these calls is really FATAL */
-      _memset       = (pf_memset)   mod_apidirect(mh_qsinit, ORD_QSINIT_memset);
-      _memcpy       = (pf_memcpy)   mod_apidirect(mh_qsinit, ORD_QSINIT_memcpy);
-      _usleep       = (pf_usleep)   mod_apidirect(mh_qsinit, ORD_QSINIT_usleep);
-      _sys_selquery = (pf_selquery) mod_apidirect(mh_qsinit, ORD_QSINIT_sys_selquery);
-      _se_dataptr   = (pf_sedataptr)mod_apidirect(mh_start , ORD_START_se_dataptr);
-      mt_startcb    = (pf_mtstartcb)mod_apidirect(mh_start , ORD_START_mt_startcb);
-      mt_pexitcb    = (pf_mtpexitcb)mod_apidirect(mh_start , ORD_START_mt_pexitcb);
-      fpu_intdata   = (qs_fpustate )mod_apidirect(mh_start , ORD_START_fpu_statedata);
+      _memset       = (pf_memset)   mod_apidirect(mh_qsinit, ORD_QSINIT_memset, 0);
+      _memcpy       = (pf_memcpy)   mod_apidirect(mh_qsinit, ORD_QSINIT_memcpy, 0);
+      _usleep       = (pf_usleep)   mod_apidirect(mh_qsinit, ORD_QSINIT_usleep, 0);
+      _sys_selquery = (pf_selquery) mod_apidirect(mh_qsinit, ORD_QSINIT_sys_selquery, 0);
+      _se_dataptr   = (pf_sedataptr)mod_apidirect(mh_start , ORD_START_se_dataptr, 0);
+      mt_startcb    = (pf_mtstartcb)mod_apidirect(mh_start , ORD_START_mt_startcb, 0);
+      mt_pexitcb    = (pf_mtpexitcb)mod_apidirect(mh_start , ORD_START_mt_pexitcb, 0);
+      fpu_intdata   = (qs_fpustate )mod_apidirect(mh_start , ORD_START_fpu_statedata, 0);
       // check it!
       if (!_memset || !_memcpy || !_usleep || !_sys_selquery || !mt_startcb ||
          !mt_pexitcb || !fpu_intdata || !_se_dataptr)

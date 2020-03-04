@@ -31,9 +31,11 @@ class TSetGPTTypeDlg : public TDialog {
 #ifdef __QSINIT__
    str_list  *t_values, *t_keys;
 #endif
-
    TSItem *buildTypeList();
 public:
+#ifdef __QSINIT__
+   char       *volname;
+#endif
    unsigned char rcguid[16];
 
    TSetGPTTypeDlg(unsigned long disk, unsigned long index);
@@ -45,6 +47,7 @@ public:
    TInputLine *elType;
    TCombo     *cbGPTType;
    TInputLine *elTypeGUID;
+   TInputLine *elName;
 };
 
 #endif  // __SETGPT_H

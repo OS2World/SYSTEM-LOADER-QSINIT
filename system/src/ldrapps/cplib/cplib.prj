@@ -1,6 +1,5 @@
 [project]
 name=cplib
-version=0x0001
 
 [config]
 0=Common
@@ -69,7 +68,7 @@ op quiet
 op el
 op nod
 op osname=%(QS_NAME)
-op de '$(name) v$(vershort). $(config) build, $(timestr)'
+op de '$(name) v%(QS_VERSION). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc
 
 [config.0]

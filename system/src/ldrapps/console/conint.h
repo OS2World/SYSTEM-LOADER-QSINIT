@@ -32,7 +32,16 @@
 #define CON_EMULATED         0x01000   ///< emulated text mode (info flag only)
 /// mode with shadow buffer (forced on EFI and non-LFB VESA modes)
 #define CON_SHADOW           0x02000
+
+#define CON_FONTx2           0x04000   ///< font scaling x2
+#define CON_FONTx3           0x08000   ///< font scaling x3
+#define CON_FONTx4           0x0C000   ///< font scaling x4
+#define CON_FONTxMASK        0x0C000   ///< font scaling mask
+#define CON2VMF_FSCALE             6   ///< bit shift for VMF_FONTx flags
+#define CON_FSCALE                14   ///< bit shift for CON_FONTx flags
+
 #define CON_INDEX_MASK       0xF0000   ///< index (0..15) for modes with same size/colors
+
 //@}
 
 /** Set text or graphic video mode.
@@ -117,6 +126,8 @@ typedef u32t _std (*platform_dirblit)  (u32t x, u32t y, u32t dx, u32t dy, void *
     All parameters is verified before this call. */
 typedef u32t _std (*platform_dirclear) (u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
+typedef void _std (*platform_postinit) (void);
+
 extern platform_setmode      pl_setmode;
 extern platform_setmodeid  pl_setmodeid;
 extern platform_leavemode  pl_leavemode;
@@ -129,6 +140,7 @@ extern platform_dirblit      pl_dirblit;
 extern platform_dirclear    pl_dirclear;
 extern platform_setup          pl_setup;
 extern platform_close          pl_close;
+extern platform_postinit    pl_postinit;
 
 extern u32t                   vmem_addr; // MAY be known
 extern u32t                   vmem_size;

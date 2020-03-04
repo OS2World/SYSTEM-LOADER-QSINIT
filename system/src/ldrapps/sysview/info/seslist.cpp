@@ -367,10 +367,10 @@ void TProcInfoDialog::UpdateInfo() {
       u32t             sysmem = 0;
       mi_p.ph = pi->pid;
       mem_statinfo(QSMEMINFO_PROCESS, &mi_p);
-      mi_p.mem += hlp_memused(pi->pid);
+      mi_p.mem += hlp_memused(pi->pid,0,0);
 
       if (pi->pid==1) {
-         sysmem += hlp_memused(0);
+         sysmem += hlp_memused(0,0,0);
          mem_statinfo(QSMEMINFO_GLOBAL, &mi_m);
          sysmem += mi_m.mem;
       }

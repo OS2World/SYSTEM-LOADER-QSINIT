@@ -114,7 +114,8 @@ void _std cvio_bufcommon(int toscr, u32t col, u32t line, u32t width,
       u8t *bptr = (u8t*)buf,
           *bscr = (u8t*)hlp_segtoflat(TEXTMEM_SEG) + (line*cols + col)*2;
       for (;height>0;height--) {
-         memcpy(toscr?bscr:bptr,toscr?bptr:bscr,width*2);
+         // guarantee word aligned video memory access
+         memcpyw(toscr?bscr:bptr, toscr?bptr:bscr, width*2);
          bscr+=cols*2; bptr+=pitch;
       }
    }

@@ -16,13 +16,9 @@ set bldtype=1
 :make
 if "%bldarg%".=="". set bldarg=*
 
-set PATH_ORG=%PATH%
 call ..\..\..\setup.cmd
 set INCLUDE=%TOOL_INC%
-set PATH=%PATH_ORG%;%PATH%
 
-rem creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
 rem writing makefile for reference
 rem spprj -nb %prjname%.prj 0 bld\%prjname%.mak
 rem and build it

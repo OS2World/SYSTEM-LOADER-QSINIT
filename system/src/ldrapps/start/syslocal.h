@@ -9,6 +9,7 @@
 #include "qsmodext.h"
 #include "qspdata.h"
 #include "qsdump.h"
+#include "qscon.h"
 #include "qsint.h"
 #include "qs_rt.h"
 #include "direct.h"
@@ -122,9 +123,6 @@ u32t       exi_queryid_int(const char *classname, int noprivate);
     @param key          Key name
     @return string (need to be free()) or 0 */
 char*      msg_readstr(const char *section, const char *key);
-
-/// draw colored box
-void       draw_border(u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
 /// PAE page mode active (flag = 1/0)
 extern u8t  in_pagemode;
@@ -258,9 +256,6 @@ void       splitfname(const spstr &fname, spstr &dir, spstr &name);
 
 void       dir_to_list(spstr &Dir, dir_t *info, d exclude_attr,
                        TStrings &rc, TStrings *dirs);
-
-#define SplitText_NoAnsi   1    ///< disable ansi line length calculation
-#define SplitText_HelpMode 2    ///< help printing, with & as soft-cr
 
 /// split text with carry and eol (^) support.
 void       splittext(const char *text, u32t width, TStrings &lst, u32t flags=0);

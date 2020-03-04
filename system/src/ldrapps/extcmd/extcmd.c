@@ -21,6 +21,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       cmd_shelladd("LOG" , shl_log);
       cmd_shelladd("PCI" , shl_pci);
       cmd_shelladd("PS"  , shl_ps);
+      cmd_shelladd("MD5" , shl_md5);
       // register serial port vio handler
       exi_register_vh_tty();
       // and qs_extcmd class

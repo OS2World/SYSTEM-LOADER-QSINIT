@@ -156,7 +156,7 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
       u8t    vol = 0;
       u32t usize = 0;
       // mount & format
-      rc = vol_mount(&vol, chdd, index);
+      rc = vol_mount(&vol, chdd, index, 0);
       // "always-FAT32"
       if (!rc && (flags&VFDF_FAT32)!=0) {
          disk_volume_data vi;
@@ -533,8 +533,8 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
                in any case */
             if ((flags&VFDF_EMPTY)==0) {
                u8t vol = 0;
-               vol_mount(&vol, chdd, 0);
-               if (divpos) { vol = 0; vol_mount(&vol, chdd, 1); }
+               vol_mount(&vol, chdd, 0, 0);
+               if (divpos) { vol = 0; vol_mount(&vol, chdd, 1, 0); }
             }
          }
 

@@ -221,6 +221,8 @@ void      scan_lock  (void);
 /// unlock common shared mutex
 void      scan_unlock(void);
 
+qserr     _setdisksize(u32t disk, u64t size, u32t sector);
+
 #ifdef __cplusplus
 }
 // global mutex

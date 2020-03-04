@@ -5,6 +5,7 @@
                 .486p
 
                 extrn  __wcpp_4_module_dtor_:near
+                extrn  _exit_with_popup:near
 
 CODE32          segment byte public USE32 'CODE'
                 assume cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
@@ -17,7 +18,8 @@ __EnterWVIDEO:
                 xor     eax,eax                                 ; return 0
                 ret                                             ;
 __exit_with_msg:
-                pop     eax                                     ; simulate one parameter
+                pop     eax                                     ; pop ret addr and use
+                call    _exit_with_popup                        ; args of original call
 exit:
                 jmp     _exit                                   ; one parameter
 

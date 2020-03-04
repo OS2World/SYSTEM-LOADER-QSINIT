@@ -13,8 +13,16 @@ rem * loader *
 cd system\src\init
 call make.cmd %1 %2
 
+rem * efi 32-bit code *
+cd ..\ldrefi
+call make.cmd 1 %1 %2
+
 rem * ldi *
 cd ..\ldrapps
 call make.cmd %1 %2
 
-cd ..\..\..
+rem * biostab.exe * just useful
+cd ..\usrapps\biostab
+call make.cmd %1 %2
+
+cd ..\..\..\..

@@ -5,6 +5,6 @@
 #include <stdlib.h>
 
 inline random(int n) { return rand() % n; }
-inline randomize() { srand(time(0)); }
+inline void randomize() { srand(time(0)); }
 
 #endif

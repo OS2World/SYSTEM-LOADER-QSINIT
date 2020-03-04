@@ -240,9 +240,9 @@ _cvio_clearscr  proc    near                                    ;
 
                 movzx   ecx,_pagesize                           ;
                 mov     edi,_B8000                              ;
-                shr     ecx,2                                   ;
+                shr     ecx,1                                   ;
                 cld                                             ;
-            rep stosd                                           ;
+            rep stosw                                           ;
                 mov     cursor_x,cx                             ;
                 mov     cursor_y,cx                             ;
                 call    setpos                                  ;

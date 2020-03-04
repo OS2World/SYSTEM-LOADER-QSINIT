@@ -374,7 +374,8 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Error while truncating file!",
                                "\3""Specified name is a directory!",
                                "\3""Selected file is already open!",
-                               "\3""Unable to perform action on the target file system!"
+                               "\3""Unable to perform action on the target file system!",
+                               "\3""One or more characters in the specified name is invalid"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
 }

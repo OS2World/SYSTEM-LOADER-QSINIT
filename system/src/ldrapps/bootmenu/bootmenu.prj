@@ -1,6 +1,5 @@
 [project]
 name=bootmenu
-version=0x0001
 
 [config]
 0=Common
@@ -72,7 +71,7 @@ op nod
 op statics
 op st=32768
 op osname=%(QS_NAME)
-op de '$(name) v$(vershort). $(config) build, $(timestr)'
+op de '$(name) v%(QS_VERSION). $(config) build, $(timestr)'
 
 [config.0]
 *out=$(outname) | nolink | \

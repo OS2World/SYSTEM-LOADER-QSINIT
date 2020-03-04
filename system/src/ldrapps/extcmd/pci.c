@@ -123,6 +123,13 @@ u32t _std shl_pci(const char *cmd, str_list *args) {
                if (hmsg) free(hmsg);
                if (ubreak) break;
 
+               if (hdrt==0) {
+                  u32t devsub = hlp_pciread(dev.bus, dev.slot, dev.func,
+                                            PCI_SUBSYSTEM_VENDOR_ID, 4);
+                  if (cmd_printseq(" Subsystem Vendor %04X, Subsystem ID %04X",
+                     nopause?-1:0, 0, devsub&0xFFFF, devsub>>16)) break;
+               }
+
                devcmd = hlp_pciread(dev.bus, dev.slot, dev.func, PCI_COMMAND, 2);
                // use dyn buffer for to be safe
                hmsg   = sprintf_dyn(" Command %04hX (", devcmd);

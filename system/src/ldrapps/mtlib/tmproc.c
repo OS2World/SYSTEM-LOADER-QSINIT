@@ -18,9 +18,11 @@ static u32t  lockcaller;              ///< last lock caller
 static u64t   lockstart;              ///< first time last caller was catched
 
 static int check_in_service(void) {
-   u32t reg = apic_timer_int>>3 & 0x3C;
-
-   return apic[APIC_ISR_TAB+reg] & 1<<(apic_timer_int&0x1F) ?1:0;
+   if (!apic) return 0; else {
+      u32t reg = apic_timer_int>>3 & 0x3C;
+    
+      return apic[APIC_ISR_TAB+reg] & 1<<(apic_timer_int&0x1F) ?1:0;
+   }
 }
 
 /** check for long locks from the same address.

@@ -32,7 +32,7 @@ private:
    char         sign;
    char      operate;           // since 'operator' is a reserved word.
    s64t      operand;
-   int       hexmode;
+   int       cvtbase;
    s64t       memory;
 
    void calcKey(unsigned char key);

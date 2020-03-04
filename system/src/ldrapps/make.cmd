@@ -46,8 +46,6 @@ goto quit
 :buildme
 rem ----- single project build -----
 cd %1
-rem creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb %1.prj 0 makedirs
 rem writing makefile for reference
 rem spprj -nb %1.prj 0 bld\%1.mak
 rem and build it

@@ -58,6 +58,8 @@
 #define E_SYS_NOTFOUND      (E_TYPE_SYS+0x0027)  ///< entry not found
 #define E_SYS_DIRNOTEMPTY   (E_TYPE_SYS+0x0028)  ///< directory not empty
 #define E_SYS_ISDIR         (E_TYPE_SYS+0x0029)  ///< specified name is a directory
+#define E_SYS_DETACHED      (E_TYPE_SYS+0x002A)  ///< detached handle is not acceptable
+#define E_SYS_TTYDEV        (E_TYPE_SYS+0x002B)  ///< operation is not supported for a character device
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_DSK_ERRREAD       (E_TYPE_DSK+0x0001)  ///< disk read error
@@ -159,7 +161,7 @@
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_MT_DISABLED       (E_TYPE_MT +0x0001)  ///< MT mode does not started or disabled
 #define E_MT_TIMER          (E_TYPE_MT +0x0002)  ///< unable to install timer handlers
-#define E_MT_OLDCPU         (E_TYPE_MT +0x0003)  ///< no local APIC on CPU (P5 and below)
+#define E_MT_OLDCPU         (E_TYPE_MT +0x0003)  ///< Too old CPU or software failure.
 #define E_MT_BADTID         (E_TYPE_MT +0x0004)  ///< bad thread ID
 #define E_MT_BADFIB         (E_TYPE_MT +0x0005)  ///< bad fiber index
 #define E_MT_BUSY           (E_TYPE_MT +0x0006)  ///< thread is waiting for something

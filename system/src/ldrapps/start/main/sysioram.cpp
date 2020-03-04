@@ -647,10 +647,11 @@ static qserr _exicc ramfs_remove(EXI_DATA, const char *path) {
    qserr     res = follow_path(vd, path, &fd);
    if (!res)
       if (fd->in_use || fd==vd->root) res = E_SYS_ACCESS; else
-         if (fd->dir && fd->dir->Count()>1) res = E_SYS_DIRNOTEMPTY; else {
-            res = file_unlink(fd);
-            if (!res) file_delete(fd);
-         }
+         if (fd->dir && fd->dir->Count()>1) res = E_SYS_DIRNOTEMPTY; else 
+            if (fd->attrs&IOFA_READONLY) res = E_SYS_READONLY; else {
+               res = file_unlink(fd);
+               if (!res) file_delete(fd);
+            }
    return res;
 }
 

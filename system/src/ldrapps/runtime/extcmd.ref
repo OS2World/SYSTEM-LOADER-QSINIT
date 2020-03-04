@@ -2,9 +2,25 @@ type = dll
 name = "EXTCMD"
 
 exports = {
+   _md5_init         = { index =  1  group = "md5"     format = "vp"    }
+   _md5_next         = { index =  2  group = "md5"     format = "vppu"  }
+   _md5_done         = { index =  3  group = "md5"     format = "vpp"   }
+
    _shl_mem          = { index = 10  group = "shell"   format = "usp"   }
    _shl_mtrr         = { index = 11  group = "shell"   format = "usp"   }
    _shl_pci          = { index = 12  group = "shell"   format = "usp"   }
    _shl_log          = { index = 13  group = "shell"   format = "usp"   }
    _shl_ps           = { index = 14  group = "shell"   format = "usp"   }
+   _shl_md5          = { index = 15  group = "shell"   format = "usp"   }
+}
+
+
+class = {
+   name = qs_extcmd
+   entries = {
+      selectmodedlg  = "upps@u@u"
+      bootmgrdlg     = "@upps@u@u@u&@*u&*i"
+      seslistdlg     = "upps@u@u@hu"
+      tasklistdlg    = "upps@u@u@hu"
+   }
 }

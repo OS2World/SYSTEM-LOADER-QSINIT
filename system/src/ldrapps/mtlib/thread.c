@@ -471,7 +471,7 @@ void _std mt_dumptree(printf_function pfn) {
    pfn("%u timer interrupts since last dump\n", timer_cnt);
    timer_cnt = 0;
    // use "set MTLIB = ON, DUMPLVL=1" to open access here
-   if (dump_lvl>0) {
+   if (dump_lvl>0 && apic) {
       u32t  tmrdiv;
       pfn("APIC: %X (%08X %08X %08X %08X %08X %08X)\n", apic[APIC_APICVER]&0xFF,
          apic[APIC_LVT_TMR], apic[APIC_SPURIOUS], apic[APIC_LVT_PERF],

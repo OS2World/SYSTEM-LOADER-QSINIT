@@ -204,6 +204,8 @@
                 extrn   _hlp_memused    :near
                 extrn   _hlp_cachenotify:near
                 extrn   _exit_efi       :near
+                extrn   _memcpyw        :near
+                extrn   _key_clear      :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -286,7 +288,7 @@ _exptable_data:
 ;----------------------------------------------------------------
                 nextord <70>                                    ;
                 dd      offset _snprintf                        ;
-                dd      0                                       ; printf was here
+                dd      offset _memcpyw                         ;
                 dd      offset _memset                          ;
                 dd      offset _strncmp                         ;
                 dd      offset _strnicmp                        ;
@@ -410,6 +412,7 @@ _exptable_data:
                 dd      offset _key_push                        ;
                 dd      offset _key_waitex                      ;
                 dd      offset _key_getspeed                    ;
+                dd      offset _key_clear                       ;
 ;----------------------------------------------------------------
                 nextord <190>                                   ;
                 dd      offset _tm_counter                      ;

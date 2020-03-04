@@ -306,10 +306,12 @@ static u32t _std data_cache_notify(u32t code, void *usr) {
    volume_data *vd = (volume_data*)usr;
    if (vd->sign!=JFS_SIGN) return DCNR_GONE;
 
-   if (vd->root) {
-      log_it(3, "vol %X mem free\n", vd->vdsk);
-      jfs_free_dir(vd->root);
-      vd->root = 0;
+   /* React on codepage change too, because directory data can be cached
+      with wrong unicode->oem convertion. Anyway, just release all cached
+      data is incorrect way too, it will fail on used directory. */
+   if (vd->root && (code==DCN_CPCHANGE || code==DCN_MEM)) {
+      log_it(3, "vol %X cache clean\n", vd->vdsk);
+      if (jfs_free_dir(vd->root)) vd->root = 0;
    }
    return DCNR_SAFE;
 }

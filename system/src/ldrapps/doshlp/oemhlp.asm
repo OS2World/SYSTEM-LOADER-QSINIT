@@ -83,11 +83,12 @@ IOCTLTable      label   word                                    ;
                 dw      GET_DBCS_INFO                           ; C - return DBCS unique information
                 dw      GET_MACH_ID                             ; D - return machine ID byte
                 dw      QUERY_DISK_INFO                         ; E - return disk info
-                dw      FN_ERR                                  ; F - unsupported
+                dw      GET_GSIC_INFO                           ; F - return Enhanced SpeedStep data
                 dw      GET_DEVHLP_ADDR                         ;10 - return DevHlp address
                 dw      GET_MEM_INFO_EX                         ;11 - return extended memory info
                 dw      FN_ERR                                  ;12 - get video frame buffer
                 dw      LOG_WRITE                               ;13 - write to the log/debug port
+                dw      GET_BIOS_TABLE                          ;14 - get bios table pointer
 IOCTLTable_Size equ     $-offset IOCTLTable                     ;
 
 ;
@@ -141,6 +142,15 @@ BiosIsAbios     dw      ?                                       ; ABIOS present?
 BIOS_Packet     ends
 
 ;
+; OEMHLP_GETBIOSTABLE data packet
+; ---------------------------------------------------------------
+BIOSTAB_Packet  struc                                           ;
+BiosTabAddr     dd      ?                                       ; phys.addr
+BiosTabLen      dd      ?                                       ; length
+BiosTabStatus   dw      ?                                       ; status (bit 0 - crc error)
+BIOSTAB_Packet  ends                                            ;
+
+;
 ; OEMHLP_GETMEMINFO data packet
 ; ---------------------------------------------------------------
 MEMORY_Packet   struc                                           ;
@@ -157,13 +167,17 @@ MiHighPages     dd      ?                                       ;
 MiAvailPages    dd      ?                                       ;
 MEMORYEX_Packet ends                                            ;
 
-                public  AdaptInfo
+                public  AdaptInfo, GSIC_Data, BIOSTAB_Data
 AdaptInfo       label   near
 ADAPT_Data      ADAPT_Packet    <>                              ;
 BIOS_Data       BIOS_Packet     <>                              ;
 MEMORY_Data     MEMORY_Packet   <>                              ;
 MEMORYEX_Data   MEMORYEX_Packet <>                              ;
 MACH_Data       MACH_Packet     <>                              ;
+GSIC_Data       GSIC_Packet     <>                              ;
+
+BIOSTAB_Size    equ     8                                       ;
+BIOSTAB_Data    db      BIOSTAB_Size * sizeof BIOSTAB_Packet dup (0)
 
 ; ---------------------------------------------------------------
 ; OEMHLP_CHECK_VIDEO, OEMHLP_MISC_INFO or OEMHLP_VIDEO_ADAPTER
@@ -210,7 +224,6 @@ PCIConfigCL     db      0                                       ;
                 extrn _edparmtable:byte                         ; BIOS disk parameter tables
                 extrn _eddparmtable:byte                        ;
 OEMHLP_DATA     ends
-
 ; -----------------------------------------------------------------
 DOSHLP_CODE     segment                                         ;
                 extrn get_dgroup:near                           ;
@@ -304,6 +317,8 @@ FN_OK           endp                                            ;
 ; Out: ax = error code
                 public  FN_IOCTL
 FN_IOCTL        proc    near                                    ;
+                cmp     es:[bx].GIOCategory,90h                 ; deny ACPI calls
+                jz      FN_ERR                                  ;
                 xor     eax,eax                                 ;
                 mov     al,es:[bx].GIOFunction                  ; command code
                 lea     esi,[eax*2]                             ;
@@ -318,7 +333,9 @@ if oemhlp_debug GT 1
                 ret                                             ;
 @@fiocd_skip:
 endif
+                push    di                                      ;
                 call    IOCTLTable[si]                          ;
+                pop     di                                      ;
                 ret                                             ;
 FN_IOCTL        endp
 ;
@@ -401,6 +418,15 @@ GET_MACH_ID     endp
 ; ---------------------------------------------------------------
                 public  GET_VIDEO_INFO
 GET_VIDEO_INFO  proc    near                                    ;
+                test    External.FlagsEx,EXPFX_FORCEDUMP        ;
+                jz      @@gvi_0                                 ;
+                mov     al,DHGETDOSV_VECTORSDF                  ; force system dump
+                Dev_Hlp GetDOSVar                               ;
+                or      bx,bx                                   ;
+                jz      @@gvi_0                                 ;
+                mov     es,ax                                   ;
+                jmp     dword ptr es:[bx]                       ;
+@@gvi_0:
                 push    cx                                      ;
                 push    di                                      ;
                 mov     di,word ptr es:[bx].GIODataPack         ;
@@ -757,7 +783,7 @@ FN_LOGWRITE     endp
 ; same as FN_LOGWRITE, but via ioctl
 ; ---------------------------------------------------------------
 LOG_WRITE       proc    near                                    ;
-                mov     ax,word ptr es:[bx].GIOParaPack+2       ; check disk number byte
+                mov     ax,word ptr es:[bx].GIOParaPack+2       ; check write size
                 mov     di,word ptr es:[bx].GIOParaPack         ;
                 mov     cx,2                                    ;
                 VerifyAccessR
@@ -767,7 +793,7 @@ LOG_WRITE       proc    near                                    ;
                 mov     cx,word ptr es:[di]                     ; size to write
                 pop     es                                      ;
                 jcxz    @@logwr_done                            ;
-                mov     ax,word ptr es:[bx].GIODataPack+2       ; 
+                mov     ax,word ptr es:[bx].GIODataPack+2       ;
                 mov     di,word ptr es:[bx].GIODataPack         ; access to string
                 mov     si,cx                                   ;
                 VerifyAccessR                                   ;
@@ -786,6 +812,36 @@ LOG_WRITE       proc    near                                    ;
                 mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
                 ret                                             ;
 LOG_WRITE       endp                                            ;
+
+;
+; get BIOS table pointer ioctl
+; ---------------------------------------------------------------
+GET_BIOS_TABLE  proc    near                                    ;
+                mov     ax,word ptr es:[bx].GIOParaPack+2       ; check index value
+                mov     di,word ptr es:[bx].GIOParaPack         ;
+                mov     cx,2                                    ;
+                VerifyAccessR                                   ;
+                jc      @@btab_fail                             ;
+                push    es                                      ;
+                les     di,es:[bx].GIOParaPack                  ;
+                mov     si,word ptr es:[di]                     ; table number
+                pop     es                                      ;
+                cmp     si,BIOSTAB_Size                         ;
+                jnc     @@btab_fail                             ;
+                imul    si,size BIOSTAB_Packet                  ;
+                add     si,offset BIOSTAB_Data                  ;
+                test    [si].BiosTabAddr,-1                     ; addr is 0?
+                jz      @@btab_notab                            ; return error
+                mov     cx,size BIOSTAB_Packet                  ;
+                call    CopyDataPacket                          ;
+                ret                                             ;
+@@btab_notab:
+                mov     ax,STERR + ERROR_I24_READ_FAULT         ;
+                ret                                             ;
+@@btab_fail:
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                ret                                             ;
+GET_BIOS_TABLE  endp                                            ;
 
 ;
 ; stub
@@ -1321,6 +1377,33 @@ QUERY_DISK_INFO proc    near                                    ;
                 ret                                             ;
 QUERY_DISK_INFO endp                                            ;
 
+;
+; Enhanced SpeedStep support
+; ---------------------------------------------------------------
+; setup code is not implemented in QSINIT, so just return an empty
+; packet here
+;
+                public  GET_GSIC_INFO
+GET_GSIC_INFO   proc near
+                mov     ax, word ptr es:[bx].GIODataPack+2      ; check buffer access
+                mov     di, word ptr es:[bx].GIODataPack        ;
+                mov     cx, size GSIC_PACKET                    ;
+                VerifyAccessW                                   ;
+                jc      @@gsi_fail                              ;
+                les     di, es:[bx].GIODataPack                 ;
+                push    si                                      ;
+                mov     si, offset GSIC_Data                    ;
+                mov     cx, offset gsic_reserved                ;
+                cld                                             ;
+            rep movsb                                           ;
+                pop     si                                      ;
+                xor     ax,ax                                   ;
+                ret                                             ;
+@@gsi_fail:
+                mov     ax,STERR + ERROR_I24_INVALID_PARAMETER  ;
+                ret                                             ;
+GET_GSIC_INFO   endp                                            ;
+
 OEMHLP_CODE     ends
 
 ; ===============================================================
@@ -1387,20 +1470,41 @@ DI20:
                 mov     eax,External.MemPagesHi                 ;
                 mov     MEMORYEX_Data.MiHighPages,eax           ;
 
+                push    edi                                     ;
                 mov     ecx,External.LogMapSize                 ; map log buffer
                 jecxz   @@DI_NoLogMap                           ; to linear address
                 shl     ecx,16                                  ;
-                push    edi                                     ;
                 mov     edi,PublicInfo.DosHlpFlatBase           ;
                 add     edi,offset External.LogBufPAddr         ;
                 mov     eax, VMDHA_PHYS                         ;
                 Dev_Hlp VMAlloc                                 ;
-                pop     edi                                     ;
                 jc      @@DI_NoLogMap                           ;
                 mov     External.LogBufVAddr,eax                ;
 @@DI_NoLogMap:
+                test    External.FlagsEx,EXPFX_NEWDUMP          ;
+                jz      @@DI_NoDump                             ;
+; too early allocation of such a big buffer is problematic.
+; use VMDHA_USEHIGHMEM for the case without EARLYMEMINIT=TRUE
+; and then try without this flag, because it deprecated by EARLYMEMINIT
+                mov     esi,VMDHA_USEHIGHMEM                    ;
+@@DI_DumpBufLoop:
+                mov     ecx,OS2DUMP_BUFFER_SIZE                 ;
+                mov     edi,PublicInfo.DosHlpFlatBase           ;
+                add     edi,offset External.DumpBufPhys         ;
+                mov     eax,VMDHA_FIXED or VMDHA_CONTIG         ;
+                or      eax,esi                                 ;
+                Dev_Hlp VMAlloc                                 ;
+                jnc     @@DI_DumpBufOk                          ;
+                xor     si,VMDHA_USEHIGHMEM                     ; try 2nd time
+                jz      @@DI_DumpBufLoop                        ;
+                jmp     @@DI_DumpBufErr                         ;
+@@DI_DumpBufOk:
+                mov     External.DumpBufLin,eax                 ;
+@@DI_DumpBufErr:
+                dbg16print <"DumpBuf: %lx %lx",10>,<External.DumpBufPhys,eax> ;
+@@DI_NoDump:
                 mov     word ptr [pINIT],offset FN_ERR          ; init done
-
+                pop     edi                                     ;
                 pop     edx                                     ;
                 pop     ecx                                     ;
                 xor     ax,ax                                   ;

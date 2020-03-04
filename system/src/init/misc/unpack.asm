@@ -33,7 +33,6 @@ _BSS16          segment                                         ;
                 extrn   _highbase:dword                         ;
                 extrn   _highstack:dword                        ;
                 extrn   _bin_header:mkbin_info                  ;
-                extrn   _rm16code:word                          ;
                 extrn   bssend:word                             ;
                 public  _stack16_pos                            ;
 _stack16_pos    dw      ?                                       ;

@@ -114,6 +114,25 @@ static u32t scan_gpt(hdd_info *drec) {
    // read header #2
    if (pt->GPT_Hdr2Pos && pt->GPT_Hdr2Pos!=FFFF64) {
       if (pt->GPT_Hdr2Pos >= drec->info.TotalSectors) {
+         // check that BIOS just cuts high dword of disk size, but i/o works well
+         mt_swlock();
+         if ((pt->GPT_Hdr2Pos+1&FFFF) == drec->info.TotalSectors) {
+            if (!_setdisksize(drec->disk, pt->GPT_Hdr2Pos+1, drec->info.SectorSize)) {
+               stype = dsk_sectortype(drec->disk, pt->GPT_Hdr2Pos, (u8t*)drec->ghead2);
+
+               if (stype==DSKST_GPTHEAD && drec->ghead2->GPT_Hdr2Pos==pt->GPT_Hdr1Pos) {
+                  // it works! ask scan_disk() to launch full scan again
+                  mt_swunlock();
+                  log_it(0, "!!disk size changed from %LX to %LX!!\n",
+                     drec->info.TotalSectors, pt->GPT_Hdr2Pos+1);
+                  return E_PTE_RESCAN;
+               }
+               // disk i/o is broken too - return size back and show error
+               _setdisksize(drec->disk, drec->info.TotalSectors, drec->info.SectorSize);
+            }
+         }
+         mt_swunlock();
+
          log_it(0, "GPT header #2 position error (%LX>%LX)!\n", pt->GPT_Hdr2Pos, drec->info.TotalSectors);
          return E_PTE_GPTHDR;
       }
@@ -158,7 +177,11 @@ static u32t scan_gpt(hdd_info *drec) {
    
    Also, here is a huge disadvantage of scanning in a separate thread:
    scan mutex is catched by caller and we must avoid any calls to every one,
-   who uses it */
+   who uses it.
+   
+   And also scan_disk_call() below should be used, because this function may
+   ask to call it again (if E_PTE_RESCAN has returned).
+*/
 static u32t scan_disk(hdd_info *drec) {
    u32t sector = 0, chssec = 0, errcnt, chsread = 0, ii, rc = 0, lowestLBA = 0;
 
@@ -249,7 +272,9 @@ static u32t scan_disk(hdd_info *drec) {
                // check 1st MBR
                if (!drec->pt_size) {
                   // GPT partition?
-                  if (rec->PTE_Type==PTE_EE_UEFI || rec->PTE_Type==PTE_EF_UEFI) {
+                  if (rec->PTE_Type==PTE_EE_UEFI || rec->PTE_Type==PTE_EF_UEFI &&
+                     rec->PTE_LBAStart==1)
+                  {
                      if (!drec->gpthead || rec->PTE_LBAStart<drec->gpthead)
                         drec->gpthead = rec->PTE_LBAStart;
                      drec->gpt_present++;
@@ -392,6 +417,8 @@ static u32t scan_disk(hdd_info *drec) {
    } while (!rc && sector!=FFFF);
 
    if (!rc && drec->gpt_present) rc = scan_gpt(drec);
+   // disk size changed by scan_gpt()!
+   if (rc==E_PTE_RESCAN) return rc;
 
    if (drec->pt_size) {
       ptr_list ptl = NEW(ptr_list);
@@ -409,9 +436,9 @@ static u32t scan_disk(hdd_info *drec) {
                    pt_len = drec->pts[ii].PTE_LBASize;
             u64t  vlstart = pt_start,
                     vllen = 0;
-            // non-GPT partition found, flag hybrid type
-            if (drec->gpt_present && drec->pts[ii].PTE_Type!=PTE_EE_UEFI && 
-               drec->pts[ii].PTE_Type!=PTE_EF_UEFI) drec->hybrid = 1;
+            /* non-GPT partition found, flag hybrid type, set it for EF too,
+               because scheme is strange and better to be r/o */
+            if (drec->gpt_present && pt!=PTE_EE_UEFI) drec->hybrid = 1;
             // trying to search for max. head value
             if (drec->pts[ii].PTE_HEnd > maxhead) maxhead = drec->pts[ii].PTE_HEnd;
             /* get any of secondary or hidden extended partitions as one big partition
@@ -420,8 +447,10 @@ static u32t scan_disk(hdd_info *drec) {
                /* include extended header into used space only if it belongs to
                   existing partition */
                if (!dsk_isquadempty(drec,(ii>>2)+1,1)) vllen += drec->lvm_spt;
-            } else 
-            if (!IS_GPTPART(pt)) {
+            } else
+            if (!drec->gpt_present || drec->gpt_present && pt!=PTE_EE_UEFI && 
+               (pt!=PTE_EF_UEFI || pt_start>1))
+            {
                drec->index[ii] = idx++;
                vllen += pt_len;
                // check logical partitions for extended partition length
@@ -696,6 +725,18 @@ static qs_mtlib       mtlib = 0;
 
 #define SCAN_THREAD_WAIT  45000   ///< scan thread life time (45s)
 
+static u32t scan_disk_call(hdd_info *drec) {
+   u32t res = scan_disk(drec);
+   /* GPT read code can found wrong int 13h ah=48 disk size, but working
+      disk i/o. In this case it forces a real disk size and returns
+      E_PTE_RESCAN to scan again  */
+   if (res==E_PTE_RESCAN) {
+      hlp_disksize(drec->disk, 0, &drec->info);
+      res = scan_disk(drec);
+   }
+   return res;
+}
+
 static u32t _std scan_thread(void *arg) {
    mt_threadname("dmgr scan");
 
@@ -705,7 +746,7 @@ static u32t _std scan_thread(void *arg) {
 
       if (ev) {
          hdd_info *hi = (hdd_info*)ev->a;
-         hi->scan_rc  = scan_disk(hi);
+         hi->scan_rc  = scan_disk_call(hi);
          hi->inited   = 1;
          // wake up caller thread by unused signal number
          mtlib->sendsignal(ev->b, ev->c, FFFF-0xFFF, 0);
@@ -784,7 +825,7 @@ qserr _std dsk_ptrescan(u32t disk, int force) {
                scan_disk_mt(hi);
                res = hi->scan_rc;
             } else {
-               res = scan_disk(hi);
+               res = scan_disk_call(hi);
                hi->scan_rc = res;
                hi->inited  = 1;
             }

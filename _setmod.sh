@@ -10,11 +10,13 @@ chmod +111 system/src/setup.sh.template
 chmod +111 system/src/init/make.sh
 chmod +111 system/src/ldrefi/make.sh
 chmod +111 system/src/ldrapps/make.sh
+chmod +111 system/src/usrapps/biostab/make.sh
 chmod +111 system/src/usrapps/example/make.sh
 chmod +111 system/src/usrapps/fixcfg/make.sh
 chmod +111 system/src/usrapps/mptable/make.sh
 chmod +111 system/src/usrapps/mttest/make.sh
 chmod +111 system/src/usrapps/sigtest/make.sh
+chmod +111 system/src/usrapps/vgatest/make.sh
 chmod +111 system/src/tools/setupi.sh
 chmod +111 system/src/tools/src/bin2h/make.sh
 chmod +111 system/src/tools/src/cdboot/make.sh

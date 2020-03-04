@@ -22,7 +22,8 @@ u32t          mfs_rmcmode = 0;
 stoinit_entry   storage_w[STO_BUF_LEN];
 struct Disk_BPB   BootBPB; // empty BPB (for now)
 extern u32t         sel64;
-extern u32t     acpitable;
+extern u32t     acpitable, smbios, smbios3, mpstab;
+static u32t          btab[SYSTAB_SYSID];
 
 void get_idt(struct lidt64_s *idt);
 #ifdef __WATCOMC__
@@ -32,7 +33,13 @@ void get_idt(struct lidt64_s *idt);
 int _std sys_intstate(int on);
 
 void init_host(void) {
-   sto_save(STOKEY_ACPIADDR, &acpitable, 4, 1);
+   memset(&btab, 0, sizeof(btab));
+   btab[SYSTAB_ACPI]    = acpitable;
+   btab[SYSTAB_SMBIOS]  = smbios;
+   btab[SYSTAB_SMBIOS3] = smbios3;
+   btab[SYSTAB_MP]      = mpstab;
+   // save known tables for the sys_gettable() function
+   sto_save(STOKEY_BIOSTAB, &btab, sizeof(btab), 0);
 }
 
 void memmove64(u64t dst, u64t src, u64t length, int usecli) {
@@ -146,7 +153,7 @@ int _std sys_setint(u8t vector, u64t *addr, u32t type) {
    return 1;
 }
 
-u32t _std sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint) {
+u32t _std sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint, void *tm32) {
    return 0;
 }
 

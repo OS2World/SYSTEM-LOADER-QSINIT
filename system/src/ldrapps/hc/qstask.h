@@ -258,7 +258,8 @@ qserr    _std mt_tlsset      (u32t index, u64t value);
 #define QTLS_ALARMQH      0x000A       ///< alarm() support
 #define QTLS_TPRINTF      0x000B       ///< tprintf() FILE* variable
 #define QTLS_FORCEANSI    0x000C       ///< ANSI state override (1 - off, >=2 - on)
-#define QTLS_MAXSYS       0x000C       ///< maximum pre-allocated slot index
+#define QTLS_POPUPCOLOR   0x000D       ///< user color scheme for vio_popup()
+#define QTLS_MAXSYS       0x000D       ///< maximum pre-allocated slot index
 //@}
 #define TLS_VARIABLE_SIZE     16       ///< size of TLS slot (two qwords)
 
@@ -305,7 +306,7 @@ typedef struct {
 
    QWHT_SIGNAL cause exit from a wait cycle on any incoming signal. By default
    waiting process is unbreakable by signals. Only thread termination able to
-   cancel it.
+   cancel it. Use mt_waitsingle() to wait with enabled signal handling.
 
    For QWHT_TID/QWHT_PID unneeded resaddr parameter must be zero, else result
    code will written into a random location.
@@ -350,6 +351,27 @@ qserr    _std mt_waitobject  (mt_waitentry *list, u32t count, u32t glogic,
    mt_waitentry we = { QWHT_TID, 0 }; we.tid = threadid; \
    mt_waitobject(&we, 1, 0, &rc); }
 
+/* wait for a single wait entry.
+   Signal handling is supported during execution, use mt_waitobject() to
+   avoid this.
+
+   @param  handle        Object handle to wait.
+   @param  timeout_ms    Timeout, ms (0xFFFFFFFF to wait forever). Ignored if
+                         QWHT_CLOCK is used.
+   @return error code or 0. */
+qserr    _std mt_waitsingle  (mt_waitentry *we, u32t timeout_ms);
+
+/** waiting for a mutex or an event with timeout.
+   This is just a sub-class of mt_waitobject() function, but unlike it -
+   signal handling is enabled during execution.
+   Queues are also can be used here, but qe_waitevent() is more handy for them.
+
+   @param  handle        Mutex/event handle.
+   @param  timeout_ms    Timeout, ms (0xFFFFFFFF to wait forever)
+   @retval 0             success
+   @retval E_SYS_TIMEOUT timeout reached */
+qserr    _std mt_waithandle  (qshandle handle, u32t timeout_ms);
+
 
 /* Event */
 
@@ -381,7 +403,7 @@ qserr    _std mt_eventopen   (const char *name, qshandle *res);
 /** event set/reset/pulse.
    Note, that QEVA_PULSEONE will signal only for a thread, which would be
    really released by it. I.e. if thread awaits in mt_waitobject() with
-   complex rules, it will be released only if event pulse is a single
+   complex rules, it will be released only if event pulse is the single
    thing, needed to complete waiting.
 
    @param  handle        Event handle.
@@ -392,14 +414,6 @@ qserr    _std mt_eventact    (qshandle handle, u32t action);
 #define       mt_eventreset(evh) mt_eventact((evh),QEVA_RESET)
 #define       mt_eventset(evh)   mt_eventact((evh),QEVA_SET)
 #define       mt_eventpulse(evh) mt_eventact((evh),QEVA_PULSE)
-
-/** waiting for a mutex or an event with timeout.
-   This is just a sub-class of mt_waitobject() function.
-   @param  handle        Mutex/event handle.
-   @param  timeout_ms    Timeout, ms (0xFFFFFFFF to wait forever)
-   @retval 0             success
-   @retval E_SYS_TIMEOUT timeout reached */
-qserr    _std mt_waithandle  (qshandle handle, u32t timeout_ms);
 
 
 /* Mutex */
@@ -430,12 +444,6 @@ qserr    _std mt_muxopen     (const char *name, qshandle *res);
     calls must be equal to number of successful waitings and mt_muxcapture()
     calls. */
 qserr    _std mt_muxcapture  (qshandle handle);
-
-/** waiting for a mutex with timeout.
-   @param  handle        Mutex handle.
-   @retval 0             success
-   @retval E_SYS_TIMEOUT timeout reached */
-qserr    _std mt_muxwait     (qshandle handle, u32t timeout_ms);
 
 /** query mutex state (by owner only).
    @param  handle        Mutex handle.
@@ -506,6 +514,7 @@ qserr    _std qe_close       (qshandle queue);
 qserr    _std qe_clear       (qshandle queue);
 
 /** gets the next event from the specified queue.
+   Signal handling enabled during wait.
    @param  queue         Queue handle.
    @param  timeout_ms    Timeout period, in ms. Ignored in non-MT mode (i.e.
                          function will always return immediately).

@@ -31,7 +31,8 @@ void main(int argc,char *argv[]) {
    ptr_list  history;
    int        rc = 1,
         kernfail = 0,
-       noextmenu = 0;
+       noextmenu = 0,
+          noexit = 0;
 
    if (argc>1 && strcmp(argv[1],"/?")==0) {
       printf("usage: bootmenu [menu_name]\n");
@@ -61,6 +62,8 @@ void main(int argc,char *argv[]) {
       defmenu = m_ini->getstr("common", "def_efi", 0); else
    if (hlp_boottype()==QSBT_SINGLE)
       defmenu = m_ini->getstr("common", "def_single", 0); 
+   // disabled exit via esc/backspace
+   noexit = m_ini->getuint("common", "noexit", 0); 
    /* there is no altered menu name - check for existence of [kernel] and
       [partition] and switching to the partition menu when suitable */
    if (noextmenu)
@@ -127,7 +130,8 @@ void main(int argc,char *argv[]) {
             strcpy(cmenu, history->value(history->max())); 
             history->del(history->max(),1);
             rc = 1;
-         }
+         } else
+         if (noexit) rc = 1;
       }
    }
    DoneParameters();

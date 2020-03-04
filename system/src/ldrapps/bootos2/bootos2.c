@@ -23,6 +23,7 @@
 #include "dparm.h"
 #include "qsinit.h"
 #include "loadmsg.h"
+#include "seldesc.h"
 
 #undef  MAP_LOGADDR                // make linear address of log
 #define MAP_REMOVEHOLES            // mark memory holes as used blocks
@@ -65,7 +66,9 @@ u32t     dhfsize = 0,               // doshlp file size
 void    *mfsdptr = 0;               // pointer to mini-fsd file
 int     twodiskb = 0,               // two disk boot flag
        isos4krnl = 0,               // is OS/4 kernel?
-       isdbgkrnl = 0;               // is debug kernel?
+       isdbgkrnl = 0,               // is debug kernel?
+         cfgtext = 0,               // config.sys buffer (1/0)
+        testmode = 0;               // test mode active
 u32t     minhole = 0;               // min hole size to leave it as it is
 str_list  *kparm = 0;               // kernel parameters line
 u32t  lndataaddr = MPDATAFLAT;      // free linear space below kernel code
@@ -111,8 +114,8 @@ void error_exit(int code, const char *message) {
    if (os2dbcs) { hlp_memfree(os2dbcs); os2dbcs=0; }
    if (dbcsfnt) { hlp_memfree(dbcsfnt); dbcsfnt=0; }
    // only allocated by SOURCE option loading code
-   if (mfsdptr && mfsdptr!=boot_info.minifsd_ptr) { 
-      hlp_memfree(mfsdptr); mfsdptr=0; 
+   if (mfsdptr && mfsdptr!=boot_info.minifsd_ptr) {
+      hlp_memfree(mfsdptr); mfsdptr=0;
       mfsdsize = 0;
    }
    if (config_sys) { free(config_sys); config_sys=0; }
@@ -185,7 +188,7 @@ void load_kernel(module  *mi) {
    // 1st object in SMP kernel is one page MPDATA seg
    isSMP    = mi->obj[0].size<=PAGESIZE?1:0;
    if (!isSMP) {
-      // we have some troUAbles: later OS/4 kernels expands it to 4k
+      // we have some troUAbles: later OS/4 kernels expands it to 16k
       branchAT = mi->obj[0].size<=PAGESIZE*4 && (mi->objects==15 || mi->objects==17) ?1:0;
       if (branchAT) isSMP = 1;
    }
@@ -293,6 +296,7 @@ void load_kernel(module  *mi) {
    pa++;
 
    lid->DosHlpFlatBase = laddrnext;
+   efd->PFCall32 = laddrnext + (u32t)efd->PFCall32;
    if (vid) vid->FontCopy += laddrnext;
    /** low memory kernel objects.
        calculating laddr from paddr here because MVDM fixaddr field contain
@@ -344,14 +348,14 @@ void load_kernel(module  *mi) {
       Create it in any way, because pginit code assumes at least one
       invalid block in 1st Mb */
    if (pa) {
-      u32t da_size = os2dmp ? dmpsize : PAGESIZE*4;
+      u32t da_size = os2dmp ? PAGEROUND(dmpsize) : PAGESIZE*4;
       pa->a_paddr  = PAGEROUND(pa[-1].a_paddr+pa[-1].a_size);
       pa->a_sel    = pa->a_paddr>>PARASHIFT;
       pa->a_aflags = AF_INVALID;
       /* allocate memory for pae disk boot in the same block,
          it must be single page aligned page */
       if (lid->BootFlags&BOOTFLAG_EDISK) {
-         if (os2dmp) da_size = PAGEROUND(da_size); else da_size-=PAGESIZE;
+         if (!os2dmp) da_size-=PAGESIZE;
          swcode   = pa->a_paddr + da_size;
          da_size += PAGESIZE;
       }
@@ -655,7 +659,7 @@ void load_kernel(module  *mi) {
    if (pa[-1].a_aflags==AF_INVALID && !pa[-1].a_size) pa--;
 #ifdef MAP_REMOVEHOLES
    /* create mapped blocks instead of holes to make happy this stupid
-      pginit.c in kernel ... 
+      pginit.c in kernel ...
 
       Trying thousand times - and this is a better variant.
       Kernel code doesn`t like holes is memory, kernel code doesn`t
@@ -667,7 +671,7 @@ void load_kernel(module  *mi) {
          ppa->a_size = arena[ii+1].a_paddr - ppa->a_paddr;
 
          if (ppa->a_size && ppa->a_aflags == AF_INVALID &&
-            (!minhole || ppa->a_size<=minhole)) 
+            (!minhole || ppa->a_size<=minhole))
          {
             ppa->a_aflags = AF_LADDR | AF_DOSHLP;
             ppa->a_laddr  = lndataaddr -= ppa->a_size;
@@ -821,7 +825,8 @@ char *key_present_pos(const char *key, u32t *pos) {
 
 void memparm_init(void) {
    char *parmptr = key_present("MEMLIMIT");
-   u32t  limit = 0, ps, rmvmem[REMOVEMEM_LIMIT], ii, hsize, exrsize = 0;
+   u32t    limit = 0, ps, rmvmem[REMOVEMEM_LIMIT], ii, hsize,
+         exrsize = 0;
    if (parmptr)
       if ((limit = strtoul(parmptr,0,0))<16) limit = 0;
    // check memlimit from VMTRR
@@ -855,21 +860,24 @@ void memparm_init(void) {
       if ((resblock_len = strtoul(parmptr,0,0))<64) resblock_len = 0;
    if (resblock_len>32768) resblock_len = 32768;
    resblock_len   >>= 6;
-   resblock_len    += exrsize;
+   resblock_len    += exrsize + cfgtext;
    resblock_addr    = hlp_setupmem(limit, &resblock_len, rmvmem, SETM_SPLIT16M);
    efd->LogBufPAddr = resblock_addr;
 
    if (resblock_len<exrsize)
       error_exit(12,"Unable to reserve memory for RAM disk boot!\n");
-   if (exrsize) {
-      // get part of allocated log space for ram disk boot i/o
-      efd->LogBufSize = resblock_len  - exrsize;
-      paeppd = resblock_addr + (efd->LogBufSize<<16);
-      // no log at all?
-      if (!efd->LogBufSize) efd->LogBufPAddr = 0;
-   } else
-      efd->LogBufSize = resblock_len;
-   efd->LogMapSize = efd->LogBufSize;
+   if (resblock_len<exrsize+cfgtext) {
+      log_printf("failed to alloc memory for Alt-E\n");
+      cfgtext = 0;
+   }
+   // get a part of allocated space for ram disk boot i/o
+   efd->LogMapSize = resblock_len - exrsize;
+   efd->LogBufSize = efd->LogMapSize - cfgtext;
+   // nothing to map?
+   if (!efd->LogBufSize && !cfgtext) efd->LogBufPAddr = 0;
+
+   if (exrsize) paeppd = resblock_addr + (efd->LogBufSize<<16) + (cfgtext<<16);
+   if (cfgtext) efd->CfgData = efd->LogBufSize<<16;
    upd_physmem();
 
    log_printf("physmem after split/resetup:\n");
@@ -899,12 +907,24 @@ void memparm_init(void) {
    efd->MemPagesLo = sys_ramtotal(&efd->MemPagesHi);
 
    if (efd->LogBufPAddr) {
-      lid->BootFlags|=BOOTFLAG_LOG;
-      log_printf("log: phys %08X, size %dkb\n", efd->LogBufPAddr, efd->LogBufSize<<6);
+      if (efd->LogBufSize) lid->BootFlags|=BOOTFLAG_LOG;
+      log_printf("log: phys %08X, size %dkb, map size %ukb\n", efd->LogBufPAddr,
+         efd->LogBufSize<<6, efd->LogMapSize<<6);
    }
    // try to reserve allocated log address in memory manager
    if (resblock_addr)
       logresv = hlp_memreserve(resblock_addr, resblock_len<<16, &resblock_err);
+}
+
+static u8t* _flat(module *mi, u32t addr) {
+   u32t ii;
+   for (ii=0; ii<mi->objects; ii++) {
+      u32t len = mi->obj[ii].size,
+          base = mi->obj[ii].fixaddr;
+      if (addr>=base && addr<base+len)
+         return (u8t*)mi->obj[ii].address + (addr-base);
+   }
+   return 0;
 }
 
 /************************************************************************/
@@ -914,12 +934,15 @@ void memparm_init(void) {
 void patch_kernel(module *mi, int isSMP, int branchAT) {
    char *symname = key_present("SYM"), sym[12];
    int   dosdata = -1,
+         doscode = -1,
           gdtseg = -1;
    u32t  ii;
    for (ii=0;ii<mi->objects;ii++) {
       // search for OS/4 in xxx:4 of low code segment (DOSCODE now)
-      if ((mi->obj[ii].flags & (OBJEXEC|OBJHIMEM)) == OBJEXEC)
+      if ((mi->obj[ii].flags & (OBJEXEC|OBJHIMEM)) == OBJEXEC) {
          if (((u32t*)mi->obj[ii].address)[1] == OS4MAGIC) isos4krnl = 1;
+         if (doscode<0) doscode = ii;
+      }
       // check for 'SAS ' string in low data segment
       if ((mi->obj[ii].flags & (OBJEXEC|OBJHIMEM)) == 0)
          if (mi->obj[ii].size>0x1000 && *(u32t*)mi->obj[ii].address==0x20534153)
@@ -998,10 +1021,10 @@ void patch_kernel(module *mi, int isSMP, int branchAT) {
       if ((mi->obj[mi->objects-1].flags & (OBJEXEC|OBJHIMEM)) == (OBJEXEC|OBJHIMEM)) {
          static u8t cmpcx90000[] = { 0x81, 0xF9, 0, 0, 9, 0 };
          static u8t cmpcxA0000[] = { 0x81, 0xF9, 0, 0, 0x0A, 0 };
-      
+
          u32t   objlen = mi->obj[mi->objects-1].size, stoplen;
          u8t  *objaddr = (u8t*)mi->obj[mi->objects-1].address;
-      
+
          if (!patch_binary(objaddr, objlen, 1, cmpcx90000, sizeof(cmpcx90000),
                            0, 0, 0, &stoplen))
          {
@@ -1015,6 +1038,69 @@ void patch_kernel(module *mi, int isSMP, int branchAT) {
                   log_printf("memory end at %X\n", ltop);
                }
             }
+         }
+      }
+   }
+   // a long way to find TKSetThreadAffinity pointer :)
+   if (isSMP)
+      for (ii=0; ii<mi->objects; ii++)
+         if ((mi->obj[ii].flags & (OBJWRITE|OBJHIMEM|OBJSHARED))==
+            (OBJWRITE|OBJHIMEM|OBJSHARED)) 
+         {
+            static u8t sd[16] = { 0x80,0xB8,0,0,0,0,0,0,0,0,1,0,'D','O','S','C' };
+            u32t   objlen = mi->obj[ii].size, pos;
+            u8t  *objaddr = (u8t*)mi->obj[ii].address;
+            int       err = patch_binary(objaddr, objlen, 1, sd, 0, sizeof(sd), 0, 0, &pos);
+            if (err<1) {
+               u32t psmte = *(u32t*)(objaddr+objlen-pos-9);
+               u8t  *etab = _flat(mi, psmte);
+               u16t  gate = 0;
+               u8t*    fn = 0;
+               if (etab) etab = _flat(mi, ((u32t*)etab)[14]);
+               if (etab) {
+                  etab+= 2+659*3;
+                  gate = *(u16t*)(etab+1);
+               }
+               // GATE
+               if (*etab==2 && mi->obj[gdtseg].size>gate) {
+                  struct gate_s *sd = (struct gate_s*)((u8t*)mi->obj[gdtseg].address + 
+                                                       (gate&RPL_CLR));
+                  if (sd->g_access==D_GATE332) {
+                     u32t addr = sd->g_handler;
+                     fn = _flat(mi, addr);
+                     if (fn[1]==0x6A && fn[2]==8 && fn[8]==0x8D && fn[9]==5) {
+                        fn = *(u8t**)(fn+10);
+                        efd->PFEPtr = (u32t)fn;
+                     } else
+                        fn = 0;
+                  }
+               }
+               log_printf("aff: %08X %02X %04X %08X\n", psmte, *etab, gate, fn);
+            }
+            break;
+         }
+   // try to change stack pointer for OS2DUMP
+   if (doscode>=0) {
+      static u8t sd[16] = { 0x8C, 0xD1, 0x8B, 0xD4, 0x68 };
+      u32t   objlen = mi->obj[doscode].size, pos;
+      u8t  *objaddr = (u8t*)mi->obj[doscode].address;
+      int       err = patch_binary(objaddr, objlen, 1, sd, 0, sizeof(sd), 0, 0, &pos);
+
+      if (err<1) {
+         u8t *pd = objaddr + (objlen - pos) - 1;
+
+         if ((pd[-1]==0xFD && pd[-6]==0 && pd[-7]==0x46 || pd[-1]==0 &&
+            pd[-2]==0x46) && pd[7]==0x17 /* pop ss */ && pd[8]==0x8D &&
+               pd[9]==0x26 /* lea sp */)
+         {
+            /* set the end of DOSHLP as a dump`s stack:
+               1. it is page aligned, so it has an additional space
+               2. on the top of them PCI device list & resident messages are
+                  placed, so we can overwrite them safely
+               3. selector value is known (constant) */
+            *(u16t*)(pd+ 5) = DOSHLP_DATASEL;   // push dw + pop ss
+            *(u16t*)(pd+10) = respart4k;        // lea sp
+            log_printf("dump stack switched (100:%04X)\n", respart4k);
          }
       }
    }
@@ -1048,10 +1134,23 @@ void *read_file(const char *path, u32t *size, int kernel) {
          rc = hlp_freadfull("OS2KRNLI",size,0);
          if (rc) twodiskb=1;
       }
+      // PXE boot case
+      if (!rc) {
+         char *cp = sprintf_dyn("A:\\%s", path);
+         rc = freadfull(cp,size);
+         free(cp);
+      }
    }
    // no? trying to read from our`s virtual disk
    if (!rc) rc = freadfull(path,size);
    return rc;
+}
+
+char *get_raw_config_sys(u32t *size, char *name) {
+   char cfgname[32];
+   if (!name) name = cfgname;
+   snprintf(name, 32, "CONFIG.%s", cfgext?cfgext:"SYS");
+   return (char*)read_file(name, size, 0);
 }
 
 /// return config.sys as str_list
@@ -1063,9 +1162,7 @@ str_list *get_config_sys(void) {
       // single try
       if (once++) return 0;
 
-      snprintf(cfgname, 32, "CONFIG.%s", cfgext?cfgext:"SYS");
-      
-      cfgfile = (char*)read_file(cfgname, &cfglen, 0);
+      cfgfile = get_raw_config_sys(&cfglen,cfgname);
       if (cfgfile) {
          config_sys = str_settext(cfgfile, cfglen);
          hlp_memfree(cfgfile);
@@ -1075,10 +1172,60 @@ str_list *get_config_sys(void) {
    return config_sys;
 }
 
+/// non-zero returned if sysview was at least called here
+int editconfig(void) {
+   char   cfgname[32], *cfgfile;
+   u32t    cfglen;
+   int         rc = 0;
+   if (!cfgtext || !efd->LogBufPAddr) return 0;
+
+   cfgfile = get_raw_config_sys(&cfglen,cfgname);
+   if (cfgfile) {
+      char     tdir[_MAX_PATH+1],
+             *tpath;
+      if (tmpdir(tdir)==0) strcpy(tdir, "b:");
+      tpath = sprintf_dyn("%s\\%s", tdir, cfgname);
+
+      if (fwritefull(tpath, cfgfile, cfglen)==0) {
+         char     *cmd = sprintf_dyn("sysview /edit \"%s\"", tpath);
+         cmd_state cst = cmd_init(cmd,0);
+
+         hlp_memfree(cfgfile);
+         cmd_run(cst,CMDR_ECHOOFF);
+         cmd_close(cst);
+         free(cmd);
+         rc = 1;
+
+         cfgfile = freadfull(tpath, &cfglen);
+         if (cfgfile) {
+            if (cfglen<_64KB) {
+               u32t mapaddr = efd->LogBufPAddr+efd->CfgData;
+               char    *mem = pag_physmap(mapaddr, _64KB, 0);
+
+               if (mem) {
+                  memcpy(mem, cfgfile, cfglen);
+                  pag_physunmap(mem);
+                  efd->CfgDataLen = cfglen;
+                  efd->Flags     |= EXPF_CFGTEXT;
+               } else
+                  log_printf("%08X map error?\n", mapaddr);
+            } else
+               log_printf("%s too long!\n", tpath);
+         } else
+            log_printf("%s not found!\n", tpath);
+      } else
+         log_printf("Unable to save temp file \"%s\"!\n", tpath);
+      free(tpath);
+      if (cfgfile) hlp_memfree(cfgfile);
+   }
+   return rc;
+}
+
 void load_miscfiles(const char *kernel, int dbcs) {
    char *parmptr;
-   // load os2dump
-   os2dmp = read_file(os2dmp_name, &dmpsize, 0);
+   // load os2dump (check that we have own file first)
+   os2dmp = read_file("b:\\os2boot\\os2dump", &dmpsize, 0);
+   if (!os2dmp) os2dmp = read_file(os2dmp_name, &dmpsize, 0);
    check_size(&os2dmp, &dmpsize, _64KB, "Dump");
    // load sym to separate arena
    if (key_present("LOADSYM")) {
@@ -1112,7 +1259,7 @@ void load_miscfiles(const char *kernel, int dbcs) {
       // load os2dbcs.fnt
       dbcsfnt = read_file(dbscfnt_name, &dbcsfnsize, 0);
       check_size(&dbcsfnt, &dbcsfnsize, _256KB-_16KB, "Dbcs font");
-      
+
       if (dbcsfnt)
          if (dbcsfnsize<16 || memcmp(dbcsfnt, "OS2DBCS.COMPACT", 15)) {
             log_printf("Warning! Wrong DBCS font file!\n");
@@ -1121,14 +1268,43 @@ void load_miscfiles(const char *kernel, int dbcs) {
    }
 }
 
+void copy_special(void) {
+   u32t ii;
+   // zero GSIC packet (no support)
+   memset(flat1000+efd->GSICPktOfs, 0, sizeof(struct GSIC_Packet));
+   // assume the same format for bios_table_ptr & BIOSTAB_Packet
+   for (ii=0; ii<=SYSTAB_MP; ii++) {
+      bios_table_ptr *te = (bios_table_ptr*)(flat1000+efd->BiosTabOfs+ii*10);
+      if (sys_gettable(ii,te)) te->addr = 0;
+   }
+}
+
+// store MTRR setup for secondary CPUs or reset all changes
+void mtrr_setup(void) {
+   u32t changed = hlp_mtrrchanged(1,1,1);
+   // any existing WC should force register duplication too
+   if (!changed) {
+      changed = hlp_mtrrctuse(MTRRF_WC,1,1);
+      log_printf("WC found in regs (%u)\n", changed);
+   }
+
+   if (changed) {
+      if (!key_present("NOMTRR")) {
+         efd->MsrTableCnt = hlp_mtrrbatch(flat1000 + efd->MsrTableOfs);
+         log_printf("%d msr entries saved\n",(u32t)efd->MsrTableCnt);
+      } else
+      if (!testmode) hlp_mtrrbios();
+   }
+}
+
 /************************************************************************/
 // main :)
 /************************************************************************/
 void main(int argc,char *argv[]) {
    char    *parmptr;
-   int     testmode = 0,
-            memview = 0,
-             defmsg = 0;        // use os2ldr.msg
+   int      memview = 0,
+             defmsg = 0,        // use os2ldr.msg
+              alt_e = 0;
    u32t    kernsize = 0,        // kernel image size
          pcidatalen = 0;
    module       *mi = 0;        // this block will lost on failure exit.
@@ -1146,7 +1322,7 @@ void main(int argc,char *argv[]) {
 
    // kernel boot parameters
    if (argc<=3) {
-      kparm = str_split(argc>2?argv[2]:"",","); 
+      kparm = str_split(argc>2?argv[2]:"",",");
       log_printf("loading %s,\"%s\"\n", argv[1], argv[2]);
    } else {
       char *arglist = 0;
@@ -1211,7 +1387,44 @@ void main(int argc,char *argv[]) {
       // just remembering about missing filetable struct!
       error_exit(13,"Fix me!\n");
    }
-   /* mini-fsd present (note, mfsdptr/mfsdsize can be assigned above - 
+   // config sys editor asked?
+   alt_e = key_present("ALTE")?1:0;
+   // check for PKEY=0x1200 too
+   if (!alt_e) {
+      u32t ps = 0;
+      do {
+         parmptr = key_present_pos("PKEY",&ps);
+         if (parmptr)
+            if (strtoul(parmptr,0,0)==0x1200) { alt_e=1; break; }
+         ps++;
+      } while (parmptr);
+   }
+   /* just as a quick test (anyway, there is no such file in QSINIT :))
+      It replaces BOTH common boot volume mini-FSD and loaded by the SOURCE
+      key above */
+   if (boot_info.minifsd_ptr && (bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0 || mfsdptr) {
+      u32t  mlen = 0;
+      void *mptr = read_file("b:\\os2boot\\os2boot", &mlen, 0);
+      if (mptr) {
+         disk_volume_data vi;
+         int              ok = 0;
+         if (hlp_volinfo(bootsrc?bootsrc:DISK_BOOT,&vi)==FST_OTHER)
+            if (strcmp(vi.FsName,"HPFS")==0 || strcmp(vi.FsName,"JFS")==0)
+               ok = patch_binary(mptr,mlen,1,".!FSNAME!.",10,0,vi.FsName,9,0)==0;
+
+         if (!ok) hlp_memfree(mptr); else {
+            // was loaded in SOURCE
+            if (mfsdptr) hlp_memfree(mfsdptr);
+            mfsdptr  = mptr;
+            mfsdsize = mlen;
+            /* this check should be above memparm_init() where the memory
+               reserved for the config.sys text */
+            cfgtext  = alt_e?1:0;
+            log_printf("mini-FSD replaced to handle %s (%u)\n", vi.FsName, cfgtext);
+         }
+      }
+   }
+   /* mini-fsd present (note, mfsdptr/mfsdsize can be assigned above -
       if SOURCE parameter present) */
    if (!mfsdptr) {
       if (boot_info.minifsd_ptr) {
@@ -1282,18 +1495,45 @@ void main(int argc,char *argv[]) {
    // write OS/4 signature to 100:0
    ((u32t*)lid)[-1] = OS4MAGIC;
    // initial flags value
-   efd->Flags    = twodiskb?EXPF_TWODSKBOOT:0;
+   efd->Flags    = (twodiskb?EXPF_TWODSKBOOT:0)|EXPF_CALL32|EXPF_FLAGSEX;
+   efd->FlagsEx  = 0;
    // signature (for hd4disk - it allow him check loader type)
    efd->InfoSign = EXPDATA_SIGN;
    // pae ram disk physical page or 0 if not present
    efd->HD4Page  = sto_dword(STOKEY_VDPAGE);
-   // save AMD cpu flag
-   if (sys_isavail(SFEA_AMD)) efd->Flags|=EXPF_AMDCPU;
+   // save sys_isavail() result (cpu information)
    efd->CpuFBits = sys_isavail(FFFF);
    /* save int 10h vector because OS2DBCS can be missed or NODBCS option
       forced - both cases cause DBCS system malfunction on boot if we does
       not provide valid vector */
    hlp_memcpy(&efd->SavedInt10h, (u32t*)hlp_segtoflat(0) + 0x10, 4, MEMCPY_PG0);
+
+   /* new OS2DUMP? */
+   if (os2dmp && memcmp((u8t*)os2dmp+9, "AOSDUMP", 7)==0) {
+      /* disk detection order: DUMP_ORDER = AB
+         A = AHCI, B = BIOS, at least one char should be present */
+      parmptr = getenv("DUMP_ORDER");
+      if (!parmptr) parmptr = sto_data(STOKEY_DUMPSEQ);
+      if (parmptr)
+         if (strspnp(parmptr,"ABab")==0) {
+            int ii = -1;
+            while (*parmptr && ++ii<4)
+               switch (toupper(*parmptr++)) {
+                  case 'A': efd->DumpHubOrder |= DUMPHAB_AHCI<<4*ii; break;
+                  case 'B': efd->DumpHubOrder |= DUMPHAB_BIOS<<4*ii; break;
+               }
+            log_printf("dump order %04x\n", efd->DumpHubOrder);
+         } else
+            log_printf("dump order string is invalid!\n");
+      /* OEMHLP init will alloc contig buffer of OS2DUMP_BUFFER_SIZE bytes
+         if found this flag */
+      efd->FlagsEx |= EXPFX_NEWDUMP;
+      // enable volume search
+      parmptr = getenv("DUMP_SEARCH");
+      if (parmptr && strtoul(parmptr,0,0) || sto_dword(STOKEY_DUMPSRCH))
+         efd->FlagsEx|=EXPFX_DUMPSRCH;
+   }
+   if (key_present("FORCEDUMP")) efd->FlagsEx |= EXPFX_FORCEDUMP|EXPFX_DUMPSRCH;
 
    /* rise up cpu freq to 100% - and leave it in this mode, but only if was
       no NORESET in "mode sys" command, else - save current clock modulation
@@ -1372,10 +1612,13 @@ void main(int argc,char *argv[]) {
          }
       }
       if (limit<1024) limit = 1024; else
-      if (limit>3072) limit = 3072; 
+      if (limit>3072) limit = 3072;
       lid->VALimit = limit;
    } else
       lid->VALimit = 2048;
+   // ACPI reset call allowed
+   if (key_present("ACPIRESET") || sto_dword(STOKEY_ACPIRST))
+      efd->Flags|=EXPF_ACPIRESET;
    // test mode?
    if (key_present("TEST")) testmode = 1;
    if (key_present("VIEWMEM")) memview = 1;
@@ -1428,14 +1671,7 @@ void main(int argc,char *argv[]) {
    // this is warp kernel (pre-applied fixups)
    if (mi->flags&MOD_NOFIXUPS) lid->BootFlags|=BOOTFLAG_WARPSYS;
    // store MTRR setup for secondary CPUs or reset all changes
-   if (hlp_mtrrchanged(1,1,1)) {
-      parmptr = key_present("NOMTRR");
-      if (!parmptr) {
-         efd->MsrTableCnt = hlp_mtrrbatch(flat1000 + efd->MsrTableOfs);
-         log_printf("%d msr entries saved\n",(u32t)efd->MsrTableCnt);
-      } else
-      if (!testmode) hlp_mtrrbios();
-   }
+   mtrr_setup();
    // disk access mode / type
    if ((bootflags&(BF_NOMFSHVOLIO|BF_RIPL))==0) {
       u32t btdsk = hlp_diskbios(bootdisk,0),
@@ -1461,6 +1697,8 @@ void main(int argc,char *argv[]) {
    }
    // init some memory and log parameters
    memparm_init();
+   // GSIC & BIOS table packets data
+   copy_special();
 
    // i/o delay (used in init1)
    efd->IODelay = IODelay;
@@ -1510,11 +1748,12 @@ void main(int argc,char *argv[]) {
       pci_location dev;
       dd_list a_bus=NEW(dd_list), a_vid=NEW(dd_list), a_cls=NEW(dd_list);
       // enum PCI
-      int ok = hlp_pcigetnext(&dev,1,0), ii, devcnt;
+      int ok = hlp_pcigetnext(&dev,1,0), ii, devcnt, maxbus=-1;
       while (ok) {
          a_bus->add(dev.bus|(u32t)(dev.slot<<3&0xF8|dev.func&0x7)<<8);
          a_vid->add((u32t)dev.vendorid<<16|dev.deviceid);
          a_cls->add((u32t)dev.classcode<<8|dev.progface);
+         if (dev.bus>maxbus) maxbus = dev.bus;
          ok = hlp_pcigetnext(&dev,0,0);
       }
       devcnt = a_bus->count();
@@ -1532,7 +1771,8 @@ void main(int argc,char *argv[]) {
          efd->PCIVendorList = efd->PCIClassList + devcnt*4;
          efd->PCIBusList    = efd->PCIVendorList + devcnt*4;
          respart4k          = efd->PCIBusList + devcnt*2;
-         log_printf("%d pci devices saved\n",devcnt);
+         if (maxbus>=0) efd->PCILastBus = maxbus;
+         log_printf("%d pci devices saved, %u last bus\n", devcnt, efd->PCILastBus);
       }
       // free lists
       DELETE(a_cls); DELETE(a_vid); DELETE(a_bus);
@@ -1551,7 +1791,7 @@ void main(int argc,char *argv[]) {
    // doshlp size, rounded to nearest page
    respart4k = PAGEROUND(respart4k);
    // -------------------------------------------------------------
-   /* discardable part (boothlp) include: resident part (as a garbage), self,
+   /* discardable part (boothlp) includes: resident part (as a garbage), self,
       512 bytes disk buffer, stack and arena list for kernel (one page) */
    efd->DisMsgOfs  = SECTROUND(efd->DosHlpSize) + SECTSIZE;
    efd->DisPartLen = PAGEROUND(efd->DisMsgOfs + msgsize[1] + STACK_SIZE) + PAGESIZE;
@@ -1560,7 +1800,8 @@ void main(int argc,char *argv[]) {
    efd->ResMsgOfs  = efd->DisPartOfs;
    log_printf("boothlp seg: %04X!\n",efd->DisPartSeg);
    log_printf("Low/High/Ext: %d/%d/%d\n",efd->LowMem,efd->HighMem,efd->ExtendMem);
-   log_printf("flags: %08X, dis msgs: %04X\n",lid->BootFlags,efd->DisMsgOfs);
+   log_printf("flags: %08X, eflags: %04X, dis msgs: %04X\n", lid->BootFlags,
+      efd->Flags, efd->DisMsgOfs);
 
    /* we need to split doshlp data processing here, because load_kernel()
       can setup resident arena size smaller, than DosHlpSize, and some
@@ -1580,7 +1821,7 @@ void main(int argc,char *argv[]) {
    if (lid->BootFlags&BOOTFLAG_EDISK)
       if (!setup_ramdisk(bootdisk^QDSK_FLOPPY, efd, (char*)doshlp))
          error_exit(12,"Internal error in RAM disk setup!\n");
-   /* turn on COM1 port for IBM debug kernel without OS2LDR.INI 
+   /* turn on COM1 port for IBM debug kernel without OS2LDR.INI
       (actually, without parameters) */
    if (isdbgkrnl && !isos4krnl && kparm->count==0 && (lid->DebugTarget&DEBUG_TARGET_MASK)==0) {
       lid->DebugPort   = COM1_PORT;
@@ -1623,7 +1864,7 @@ void main(int argc,char *argv[]) {
             if (qslog) {
                u32t  len = strlen(qslog);
                char *log = pag_physmap(efd->LogBufPAddr, efd->LogBufSize<<16, 0);
-            
+
                if (log) {
                   log_printf("flushing QS log, max level %d, size %d\n", level, len);
                   // log is too large?
@@ -1634,7 +1875,7 @@ void main(int argc,char *argv[]) {
                   // copying data
                   memcpy(log+efd->LogBufWrite, qslog, len);
                   pag_physunmap(log);
-            
+
                   efd->LogBufWrite+=len;
                }
                free(qslog);
@@ -1643,13 +1884,16 @@ void main(int argc,char *argv[]) {
       }
    }
    log_printf("Flags: %04X\n",lid->BootFlags);
-   
+
    // push key press
    parmptr = key_present("PKEY");
-   if (parmptr || key_present("ALTE")) {
+   if (parmptr || alt_e) {
       u16t key = parmptr?strtoul(parmptr,0,0):0x1200;
-      log_printf("pkey = %s %04X\n", parmptr?parmptr:"ALTE", key);
-      if (key) efd->PushKey = key;
+      // do not push Alt-E if we edit config.sys in the loader
+      if (!cfgtext || key!=0x1200) {
+         log_printf("pkey = %s %04X\n", parmptr?parmptr:"ALTE", key);
+         if (key) efd->PushKey = key;
+      }
    }
    // call external batch file
    if (cmdcall) {
@@ -1658,6 +1902,9 @@ void main(int argc,char *argv[]) {
       cmd_close(cst);
       free(cmdcall); cmdcall = 0;
    }
+   // drop memview flag because we already called sysview here
+   if (alt_e && cfgtext)
+      if (editconfig()) memview = 0;
    // call sysview /mem for direct memory viewing/editing
    if (memview) {
       cmd_state cst = cmd_init("sysview /mem",0);

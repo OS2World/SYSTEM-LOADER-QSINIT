@@ -171,6 +171,10 @@ typedef struct {
 //@{
 #define VMF_GRAPHMODE        0x00001   ///< graphic mode
 #define VMF_VGAPALETTE       0x00002   ///< VGA palette present (8 bit graphic modes)
+#define VMF_FONTx2           0x00100   ///< font scaling x2
+#define VMF_FONTx3           0x00200   ///< font scaling x3
+#define VMF_FONTx4           0x00300   ///< font scaling x4
+#define VMF_FONTxMASK        0x00300   ///< font scaling mask
 //@}
 
 /** get video mode(s) information.
@@ -224,6 +228,11 @@ u16t  _std key_wait(u32t seconds);
                           key press, can be 0.
     @return key code or 0 */
 u16t  _std key_waitex(u32t ms, u32t *status);
+
+/** clear keyboard buffer.
+    Function clears keyboard queue for the current session.
+    @return number of abandoned keystrokes */
+u32t  _std key_clear(void);
 
 /** set keyboard rate and delay.
     @param rate    0=30 rpts/sec, 1=26...1Fh=2.

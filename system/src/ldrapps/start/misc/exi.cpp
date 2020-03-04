@@ -348,6 +348,20 @@ u32t _std exi_classid(void *instance) {
    return 0;
 }
 
+void _std exi_lock(void *instance) {
+   if (!instance || !refs) return;
+   cl_header *ch = (cl_header*)instance-1;
+   if (ch->sign!=EXI_SIGN) return;
+   exi_muxlock(ch);
+}
+
+void _std exi_unlock(void *instance) {
+   if (!instance || !refs) return;
+   cl_header *ch = (cl_header*)instance-1;
+   if (ch->sign!=EXI_SIGN) return;
+   exi_muxunlock(ch);
+}
+
 void *_std exi_instdata(void *instance) {
    if (!instance) return 0;
    MTLOCK_THIS_FUNC lk;

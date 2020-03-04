@@ -15,7 +15,6 @@ extern
 struct qs_diskinfo      qd_array[MAX_QS_DISK];
 extern u8t      qd_fdds, qd_hdds;
 extern int            qd_bootidx; // index of boot disk info in qd_array, -1 if no
-extern u16t               cp_num;
 extern u8t*                ExCvt; // FatFs OEM case conversion
 cache_extptr        *cache_eproc;
 // real mode thunk (this thunk pop parameters from stack)
@@ -508,4 +507,6 @@ void _std cb_codepage(sys_eventinfo *cbinfo) {
       // set zero page to prevent stricmp from digging into ExCvt table on DBCS
       cp_num       = cp_num>900 ? 0 : info->cpnum;
    }
+   // at this point codepage is surely ready
+   mod_secondary->dccommit(DCN_CPCHANGE);
 }

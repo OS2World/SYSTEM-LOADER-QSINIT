@@ -10,6 +10,8 @@ set tmp=b:\temp
 
 rem set volume label for b:
 label vdisk
+rem unpack cmd.exe and set r/o attr on it
+cmd /c attrib +r cmd.exe
 
 rem load cache on first mount command if it wasn`t loaded before
 set LM_CACHE_ON_MOUNT = on,6%
@@ -25,7 +27,7 @@ copy /boot /q qssetup.cmd 1:\qssetup.cmd
 if exist qssetup.cmd call qssetup.cmd
 
 if NOT %boottype%=="SINGLE" goto common1
-rem non-OS/2 boot - load disk i/o cache
+rem non-OS/2 boot - load disk i/o cache (up to 6% of avail memory)
 cache 6%
 :common1
 

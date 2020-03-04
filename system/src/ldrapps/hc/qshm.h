@@ -159,6 +159,14 @@ u32t  _std hlp_mtrrfread  (u32t *start, u32t *length, u32t *state);
             multiple cache types used over it */
 u32t  _std hlp_mtrrsum    (u64t start, u64t length);
 
+/** check is this cache type used?
+    Function enums MTRR registers and check for an asked cache type.
+    @param cache      cache type (MTRRF_UC..MTRRF_WB)
+    @param fixed      include fixed range MTRRs into enumeration (1/0)
+    @param variable   include variable range MTRRs into enumeration (1/0)
+    @return number of MTRR registers with specified cache type. */
+u32t  _std hlp_mtrrctuse  (u32t cache, int fixed, int variable);
+
 /** setup fixed range mtrr registers.
     Function split addr and length to multiple fixed length registers.
     If addr/addr+length not aligned to fixed MTRR boundaries - function

@@ -5,7 +5,6 @@
 ;
 [project]
 name=runtime
-version=0x0001
 
 [config]
 0=Common

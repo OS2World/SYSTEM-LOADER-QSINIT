@@ -112,6 +112,52 @@ void*    _std sys_getlapic(void);
     @return physicall address or 0 on error */
 u32t     _std sys_acpiroot(void);
 
+/// @name table number for sys_gettable()
+//@{
+#define SYSTAB_ACPI            0    ///< ACPI root
+#define SYSTAB_SMBIOS          1    ///< SMBIOS
+#define SYSTAB_SMBIOS3         2    ///< SMBIOS v.3
+#define SYSTAB_DMI             3    ///< Legacy DMI
+#define SYSTAB_PNPBIOS         4    ///< PNP BIOS
+#define SYSTAB_BIOS32          5    ///< BIOS32 Service Directory
+#define SYSTAB_IRQROUTE        6    ///< PCI Interrupt Routing
+#define SYSTAB_MP              7    ///< Intel Multiprocessor Configuration
+#define SYSTAB_SYSID           8    ///< SYSID
+//@}
+
+typedef struct {
+   u32t      addr;                  ///< physical address
+   u32t    length;                  ///< table length
+   u16t    status;                  ///< bit 0 = 1 means control sum mismatch
+} bios_table_ptr;
+
+/** get BIOS table address and length.
+    Note, that some tables are missing on EFI host (at least ACPI should exist).
+    @param       table  table number (SYSTAB_xxxxx above)
+    @param [out] data   buffer for requested data.
+    @return zero on success, E_SYS_NOTFOUND is table is not found */
+qserr    _std sys_gettable(u32t table, bios_table_ptr *data);
+
+/// @name value for sys_dmiinfo()
+//@{
+#define SMI_BIOS_Vendor        0
+#define SMI_BIOS_Version       1
+#define SMI_BIOS_Date          2
+#define SMI_SYS_Vendor         3
+#define SMI_SYS_Product        4
+#define SMI_SYS_Version        5
+#define SMI_SYS_Serial         6
+#define SMI_SYS_UUID           7
+#define SMI_MB_Vendor          8   ///< Motherboard vendor
+#define SMI_MB_Product         9
+#define SMI_MB_Version        10
+#define SMI_MB_Serial         11
+//@}
+
+/** query SMBIOS/DMI information string.
+    @return value in the application owned heap block or 0 if there is no such string */
+char*    _std sys_dmiinfo(u32t value);
+
 /// query FPU state buffer size
 u32t     _std fpu_statesize(void);
 
@@ -125,22 +171,22 @@ void     _std fpu_staterest(void *buffer);
 
 /// @name bit flags for sys_isavail
 //@{
-#define SFEA_PAE     0x00000001            ///< PAE supported
-#define SFEA_PGE     0x00000002            ///< PGE supported
-#define SFEA_PAT     0x00000004            ///< PAT supported
-#define SFEA_CMOV    0x00000008            ///< CMOV instructions (>=P6)
-#define SFEA_MTRR    0x00000010            ///< MTRR present
-#define SFEA_MSR     0x00000020            ///< MSRs present
-#define SFEA_X64     0x00000040            ///< AMD64 present
-#define SFEA_CMODT   0x00000080            ///< clock modulation supported
-#define SFEA_LAPIC   0x00000100            ///< Local APIC available
-#define SFEA_FXSAVE  0x00000200            ///< FXSAVE available
-#define SFEA_XSAVE   0x00000400            ///< XSAVE available
-#define SFEA_SSE1    0x00000800            ///< SSE available
-#define SFEA_SSE2    0x00001000            ///< SSE2 available
-#define SFEA_INVM    0x08000000            ///< running in virtual machine
-#define SFEA_INTEL   0x10000000            ///< CPU is Intel
-#define SFEA_AMD     0x20000000            ///< CPU is AMD
+#define SFEA_PAE      0x00000001    ///< PAE supported
+#define SFEA_PGE      0x00000002    ///< PGE supported
+#define SFEA_PAT      0x00000004    ///< PAT supported
+#define SFEA_CMOV     0x00000008    ///< CMOV instructions (>=P6)
+#define SFEA_MTRR     0x00000010    ///< MTRR present
+#define SFEA_MSR      0x00000020    ///< MSRs present
+#define SFEA_X64      0x00000040    ///< AMD64 present
+#define SFEA_CMODT    0x00000080    ///< clock modulation supported
+#define SFEA_LAPIC    0x00000100    ///< Local APIC available
+#define SFEA_FXSAVE   0x00000200    ///< FXSAVE available
+#define SFEA_XSAVE    0x00000400    ///< XSAVE available
+#define SFEA_SSE1     0x00000800    ///< SSE available
+#define SFEA_SSE2     0x00001000    ///< SSE2 available
+#define SFEA_INVM     0x08000000    ///< running in virtual machine
+#define SFEA_INTEL    0x10000000    ///< CPU is Intel
+#define SFEA_AMD      0x20000000    ///< CPU is AMD
 //@}
 
 /** query some CPU features in more friendly way.

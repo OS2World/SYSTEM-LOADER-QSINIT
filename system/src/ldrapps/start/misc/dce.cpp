@@ -105,7 +105,7 @@ qserr _std sys_dcedel(void *usr) {
 }
 
 void _std sys_dccommit(u32t code) {
-   if (code>DCN_MEM) return;
+   if (code>DCN_CPCHANGE) return;
 
    /* note, that function should not use any kind of memory allocation,
       because of DCN_MEM code, which called from hlp_memalloc() during

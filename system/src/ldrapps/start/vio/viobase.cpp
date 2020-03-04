@@ -6,7 +6,6 @@
 #include "qcl/sys/qsvioint.h"
 #include "qsbase.h"
 #include "qserr.h"
-#include "qscon.h"
 #include "syslocal.h"
 #include "qsvdata.h"
 #include "classes.hpp"

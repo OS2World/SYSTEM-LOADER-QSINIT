@@ -16,14 +16,8 @@ set bldtype=1
 :make
 if "%bldarg%".=="". set bldarg=*
 
-set PATH_ORG=%PATH%
 call ..\..\..\setup.cmd
 set INCLUDE=%TOOL_INC%
-set PATH=%PATH_ORG%;%PATH%
 
-rem creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
-rem and build it
+rem build it
 spprj -b -bl -w -es %toolprjkey% %prjname%.prj %bldtype% %bldarg%
-
-set PATH=%PATH_ORG%

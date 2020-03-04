@@ -35,7 +35,7 @@ exports = {
   _hlp_memrealloc  = { index=22 group="sysmem"  format="pp@u" }   # global realloc
   _hlp_memavail    = { index=23 }                                 # query available memory
   _hlp_memqconst   = { index=24 }                                 # internal
-  _hlp_memused     = { index=25 group="sysmem"  format="uu" }     # query memory usage
+  _hlp_memused     = { index=25 group="sysmem"  format="uu&*@u&*@u" } # query memory usage
   _hlp_memprint    = { index=26 }                                 # print tables to log
   _hlp_memgetsize  = { index=27 }                                 # query block size
   _hlp_memreserve  = { index=28 group="sysmem"  format="ppu&*u" } # reserve mem at phys addr
@@ -59,6 +59,7 @@ exports = {
   _hlp_cachenotify = { index=49 }                                 # cache ioctl call
 
   _snprintf        = { index=70 group="string"  format="i&sus." } # clib
+  _memcpyw         = { index=71 group="clib"    format="pppu"  }  #
   _memset          = { index=72 group="clib"    format="pp@cu" }  #
   _strncmp         = { index=73 group="string"  format="issu"  }  #
   _strnicmp        = { index=74 group="string"  format="issu"  }  #
@@ -115,7 +116,7 @@ exports = {
   _BootBPB         = { index=124 offset = yes }                   # boot partition BPB
   _hlp_runcache    = { index=125 group="disk"   format="up"    }  # install cache handler
   _exit_reboot     = { index=126 }                                # reboot system
-  _exit_restart    = { index=127 }                                # restart another loader
+  _exit_restart    = { index=127 group="system" format="@uspi" }  # restart another loader
   _boot_info       = { index=128 offset = yes }                   # internal, for OS/2 boot
   _IODelay         = { index=129 offset = yes }                   # i/o delay value
   _page0_fptr      = { index=130 offset = yes }                   # 48-bit writable page 0 ptr
@@ -125,7 +126,7 @@ exports = {
   _hlp_getcpuid    = { index=134 }                                # cpuid call
   _hlp_readmsr     = { index=135 }                                # read msr call
   _hlp_writemsr    = { index=136 }                                # write msr call
-  _sys_intstate    = { index=137 group="system" format="ii"    }  # get/set interrupt state
+  _sys_intstate    = { index=137 }                                # get/set interrupt state
   _hlp_hosttype    = { index=138 }                                # query host env. type
   _call64          = { index=139 }                                # call 64-bit part on EFI host
 
@@ -140,7 +141,7 @@ exports = {
   _sys_seldesc     = { index=149 group="system" format="i@h@*q" } # set descriptor
   _sys_selquery    = { index=150 group="system" format="i@h@*&q" } # get descriptor
   _sys_setxcpt64   = { index=151 group="system" format="pp"    }  # setup exceptions on EFI host
-  _sys_tmirq32     = { index=152 group="system" format="upbb"  }  # LAPIC timer setup
+  _sys_tmirq32     = { index=152 group="system" format="upbbp" }  # MT mode timer setup
   _sys_tmirq64     = { index=153 group="system" format="pp"    }  # timer irq on EFI host
   _exit_efi        = { index=154 }                                # exit from UEFI
   _mt_yield        = { index=155 }                                # yields CPU to other threads
@@ -161,7 +162,7 @@ exports = {
   # 169..172 is free (mod_list* was here)
   _mod_context     = { index=173 }                                # query module context
   _mod_query       = { index=174 }                                # is module loaded?
-  _mod_apidirect   = { index=175 group="module" format="p@uu" }   #
+  _mod_apidirect   = { index=175 group="module" format="p@uus" }  #
 
   _key_read        = { index=180 group="key"    format="@hv" }    # read character
   _key_pressed     = { index=181 }                                # is character pressed?
@@ -171,6 +172,7 @@ exports = {
   _key_push        = { index=185 group="key"    format="b@h" }    # push key to keyboard buffer
   _key_waitex      = { index=186 group="key"    format="@hu&*@u" } # wait key
   _key_getspeed    = { index=187 group="key"    format="v&*b&*b" } # get keyboard rate/delay
+  _key_clear       = { index=188 group="key"    format="uv"  }    # clear key queue
 
   _tm_counter      = { index=190 }                                # bios timer counter value
   _tm_getdate      = { index=191 }                                # query cmos date/time

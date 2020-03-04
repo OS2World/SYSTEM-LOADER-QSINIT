@@ -13,8 +13,10 @@ static qs_vh           self = 0,
 static u32t       *fnt_data = 0,
                    m_x, m_y,       // mode size
                fnt_x, fnt_y,       // mode font size
+                   fnt_mult,       // 1..4
                pos_x, pos_y,       // cursor position
                     top_ofs,       // offset of 0,0 from top of screen, pixels
+                   left_ofs,
                       vbpps;       // bytes per pixel in active mode
 
 static u8t          txcolor = 7;
@@ -30,8 +32,10 @@ static con_drawinfo     cdi;
 
 static void writechar(u32t x, u32t y, char ch, u8t color) {
    modeinfo   *mi = modes[real_mode];
-   u32t      ypos = top_ofs+y*fnt_y,
-             xpos = x*fnt_x*vbpps,
+   u32t       f_w = fnt_x*fnt_mult,
+              f_h = fnt_y*fnt_mult,
+             ypos = top_ofs+y*f_h,
+             xpos = left_ofs+x*f_w,
           *chdata = fnt_data + (u8t)ch * fnt_y,
             bgcol = m_color[color>>4],
             txcol = m_color[color&0xF];
@@ -39,15 +43,15 @@ static void writechar(u32t x, u32t y, char ch, u8t color) {
 
    if (mi->shadow) {
       u32t llen = mi->shadowpitch;
-      con_drawchar(&cdi, txcol, bgcol, chdata, mi->shadow + ypos*llen + xpos, 
-         llen, cursor);
+      con_drawchar(&cdi, txcol, bgcol, chdata, mi->shadow + ypos*llen +
+                   xpos*vbpps, llen, cursor);
    }
    if (mi->physmap) {
       u32t llen = mi->mempitch;
-      con_drawchar(&cdi, txcol, bgcol, chdata, mi->physmap + ypos*llen + xpos,
-         llen, cursor);
+      con_drawchar(&cdi, txcol, bgcol, chdata, mi->physmap + ypos*llen +
+                   xpos*vbpps, llen, cursor);
    } else
-      pl_flush(real_mode, x*fnt_x, ypos, fnt_x, fnt_y);
+      pl_flush(real_mode, xpos, ypos, f_w, f_h);
 }
 
 static void updatechar(u32t x, u32t y) {
@@ -58,6 +62,11 @@ static void updatechar(u32t x, u32t y) {
 
 static u32t charout_common(char ch, int in_seq) {
    int  lines = 0;
+   if (ch==9) {
+      u32t rc = 0, ii;
+      for (ii=0; ii<4; ii++) rc+=charout_common(' ', ii<3);
+      return rc;
+   } else
    if (ch==13) {
       u32t opx = pos_x;
       pos_x = 0;
@@ -89,12 +98,12 @@ static u32t charout_common(char ch, int in_seq) {
       // scroll screen
       if (scroll) {
          modeinfo   *mi = modes[current_mode];
-         u32t   linesm1 = fnt_y*(m_y-1),
+         u32t   linesm1 = fnt_y*fnt_mult*(m_y-1),
                  tx_ofs = m_x*(m_y-1)*2;
-         pl_scroll(real_mode, top_ofs+fnt_y, top_ofs, linesm1);
+         pl_scroll(real_mode, top_ofs+fnt_y*fnt_mult, top_ofs, linesm1);
          pos_y--;
          // clear last line in shadow buffer and on screen
-         pl_clear(real_mode, 0, top_ofs+linesm1, 0, fnt_y, m_color[txcolor>>4]);
+         pl_clear(real_mode, 0, top_ofs+linesm1, 0, fnt_y*fnt_mult, m_color[txcolor>>4]);
          // update text mode buffer
          memmove(mi->shadow, mi->shadow + m_x*2, tx_ofs);
          memsetw((u16t*)(mi->shadow + tx_ofs), (u16t)txcolor<<8|0x20, m_x);
@@ -178,6 +187,7 @@ void evio_newmode() {
 
    fnt_x     = mi->font_x; 
    fnt_y     = mi->font_y;
+   fnt_mult  = ((mi->flags&CON_FONTxMASK)>>CON_FSCALE) + 1;
    fnt_data  = con_buildfont(fnt_x, fnt_y);
    m_x       = mi->width;
    m_y       = mi->height;
@@ -185,7 +195,8 @@ void evio_newmode() {
    pos_y     = 0;
 
    // current mode info
-   top_ofs   = modes[real_mode]->height - m_y*fnt_y >> 1;
+   top_ofs   = modes[real_mode]->height - m_y*fnt_y*fnt_mult >> 1;
+   left_ofs  = modes[real_mode]->width  - m_x*fnt_x*fnt_mult >> 1;
    vbpps     = BytesBP(modes[real_mode]->bits);
    txcolor   = 7;
    txshape   = VIO_SHAPE_LINE;
@@ -203,6 +214,7 @@ void evio_newmode() {
    cdi.cdi_CurColor = vbpps==1 ? CURSOR_COLOR_IDX : hicolor_cvt(stdpal_bin[48],
       stdpal_bin[49],stdpal_bin[50],real_mode);
    cdi.cdi_vbpps    = vbpps;
+   cdi.cdi_FontMult = fnt_mult;
 
    // set text mode palette in 8 bit mode
    if (modes[real_mode]->bits==8) {
@@ -219,9 +231,9 @@ void evio_newmode() {
    {
       modeinfo *mi = modes[real_mode];
 
-      log_it(3, "%dx%d (%dx%d) font:%08X top:%d, bpp:%d, shadow: %08X,%d phys: %08X,%d\n",
-         m_x, m_y, mi->width, mi->height, fnt_data, top_ofs, vbpps, mi->shadow,
-            mi->shadowpitch, mi->physmap, mi->mempitch);
+      log_it(3, "%dx%d (%dx%d) font:%08X top:%u,%u bpp:%d shadow: %08X,%d phys: %08X,%d x%u\n",
+         m_x, m_y, mi->width, mi->height, fnt_data, left_ofs, top_ofs, vbpps,
+            mi->shadow, mi->shadowpitch, mi->physmap, mi->mempitch, fnt_mult);
    }
 }
 
@@ -278,7 +290,8 @@ static void _exicc gc_clear(EXI_DATA) {
    if (in_native) cvio->vh_clearscr(); else {
       modeinfo *mi = modes[current_mode];
       // fill screen
-      pl_clear(real_mode, 0, top_ofs, 0, fnt_y*m_y, m_color[txcolor>>4]);
+      pl_clear(real_mode, 0, 0, modes[real_mode]->width, modes[real_mode]->height,
+               m_color[txcolor>>4]);
       // fill text buffer
       memsetw((u16t*)mi->shadow, (u16t)txcolor<<8|0x20, m_x*m_y);
       // cursor pos
@@ -332,7 +345,8 @@ static u32t _exicc gc_info(EXI_DATA, vio_mode_info **mout, char *prnname) {
                mi->gmask   = ci->gmask;
                mi->bmask   = ci->bmask;
                mi->amask   = ci->amask;
-               mi->flags   = VMF_GRAPHMODE|(ci->bits==8?VMF_VGAPALETTE:0);
+               mi->flags   = VMF_GRAPHMODE|(ci->bits==8?VMF_VGAPALETTE:0)|
+                             (ci->flags&CON_FONTxMASK)>>CON2VMF_FSCALE;
             }
             idx++;
          }

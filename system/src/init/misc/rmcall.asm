@@ -97,7 +97,7 @@ rmcall32regs:
                 mov     esi,save_esi                            ;
                 mov     ebp,save_ebp                            ;
                 mov     ebx,save_ebx                            ;
-; restore all static vars before flushing rm log, because we can be be
+; restore all static vars before flushing rm log, because we can be
 ; recursive from log_flush()
                 push    [save_ret]                              ;
                 pushf                                           ;

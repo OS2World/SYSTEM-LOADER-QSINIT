@@ -11,7 +11,7 @@
 #define EXT_TYPE  PTE_05_EXTENDED
 
 static const char *ExtMngWarning = "Logical partition management "
-        "still dangerous and weakly tested!^Continue at own risc?";
+        "still dangerous and weakly tested!^Continue at your own risc?";
 static int        ExtMngWarnFlag = 1;
 
 static u32t dsk_shrinkslice(hdd_info *hi, u32t quad, u32t size, u32t heads);

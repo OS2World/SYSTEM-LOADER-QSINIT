@@ -46,8 +46,8 @@ void TLdrBootDialog::handleEvent( TEvent& event) {
          case cmLaunchLdr: {
             char *ldr = getstr(bf_name);
             if (ldr&&*ldr) {
-               opts_loadldr(ldr);
-               messageBox("\x03""Failed!",mfError+mfOKButton);
+               u32t rc = opts_loadldr(ldr);
+               SysApp.PrintPTErr(rc);
             }
             clearEvent(event);
             break;

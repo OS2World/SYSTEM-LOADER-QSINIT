@@ -1,6 +1,6 @@
 //
 // QSINIT "start" module
-// secondary LE/LX support code
+// secondary LE/LX code + a lot of support code
 //
 #define LOG_INTERNAL
 #define STORAGE_INTERNAL
@@ -15,6 +15,8 @@
 #include "syslocal.h"
 #include "zip/unzip.h"
 #include "qcl/bitmaps.h"
+#include "qcl/qslist.h"
+#include "qcl/cplib.h"
 #include "classes.hpp"
 
 static u8t              *M3Buffer = 0;
@@ -35,6 +37,7 @@ extern char      aboutstr_local[];
 #pragma aux IODelay        "_*";
 
 void         check_version(void);
+void         check_codepage(void);
 void         setup_loader_mt(void);
 void         setup_loader(void);
 int          unpack_ldi  (void);
@@ -154,7 +157,7 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
    }
    /* parse name tables.
       (tables validated in mdt.c) */
-   u8t *src = (u8t*)mh->rtab;
+   char *src = (char*)mh->rtab;
    idx = 0;
    while (*src) {
       u8t  len = *src++&0x7F;
@@ -166,13 +169,11 @@ int _std mod_buildexps(module *mh, lx_exe_t *eh) {
                // make zero-term string (overwrite ord)
                src[len] = 0;
                exp[ii].name = src;
-               src = 0;
                break;
             }
-      if (!src) break;
       src+=len+2;
       // switch to the non-res table
-      if (!*src && !idx && mh->nrtab) { idx=1; src=(u8t*)mh->nrtab; }
+      if (!*src && !idx && mh->nrtab) { idx=1; src=(char*)mh->nrtab; }
    }
    return 0;
 }
@@ -546,10 +547,15 @@ void _std mod_freeexps(module *mh) {
     Function is not covered by any locks!
     This is the first call in the main thread of a new process - before main()
     itself.
-    mod_exec() calls it in non-MT mode and MTLIB app start code in MT mode */
+    Called from mod_exec() in non-MT mode and by MTLIB app start code in MT. */
 void _std mod_startcb(void) {
+   // inherit/create file handle
+   io_inherit();
+   // clib stdio
    init_stdio(mod_context());
+   // clib signals
    init_signals();
+   // inform trace (maybe it should be 1st, because all of above it untraced!)
    trace_pid_start();
 }
 
@@ -561,7 +567,7 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
    int errtype = 0;
    // !!!
    fcloseall_as(pq->pid);
-   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE|IOHT_EVENT);
+   io_close_as(pq->pid, IOHT_FILE|IOHT_DIR|IOHT_MUTEX|IOHT_QUEUE|IOHT_EVENT|IOHT_STREAM);
    // free PUSHD stack
    if (pq->rtbuf[RTBUF_PUSHDST]) {
       pushd_free((void*)pq->rtbuf[RTBUF_PUSHDST]);
@@ -594,16 +600,42 @@ s32t _std mod_exitcb(process_context *pq, s32t rc) {
 
 void check_version(void) {
    int len = strlen(aboutstr_local);
-   // at every place on Earth we can find a hero, who gets such message ;)
+   // at every place on Earth we can find a hero, who gets such a message ;)
    if (strncmp(aboutstr, aboutstr_local, len)) {
       char *about = strdup(aboutstr), *msg;
       about[len] = 0;
       msg = sprintf_dyn("Boot module is \"%s\",^but LDI version is \"%s\"."
-                         "^^Continue at own risc.", about, aboutstr_local);
+                         "^^Continue at your own risc.", about, aboutstr_local);
       vio_msgbox("QSINIT.LDI version mismatch!", msg, MSG_OK|MSG_RED|MSG_WIDE, 0);
       free(about);
       free(msg);
    }
+}
+
+// set codepage, inherited from the loader, who RESTARTs us
+void check_codepage(void) {
+   u32t cp = sto_dword(STOKEY_RSTCPNUM);
+   sto_del(STOKEY_RSTCPNUM);
+
+   if (cp) {
+      qs_cpconvert cplib = NEW(qs_cpconvert);
+      if (cplib) {
+         cplib->setsyscp(cp);
+         DELETE(cplib);
+      }
+   }
+}
+
+void _std exit_with_popup(const char *msg, int errorcode) {
+   char buf[70], appname[128];
+   /* try to avoid malloc in _this_ thread context because of unknown source
+      of the error */
+   u32t pid = mod_appname(appname, 0);
+   snprintf(buf, sizeof(buf), "Critical failure in PID %u (%s)", pid, appname);
+   // called in the separate thread in MT mode
+   vio_msgbox(buf, msg, MSG_OK|MSG_RED|MSG_WIDE|MSG_POPUP, 0);
+
+   _exit(errorcode);
 }
 
 u32t _std mod_getmodpid(u32t module, u32t *parent) {
@@ -686,6 +718,48 @@ extern "C" u32t* _std START_EXPORT(mod_pidlist)(void) {
    return rc;
 }
 
+/** get shell history list.
+    read internal shell (cmd.exe) user commands history list.
+    @return string list in the process owned heap block or 0 if list is empty. */
+str_list* _std cmd_historyread(void) {
+   // this handle in shared over system!
+   ptr_list history = (ptr_list)sto_data(STOKEY_CMDSTORY);
+   if (!history) return 0;
+   // use embedded mutex to lock entire call, so array() can be used here
+   exi_lock(history);
+   u32t     cnt = history->count();
+   str_list *sl = cnt ? sl = str_fromptr((char**)history->array(), cnt) : 0;
+   exi_unlock(history);
+   return sl;
+}
+
+/// clear shell history list.
+qserr _std cmd_historywipe(void) {
+   // this handle in shared over system!
+   ptr_list history = (ptr_list)sto_data(STOKEY_CMDSTORY);
+   if (!history) return E_SYS_NOTFOUND;
+   // use embedded mutex to lock entire call
+   exi_lock(history);
+   u32t     cnt = history->count(), ii;
+
+   for (ii=0; ii<cnt; ii++) {
+      char *str = (char*)history->value(ii);
+      // free it with care!
+      if (str && mem_getobjinfo(str,0,0)) free(str);
+   }
+   history->clear();
+   exi_unlock(history);
+   return 0;
+}
+
+/// get shell command history (process owned block)
+static char* _std shl_history(void) {
+   str_list *sl = cmd_historyread();
+   char     *rc = str_gettostr(sl,"\n");
+   free(sl);
+   return rc;
+}
+
 mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, 0, // number of entries
    mod_buildexps, mod_searchload, mod_unpack1, mod_unpack2, mod_unpack3,
    mod_freeexps, mem_alloc, mem_realloc, mem_free, freadfull, log_pushtm,
@@ -696,7 +770,7 @@ mod_addfunc table = { sizeof(mod_addfunc)/sizeof(void*)-1, 0, // number of entri
    fpu_stsave, fpu_strest, 0, io_mfs_open, io_mfs_read, io_mfs_close,
    io_open, io_read, io_write, io_seek, io_size, io_setsize, io_close,
    io_lasterror, bitfind, setbits, mempanic, mt_tlsget, mt_tlsaddr,
-   mt_tlsset };
+   mt_tlsset, 0, shl_history, sys_dccommit };
 
 void setup_loader_mt(void) {
    qserr   rc;

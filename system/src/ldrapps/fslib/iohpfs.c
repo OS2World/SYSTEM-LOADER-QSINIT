@@ -138,10 +138,9 @@ static u32t _std data_cache_notify(u32t code, void *usr) {
    volume_data *vd = (volume_data*)usr;
    if (vd->sign!=HPFS_SIGN) return DCNR_GONE;
 
-   if (vd->root) {
+   if (vd->root && code==DCN_MEM) {
       log_it(3, "vol %X mem free\n", vd->vdsk);
-      hpfs_free_dir(vd->root);
-      vd->root = 0;
+      if (hpfs_free_dir(vd->root)) vd->root = 0;
    }
    return DCNR_SAFE;
 }
@@ -320,11 +319,15 @@ static qserr read_dir(volume_data *vd, u32t dirblk, dir_data **dlist) {
    hpfs_dirblk *db = (hpfs_dirblk*)malloc_thread(SPB*512);
    dir_data    *dd = 0;
    qserr       res = 0;
-   u32t    allocsz = 0,
+   u32t    allocsz = 0, idx,
           alloccnt = 0;
-   int        step;
+   hpfs_dirent *de = 0,
+              *pde = 0,
+           *delist = 0;
+   int         eof = 0;
+   char  *namedata = 0;
 
-//log_it(3, "read_dir (,%X,)\n", dirblk);
+   // log_it(3, "read_dir (,%X,)\n", dirblk);
    pl->add(db);
 
    if (hlp_diskread(vd->vdsk,dirblk,SPB,db)!=SPB) res = E_DSK_ERRREAD; else
@@ -332,80 +335,104 @@ static qserr read_dir(volume_data *vd, u32t dirblk, dir_data **dlist) {
    // just to be safe in check below
    db->change|=1;
 
-   for (step=0; !res && step<2; step++) {
-      hpfs_dirent *de = 0;
-      int         eof = 0;
-      char  *namedata = 0;
-      u32t   resindex = 0;
-      //log_it(3, "read_dir (,%X,%X): pass %u\n", dirblk, dlist, step);
-      if (step) {
-         u32t    len = sizeof(dir_data) + sizeof(dir_entry)*alloccnt + 4*alloccnt + allocsz;
-         dd          = (dir_data*)malloc(len);
-         dd->sign    = HPFSDIR_SIGN;
-         dd->entries = alloccnt;
-         dd->usage   = 0;
-         dd->pdd     = 0;
-         dd->pindex  = 0;
-         dd->hash    = (u32t*)((u8t*)(dd+1) + sizeof(dir_entry)*(alloccnt-1));
-         namedata    = (char*)(dd->hash + alloccnt);
+   while (!res) {
+      int emark = 0;
+      if (!de) de = first_dirent(db);
+#if 0
+      {
+         char *nb = de->namelen?(char*)malloc_th(de->namelen+1):0;
+         if (nb) {
+            memcpy(nb,de->name,de->namelen);
+            nb[de->namelen] = 0;
+         }
+         log_it(3, "de: %08X %2d %02X %c%c%c %c %08X %9d %s\n", de, de->recsize,
+            de->flags, de->flags&HPFS_DF_END?'E':' ', de->flags&HPFS_DF_BTP?'B':' ',
+               de->flags&HPFS_DF_SPEC?'S':' ', de->attrs&IOFA_DIR?'D':'_',
+                  de->fnode, de->fsize, nb?nb:"-");
+         if (nb) free(nb);
       }
-      while (!res) {
-         if (!de) de = first_dirent(db);
-         if (de->namelen && (de->flags&HPFS_DF_END)==0)
-            if (!step) { allocsz+=de->namelen+1; alloccnt++; } else {
-               dir_entry *dne = dd->de + resindex;
-               dne->size  = de->fsize;
-               dne->vsize = de->fsize;
-               dne->ctime = de->time_create;
-               dne->wtime = de->time_mod;
-               dne->fnode = de->fnode;
-               dne->attrs = de->attrs;
-               dne->nmlen = de->namelen;
-               dne->dd    = 0;
-               dne->name  = namedata;
+#endif
+      if (de->flags&HPFS_DF_BTP) {
+         u32t        ldtp = *(u32t*)((u8t*)de + de->recsize - 4);
+         hpfs_dirblk *ndb = (hpfs_dirblk*)malloc_thread(SPB*512);
+         // save it for the second pass
+         de->time_access = (u32t)ndb;
 
-               memcpy(namedata, &de->name, de->namelen);
-               namedata[de->namelen] = 0;
-               // change \1 to '.'
-               if (de->flags&HPFS_DF_SPEC) replacechar(namedata, 1, '.');
-               // hash saved for uppercased name
-               dd->hash[resindex] = calc_hash(vd, namedata, 0);
-
-               namedata  += de->namelen+1;
-               resindex++;
+         if (hlp_diskread(vd->vdsk,ldtp,SPB,ndb)!=SPB) res = E_DSK_ERRREAD; else
+            if (db->sig!=HPFS_DNODE_SIG) res = E_DSK_FSSTRUCT; else {
+               ndb->parent = (u32t)db;
+               ndb->self   = (u32t)de;
+               // make it regular entry to process _after_ this subtree
+               de->flags  &= ~HPFS_DF_BTP;
+               pl->add(db = ndb);
+               de = 0;
+               continue;
             }
-         if (de->flags&HPFS_DF_BTP) {
-            u32t *ptr = (u32t*)((u8t*)de + de->recsize - 4);
-            if (step) db = *(hpfs_dirblk**)ptr; else {
-               hpfs_dirblk *ndb = (hpfs_dirblk*)malloc_thread(SPB*512);
-               u32t        ldtp = *ptr;
-               *ptr = (u32t)ndb;
-               if (hlp_diskread(vd->vdsk,ldtp,SPB,ndb)!=SPB) res = E_DSK_ERRREAD; else
-                  if (db->sig!=HPFS_DNODE_SIG) res = E_DSK_FSSTRUCT; else {
-                     ndb->parent = (u32t)db;
-                     pl->add(db = ndb);
-                  }
-               //log_it(3, "BTP: read %X to %X = %X\n", ldtp, ndb, res);
-            }
-            if (res) break;
-            de = 0;
-            continue;
-         } else
-         while (de->flags&HPFS_DF_END)
-            // the end of topmost block
-            if (db->change&1) { eof=1; break; } else {
-               u32t pv = (u32t)db;
-               db = (hpfs_dirblk*)db->parent;
-               de = first_dirent(db);
-               // walk to continue point in parent
-               while (*(u32t*)((u8t*)de+de->recsize-4)!=pv) next_dirent(de);
-            }
-         if (eof) break;
-         next_dirent(de);
+         break;
       }
+      if ((de->flags&HPFS_DF_END)==0 && de->namelen) {
+         allocsz += de->namelen + 1;
+         alloccnt++;
+         /* make plain dirent list with valid file order, it will be converted
+            to dir_data below */
+         if (!delist) delist = pde = de; else {
+            pde->ealen = (u32t)de;
+            pde = de;
+         }
+      }
+      while (de->flags&HPFS_DF_END) {
+         // the end of topmost block
+         if (db->change&1) {
+            eof = 1;
+            // end of list
+            if (pde) pde->ealen = 0;
+            break;
+         } else {
+            de = (hpfs_dirent*)db->self;
+            db = (hpfs_dirblk*)db->parent;
+            emark = 1;
+         }
+      }
+      if (eof) break; else
+         if (emark) continue;
+      next_dirent(de);
    }
+   /* allocate single block for the whole directory and walk over saved
+      dirent order */
+   dd = (dir_data*)malloc(sizeof(dir_data) + sizeof(dir_entry)*alloccnt + 4*alloccnt + allocsz);
+   dd->sign    = HPFSDIR_SIGN;
+   dd->entries = alloccnt;
+   dd->usage   = 0;
+   dd->pdd     = 0;
+   dd->pindex  = 0;
+   dd->hash    = (u32t*)((u8t*)(dd+1) + sizeof(dir_entry)*(alloccnt-1));
+   namedata    = (char*)(dd->hash + alloccnt);
+
+   if (alloccnt)
+      for (de=delist, idx=0; de; de=(hpfs_dirent*)de->ealen) {
+         dir_entry *pde = dd->de + idx;
+         pde->size  = de->fsize;
+         pde->vsize = de->fsize;
+         pde->ctime = de->time_create;
+         pde->wtime = de->time_mod;
+         pde->fnode = de->fnode;
+         pde->attrs = de->attrs;
+         pde->nmlen = de->namelen;
+         pde->dd    = 0;
+         pde->name  = namedata;
+
+         memcpy(namedata, &de->name, de->namelen);
+         namedata[de->namelen] = 0;
+         // change \1 to '.'
+         if (de->flags&HPFS_DF_SPEC) replacechar(namedata, 1, '.');
+         // hash saved for uppercased name
+         dd->hash[idx] = calc_hash(vd, namedata, 0);
+
+         namedata += de->namelen+1;
+         idx++;
+      }
    // release DIRBLK list
-   for (step=0; step<pl->count(); step++) free(pl->value(step));
+   for (idx=0; idx<pl->count(); idx++) free(pl->value(idx));
    DELETE(pl);
 
    if (!res) *dlist = dd; else

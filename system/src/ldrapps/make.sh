@@ -54,8 +54,6 @@ else
   then
     # ----- single project build -----
     cd $1
-    # creating dirs (else spprj will fail to write misc files before build)
-    spprj -b -w -nb $1.prj 0 makedirs
     # writing makefile for reference
     spprj -nb $1.prj 0 bld/$1.mak
     # and build it

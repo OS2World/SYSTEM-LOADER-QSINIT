@@ -219,7 +219,7 @@ qserr     _std se_clone(qs_vh src, qs_vh dst, u16t mode_id);
     @return 0 on success or error code. */
 qserr     _std se_deviceswap(u32t dev_id, qs_vh np, qs_vh *op);
 
-/** return qs_viobuf instance with copy of session`s screen.
+/** return qs_viobuf instance with a copy of session`s screen.
     returned instance is process-owned and should be DELETE(d), zero returned
     on incorrect session number */
 qs_vh     _std se_screenshot(u32t sesno);

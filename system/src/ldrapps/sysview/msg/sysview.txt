@@ -386,14 +386,14 @@ disk in system.
 .topic DmgrDisk=2074
  Select disk Ü
   ßßßßßßßßßßßß
-Select hard disk here.
+Select a hard disk here.
 
 QSINIT shows only disks, reported by BIOS.
 
-If your disk (ex. flash drive) is not listed here - it can be 
-unsuported by BIOS code or big-floppy formatted.
+If your disk (ex. USB stick) is not listed here - it can be unsuported
+by BIOS code or big-floppy formatted.
 
-Big-floppy flash drive still can be mounted from QSINIT command line.
+Big-floppy disk still can be mounted in QSINIT command line (mount).
 
 .topic DmgrPart=2075
  Select partition Ü
@@ -407,7 +407,7 @@ This list contain available actions for selected partition:
 
 * "Boot" - boot from this partition. System will hang if no boot code available!
 
-* "Delete" - delete this partition.
+* "Delete" - delete partition.
 
 * "Format" - format partition to FAT/FAT32/exFAT or HPFS file system.
 
@@ -417,9 +417,9 @@ For GPT disks this command set "BIOS Bootable" attribute to partition.
 I.e. this partition will be booted in "BIOS mode boot", by MBR code of
 GPT disk. 
 
-You, also, must replace MBR code to provided by QSINIT to create full boot path.
+You, also, must replace MBR code to provided by QSINIT to make working boot.
 
-* "Mount" - mount partition to QSINIT drive letter.
+* "Mount" - mount partition to a QSINIT drive letter.
 
 * "Unmount" - unmount partition from QSINIT.
 
@@ -427,17 +427,19 @@ You, also, must replace MBR code to provided by QSINIT to create full boot path.
 
 * "LVM options" - set OS/2 LVM disk/volume name and minor options.
 
-* "Set type GUID" - set partition type on GPT disks.
+* "GPT options" - set partition type and name on GPT disks.
 
 * "Clone" - clone partition data to another existing partition.
 
 * "Dirty state" - switch file system`s dirty state. Looks like some
-OS/IFS combinations ignore this flag, but as a common case, partition
-check should start on system boot.
+OS/IFS combinations may ignore this flag, but as a common case, partition
+check should start during system boot.
 
-* "Create logical" - create logical partition on selected free space
+* "Set label" - set/update volume label for FAT and HPFS partitions.
 
-* "Create primary" - create primary partition on selected free space
+* "Create logical" - create logical partition here.
+
+* "Create primary" - create primary partition here.
 
 * "Boot OS/2" - boot OS/2 kernel from this partition without using bootstrap
 code. Option available for HPFS and JFS only.
@@ -481,7 +483,7 @@ only if exist empty disk of appropriate size.
 This action can optionally write LVM signature.
 
 * "Init disk (GPT)" - write GPT partition table to the empty disk (GPT is not
-supported by OS/2, but QSINIT can operate it).
+supported in OS/2, but QSINIT can operate it).
 
 * "Replace MBR code" - replace MBR code to provided by QSINIT. This code is
 compatible with OS/2 boot. Option is available for GPT disks too.
@@ -493,21 +495,21 @@ available only when disk is empty, i.e. MBR destroyed (sector have no 55 AA sign
 has one or more correctable errors).
 
 * "Save MBR backup" - save partition structure to VHDD image file. This file can
-be used to restore it (when MBR will be damaged). File also can be mounted by
-VHDD shell command as a QSINIT common disk.
+be used to restore it (when MBR will be damaged). File can also be mounted by
+VHDD shell command as a common QSINIT disk.
 
 * "Wipe disk" - wipe partition table (ENTIRE DISK!)
 
-* "Write LVM info" - write LVM info to non-LVM disk. Option suitable for disks
-smaller than 500Gb, have been prepared in other operating system. Partitions on
-huge disks should be created in OS/2, DSFEE or QSINIT.
+* "Write LVM info" - write LVM information to a non-LVM disk. Option suitable
+for disks smaller than 500Gb, prepared in other operating systems. Partitions
+on larger disks should be created in OS/2, DSFEE or QSINIT.
 
 * "Mount (big floppy)" - mount entire disk to QSINIT drive letter (big floppy mode).
 Option available only for empty or big floppy disks.
 
-* "Format", "Unmount", "Install QSINIT", "Update bootstrap code" and "Dirty state"
-are simular to the same actions for {partitions:DmgrAction}, but available only
-for already mounted (in QSINIT) big floppy disks.
+* "Format", "Unmount", "Install QSINIT", "Update bootstrap code", "Dirty state"
+and "Set label" are simular to the same actions for {partitions:DmgrAction},
+but available only for already mounted (in QSINIT) big floppy disk.
 
 .topic DmgrPtCreate=2079
  Create partition Ü
@@ -531,14 +533,25 @@ Force rescanning of partition table on all disks.
 This action is not required by default, but can be used in some rare cases,
 like update after manual partition table editing in sector editor.
 
+.topic DlatDlg=2082
+ Disk³View as DLAT sector Ü    (Ctrl-F4)
+  ßßßßßßßßßßßßßßßßßßßßßßßßß
+View/Edit current sector in physical {sector editor:SectEdit} as
+LVM DLAT service sector. This sector located at the end of first track and
+before any extended partition slice sector.
+
+Note, that DLAT sector has CRC value, dialog will recalculate it automatically.
+
 .topic Calculator=2100
  Calculator Ü
   ßßßßßßßßßßß
-This calculator operates only with signed 64-bit integer values.
+This calculator operates only with signed 64-bit integer values. Value
+representation can be decimal, hexadecimal or octal.
 
  * ESC - clear
  * "_" - sign change (+/-), decimal mode only
- * "x" - hex/dec view mode
+ * "x" - switch hex/dec mode
+ * "o" - switch octal/dec mode
  * "p" - power of
  * "!" - binary not
  * "m" - save to memory
@@ -767,3 +780,14 @@ shell as result.
 Killing process in the middle of the tree may cause screen distortion, because
 both parent and child of it will start to share screen and keyboard in the same
 session.
+
+.topic VolLabelDlg=2154
+ Volume label Ü
+  ßßßßßßßßßßßßß
+Set volume label. Can be used on all FAT types and on HPFS.
+
+Volume label length is up to 11 characters.
+
+Characters like +.,;=[]"*:<>? are rejected.
+
+Case is preserved on exFAT only.

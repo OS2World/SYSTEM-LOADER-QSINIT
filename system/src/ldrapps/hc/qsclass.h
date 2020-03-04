@@ -98,7 +98,7 @@ int     _std exi_share(void *instance, int global);
     Call can be done before MT mode activation.
     Function returns error (-1) if mutex is busy at the time of disable call.
 
-    Class registration can also ask for global single mutex for all class
+    Class registration can also ask for the global single mutex for all class
     instances and such mode does not controlled by class user. In this case
     function will always return value of 2.
 
@@ -106,6 +106,23 @@ int     _std exi_share(void *instance, int global);
     @param  enable     New state (enable=1 / disable=0 / query=-1)
     @return previous state or -1 on error. */
 int     _std exi_mtsafe(void *instance, int enable);
+
+/** increase instance mutex lock counter manually.
+    Note, that user should not touch instance mutex by default - all locking
+    preformed automatically during any method call. This call and exi_unlock()
+    pair is for the case when a group of actions with instance must be locked.
+
+    Number of exi_unlock() calls must be equal to number of exi_lock().
+    Both calls do nothing when MT mode is not started.
+
+    Also note, that instance pointer must be valid, this call is NOT protected
+    by exception handler like exi_classid() and exi_classname().
+
+    @param  instance   Pointer to instance. */
+void    _std exi_lock(void *instance);
+
+/// decrease instance mutex lock counter
+void    _std exi_unlock(void *instance);
 
 /** Query instance class name.
     Function returns name for all classes, including created with EXIC_PRIVATE

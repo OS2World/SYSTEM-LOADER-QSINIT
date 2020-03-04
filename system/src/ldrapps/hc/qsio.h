@@ -30,8 +30,14 @@ qserr    _std io_diskdir  (u8t drive, char *buf, u32t size);
     @return boolean flag (1/0) */
 u32t     _std io_ismounted(u8t drive, u8t *lavail);
 
-/// hlp_mountvol() analogue, but returns error code.
-qserr    _std io_mount    (u8t drive, u32t disk, u64t sector, u64t count);
+/// hlp_mountvol() analogue, with flags and error code.
+qserr    _std io_mount    (u8t drive, u32t disk, u64t sector, u64t count, u32t flags);
+
+/// @name io_mount() flags
+//@{
+#define IOM_READONLY       0x0001     ///< force volume to be read-only
+#define IOM_RAW            0x0002     ///< mount "nullfs" instead of filesystem detection
+//@}
 
 /** unmount volume.
     hlp_unmountvol() doing the same, with IOUM_FORCE flag on.
@@ -126,6 +132,7 @@ typedef struct {
 #define IOFA_SYSTEM             4     ///< system entry
 #define IOFA_DIR             0x10     ///< directory entry
 #define IOFA_ARCHIVE         0x20     ///< archive entry
+#define IOFA_DEVICE       0x10000     ///< character device (io_pathinfo() only)
 //@}
 
 /// @name file open mode
@@ -149,8 +156,22 @@ typedef struct {
 
 #define IOFM_CLOSE_DEL       0x40     ///< Delete file on last close
 #define IOFM_SECTOR_IO    0x10000     ///< Use sector size as size/offset enum, not byte
+#define IOFM_INHERIT      0x20000     ///< Allow inheritance by a child process
+#define IOFM_NODEV        0x40000     ///< Exclude character devices from search
 //@}
 
+/* open file or character device.
+   "\\DEV\\CON" can be used as well as "CON" and "CON:"
+
+   IOFM_TRUNCATE_EXISTING requires IOFM_WRITE to be set.
+
+   Use IOFM_INHERIT to allow inheeritance by any child process.
+
+    @param [in]  name      file path to open
+    @param [in]  mode      open flags (IOFM_*)
+    @param [out] pfh       file handle
+    @param [out] action    file open action taken (IOFN_*), can be 0
+    @return error value or 0 */
 qserr    _std io_open     (const char *name, u32t mode, io_handle *pfh,
                            u32t *action);
 
@@ -223,17 +244,26 @@ qserr    _std io_setsize  (io_handle fh, u64t newsize);
     @param fh      file/directory/mutex handle
     @param flags   option(s) (IOFS_*). Note, that IOFS_DETACHED can be set
                    by owner only and cannot be reset back, IOFS_RENONCLOSE
-                   can only be reset to 0 (i.e. this terminates file
-                   renaming/moving action) and IOFS_BROKEN cannot be set,
-                   only returned by io_getstate().
+                   can only be reset to 0 (i.e. this terminates the file
+                   renaming/moving action). IOFS_BROKEN and IOFS_INHERITED
+                   cannot be set, only returned by io_getstate().
+
+                   IOFS_INHERIT affects only handles, owned by a process. By
+                   default this flag is off for any new handle. Attempt to set
+                   IOFS_INHERIT on detached handle will return E_SYS_DETACHED.
+
                    Broken objects deny most ops, but IOFS_DETACHED still
-                   accepted for it.
+                   acceptable for it.
     @param value   value to set for flag(s) above (1 or 0)
     @return error code */
 qserr    _std io_setstate (qshandle fh, u32t flags, u32t value);
 qserr    _std io_getstate (qshandle fh, u32t *flags);
 
 qserr    _std io_lasterror(io_handle fh);
+
+/// replace last error code
+qserr    _std io_seterror (io_handle ifh, qserr err);
+
 
 /** file information by handle.
     Note, what io_direntry_info.size value depends on sector i/o mode
@@ -257,13 +287,20 @@ u32t     _std io_blocksize(io_handle fh);
 u32t     _std io_handletype(qshandle fh);
 
 /** duplicate handle.
-    @attention note, that duplicated handle does NOT share file position with
-               source handle!
+    Note, that by default duplicated handle does NOT share file position with
+    the source handle! Use IODH_SHAREPOS flag to enable this logic.
+
     @param  [in]  src      handle to duplicate (accepts file & mutex handles now).
     @param  [out] dst      ptr to new handle
-    @param  [in]  priv     make private handle if source is detached (shared)
+    @param  [in]  flags    make private handle if source is detached (shared)
     @return error code */
-qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
+qserr    _std io_duphandle(qshandle src, qshandle *dst, u32t flags);
+
+/// @name io_duphandle() flags
+//@{
+#define IODH_PRIVATE      0x0001    ///< make private handle if source is detached (shared)
+#define IODH_SHAREPOS     0x0002    ///< share file position with the source handle
+//@}
 
 /// @name io_open() action value
 //@{
@@ -279,6 +316,8 @@ qserr    _std io_duphandle(qshandle src, qshandle *dst, int priv);
 #define IOFS_RENONCLOSE   0x0004    ///< rename/move file on close was scheduled
 #define IOFS_BROKEN       0x0008    ///< file/object is broken (volume was unmounted and so on)
 #define IOFS_SECTORIO     0x0010    ///< file offsets and sizes calculated in sectors (blocks)
+#define IOFS_INHERIT      0x0020    ///< handle will be inhertied by a child process
+#define IOFS_INHERITED    0x0040    ///< handle is inheried from the parent process
 //@}
 
 /// @name io_handletype() result
@@ -300,7 +339,20 @@ qserr    _std io_getexattr(const char *path, const char *aname,
 str_list*_std io_lstexattr(const char *path);
 qserr    _std io_remove   (const char *path);
 
+/** query path information.
+    Function accepts character devices too. In this case info->vol==0xFF, attr
+    is IOFA_DEVICE and size field contains the number of bytes available to
+    read in the character device.
+
+    Non-zero info->fileno value means that file is opened already by someone,
+    this value is a constant all the time while at least one file handle for
+    this file is exist.
+
+    @param [in]  path      path to query
+    @param [out] info      returning information.
+    @return 0 on success or error code. */
 qserr    _std io_pathinfo (const char *path, io_handle_info *info);
+
 qserr    _std io_setinfo  (const char *path, io_handle_info *info, u32t flags);
 
 /// @name io_setinfo() flags

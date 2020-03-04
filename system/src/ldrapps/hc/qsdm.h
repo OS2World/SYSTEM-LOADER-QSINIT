@@ -88,7 +88,7 @@ u32t  _std dsk_ptqueryfs(u32t disk, u64t sector, char *filesys, u8t *optbuf);
 
 /** replace boot sector code by QSINIT`s one.
     @attention function does not perform any additional checks on location,
-    but just failed in case of file system mismatch between sector data and
+    but just fails in case of file system mismatch between sector data and
     the "type" value.
 
     @param disk     disk number
@@ -267,9 +267,10 @@ long  _std vol_index(u8t vol, u32t *disk);
                              really mounted (or already existed) drive letter
     @param [in]     disk     disk number
     @param [in]     index    partition index, -1 to mount disk as a big floppy
+    @param [in]     flags    IOM_* mount flags (see io_mount())
     @return 0 on success or error code. Vol value set to existing
             drive letter in case of E_DSK_MOUNTED error code */
-qserr _std vol_mount(u8t *vol, u32t disk, long index);
+qserr _std vol_mount(u8t *vol, u32t disk, long index, u32t flags);
 
 /// @name vol_format() flags
 //@{
@@ -469,9 +470,6 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t ptsize, u32t altype,
    (pt)==PTE_15_EXTENDED || (pt)==PTE_1F_EXTENDED || (pt)==PTE_85_EXTENDED || \
    (pt)==PTE_91_EXTENDED || (pt)==PTE_9B_EXTENDED)
 
-/// is partition byte mean "GPT" partition?
-#define IS_GPTPART(pt) ((pt)==PTE_EE_UEFI || (pt)==PTE_EF_UEFI)
-
 /// @name flags for dsk_mapblock.Flags
 //@{
 #define DMAP_PRIMARY   0x0001   ///< Primary partition / possibility to create it
@@ -569,6 +567,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex,
 /** check bitmap structure of volume (all FAT types only).
     Function checks, that allocation bitmap (or FAT) corresponds to directory
     data.
+    (Not implemented).
     @param disk           disk number
     @param index          partition index, can be -1 for the big floppy
     @param cbprint        process indication callback (can be 0)
@@ -653,7 +652,7 @@ qserr _std lvm_setvalue(u32t disk, u32t index, u32t vtype, u32t value);
 int   _std lvm_querybm(u32t *active);
 
 /** query LVM presence.
-    Function is not gurantee LVM info quality, it checks only for presence.
+    Function does not gurantee LVM info quality, it checks only for its presence.
     @param physonly       flag to 1 to not count virtual HDDs (PAE ram disk and so on).
     @return bit mask for first 31 HDDs (1 for presented LVM info, 0 for not)
        and 0x80000000 bit if next HDDs (32...x) have LVM info. I.e. function
@@ -684,6 +683,7 @@ qserr _std lvm_assignletter(u32t disk, u32t index, char letter, int force);
 #define LVMN_DISK      0x0000     ///< disk name
 #define LVMN_PARTITION 0x0001     ///< partition name
 #define LVMN_VOLUME    0x0002     ///< volume name
+#define LVMN_LETTER    0x0004     ///< lvm_findname() only, in form "c:" or "C"
 //@}
 
 /** set ASCII disk/volume name.
@@ -733,20 +733,20 @@ qserr _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index
 //  GPT specific functions
 //-------------------------------------------------------------------
 
-/** convert GPT GUID to string.
+/** convert GUID to string.
     @param  guid    16 bytes GUID array
     @param  str     target string (at least 38 bytes)
     @return boolean (success flag) */
 int   _std dsk_guidtostr(void *guid, char *str);
 
-/** convert string to GPT GUID.
+/** convert string to GUID.
     String format must follow example: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX.
     @param  str     Source string
     @param  guid    16 bytes GUID array
     @return boolean (success flag) */
 int   _std dsk_strtoguid(const char *str, void *guid);
 
-/** generate pseudo-unique GPT GUID.
+/** generate pseudo-unique GUID.
     @param  [out] guid  16 bytes GUID array */
 void _std dsk_makeguid(void *guid);
 
@@ -852,7 +852,7 @@ qserr _std dsk_gptactive(u32t disk, u32t index);
 #define GPTN_PARTTYPE  0x0002     ///< partition type GUID
 //@}
 
-/** search for partition by it`s name.
+/** search for partition by its name.
     @param [in]     guid     GUID to search.
     @param [in]     guidtype GUID type (GPTN_*).
                              For GPTN_PARTTYPE argument first found partition

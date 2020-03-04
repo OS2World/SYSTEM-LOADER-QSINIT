@@ -22,6 +22,7 @@
 #ifdef __QSINIT__
 #include "qserr.h"
 #include "qsdm.h"
+#include "qssys.h"
 #endif
 
 #define cmBinTrunc     149
@@ -32,6 +33,8 @@ int  SetupBootDlg (TKernBootDlg *dlg, char *kernel, char *opts);
 int  CheckBootDlg (TKernBootDlg *dlg);
 void RunKernelBoot(TKernBootDlg *dlg);
 void SetupLdrBootDlg(TLdrBootDialog *dlg, char *file);
+
+void FillDiskInfo(TDialog* dlg, u32t disk, long index);
 
 char *getstr (TInputLine *ln);
 u32t  getuint(TInputLine *ln);
@@ -69,7 +72,7 @@ u32t  opts_port();
 void  opts_free();
 char  opts_bootdrive();
 void  opts_bootkernel(char *name, char *opts);
-void  opts_loadldr(char *name);
+u32t  opts_loadldr(char *name);
 void  opts_run(char *cmdline, int echoon, int pause);
 char *opts_getlog(int time = 1, int dostext = 0);
 u32t  opts_cpuid(u32t index, u32t *data);
@@ -204,6 +207,7 @@ public:
   void   BootPartition(u32t disk, long index);
   void   BootDirect(u32t disk, long index);
   void   FormatDlg(u8t vol, u32t disk, long index);
+  void   SetVolLabel(u8t vol, u32t disk, long index);
   void   BootCodeDlg(u8t vol, u32t disk, long index);
   void   QSInstDlg(u8t vol, u32t disk, long index);
   void   ChangeDirty(u8t vol, u32t disk, long index);
@@ -324,6 +328,7 @@ public:
 #define MSGE_DIRNAME      (44)
 #define MSGE_FILEOPENED   (45)
 #define MSGE_FSUNSUITABLE (46)
+#define MSGE_BADNAME      (47)
 
 extern TSysApp SysApp;
 
@@ -399,7 +404,7 @@ public:
       if (!vol || vol==0xFF) {
 #ifdef __QSINIT__
          vol = 0;
-         u32t rc = vol_mount(&vol, disk, index);
+         u32t rc = vol_mount(&vol, disk, index, 0);
          if (rc && rc!=E_DSK_MOUNTED) {
             SysApp.PrintPTErr(rc);
             // reset it to the incorrect value

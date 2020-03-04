@@ -369,14 +369,15 @@ extern "C" void* mem_allocz(long Owner, long Pool, u32t Size) {
 }
 
 static inline QSMCC* TryToRefBlock(void*MM, const char *FromWhere, u32t Caller) {
-   QSMCC*mm=(QSMCC*)((char*)MM-HeaderSize);
-   if ((mm->Signature&CHECK_MASK)!=QSMCC_SIGN) (*MemError)(_RET_INVALIDPTR,FromWhere,Caller,MM);
+   QSMCC *mm = (QSMCC*)((char*)MM-HeaderSize);
+   if (!MM || (mm->Signature&CHECK_MASK)!=QSMCC_SIGN)
+      (*MemError)(_RET_INVALIDPTR,FromWhere,Caller,MM);
    return mm;
 }
 
 static inline QSMCC* TryToRefNonFatal(void*MM) {
-   QSMCC*mm=(QSMCC*)((char*)MM-HeaderSize);
-   if (!MM||(mm->Signature&CHECK_MASK)!=QSMCC_SIGN) mm=0;
+   QSMCC *mm = (QSMCC*)((char*)MM-HeaderSize);
+   if (!MM || (mm->Signature&CHECK_MASK)!=QSMCC_SIGN) mm=0;
    return mm;
 }
 
@@ -1181,7 +1182,7 @@ void DefMemError(u32t ErrType,const char *FromHere, u32t Caller, void *Pointer) 
 
    u32t px = 3, py = 3, hdt = locaddr?6:2;
 
-   draw_border(1, 2, 78, hdt+5, 0x4F);
+   vio_drawborder(1, 2, 78, hdt+5, 0x4F);
    vio_setpos(py, px); vio_strout(" \xFE HEAP FATAL ERROR \xFE");
    py+=2;
    snprintf(msg, 256, "%s (%08X). Caller - %s", errmsg[ErrType], Pointer, FromHere);

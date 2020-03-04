@@ -14,7 +14,6 @@
 #include "qstask.h"
 #include "qserr.h"
 #include "qssys.h"
-#include "qscon.h"
 #include "sysio.h"
 #include "dpmi.h"
 #include "qcl/qsextdlg.h"
@@ -82,6 +81,7 @@ static void process_sysq(qe_event *ev) {
          break;
       }
       case SYSQ_BEEP:
+         // beep is async, but all requests are just ordered here
          if (_beep) _beep(ev->a,ev->b);
          break;
       case SYSQ_MEMSTAT:
@@ -219,7 +219,7 @@ void _std mt_startcb(qs_sysmutex mproc) {
    // create mutexes for exi instances
    setup_exi_mt();
    // catch vio_beep
-   _beep         = (pf_beep)mod_apidirect(mh_qsinit, ORD_QSINIT_vio_beep);
+   _beep         = (pf_beep)mod_apidirect(mh_qsinit, ORD_QSINIT_vio_beep, 0);
    mod_apichain(mh_qsinit, ORD_QSINIT_vio_beep, APICN_REPLACE, v_beep);
    // catch alt-esc and ctrl-n
    err = sys_sethotkey(0x0100, KEY_ALT, SECB_GLOBAL, cb_taskswitch);
@@ -556,19 +556,39 @@ qserr _std mt_eventact(qshandle evt, u32t action) {
    return err;
 }
 
+qserr _std mt_waitsingle(mt_waitentry *uwe, u32t timeout_ms) {
+   if (!in_mtmode) return E_MT_DISABLED; else {
+      // user`s object must be the first - to be catched on zero timeout
+      mt_waitentry we[3];
+      u32t       ecnt = 3, sig;
+      qserr       res;
+      we[0] = *uwe;
+      we[0].group = 1;
+      we[1].htype = QWHT_SIGNAL;
+      we[1].group = 2;
+      // no timeout if arg is 0xFFFFFFFF or user`s uwe is QWHT_CLOCK
+      if (we[0].htype==QWHT_CLOCK || timeout_ms==FFFF) ecnt--; else {
+         we[2].htype = QWHT_CLOCK;
+         we[2].tme   = sys_clock() + (timeout_ms)*1000;
+         we[2].group = 0;
+      }
+      // loop until timeout while QWHT_SIGNAL breaks us
+      while (1) {
+         sig = 0;
+         res = mtlib->waitobject(&we, ecnt, 0, &sig);
+         if (res) return res;
+         if (sig!=2) break;
+      }
+      return sig==1 ? 0 : E_SYS_TIMEOUT;
+   }
+}
+
 qserr _std mt_waithandle(qshandle handle, u32t timeout_ms) {
    if (!in_mtmode) return E_SYS_INVPARM; else {
-      // mutex must be first to be catched on zero timeout
-      mt_waitentry we[2] = {{QWHT_HANDLE,1}, {QWHT_CLOCK,2}};
-      qserr       res;
-      u32t        sig;
-      we[0].wh  = handle;
-      if (timeout_ms!=FFFF) we[1].tme = sys_clock() + (timeout_ms)*1000;
-      // really remove timeout if arg is 0xFFFFFFFF
-      res = mtlib->waitobject(&we, timeout_ms==FFFF?1:2, 0, &sig);
-
-      if (res) return res;
-      return sig==1 ? 0 : E_SYS_TIMEOUT;
+      mt_waitentry we;
+      we.htype = QWHT_HANDLE;
+      we.wh    = handle;
+      return mt_waitsingle(&we, timeout_ms);
    }
 }
 

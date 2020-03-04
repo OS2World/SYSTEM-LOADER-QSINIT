@@ -197,7 +197,8 @@ qserr _std se_tasklist(u32t devmask) {
    }
    /* EXTCMD module is missing? Nothing to show - still run the thread
       to show error message box and hope that next call will be more lucky */
-   if (!extdlg) extdlg = NEW_G(qs_extcmd);
+   if (!extdlg)
+      if ((extdlg = NEW_G(qs_extcmd))) exi_chainset(extdlg,0);
    // create a thread for every asked device
    for (ii=0; ii<SYS_HANDLERS; ii++)
       if (1<<ii & devmask)

@@ -9,6 +9,7 @@
 #include "qspdata.h"
 #include "qcl/sys/qsvolapi.h"
 #include "qcl/sys/qsmuxapi.h"
+#include "qcl/sys/qsstream.h"
 #include "qsio.h"
 #include "qsint.h"
 #include "qsmodext.h"
@@ -58,18 +59,31 @@ extern vol_data *_extvol;
 typedef struct _io_handle_data {
    u32t               sign;
    u32t             sft_no;             ///< sft file number
+   u32t            self_no;             ///< self index in ftable array
    u32t                pid;
    u32t               next;             ///< next ioh number
    qserr           lasterr;
+   qsclock        opentime;             ///< sys clock when handle was opened
+
+   u32t           inh_main;             ///< current "main" handle for the inherited list
+   u32t           inh_next;             ///< next handle in the inherited list
+
+   u8t             inherit;             ///< dup this handle for a child
+   u8t                res1;             ///< inherited handle
+   u16t               res2;
 
    union {
       struct {
+         u32t        omode;             ///< open mode (used for IOHT_STREAM too)
          u64t          pos;
-         u32t        omode;             ///< open mode
       } file;
       struct {
          dir_handle_int dh;
       } dir;
+      struct {
+         u32t        omode;             ///< open mode (shared with .file)
+         st_handle_int  xh;
+      } std;
    };
 } io_handle_data;
 
@@ -96,10 +110,10 @@ typedef struct {
          char        *renn;             ///< rename request on last close
       } dir;
       struct {
-         u32t           dh;
+         u32t          dsk;
       } disk;
       struct {
-         u32t          num;             ///< 0=stdin, 1=stdout, 2=stderr, 3=stdaux (log)
+         qs_sysstream  dev;
       } std;
       struct {
          mux_handle_int mh;
@@ -112,19 +126,23 @@ typedef struct {
 
 #define IOHT_FILE        0x00001
 #define IOHT_DISK        0x00002
-#define IOHT_STDIO       0x00004
+#define IOHT_STREAM      0x00004
 #define IOHT_DUMMY       0x00008        ///< dummy zero entry
 #define IOHT_DIR         0x00010
 #define IOHT_MUTEX       0x00020
 #define IOHT_QUEUE       0x00040
 #define IOHT_EVENT       0x00080
+///< only types allowed to duplicate/inherit
+#define IOHT_DUP      (IOHT_FILE|IOHT_MUTEX|IOHT_EVENT|IOHT_QUEUE|IOHT_STREAM)
 
 #define IOH_HBIT      0x40000000        ///< addition to IOH index to make io_handle
+
 
 #define NAMESPC_FILEIO         0        ///< file i/o namespace (files & dirs)
 #define NAMESPC_MUTEX          1        ///< mutexes namespace
 #define NAMESPC_QUEUE          2        ///< queues namespace
 #define NAMESPC_EVENT          3        ///< events namespace
+#define NAMESPC_CHARDEV        4
 
 /** check user io_handle handle and return pointers to objects.
     @attention if no error returned, then MT lock IS ON!
@@ -138,6 +156,20 @@ qserr           io_check_handle  (io_handle ifh, u32t accept_types,
 /// do NOT use me!
 qserr           io_check_handle_spec(io_handle ifh, u32t accept_types,
                                   io_handle_data **pfh, sft_entry **pfe);
+/*  get handle and check that its open time is equal to "checktime".
+    Handle can be closed or even replaced asynchronously, so opentime value
+    can be used a safe mark to compare.
+
+    @attention if handle returned, then MT lock IS ON!
+
+    @param [in]  ifh           handle to check
+    @param [in]  accept_types  IOHT_* combination (allowed handle types)
+    @param [in]  checktime     system clock value, should match to opentime.
+    @param [out] pfe           pointer to sft_entry, can be 0
+    @return pointer to io_handle_data or 0 if there is no such handle or
+            time value does not match  */
+io_handle_data *io_same_handle   (io_handle ifh, u32t accept_types,
+                                  qsclock checktime, sft_entry **pfe);
 /// unlink ioh from sft and zero ftable entry
 void            ioh_unlink       (sft_entry *fe, u32t ioh_index);
 /// is sft has only one user object?
@@ -155,6 +187,9 @@ int _std        qe_available_info(void *pi, u32t *n_sched);
 void            setup_fio_mt     (dsk_access_cbf *rcb, dsk_access_cbf *wcb);
 /// try to mount ramfs to a volume
 qserr           io_mount_ramfs   (u8t vol);
+/// handle inheritance for a new process
+void _std       io_inherit       (void);
+
 
 extern sft_entry* volatile      *sftable;
 extern io_handle_data* volatile  *ftable;

@@ -7,12 +7,15 @@
 #include "qslog.h"
 
 #define ANSI_BUF_LEN   32
+static const char *wordcharset = " \t\n-;,.=+*/<>|\\/:`&";
 
 char* _std key_getstr(key_strcb cbfunc) {
-   return key_getstrex(cbfunc, -1, -1, -1, 0);
+   return key_getstrex(cbfunc, -1, -1, -1, 0, 0);
 }
 
-char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1, const char *init) {
+char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
+                        const char *init, u32t userdata)
+{
    u32t  mode_x, mode_y;
    char            *buf;
    key_strcbinfo     ld;
@@ -24,7 +27,7 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1, const c
    #define  scroll   ld.scroll   
    #define  clen     ld.clen     
    #define  bsize    ld.bsize    
-   ld.userdata = 0;
+   ld.userdata = userdata;
    ld.defshape = vio_getshape();
    vio_getpos(&line,&col);
    vio_getmodefast(&mode_x,&mode_y);
@@ -95,25 +98,56 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1, const c
          case 0x47: scroll=0; pos=0; all=1;     break; // home
          case 0x4D: if (pos+scroll<clen) mve=1; break; // right
          case 0x4B: if (pos+scroll>0) mve=-1;   break; // left
+         case 0x73: // ctrl-left
+            if (scroll+pos==0) break;
+         case 0x74: // ctrl-right
+            if (*ld.rcstr) {
+               int  cp = pos+scroll, np;
+               if (keyh==0x73) cp = -cp;
+               // ctrl-right at the last char acts as "end" key
+               if (cp<0 || cp<clen-1) {
+                  np = getwordpos(ld.rcstr, wordcharset, cp);
+                  if (np<scroll) { scroll=np; pos=0; } else
+                     if (np-scroll>=width) scroll=np-(pos=width-1); else
+                        pos=np-scroll;
+                  all=1;
+                  break;
+               }
+            } else
+               break;
+            // no break here!
          case 0x4F: // end
             scroll=0;
             if (clen<=width) pos=clen; else scroll=clen-(pos=width);
             all=1;
             break;
-         case 0x0E: // backspace
+         case 0x0E: // (ctrl-)backspace (0E7F - ctrl-bkspc)
             if (pos+scroll>0 && clen) {
-               if (*ld.rcstr) memmove(ld.rcstr+pos+scroll-1, ld.rcstr+pos+scroll,
-                  clen-(pos+scroll)+1);
-               if (scroll) { scroll--; all=1; } else mve=-1;
-               ld.rcstr[--clen]=0;
+               int cp = pos+scroll,
+                   np = keyl==0x7F?getwordpos(ld.rcstr,wordcharset,-cp):cp-1;
+               if (np<cp) {
+                  memmove(ld.rcstr+np, ld.rcstr+cp, clen-cp+1);
+                  np    = cp-np;
+                  clen -= np;
+                  ld.rcstr[clen] = 0;
+                  if (scroll) {
+                     if ((scroll-=np)<0) { pos+=scroll; scroll=0; }
+                     all=1;
+                  } else mve=-np;
+               }
             }
             break;
          case 0x53: // del
+         case 0x93: // ctrl-del
             if (pos+scroll>=0 && pos+scroll<clen ) {
-               if (*ld.rcstr) memmove(ld.rcstr+pos+scroll, ld.rcstr+pos+scroll+1,
-                  clen-(pos+scroll));
-               ld.rcstr[--clen]=0;
-               all=1;
+               int cp = pos+scroll,
+                   ep = keyh==0x93?getwordpos(ld.rcstr,wordcharset,cp):cp+1;
+               if (ep>cp) {
+                  memmove(ld.rcstr+cp, ld.rcstr+ep, clen-ep+1);
+                  clen -= ep-cp;
+                  ld.rcstr[clen] = 0;
+                  all = 1;
+               }
             }
             break;
       }

@@ -1,6 +1,5 @@
 [project]
 name=tetris
-version=0x0001
 
 [config]
 0=Common
@@ -71,7 +70,7 @@ op togglerelocs
 op nod
 op osname=%(QS_NAME)
 op st=16384
-op de '$(name) v$(vershort). $(config) build, $(timestr)'
+op de '$(name) v%(QS_VERSION). $(config) build, $(timestr)'
 
 [config.0]
 *out=$(outname) | nolink | \

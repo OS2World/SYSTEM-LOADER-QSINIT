@@ -29,7 +29,8 @@ build=1                   ; build, converted to decimal value on use
 ;$(buildnum) - build number
 ;$(build_os) - Win32, OS/2, Linux, DOS (DOS - only with -od key, no native DOS app).
 ;$(build_osc)- one char OS: w, o, l, d
-;$(svnrev)   - svn rev, readed from 4th line of .svn\entries in bld. dir
+;$(svnrev)   - svn rev, loaded from 4th line of .svn\entries in current dir, if
+;              file missing, then "svn info --xml" is used to get revision
 ;
 ;file variables:
 ;in all [vars] sections:

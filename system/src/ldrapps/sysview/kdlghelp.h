@@ -135,7 +135,10 @@ const int
   hcSesList              = 2145,
   hcSesListSwitch        = 2146,
   hcProcInfo             = 2147,
-//  hcProcInfoList         = 2148,
+  hcGPTTypeName          = 2148,
   hcProcInfoSwitch       = 2149,
   hcProcInfoKill         = 2150,
-  hcProcInfoKillTree     = 2151;
+  hcProcInfoKillTree     = 2151,
+  hcMountRO              = 2152,
+  hcMountRaw             = 2153,
+  hcVolLabelDlg          = 2154;

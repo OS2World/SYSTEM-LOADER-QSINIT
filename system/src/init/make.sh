@@ -28,8 +28,6 @@ then
   bldarg=\*
 fi
 
-# creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb $prjname.prj $bldtype makedirs
 # makefile for reference
 spprj -nb $prjname.prj $bldtype bld/$prjname.mak
 # and build it

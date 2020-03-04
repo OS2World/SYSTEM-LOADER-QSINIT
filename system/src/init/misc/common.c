@@ -328,6 +328,12 @@ u16t _std key_wait(u32t seconds) {
    return key_waitex(seconds>FFFF>>10?FFFF:seconds*1000, 0);
 }
 
+u32t _std key_clear(void) {
+   u32t cnt = 0;
+   while (key_waitex(0,0)) cnt++;
+   return cnt;
+}
+
 u16t _std ckey_read() {
 #ifndef EFI_BUILD
    // goes into the real mode for a while - until MTLIB activation

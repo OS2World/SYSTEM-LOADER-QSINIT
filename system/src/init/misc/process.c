@@ -82,6 +82,11 @@ u32t _std mt_exit(process_context *pq) {
    mem_procexit(pq);
    // free process data
    mod_secondary->mem_free((void*)pc);
+   // free inherited handles list
+   if (pq->inherited) {
+      mod_secondary->mem_free(pq->inherited);
+      pq->inherited = 0;
+   }
    pq->rtbuf[RTBUF_PROCDAT] = 0;
    /* both original & updated environment arrays are marked as module owned,
       mod_free() will care of it later */

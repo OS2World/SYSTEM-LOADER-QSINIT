@@ -546,18 +546,31 @@ u32t _std hlp_memavail(u32t *maxblock, u32t *total) {
    return rc;
 }
 
-u32t _std hlp_memused(u32t pid) {
-   u32t ii, size = 0;
+u32t _std hlp_memused(u32t pid, u32t *usedlow, u32t *usedhigh) {
+   u32t ii, size = 0, ul = FFFF, uh = 0;
 
    mt_swlock();
    for (ii=0; ii<memblocks; ii++) {
-      u32t mti = memtable[ii];
+      u32t mti = memtable[ii], b_addr, b_size;
       if (mti && mti<FFFF) {
-         if (Xor(pid,memowner[ii])) continue;
-         if (pid && memowner[ii]->pid!=pid) continue;
-         size += Round64k(mti);
+         if (pid!=FFFF) {
+            if (Xor(pid,memowner[ii])) continue;
+            if (pid && memowner[ii]->pid!=pid) continue; 
+         }
+         b_addr = (u32t)memtable + (ii<<16);
+         b_size = Round64k(mti);
+         size  += b_size;
+         // update highest/lowest used address
+         if (ul>b_addr) ul = b_addr;
+         if (uh<b_addr+b_size-1) uh = b_addr + b_size - 1;
+         
       }
    }
    mt_swunlock();
+   // limits
+   if (size) {
+      if (usedlow)  *usedlow  = ul;
+      if (usedhigh) *usedhigh = uh;
+   }
    return size;
 }

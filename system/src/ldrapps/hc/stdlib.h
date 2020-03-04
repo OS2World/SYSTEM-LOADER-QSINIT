@@ -83,6 +83,8 @@ int    __stdcall stricmp(const char *s1, const char *s2);
 char*  __stdcall strncat(char *dst, const char *src, size_t n);
 
 /** dynamically allocated strcat.
+    See also sprintf_dyn() and vsprintf_dyn().
+
     @param  dst  malloc-ed buffer for string, can be 0
     @param  src  string to add
     @return old or realloced dst value with added src string,
@@ -103,6 +105,12 @@ void   __stdcall exit   (int errorcode);
     @param errorcode  Error code */
 void   __stdcall _exit  (int errorcode);
 
+/** immediate exit with a popup message.
+    Function shows message box in MSG_POPUP mode and then terminates the
+    current process.
+    @param errorcode  Error code */
+void   __stdcall exit_with_popup(const char *msg, int errorcode);
+
 /** install exit proc.
     Not available in DLL modules.
     @param func  Additional exit proc to install
@@ -110,6 +118,14 @@ void   __stdcall _exit  (int errorcode);
 int    __stdcall atexit (void (*func)(void));
 
 void   __stdcall abort  (void);
+
+/** query original command line.
+    Get command line with the program name removed. Function is compatible
+    with watcom _bgetcmd.
+    @param cmd_line  Buffer for the command line, can be 0
+    @param len       Size of buffer above
+    @return length command line, excluding the terminating null character */
+int    __stdcall _bgetcmd(char *cmd_line, int len);
 
 #define EXIT_SUCCESS    0
 #define EXIT_FAILURE    0xFF
@@ -122,7 +138,7 @@ void   __stdcall perror (const char *prefix);
     Function acts as normal printf() as long as QTLS_TPRINTF TLS variable
     value is zero (default). FILE* pointer may be written into it to redirect
     output to another file.
-    Function designed to replace printf() transparently. */
+    Function is designed to replace printf() transparently. */
 int    __cdecl   tprintf(const char *fmt, ...);
 
 int    __cdecl   sprintf(char *buf, const char *format, ...);
@@ -485,6 +501,14 @@ char*  __stdcall trimleft (char *src, char *charset);
 /** trim trailing characters from the charset.
     @return src value with truncated string. */
 char*  __stdcall trimright(char *src, char *charset);
+
+/** get left/right word position.
+    @param str          Source string
+    @param separators   Word separator list (ex. " \t\n-;,")
+    @param pos          Position in the source string ( -pos - search to the
+                        left, +pos - search to the right)
+    @return found position */
+u32t   __stdcall getwordpos(const char *str, const char *separators, int pos);
 
 /** replace one character to another.
     zero is not accepted as "from" parameter.

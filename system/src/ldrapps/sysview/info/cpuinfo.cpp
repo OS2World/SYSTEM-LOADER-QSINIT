@@ -277,6 +277,32 @@ void TSysApp::ExecCpuInfoDlg() {
           sprintf(str, "ACPI root  : %08X", acpi);
           dl->insert(str);
        }
+#ifdef __QSINIT__
+       static int key[] = {SMI_BIOS_Vendor, SMI_BIOS_Version, SMI_BIOS_Date,
+          SMI_SYS_Vendor, SMI_SYS_Product, SMI_SYS_UUID, SMI_MB_Vendor,
+             SMI_MB_Product, -1};
+
+       for (ii=0; key[ii]>=0; ii++) {
+          static const char *vn[] = { "@BIOS", "BIOS Ver", "BIOS Date",
+             "@Vendor", "Product", "System UUID", "@MB Vendor", "MB Name" };
+
+          char *istr = sys_dmiinfo(key[ii]);
+          if (istr) {
+             const char *vname = vn[ii];
+             if (vname[0]=='@') { PUSH_EMPTY(); vname++; }
+             /* skip vendor/product priting if looks ignored by
+                motherboard creator */
+             if (key[ii]==SMI_SYS_Vendor && (strstr(istr,"O.E.M.") ||
+                strstr(istr,"endor") || strstr(istr,"anufacturer"))) ii++;
+             else {
+                str = new char[80];
+                sprintf(str, "%-11s: %-60s", vname, istr);
+                dl->insert(str);
+             }
+             free(istr);
+          }
+       }
+#endif
    }
    u32t memsize = opts_getpcmem();
    sprintf(idstr,"%d Mb",memsize);

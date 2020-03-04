@@ -14,8 +14,6 @@ call ..\..\setup.cmd
 
 set appinit_lib=%QS_BASE%\ldrapps\runtime
 
-rem creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb %prjname%.prj 0 makedirs
 rem writing makefile for reference
 spprj -nb %prjname%.prj 0 bld\%prjname%.mak
 rem and build it

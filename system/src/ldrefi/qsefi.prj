@@ -1,7 +1,6 @@
 [project]
 ; this is 32-bit part of 64-bit EFI executable, still experimental.
 name=qsefi
-version=0x0026
 
 [config]
 0=Debug
@@ -81,7 +80,7 @@ clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo $(config) EFI cleaned ...
 
 [&ver]
-db 'QSinit $(vershort), rev $(revnum), $(config) build at $(timestr)',0
+db 'QSinit %(QS_VERSION), rev $(revnum), $(config) build at $(timestr)',0
 
 [&watlnk]
 sys os2v2_dll

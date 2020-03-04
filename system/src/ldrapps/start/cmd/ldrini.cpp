@@ -18,6 +18,7 @@
 #include "qsint.h"
 #include "errno.h"
 #include "sysio.h"
+#include "qcl/qslist.h"
 
 static const char *cfg_section = "config",
                 *shell_section = "shell",
@@ -101,6 +102,24 @@ int get_ini_parms(void) {
    if (dbcard.length()) {
       rc = shl_dbcard(dbcard, log_printf);
       if (rc) log_printf("DBCARD setup err %d!\n", rc);
+   }
+
+   /* inherited shell history after RESTART command? */
+   char *cmdh = (char*)sto_data(STOKEY_CMDHINIT);
+   if (cmdh) {
+      TStrings lst;
+      lst.SetText(cmdh, sto_size(STOKEY_CMDHINIT));
+      lst.TrimEmptyLines();
+      hlp_memfree(cmdh);
+      sto_del(STOKEY_CMDHINIT);
+
+      if (lst.Count()) {
+         ptr_list hl = NEW_GM(ptr_list);
+         // this will be PID 1 onwed block - a safe case
+         for (u32t ii=0; ii<lst.Count(); ii++) hl->add(strdup(lst[ii]()));
+         // save pointer with 1 byte len (size ignored)
+         sto_save(STOKEY_CMDSTORY, hl, 1, 0);
+      }
    }
    return rc;
 }
@@ -295,6 +314,29 @@ str_list* _std str_copylines(str_list*list, u32t first, u32t last) {
    return str_getlist_local(lst.Str);
 }
 
+str_list* _std str_newentry(str_list*list, u32t pos, const char *str,
+                            char delimeter, int freelist)
+{
+   TStrings lst;
+   if (list) {
+      str_getstrs(list,lst);
+      if (freelist) free(list);
+   }
+   if (pos>lst.Count()) pos = lst.Count();
+   if (str) {
+      const char *ep = str-1;
+      while (ep) {
+         ep = strchr(str=++ep, delimeter);
+         if (ep) {
+            lst.Insert(pos++, spstr(str, ep-str));
+            if (!delimeter && ep[1]==0) break;
+         } else
+            lst.Insert(pos++, spstr(str));
+      }
+   }
+   return str_getlist_local(lst.Str);
+}
+
 /// create list from array of char*
 str_list* _std str_fromptr(char **list, int size) {
    TStrings lst;
@@ -318,6 +360,21 @@ char* _std str_findkey(str_list *list, const char *key, u32t *pos) {
          }
    }
    return 0;
+}
+
+int _std str_findentry(str_list *list, const char *str, u32t pos, int icase) {
+   u32t len = strlen(str);
+   int _std (*cf)(const char*, const char*, u32t) = icase?strnicmp:strncmp;
+
+   if (!list || pos>=list->count) return -1;
+   for (;pos<list->count;pos++) {
+      char *li = list->item[pos];
+      if (li) {
+         u32t plen = strlen(li);
+         if (plen==len && cf(li,str,len)==0) return pos;
+      }
+   }
+   return -1;
 }
 
 void _std log_printlist(char *info, str_list*list) {
@@ -522,17 +579,27 @@ void _std sto_flush(void) {
    int ii, cnt = 0;
    stoinit_entry *stl = sto_init();
 
+   spstr keylist;
+
    for (ii=0;ii<STO_BUF_LEN;ii++) {
       stoinit_entry *ste = stl+ii;
       if (ste->name[0]) {
+         char  lbuf[64];
          void *data = ste->isptr?(void*)ste->data:&ste->data;
-         // log_printf("key %s(%d): %4lb\n", ste->name, ste->len, data);
+         /* this dump is always useful because of limit on key length in the
+            init code */
+         snprintf(lbuf, 64, "%s(%u),", ste->name, ste->len);
+         keylist += lbuf;
          sto_save(ste->name, data, ste->len, !ste->isptr);
          ste->name[0] = 0;
          cnt++;
       }
    }
-   log_printf("%d keys added\n", cnt);
+   if (cnt) {
+      keylist.dellast();
+      log_printf("%d keys added:\n", cnt);
+      log_printf("%s\n", keylist());
+   }
 }
 
 // locked by callers
@@ -651,6 +718,11 @@ void splittext(const char *text, u32t width, TStrings &lst, u32t flags) {
    } while (pps);
 }
 
+str_list* _std cmd_splittext(const char *text, u32t width, u32t flags) {
+   TStrings res;
+   splittext(text, width, res, flags);
+   return str_getlist_local(res.Str);
+}
 
 /// make full path
 int fullpath(spstr &path) {

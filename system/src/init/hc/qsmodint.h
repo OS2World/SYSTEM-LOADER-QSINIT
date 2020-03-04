@@ -83,6 +83,7 @@ typedef struct _process_context {
    u32t              flags;   ///< internal flags
    struct
    _process_context  *pctx;   ///< parent process context
+   qshandle     *inherited;   ///< zero-term list of inherited handles (0 if no one)
 
    u32t          rtbuf[16];   ///< data buffer for runtime data
    u32t        userbuf[16];   ///< data buffer for user data
@@ -277,6 +278,11 @@ typedef struct {
    u64t    _std (*tlsget)(u32t index);
    qserr   _std (*tlsaddr)(u32t index, u64t **slotaddr);
    qserr   _std (*tlsset)(u32t index, u64t value);
+
+   u32t      removedentry;
+   /// get shell command history (process owned block)
+   char*   _std (*shl_history)(void);
+   void    _std (*dccommit)(u32t code);
 } mod_addfunc;
 
 /// @name mod_addfunc.mempanic type value

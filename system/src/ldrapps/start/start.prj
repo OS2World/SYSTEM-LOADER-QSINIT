@@ -1,6 +1,5 @@
 [project]
 name=start
-version=0x0026
 
 [config]
 0=Common
@@ -66,7 +65,7 @@ misc\trap.asm misc\cliba.asm misc\envmgr.c misc\log.c misc\cache.cpp
 vio\viofunc.c main\syshlp.c cmd\ksline.cpp pm\pages.c main\sysmt.c
 loader\chain.cpp loader\chaina.asm loader\trace.cpp main\sysdump.c
 main\sysf.asm main\pcibus.c vio\mbox.cpp pm\meminit.cpp main\notify.c
-pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c
+pm\ptdump.c misc\trapset.c misc\bitmap.c main\sysio.c main\sysiodev.c
 main\sysque.cpp misc\clibm.c misc\scanf.c vio\viobase.cpp
 vio\vhbuf.c vio\vhvio.cpp main\sysioram.cpp main\sysionul.c
 
@@ -92,10 +91,10 @@ cmd\ldrini.cpp = cmd\pubini.cpp
 ; as a common file now.
 [&bldlevel]
 ; bldlevel support
-@#QS:$(vershort).$(revnum)#@  QSinit loader
+@#QS:%(QS_VERSION).$(revnum)#@  QSinit loader
 
 [&vercheck]
-db 'QSinit $(vershort), rev $(revnum)',0
+db 'QSinit %(QS_VERSION), rev $(revnum)',0
 
 [&lnk]
 sys os2v2 dll
@@ -118,7 +117,7 @@ op noextension
 op nod
 op statics
 op osname=%(QS_NAME)
-op de '$(name) v$(vershort). $(config) build, $(timestr)'
+op de '$(name) v%(QS_VERSION). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc
 
 [config.0]

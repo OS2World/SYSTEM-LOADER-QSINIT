@@ -852,7 +852,7 @@ static qserr rwaction(filedata *fd, u64t pos, void *buf, u32t size, u32t *act,
             nsec = calcsector(pos, size, fd->secshift, &una1, &una2);
       // allocate sector for the first time unaligned read
       if (una1 || una2)
-         if (!fd->sector) fd->sector = (u8t*)malloc(1<<fd->secshift);
+         if (!fd->sector) fd->sector = (u8t*)malloc(secsize);
 
       res = cc_listpos(fd, pos>>fd->secshift, &rws);
 #if FCC_DEBUG>1

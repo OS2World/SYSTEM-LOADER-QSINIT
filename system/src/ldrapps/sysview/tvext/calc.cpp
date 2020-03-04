@@ -35,7 +35,7 @@ TCalcDisplay::TCalcDisplay(TRect &r) : TView(r) {
    options  |= ofSelectable;
    eventMask = (evKeyboard | evBroadcast);
    number    = new char[DISPLAYLEN];
-   hexmode   = 0;
+   cvtbase   = 0;
    memory    = 0;
    clear();
 }
@@ -76,8 +76,8 @@ void TCalcDisplay::draw() {
 
    i = size.x - strlen(number) - 2;
    buf.moveChar(0, ' ', color, size.x);
-   if (hexmode)
-      buf.moveChar(1, 'x', color&0xF0|0xC , 1);
+   if (cvtbase)
+      buf.moveChar(1, cvtbase==8?'o':'x', color&0xF0|0xC , 1);
    if (memory)
       buf.moveChar(2, 'm', color&0xF0|0xD , 1);
    buf.moveChar(i, sign, color, 1);
@@ -101,16 +101,16 @@ void TCalcDisplay::clear() {
 }
 
 s64t TCalcDisplay::getDisplay() { 
-   return hexmode ? STRTOUL64(number,0,16) : ATOI64(number);
+   return cvtbase ? STRTOUL64(number,0,cvtbase) : ATOI64(number);
 }
 
 void TCalcDisplay::setDisplay(s64t rv) {
    int  len;
    char str[64];
 
-   if (hexmode) {
+   if (cvtbase) {
       sign = ' ';
-      sprintf(str, "%LX", rv);
+      sprintf(str, cvtbase==8?"%Lo":"%LX", rv);
    } else
    if (rv < 0) {
       sign = '-';
@@ -147,11 +147,13 @@ void TCalcDisplay::calcKey(unsigned char key) {
       key = ' ';
 
    switch (key) {
+   case '8':   case '9':
+      if (cvtbase==8) break;
    case '0':   case '1':   case '2':   case '3':   case '4':
-   case '5':   case '6':   case '7':   case '8':   case '9':
+   case '5':   case '6':   case '7':
       checkFirst();
-      if (strlen(number) < (hexmode?16:19)) {
-         // 19 is max s64t length
+      if (strlen(number) < (cvtbase==8?22:(cvtbase==16?16:19))) {
+         // 19 is max s64t length, 22 is octal -1 (1777777777777777777777)
          if (strcmp(number, "0") == NULL)
             number[0] = '\0';
          stub[0] = key;
@@ -160,7 +162,7 @@ void TCalcDisplay::calcKey(unsigned char key) {
       break;
    case 'A':   case 'B':   case 'C':   case 'D':   case 'E':   case 'F':
       checkFirst();
-      if (hexmode && strlen(number) < 16) {
+      if (cvtbase==16 && strlen(number) < 16) {
          // 21 is max visible display length
          if (strcmp(number, "0") == NULL)
             number[0] = '\0';
@@ -181,7 +183,7 @@ void TCalcDisplay::calcKey(unsigned char key) {
 
    case '_':                   // underscore (keyboard version of +/-)
    case 241:                   // +/- extended character.
-      if (!hexmode) sign = (sign == ' ') ? '-' : ' ';
+      if (!cvtbase) sign = (sign == ' ') ? '-' : ' ';
       break;
 
    case 'M':
@@ -197,7 +199,14 @@ void TCalcDisplay::calcKey(unsigned char key) {
    case 'X':
       rv = getDisplay();
       if (sign == '-') rv = -rv;
-      hexmode = !hexmode;
+      cvtbase = cvtbase==16 ? 0 : 16;
+      setDisplay(rv);
+      break;
+
+   case 'O':
+      rv = getDisplay();
+      if (sign == '-') rv = -rv;
+      cvtbase = cvtbase==8 ? 0 : 8;
       setDisplay(rv);
       break;
 
@@ -296,7 +305,7 @@ TCalculatorWindow::TCalculatorWindow() :
       tv->options &= ~ofSelectable;
       insert(tv);
    }
-   rr = TRect(10, 2, 36, 3);
+   rr = TRect(9, 2, 36, 3);
    insert(new TCalcDisplay(rr));
 }
 

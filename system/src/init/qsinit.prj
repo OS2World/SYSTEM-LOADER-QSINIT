@@ -1,6 +1,7 @@
 [project]
 name=qsinit
 
+; a short history:
 ; 0.01 - first version
 ; 0.02 - stable kernel boot
 ; 0.03 - FAT switched to LFN
@@ -27,7 +28,7 @@ name=qsinit
 ; 0.24 - rev 458, ramfs for qsinit app disk, 8 years :)
 ; 0.25 - rev 475, task list added
 ; 0.26 - rev 486, JFS r/o support
-version=0x0026
+; 0.27 - rev 501, revision 500 reached ;), r/o mounting
 
 ;
 ; some notes about current crazy linking + WASM:
@@ -66,7 +67,7 @@ chgn=chgnam
 
 &ver=inc\version.inc
 
-aflags=-d1 -mt -zq -6p -i=%(QS_BASE)\hc -fo=
+aflags=-mt -zq -6p -i=%(QS_BASE)\hc -fo=
 
 cflags=-4s -ecd %(QS_CFLAGS) -zld -s -mf -os -Ihc -i=hc -i=fat -i=zip \
        -i=$(outdir) -i=%(QS_APPINC) -fo=
@@ -130,8 +131,8 @@ clean : .CLEAN $(outdir)\*.obj $(outdir)\*.lst $(outdir)\*.h $(outdir)\$(name).*
     @echo $(config) cleaned ...
 
 [&ver]
-db 'QSinit $(vershort), rev $(revnum), $(config) build at $(timestr)',0,10
-db '@#QS:$(vershort).$(revnum)#@  QSinit loader',0
+db 'QSinit %(QS_VERSION), rev $(revnum), $(config) build at $(timestr)',0,10
+db '@#QS:%(QS_VERSION).$(revnum)#@  QSinit loader',0
 
 [&watlnk]
 sys os2v2_dll

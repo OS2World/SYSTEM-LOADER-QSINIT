@@ -20,10 +20,16 @@ static const char *no_cmd_err="Unable to load batch file \"%s\"\n";
 typedef Strings<cmd_eproc>  CmdList;
 typedef CmdList*           PCmdList;
 
-static CmdList *ext_shell = 0, *embedded = 0, *ext_mode = 0;
+static CmdList *ext_shell = 0, *ext_mode = 0;
+// these are used without mt lock, so can`t be a Strings<>
+static str_list *embedded = 0,
+                 *intvars = 0;
 
 static const char *internal_commands = "IF\nECHO\nGOTO\nGETKEY\nCLS\n"
-                    "PUSHKEY\nSET\nFOR\nSHIFT\nREM\nPAUSE\nEXIT\nCALL";
+                    "PUSHKEY\nSET\nFOR\nSHIFT\nREM\nPAUSE\nEXIT\nCALL",
+                  // index in this list is used in env_getvar_int()
+                  *internal_variables = "CD\nDATE\nTIME\nRANDOM\nSAFEMODE\n"
+                    "LINES\nCOLUMNS\nRAMDISK\nDBPORT\nMTMODE\nPAEMODE";
 
 struct session_info {
    u32t          sign;
@@ -81,49 +87,77 @@ cmd_state _std cmd_initbatch(const str_list* cmds,const str_list* args) {
    return cmd_init2(file,arglist);
 }
 
+static void check_embedded(void) {
+   // this should be called on the first line of START.CMD
+   if (!embedded) embedded = str_settext(internal_commands,0);
+}
+
+static void check_intvars(void) {
+   // this should be called on the first line of START.CMD
+   if (!intvars) intvars = str_settext(internal_variables,0);
+}
+
 static spstr env_getvar_int(spstr &ename, int shint) {
+   if (!intvars) check_intvars();
    spstr eval;
-   if (ename.upper()=="CD") {
-      getcwd(eval.LockPtr(NAME_MAX+1),NAME_MAX+1);
-      eval.UnlockPtr();
-   } else
-   if (ename=="DATE"||ename=="TIME") {
-      struct tm tmv;
-      time_t    tme;
-      time(&tme);
-      localtime_r(&tme,&tmv);
-      if (ename[0]=='D')
-         eval.sprintf("%02d.%02d.%04d",tmv.tm_mday,tmv.tm_mon+1,tmv.tm_year+1900);
-      else
-         eval.sprintf("%02d:%02d:%02d",tmv.tm_hour,tmv.tm_min,tmv.tm_sec);
-   } else
-   if (ename=="RANDOM") {
-      eval = random(32768);
-   } else
-   if (ename=="SAFEMODE") {
-      eval = hlp_insafemode();
-   } else
-   if (ename=="LINES") {
-      u32t lines = 25;
-      vio_getmode(0, &lines);
-      eval = lines;
-   } else
-   if (ename=="COLUMNS") {
-      u32t cols = 80;
-      vio_getmode(&cols, 0);
-      eval = cols;
-   } else
-   if (ename=="RAMDISK") {
-      char *dn = (char*)sto_data(STOKEY_VDNAME);
-      eval = dn?dn:"?";
-   } else
-   if (ename=="DBPORT") {
-      u32t port = hlp_seroutinfo(0);
-      if (port) eval = port;
-   } else {
-      env_lock();
-      eval = getenv(ename());
-      env_unlock();
+   ename.upper();
+
+   int idx = str_findentry(intvars,ename(),0,0);
+   switch (idx) {
+      case  0:   // CD
+         getcwd(eval.LockPtr(NAME_MAX+1),NAME_MAX+1);
+         eval.UnlockPtr();
+         break;
+      case  1:   // DATE
+      case  2: { // TIME
+         struct tm  tv;
+         time_t    tme;
+         time(&tme);
+         localtime_r(&tme,&tv);
+         if (idx==1)
+            eval.sprintf("%02d.%02d.%04d",tv.tm_mday,tv.tm_mon+1,tv.tm_year+1900);
+         else
+            eval.sprintf("%02d:%02d:%02d",tv.tm_hour,tv.tm_min,tv.tm_sec);
+         break;
+      }
+      case  3:   // RANDOM
+         eval = random(32768);
+         break;
+      case  4:   // SAFEMODE
+         eval = hlp_insafemode();
+         break;
+      case  5: { // LINES
+         u32t lines = 25;
+         vio_getmode(0, &lines);
+         eval = lines;
+         break;
+      }
+      case  6: { // COLUMNS
+         u32t cols = 80;
+         vio_getmode(&cols, 0);
+         eval = cols;
+         break;
+      }
+      case  7: { // RAMDISK
+         char *dn = (char*)sto_data(STOKEY_VDNAME);
+         eval = dn?dn:"?";
+         break;
+      }
+      case  8: { // DBPORT
+         u32t port = hlp_seroutinfo(0);
+         if (port) eval = port;
+         break;
+      }
+      case  9:   // MTMODE
+         eval = mt_active();
+         break;
+      case 10:   // PAEMODE
+         eval = in_pagemode;
+         break;
+      default:
+         env_lock();
+         eval = getenv(ename());
+         env_unlock();
    }
    return eval;
 }
@@ -198,13 +232,6 @@ void set_errorlevel(int elvl) {
    setenv("ERRORLEVEL",errlvl,1);
 }
 
-static void check_embedded(void) {
-   if (!embedded) { // this should be called on the first line of START.CMD
-      embedded = new CmdList;
-      embedded->SetText(internal_commands);
-   }
-}
-
 u32t shl_extcall(spstr &cmd, TStrings &plist) {
    mt_swlock();
    if (!ext_shell || !ext_shell->IsMember(cmd)) {
@@ -276,7 +303,7 @@ static void process_set(spstr line) {
                spstr prompt(line.word(2,"="));
                prompt.trim().unquote();
                printf(prompt());
-               char *value = key_getstrex(0, -1, -1, -1, 0);
+               char *value = key_getstrex(0, -1, -1, -1, 0, 0);
                if (value) {
                   setenv(vn(), value, 1);
                   free(value);
@@ -422,10 +449,11 @@ static u32t cmd_process(spstr ln, session_info *si) {
    if (noecho) cmd.del(0,1);
    cmd.upper();
    // call help about internal commands
-   if (embedded->IndexOf(cmd)>=0 && plist.IndexOf("/?")>=0) {
+   if (plist.IndexOf("/?")>=0 && str_findentry(embedded,cmd(),0,0)>=0) {
       plist[0] = cmd;
       cmd = "HELP";
    }
+
    // ugly written IF processing :(
    if (cmd=="IF") {
       if (!plist.Count()) {
@@ -723,10 +751,12 @@ cmd_eproc _std cmd_shellrmv(const char *name, cmd_eproc proc) {
 int _std cmd_shellquery(const char *name) {
    spstr nm(name);
    nm.trim().upper();
-   MTLOCK_THIS_FUNC lk;
-   if (ext_shell&&ext_shell->IndexOf(nm)>=0) return 1;
+   mt_swlock();
+   int rc = ext_shell && ext_shell->IndexOf(nm)>=0;
+   mt_swunlock();
+   if (rc) return 1;
    if (!embedded) check_embedded();
-   if (embedded &&embedded ->IndexOf(nm)>=0) return 1;
+   if (str_findentry(embedded,nm(),0,0)>=0) return 1;
    return 0;
 }
 
@@ -734,13 +764,16 @@ str_list* _std cmd_shellqall(int ext_only) {
    CmdList lst;
    // fast lock of list access
    mt_swlock();
-   if (!ext_only&&!embedded) check_embedded();
    if (ext_shell) lst.AddStrings(0,*ext_shell);
-   if (!ext_only&&embedded) lst.AddStrings(0,*embedded);
    mt_swunlock();
+   int ii;
+   if (!ext_only) {
+      if (!embedded) check_embedded();
+      for (ii=0; ii<embedded->count; ii++) lst.Add(embedded->item[ii]);
+   }
    lst.Sort();
    // remove duplicate names
-   int ii = 0;
+   ii = 0;
    while (ii<lst.Max())
       if (lst[ii]==lst[ii+1]) lst.Delete(ii+1); else ii++;
    return str_getlist_local(lst.Str);

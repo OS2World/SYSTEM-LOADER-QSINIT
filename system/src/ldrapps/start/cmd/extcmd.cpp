@@ -331,8 +331,10 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                   if (frombp)
                      if (al[idx][1]!=':' /*&& al[idx].cpos('\\')<0 &&
                         al[idx].cpos('/')<0*/) is_boot[idx] = 1;
-                  // switch it to normal file i/o on FAT (if mounted one)
-                  if (is_boot[idx] && bt_vi>=FST_FAT12 && bt_vi<=FST_EXFAT) {
+                  /* switch it to normal file i/o on FAT (if mounted one, for
+                     HPFS/JFS micro-FSD is still used to have an alternative
+                     way of FS access) */
+                  if (is_boot[idx] && bt_vi>=FST_FAT12 && bt_vi<FST_OTHER) {
                      al[idx].insert("A:\\",0);
                      is_boot[idx] = 0;
                   }
@@ -381,9 +383,9 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                   rc = io_open(dst(), IOFM_CREATE_ALWAYS|IOFM_WRITE|IOFM_SHARE_READ|
                                IOFM_CLOSE_DEL, &dstf, &opena);
                   if (rc) {
-                     // is this a dir? try to merge file name to it
                      io_handle_info  di;
                      if (io_pathinfo(dst(), &di)==0) {
+                        // is this a dir? try to merge file name to it
                         if (di.attrs&IOFA_DIR) {
                            spstr  name, ext;
                            _splitpath(al[0](),0,0,name.LockPtr(QS_MAXPATH+1), ext.LockPtr(QS_MAXPATH+1));
@@ -392,7 +394,11 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
                            dst += name+ext;
                            rc   = io_open(dst(), IOFM_CREATE_ALWAYS|IOFM_WRITE|
                               IOFM_SHARE_READ|IOFM_CLOSE_DEL, &dstf, &opena);
-                        }
+                        } else
+                        // is it a device? IOFM_CLOSE_DEL is not acceptable
+                        if (di.attrs&IOFA_DEVICE)
+                           rc   = io_open(dst(), IOFM_CREATE_ALWAYS|IOFM_WRITE|
+                              IOFM_SHARE_READ|IOFM_SHARE_WRITE, &dstf, &opena);
                      }
                   }
 
@@ -836,20 +842,38 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
 }
 
 u32t _std shl_restart(const char *cmd, str_list *args) {
-   int rc=-1;
+   int rc=-1, nosend=0;
    if (args->count>0) {
       TPtrStrings al;
       str_getstrs(args,al);
       // is help?
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
+      // process args
+      static char *argstr   = "/nosend";
+      static short argval[] = { 1 };
+      process_args(al, argstr, argval, &nosend);
+
       // process
       al.TrimEmptyLines();
       if (al.Count()>=1) {
-         if (hlp_hosttype()==QSHT_EFI) rc = ENOSYS; else {
-            exit_restart((char*)al[0]());
-            rc = ENOENT;
+         qserr res;
+         if (hlp_hosttype()==QSHT_EFI) res = E_SYS_EFIHOST; else {
+            spstr  ldr(al[0]);
+            char  *env = 0;
+            al.Delete(0);
+            // we have keys!
+            if (al.Count()) {
+               str_list *lst = str_getlist(al.Str);
+               env = env_create(lst, 0);
+               free(lst);
+            }
+            res = exit_restart((char*)ldr(), env, nosend);
+            if (env) free(env);
          }
+         // we should never reach this point by default, so print it always
+         cmd_shellerr(EMSG_QS, res, 0);
+         rc = 0;
       }
    }
    if (rc<0) rc = EINVAL;
@@ -1109,12 +1133,16 @@ u32t _std shl_del(const char *cmd, str_list *args) {
                             _dos_getfileattr(dfname(), &attributes);
                             _dos_setfileattr(dfname(), attributes&~_A_RDONLY);
                         }
-                     if (unlink(dellist[ii]())==0) {
+                     qserr res = dellist.Objects(ii)&_A_SUBDIR? io_rmdir(dellist[ii]()) :
+                                 io_remove(dellist[ii]());
+                     if (res==0) {
                         msg.sprintf("Deleted file - \"%s\"", dfname());
                         fcount++;
-                     } else
-                        msg.sprintf("Unable to delete \"%s\". Error %d", dfname(),
-                           get_errno());
+                     } else {
+                        char *emsg = cmd_shellerrmsg(EMSG_QS, res);
+                        msg.sprintf("Unable to delete \"%s\" (%s)", dfname(), emsg);
+                        free(emsg);
+                     }
                      if (!nquiet)
                         if (pause_println(msg(),nopause?-1:0)) return EINTR;
                   }
@@ -1841,7 +1869,7 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
 
          printf("%s host.\n", host==QSHT_EFI?"EFI":"BIOS");
          cmd_printseq("%s mode.", -1, VIO_COLOR_LWHITE,
-            host==QSHT_EFI?"64-bit paging":(in_pagemode?"PAE paging":"Flat non-paged"));
+            host==QSHT_EFI?"64-bit paging":(in_pagemode?"PAE paging":"Flat"));
          // should not use get_mtlib() here, because it forces MTLIB loading 
          if (mt_active())
             cmd_printseq("MT mode is active.\n", -1, VIO_COLOR_LGREEN);
@@ -1862,7 +1890,6 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
             else printf("Unsupported for this device.\n");
          rc = 0;
       } else {
-         int ii;
          u32t  port = al.DwordValue("DBPORT"),
                baud = al.DwordValue("BAUD"),
                 cmv = al.DwordValue("CM");
@@ -1929,9 +1956,18 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
             free(cpu);
             
             len = fpu_statesize();
-            if (len) printf("FPU state - %u bytes\n", len);
+            if (len) printf("FPU state    : %u bytes\n", len);
             len = sys_acpiroot();
-            if (len) printf("ACPI root at %08X\n", len);
+            if (len) printf("ACPI root    : %08X\n", len);
+
+            static const char *vn[] = { "BIOS Vendor", "BIOS Version", "BIOS Date",
+               "Sys Vendor", "Sys Product", "Sys Version", "Sys Serial", "Sys UUID",
+               "MB Vendor", "MB Product", "MB Version", "MB Serial" };
+            for (u32t ii=SMI_BIOS_Vendor; ii<=SMI_MB_Serial; ii++) {
+               char *info = sys_dmiinfo(ii);
+               if (info) printf("%-13s: %s\n", vn[ii], info);
+               if (info) free(info);
+            }
             rc = 0;
          }
          if (al.IndexOfName("NORESET")>=0) {

@@ -62,15 +62,18 @@ _qd_bootdisk    dd      0
 _countsIn55ms   dq      0
 _acpitable      dd      0
 _int12msize     dd      0
+_smbios         dd      0
+_smbios3        dd      0
+_mpstab         dd      0
 exp64_tab_end   label   near
 
                 public  _phmembase, _highbase
                 public  _logrmbuf, _logrmpos, _DiskBufPM, _qd_fdds
                 public  _qd_hdds, _gdt_pos, _gdt_size, _gdt_lowest
-                public  _pbin_header, _IODelay, _sel64, _ofs64
+                public  _pbin_header, _IODelay, _sel64, _ofs64, _smbios
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
                 public  _cvio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
                 public  _qd_bootdisk, _countsIn55ms, _acpitable, _int12msize
-
+                public  _smbios3, _mpstab
 _DATA           ends
                 end

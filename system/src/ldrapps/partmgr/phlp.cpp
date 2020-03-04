@@ -9,6 +9,7 @@
 #include "vioext.h"
 #include "qcl/qscache.h"
 #include "dskinfo.h"
+#include "qsio.h"
 
 static qs_cachectrl qcl = 0;
 int cache_load(void);
@@ -622,7 +623,7 @@ u32t _std dsk_ismounted(u32t disk, long index) {
    return 0;
 }
 
-qserr _std vol_mount(u8t *vol, u32t disk, long index) {
+qserr _std vol_mount(u8t *vol, u32t disk, long index, u32t flags) {
    FUNC_LOCK  lk;
    hdd_info  *hi = get_by_disk(disk);
    if (!hi) return E_DSK_DISKNUM;
@@ -662,9 +663,7 @@ qserr _std vol_mount(u8t *vol, u32t disk, long index) {
          }
       if (!*vol) return E_DSK_NOLETTER;
       // mount
-      if (!hlp_mountvol(*vol, disk, start, size))
-         return E_SYS_INVPARM;
-      return 0;
+      return io_mount(*vol, disk, start, size, flags);
    }
 }
 
@@ -692,7 +691,7 @@ qserr _std dsk_usedspace(u32t disk, u64t *first, u64t *last) {
    return 0;
 }
 
-static qserr _setdisksize(u32t disk, u64t size, u32t sector) {
+qserr _setdisksize(u32t disk, u64t size, u32t sector) {
    struct qs_diskinfo *di;
    u32t               res;
    mt_swlock();
@@ -785,75 +784,6 @@ qserr _std dsk_setsize(u32t disk, u64t size, u32t secsize) {
 }
 
 /* ------------------------------------------------------------------------ */
-typedef struct {
-   u32t     p1;
-   u16t     p2;
-   u16t     p3;
-   u64t     p4;
-} _guidrec;
-
-/** convert GPT GUID to string.
-    @param  guid     16 bytes GUID array
-    @param  str      target string (at least 38 bytes)
-    @return boolean (success flag) */
-int _std dsk_guidtostr(void *guid, char *str) {
-   _guidrec *gi = (_guidrec*)guid;
-   if (!guid || !str) return 0; else {
-      _guidrec *gi = (_guidrec*)guid;
-      u64t     sw4 = bswap64(gi->p4);
-
-      sprintf(str, "%08X-%04X-%04X-%04X-%012LX", gi->p1, gi->p2, gi->p3,
-         (u16t)(sw4>>48), sw4&0xFFFFFFFFFFFFUL);
-   }
-   return 1;
-}
-
-/** convert string to GPT GUID.
-    String format must follow example: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX.
-    @param  str      source string
-    @param  guid     16 bytes GUID array
-    @return boolean (success flag) */
-int _std dsk_strtoguid(const char *str, void *guid) {
-   if (!guid || !str) return 0;
-   while (*str==' ' || *str=='\t') str++;
-
-   if (strlen(str)<36) return 0; else
-   if (str[8]!='-' || str[13]!='-' || str[18]!='-' || str[23]!='-') return 0; else
-   {
-      _guidrec *gi = (_guidrec*)guid;
-      char     *ep;
-      u32t      p1 = strtoul(str, &ep, 16), px[3], ii;
-      u64t      p4;
-
-      if (ep-str!=8) return 0;
-      str += 9;
-      for (ii=0; ii<3; ii++) {
-         px[ii] = strtoul(str, &ep, 16);
-         if (ep-str!=4) return 0;
-         str  += 5;
-      }
-      p4 = strtoull(str, 0, 16);
-      if (p4>0xFFFFFFFFFFFFUL) return 0;
-
-      gi->p1 = p1;
-      gi->p2 = px[0];
-      gi->p3 = px[1];
-      gi->p4 = bswap64(p4|(u64t)px[2]<<48);
-   }
-   return 1;
-}
-
-/** generate pseudo-unique GPT GUID.
-    @param  [out] guid  16 bytes GUID array */
-void _std dsk_makeguid(void *guid) {
-   _guidrec *gi = (_guidrec*)guid;
-
-   gi->p1 = random(FFFF);
-   srand(tm_counter());
-   gi->p2 = random(0xFFFF);
-   gi->p3 = 0x4000 | random(0xFFF);
-   gi->p4 = (u64t)random(FFFF) << 32 | random(FFFF);
-}
 
 /** check disk/partition type (GPT or MBR).
     @param disk     Disk number.

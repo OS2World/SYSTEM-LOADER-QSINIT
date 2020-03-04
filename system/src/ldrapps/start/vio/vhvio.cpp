@@ -7,7 +7,6 @@
 #include "efnlist.h"
 #include "qecall.h"
 #include "qserr.h"
-#include "qscon.h"
 #include "syslocal.h"
 #include "qsvdata.h"
 

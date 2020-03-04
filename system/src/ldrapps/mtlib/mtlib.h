@@ -23,7 +23,7 @@
 #define ATTIMECB_ENTRIES         4    ///< number of supported "attime" callbacks
 
 /// setup DPMI & real mode interrupt handlers
-u32t _std    sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint);
+u32t _std    sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint, void *tm32);
 /** set mt_yield function callback.
     mt_yield() called at least on ANY return from real mode/EFI calls.
     @param func    void callback function pointer
@@ -235,6 +235,9 @@ int     _std sys_selquery(u16t sel, void *desc);
 
 int     _std mem_threadblockex(void *block, mt_thrdata *th);
 
+typedef enum { TmAPIC, TmIrq0 } mtlib_timer;
+
+extern mtlib_timer tmr_mode;
 extern u32t           *apic;      ///< APIC, really - in dword addressing mode
 extern u8t   apic_timer_int;      ///< APIC timer interrupt number
 extern

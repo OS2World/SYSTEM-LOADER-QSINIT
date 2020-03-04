@@ -85,12 +85,13 @@ _strstr         proc    near                                    ;
           repne scasb                                           ;
                 not     ecx                                     ;
                 dec     ecx                                     ;
-                jz      @@strstr_notfound                       ;
                 mov     edx,ecx                                 ;
                 mov     edi,[esp+12+@@str]                      ;
                 mov     ebx,edi                                 ;
                 or      ecx,-1                                  ;
           repne scasb                                           ;
+                or      edx,edx                                 ; empty string
+                jz      @@strstr_empty                          ; should ret ptr to \0!
                 not     ecx                                     ;
                 sub     ecx,edx                                 ;
                 jbe     @@strstr_notfound                       ;
@@ -108,6 +109,9 @@ _strstr         proc    near                                    ;
                 mov     ecx,eax                                 ;
                 mov     edi,ebx                                 ;
                 jnz     @@strstr_nextcomp                       ;
+                lea     eax,[edi-1]                             ;
+                jmp     @@strstr_end                            ;
+@@strstr_empty:
                 lea     eax,[edi-1]                             ;
                 jmp     @@strstr_end                            ;
 @@strstr_notfound:

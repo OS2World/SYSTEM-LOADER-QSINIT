@@ -431,6 +431,7 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    //log_it(2, "vol=%X, sz=%d\n", vol, di.TotalSectors);
    if (!di.TotalSectors) return E_DSK_NOTMOUNTED;
    if (di.InfoFlags&VIF_VFS) return E_DSK_NOTPHYS;
+   if (di.InfoFlags&VIF_NOWRITE) return E_DSK_WP;
 
    volidx = vol_index(vol,0);
    // allow floppies and big floppies

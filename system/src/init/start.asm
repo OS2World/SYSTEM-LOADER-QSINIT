@@ -45,7 +45,7 @@ DATA16          segment                                         ;
                 public  _filetable                              ;
                 public  _minifsd_ptr                            ;
                 public  _logbufseg                              ;
-                public  _DiskBufRM_Seg                          ;
+                public  _DiskBufRM_Seg, _transition_ptr         ;
                 public  _rmpart_size, _bin_header, bin32_seg    ;
                 ; ----> must be in the same order and place,
                 ;       exported to bootos2.exe <----------------
@@ -59,6 +59,7 @@ _bin_header     mkbin_info <MKBIN_SIGN, size mkbin_info, 0, offset bssstart>
 _rmpart_size    dw      0                                       ; own size, rounded up to 4k
 bin32_seg       dw      0                                       ; seg of packed 32-bit part
 _logbufseg      dw      0                                       ; rm log buffer segment
+_transition_ptr dd      0                                       ;
 DATA16          ends                                            ;
 
 BSSINIT         segment                                         ;
@@ -144,6 +145,7 @@ start:
                 mov     LdrRstSP,sp                             ; loader function
                 mov     word ptr _dd_bootdisk,dx                ;
                 mov     minifsd_flags,dx                        ;
+                mov     _transition_ptr,ecx                     ;
                 mov     _dd_bpbofs,si                           ;
                 mov     _dd_firstsector,bx                      ;
                 mov     _dd_rootseg,es                          ;

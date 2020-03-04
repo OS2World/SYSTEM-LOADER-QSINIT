@@ -16,7 +16,7 @@
                 public  _pm_info, _pm_init
                 public  _syscr3, _syscr4, _systr, _gdt_lowest, _restirq, _syslapic
                 public  _apic_tmr_vnum, _apic_tmr_vorg, _apic_spr_org, _apic_spr_vorg
-                public  _apic_spr_vnum, org_int16h
+                public  _apic_spr_vnum, org_int16h, tmr32call
 
 ;±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
 ; DATA
@@ -128,6 +128,8 @@ _gdt_lowest     dw      (SYSSELECTORS + 1) * 8                  ; lowest usable 
 
 picslave        db      PIC2_IRQ_NEW                            ; PIC slave base interrupt
 picmaster       db      PIC1_IRQ_NEW                            ; PIC master base interrupt
+
+a20fail         db      0                                       ; disable A20 calls after init
 
                 align   2
 int31functbl    dw      0900h, 0901h, 0902h, 0000h, 0001h, 0002h
@@ -388,14 +390,15 @@ _pm_init        proc    near
                 mov     pmstacktop,ebx                          ; protected mode stack area top
 
                 mov     cl,_pm_callbacks                        ; CL = number of callbacks
-                or      cl,cl                                   ; any callbacks?
-                jz      short @@vxr_initf3                      ; if no, done with this part
 
                 mov     callbackbase,ebx                        ; top of stacks is base of callbacks
                 shr     ebx,4                                   ; BX = seg of callback area
                 mov     callbackseg,bx                          ;
 
                 mov     es,bx                                   ; ES = seg of callback area
+                or      cl,cl                                   ; any callbacks?
+                jz      short @@vxr_initf3                      ; if no, done with this part
+
                 xor     di,di                                   ; location within callback seg
 
                 mov     ax,_rm16code                            ; own real mode cs
@@ -574,6 +577,7 @@ enablea20       proc    near                                    ; hardware enabl
 
                 mov     ax,4                                    ; error, A20 did not enable
                 mov     cs:_pm_initerr,ax                       ; error code 4
+                mov     cs:a20fail,1                            ;
 @@enablea20done:
                 RestReg <gs,fs>
                 popf
@@ -969,9 +973,20 @@ intrirq:                                                        ; an IRQ redirec
                 mov     ax,cs:_pm_rmstacklen
                 add     ds:rmstacktop[edi],ax
 
+                mov     al,cs:@@intrirqintnum                   ;
+                cmp     al,cs:picmaster                         ; irq 0?
+
                 RestReg <gs,fs,es,ds>                           ; restore all registers
                 popad
-                iretd
+                jz      @@intrirqf3                             ;
+@@intrirqf2:
+                iretd                                           ;
+@@intrirqf3:
+                cmp     dword ptr cs:tmr32call,0                ;
+                jz      @@intrirqf2                             ;
+                db      66h,0EAh                                ; jmp far32
+tmr32call       dd      0                                       ;
+                dw      SEL32CODE                               ;
 
 ;-----------------------------------------------------------------------------
 intrint:                                                        ; an INT redirection
@@ -1726,9 +1741,12 @@ int3103:                                                        ; common to 0300
 
                 SaveReg <gs,fs,ds,es>                           ; store registers on stack
                 pushf                                           ; store flags on stack
-                pushad
+                pushad                                          ;
+                test    cs:a20fail,1                            ;
+                jnz     @@int3103f1a                            ;
                 call    enablea20                               ; ugly int15 calls can disable it again
-                cli
+@@int3103f1a:
+                cli                                             ;
 
                 mov     ax,ss                                   ; EAX = linear ptr to SS
                 movzx   eax,ax

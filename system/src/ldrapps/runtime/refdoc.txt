@@ -71,6 +71,6 @@ or "this" and "caller". Trace string must include both, i.e.
 
   Maximum number of exports or methods per class - 32767.
 
-  The reason to store trace info into DEF file is lazyness of any programmer,
+  The reason to store trace info in DEF file is lazyness of any programmer,
 which I know (including myself). Exporting of a new function is mandatory
 point, where we can catch one and force him to fill trace info.

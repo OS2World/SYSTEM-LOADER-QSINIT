@@ -64,6 +64,7 @@ Source tree:
                                      format & fixed size VHD)
 
    system\src\usrapps            >> additional apps
+   system\src\usrapps\biostab      - list of existing BIOS tables
    system\src\usrapps\example      - example of LE EXE with wmake`s makefile
    system\src\usrapps\fixcfg       - example of CONFIG.SYS modification tool
                                      for ram disk boot.
@@ -79,6 +80,7 @@ Source tree:
    system\src\tools\src          >> various tools source code
    system\src\tools\src\bin2h      - binary data to .h simple converter
    system\src\tools\src\bootset    - volume boot sector setup for OS/2 & Windows
+   system\src\tools\src\cdboot     - CD/DVD boot code
    system\src\tools\src\def2lbc    - .ref file converter to various files
    system\src\tools\src\hd4disk    - OS/2 basedev driver for PAE RAM disk
    system\src\tools\src\mkbin      - tool for making QSINIT binary file

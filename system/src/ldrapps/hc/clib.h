@@ -51,6 +51,11 @@ char* __stdcall strchr  (const char *src, int c);
 
 void* __stdcall memcpy  (void *dst, const void *src, u32t length);
 
+/** same as memcpy() but copy words, not dwords internally.
+    Function is for some rare alignment cases.
+    length here in bytes! */
+void* __stdcall memcpyw (void *dst, const void *src, u32t length);
+
 void* __stdcall memmove (void *dst, const void *src, u32t length);
 
 int   __stdcall toupper (int cc);
@@ -117,6 +122,18 @@ void  __stdcall usleep  (u32t usec);
 long  __stdcall str2long(const char *str);
 
 u32t  __stdcall crc32   (u32t crc, const u8t* buf, u32t len);
+
+typedef struct {
+   u32t      count[2];
+   u32t       abcd[4];
+   u8t        buf[64];
+} md5_state;
+
+void __stdcall  md5_init(md5_state *pms);
+void __stdcall  md5_next(md5_state *pms, const void *data, u32t len);
+/// assume that result size is 16 bytes
+void __stdcall  md5_done(md5_state *pms, u8t *result);
+
 
 u32t get_esp(void);
 #pragma aux get_esp = "mov eax,esp" value [eax] modify exact [eax];

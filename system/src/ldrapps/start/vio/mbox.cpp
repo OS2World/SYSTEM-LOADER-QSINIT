@@ -6,7 +6,6 @@
 #include "classes.hpp"
 #include "syslocal.h"
 #include "qslog.h"
-#include "qscon.h"
 #include <limits.h>
 
 #define WDT_WIDE    70
@@ -60,12 +59,12 @@ static void drawkeys(u32t km, u32t ypos, u32t scheme, u32 &selected) {
       const char *str = mb_text[bt&0x0F];
       bt>>=8;
       vio_setpos(ypos, ii);
-      vio_setcolor(mb_color[scheme][len++==selected?3:2]);
+      vio_setcolor(scheme>>(len++==selected?24:16)&0xFF);
 
       vio_charout(' ');
       vio_strout(str);
       vio_charout(' ');
-      vio_setcolor(mb_color[scheme][0]&0xF0);
+      vio_setcolor(scheme&0xF0);
       vio_charout(0xDC);
       u32t btlen = strlen(str)+2;
       vio_setpos(ypos+1, ii+1);
@@ -224,7 +223,9 @@ static u32t _std vio_msgbox_int(const char *header, const char *text,
    vio_setshape(VIO_SHAPE_NONE);
    vio_getpos(&psv_y, &psv_x);
    // invalid color scheme number
-   if (cs>MSG_WHITE) cs = MSG_GRAY;
+   if (cs>MSG_USERCOLOR) cs = MSG_GRAY;
+   // get scheme as dword
+   cs = cs==MSG_USERCOLOR ? mt_tlsget(QTLS_POPUPCOLOR) : *(u32t*)(&mb_color[cs]);
    // default button
    sel = (flags&0xC00)>>10;
    if (sel>=mb_buttons[keymode]) sel = 0;
@@ -239,17 +240,19 @@ static u32t _std vio_msgbox_int(const char *header, const char *text,
 drawagain:
 #endif
    // draw box
-   draw_border(m_x, m_y, width, lines, mb_color[cs][0]);
+   vio_drawborder(m_x, m_y, width, lines, cs&0xFF);
    if (shadow) vio_drawshadow(m_x, m_y, width, lines);
    // draw header text
-   vio_setcolor(mb_color[cs][0]);
-   vio_setpos(m_y, m_x+(width-hdr.length()-2>>1));
-   vio_charout(' '); vio_strout(hdr()); vio_charout(' ');
+   if (hdr.length()) {
+      vio_setcolor(cs&0xFF);
+      vio_setpos(m_y, m_x+(width-hdr.length()-2>>1));
+      vio_charout(' '); vio_strout(hdr()); vio_charout(' ');
+   }
 
    outln = m_y + 2;
    for (ii=0; ii<lst.Count(); ii++) {
       vio_setpos(outln+ii, m_x+2);
-      vio_setcolor(mb_color[cs][1]);
+      vio_setcolor(cs>>8&0xFF);
       vio_strout(lst[ii]());
    }
    vio_setcolor(VIO_COLOR_RESET);
@@ -301,22 +304,20 @@ drawagain:
                break;
 #ifdef COLOR_SEL
             case 0x48:
-               mb_color[cs][act]=(mb_color[cs][act]&0xF)+
-                  ((mb_color[cs][act]&0xF0)+0x10&0xF0);
+               ((u8t*)&cs)[act]=(((u8t*)&cs)[act]&0xF)+
+                  ((((u8t*)&cs)[act]&0xF0)+0x10&0xF0);
                goto drawagain;
-               break;
             case 0x50:
-               mb_color[cs][act]=(mb_color[cs][act]&0xF0)+
-                  ((mb_color[cs][act]&0xF)+0x1&0xF);
+               ((u8t*)&cs)[act]=(((u8t*)&cs)[act]&0xF0)+
+                  ((((u8t*)&cs)[act]&0xF)+0x1&0xF);
                goto drawagain;
-               break;
 #endif
          }
       }
       if (selprev!=sel) drawkeys(keymode, m_y + 3 + vislines, cs, sel);
    }
 #ifdef COLOR_SEL
-   log_it(3, "scheme=%04b\n", &mb_color[cs]);
+   log_it(3, "scheme=%04b\n", &cs);
 #endif
    if (cbfunc)
       if ((cbrc=cbfunc(KEY_LEAVEMBOX))>=0) dlgres = cbrc;
@@ -334,6 +335,7 @@ typedef struct {
                 *text;
    u32t         flags;
    vio_mboxcb  cbfunc;
+   u32t        scheme;
 } box_call_data;
 
 static u32t _std msgbox_thread(void *arg) {
@@ -349,6 +351,8 @@ static u32t _std msgbox_thread(void *arg) {
    se_stats *sd = se_stat(se_sesno());
    u32t devmask = sesno==SESN_DETACHED?0:sd->devmask;
    free(sd);
+   // use custom popup color scheme from the caller`s thread
+   if (pd->scheme) mt_tlsset(QTLS_POPUPCOLOR, pd->scheme);
    // shows box in new session and return result as thread exit code
    u32t  result = vio_msgbox_int(pd->header, pd->text, pd->flags, pd->cbfunc);
    // switch back to the session, who calls us
@@ -369,6 +373,7 @@ u32t _std vio_msgbox(const char *header, const char *text, u32t flags, vio_mboxc
    qs_mtlib       mt = get_mtlib();
    u32t      rc, sig;
 
+   bcd.scheme = mt_tlsget(QTLS_POPUPCOLOR);
    we.resaddr = &rc;
    we.tid     = mt->thcreate(msgbox_thread, 0, 0, &bcd);
    if (!we.tid) return 0;
@@ -399,6 +404,12 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
       hdr.SplitString(lst[0],"|");
       colcnt = -hdr.Count();
       lst.Delete(0);
+   } else
+   if (flags&0x300) {
+      /* no header, but we have alignment value here. This is wrong, but
+         use it for the 1st (!) column of top menu */
+      hdr.Add((flags&0x300)==MSG_RIGHT?">":"<");
+      flags&=~0x300;
    }
    nlines = lst.Count();
    if (!nlines) return 0;
@@ -443,6 +454,14 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
       }
       px += wdt[ci];
    }
+   // expand it to header length (and just add width to the last column)
+   if (header) {
+      u32t hlen = strlen(header);
+      if (hlen>px && hlen<mx-8-colcnt) {
+         wdt[colcnt-1] += hlen-px;
+         px = hlen;
+      }
+   }
    /* 2 border, 2 spaces bound to borders, char for submenu indication
       and column split lines (with spaces) */
    px += 2 + 2 + (ref->subm?1:0) + colcnt - 1;
@@ -460,6 +479,11 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
    // custom color scheme for this submenu
    if (sub)
       if (ref->type&VLSF_COLOR) cs = ref->type>>12&0xF;
+   // fix color scheme number
+   if (cs>MSG_USERCOLOR) cs = MSG_GRAY;
+   // get scheme as dword
+   cs = cs==MSG_USERCOLOR ? mt_tlsget(QTLS_POPUPCOLOR) : *(u32t*)(&mb_color[cs]);
+
    // hide cursor & save its pos
    u16t  oldshape = vio_getshape(),
          oldcolor = vio_getcolor();
@@ -556,7 +580,7 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
             }
             if (lt==2 && ref->subm && ref->subm[_lp+ii]) dbuf[sx-2] = '\x10';
             vio_setpos(posy+1+ii, posx);
-            vio_setcolor(mb_color[cs][0]);
+            vio_setcolor(cs&0xFF);
 
             char right = sym[lt][3];
             if (sblen>=0 && lt>=2)
@@ -566,10 +590,10 @@ static u32t _std vio_showlist_int(const char *header, vio_listref *ref,
 
             if (lt==2 && _lp+ii==_ls && !hint) {
                vio_charout(sym[lt][0]);
-               vio_setcolor(mb_color[cs][3]);
+               vio_setcolor(cs>>24);
                dbuf[sx-1] = 0;
                vio_strout(dbuf+1);
-               vio_setcolor(mb_color[cs][0]);
+               vio_setcolor(cs&0xFF);
                vio_charout(right);
             } else {
                dbuf[0]    = sym[lt][0];
@@ -682,6 +706,7 @@ typedef struct {
    vio_listref   *ref;
    u32t         flags;
    u32t         focus;
+   u32t        scheme;
 } lst_call_data;
 
 static u32t _std showlist_thread(void *arg) {
@@ -696,6 +721,8 @@ static u32t _std showlist_thread(void *arg) {
    se_stats *sd = se_stat(se_sesno());
    u32t devmask = sesno==SESN_DETACHED?0:sd->devmask;
    free(sd);
+   // use custom popup color scheme from the caller`s thread
+   if (pd->scheme) mt_tlsset(QTLS_POPUPCOLOR, pd->scheme);
    // shows box in new session and return result as thread exit code
    u32t  result = vio_showlist_int(pd->header, pd->ref, pd->flags, 0,0,0,0,0,0,
                                    0, pd->focus);
@@ -711,11 +738,12 @@ u32t  _std vio_showlist(const char *header, vio_listref *ref, u32t flags, u32t f
    if (!in_mtmode || (flags&MSG_POPUP)==0)
       return vio_showlist_int(header, ref, flags&~MSG_POPUP, 0,0,0,0,0,0,0, focus);
    // crazy way ;)
-   lst_call_data lcd = { header, ref, flags, focus };
+   lst_call_data lcd = { header, ref, flags, focus, 0 };
    mt_waitentry   we = { QWHT_TID, 0};
    qs_mtlib       mt = get_mtlib();
    u32t      rc, sig;
 
+   lcd.scheme = mt_tlsget(QTLS_POPUPCOLOR);
    we.resaddr = &rc;
    we.tid     = mt->thcreate(showlist_thread, 0, 0, &lcd);
    if (!we.tid) return 0;

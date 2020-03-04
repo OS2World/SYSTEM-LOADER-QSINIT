@@ -42,6 +42,7 @@ platform_dirblit     pl_dirblit = 0;
 platform_dirclear   pl_dirclear = 0;
 platform_setup         pl_setup = 0;
 platform_close         pl_close = 0;
+platform_postinit   pl_postinit = 0;
 
 modeinfo*      modes[MAX_MODES];
 
@@ -263,7 +264,7 @@ qserr _std con_exitmode(u32t modeid) {
 }
 
 int con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey) {
-   u32t   charx, chary, ii;
+   u32t   charx, chary, ii, scale;
    modeinfo        *mi;
    int            midx;
    if (!fntx || fntx>32 || !fnty || fnty>128 || !modex || !modey) return EINVAL;
@@ -276,29 +277,31 @@ int con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey) {
 
    if (!con_fontavail(fntx,fnty)) return ENOTTY;
 
-   charx = modex / fntx,
-   chary = modey / fnty;
+   for (scale=1; scale<=4; scale++) {
+      charx = modex / fntx / scale,
+      chary = modey / fnty / scale;
+      if (charx<80 || chary<25) continue;
 
-   // check for the same resolutions (even with different BPP)
-   for (ii=0; ii<mode_cnt; ii++)
-      if (modes[ii]->width==charx && modes[ii]->height==chary &&
-         (modes[ii]->flags&(CON_EMULATED|CON_GRAPHMODE))==CON_EMULATED &&
-            modes[modes[ii]->realmode]->width==modex &&
-               modes[modes[ii]->realmode]->height==modey) return EEXIST;
-   mt_swlock();
-   // add a new one
-   mi = (modeinfo*)malloc(sizeof(modeinfo));
-   memset(mi, 0, sizeof(modeinfo));
-   modes[mode_cnt] = mi;
-
-   mi->flags    = CON_EMULATED;
-   mi->font_x   = fntx;
-   mi->font_y   = fnty;
-   mi->width    = charx;
-   mi->height   = chary;
-   mi->realmode = midx;
-   mode_cnt++;
-   mt_swunlock();
+      // check for the same resolutions (even with different BPP)
+      for (ii=0; ii<mode_cnt; ii++)
+         if (modes[ii]->width==charx && modes[ii]->height==chary &&
+            (modes[ii]->flags&(CON_EMULATED|CON_GRAPHMODE))==CON_EMULATED &&
+               modes[modes[ii]->realmode]->width==modex &&
+                  modes[modes[ii]->realmode]->height==modey) continue;
+      mt_swlock();
+      // add a new one
+      mi = (modeinfo*)malloc(sizeof(modeinfo));
+      memset(mi, 0, sizeof(modeinfo));
+      modes[mode_cnt] = mi;
+      mi->flags    = CON_EMULATED + CON_FONTx2*(scale-1);
+      mi->font_x   = fntx;
+      mi->font_y   = fnty;
+      mi->width    = charx;
+      mi->height   = chary;
+      mi->realmode = midx;
+      mode_cnt++;
+      mt_swunlock();
+   }
    // done
    return 0;
 }
@@ -387,6 +390,7 @@ u32t _std con_handler(const char *cmd, str_list *args) {
             if (current>0) current = 0;
          }
          DELETE(lst);
+         free(ml);
          vio_setansi(svstate);
       } else
       if (stricmp(fp,"RESET")==0) {
@@ -529,6 +533,9 @@ u32t _std con_handler(const char *cmd, str_list *args) {
          rc = 0;
       } else {
          u32t cols=0, lines=0, rate=FFFF, delay=0, modeid=0;
+         char srch[8];
+         strcpy(srch,"wh");
+
          ii = 1;
          while (ii<args->count) {
             if (strnicmp(args->item[ii],"COLS=",5)==0)
@@ -539,6 +546,15 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                rate  = strtoul(args->item[ii]+5, 0, 0); else
             if (strnicmp(args->item[ii],"DELAY=",6)==0)
                delay = strtoul(args->item[ii]+6, 0, 0); else
+            if (strnicmp(args->item[ii],"SEARCH=",7)==0) {
+               u32t nlen = strspn(args->item[ii]+7,"whgtlWHGTL");
+               if (nlen!=strlen(args->item[ii]+7) || nlen>3) {
+                  cmd_printf("Invalid SEARCH string\n");
+                  ii=0; rc=EINVAL;
+                  break;
+               } else
+                  strcpy(srch,args->item[ii]+7);
+            } else
             if (strnicmp(args->item[ii],"ID=",3)==0) {
                modeid = strtoul(args->item[ii]+3, 0, 0);
             } else
@@ -587,27 +603,65 @@ u32t _std con_handler(const char *cmd, str_list *args) {
             ii++;
          }
          if (ii) {
+            if (modeid) { cols=0; lines=0; }
+
+            if (cols || lines) {
+               u32t         ox, oy;
+               u8t          mw = 0, mh = 0, mlow = 0;
+               int         emu = -1;
+
+               for (ox=0; ox<7; ox++)
+                  if (!srch[ox]) break; else
+                  switch (toupper(srch[ox])) {
+                     case 'W': mw = 1; break;
+                     case 'H': mh = 1; break;
+                     case 'T': emu = 0; break;
+                     case 'L': mlow = 1;
+                     case 'G': emu = 1;
+                               break;
+                  }
+               vio_getmode(&ox, &oy);
+               if (!cols)  cols  = ox;
+               if (!lines) lines = oy;
+
+               // default direct match
+               if (mw && mh && emu<0 && !mlow) {
+                  vio_mode_info *mi = vio_modeinfo(cols, lines, 0);
+                  if (!mi) cmd_printf("There is no such mode.\n"); else {
+                     free(mi);
+                     if (!vio_setmodeex(cols, lines))
+                        cmd_printf("Unable to set the specified mode (%dx%d).\n",
+                           cols, lines);
+                  }
+               } else {
+                  vio_mode_info *ml = vio_modeinfo(0,0,0), *mp = ml;
+                  u32t       bestid = 0, diff = FFFF, cdiff;
+
+                  for (; mp->size; mp++) {
+                     if (mw && mp->mx!=cols) continue;
+                     if (mh && mp->my!=lines) continue;
+                     if (mp->mx<cols) continue;
+                     if (mp->my<lines) continue;
+                     if (emu>=0 && Xor(emu,(mp->flags&VMF_GRAPHMODE))) continue;
+                     if (mlow && (mp->gmx>1400 || mp->gmy>1024)) continue;
+
+                     cdiff = (mp->mx - cols) + (mp->my - lines);
+                     if (cdiff<diff || !bestid) {
+                        bestid = mp->mode_id;
+                        diff = cdiff;
+                     }
+                  }
+                  free(ml);
+                  if (bestid) modeid = bestid; else
+                     cmd_printf("There is no such mode.\n");
+               }
+               rc = 0;
+            }
             if (modeid) {
                qserr err = vio_setmodeid(modeid);
                // allow both id & cols/lines
                if (err) cmd_shellerr(EMSG_QS, err, 0); else
                   cols = lines = 0;
-               rc = 0;
-            }
-            if (cols || lines) {
-               u32t         ox, oy;
-               vio_mode_info   *mi;
-               vio_getmode(&ox, &oy);
-               if (!cols)  cols  = ox;
-               if (!lines) lines = oy;
-
-               mi = vio_modeinfo(cols, lines, 0);
-               if (!mi) cmd_printf("There is no such mode.\n"); else {
-                  free(mi);
-                  if (!vio_setmodeex(cols, lines))
-                     cmd_printf("Unable to set the specified mode (%dx%d).\n",
-                        cols, lines);
-               }
                rc = 0;
             }
             if (rate!=FFFF || delay) {
@@ -679,6 +733,8 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       cmd_modeadd("CON", con_handler);
       // exec shell commands on load
       cmd_execint(selfname,0);
+      // execute post-init for the current platform
+      if (pl_postinit) pl_postinit();
       // we are ready! ;)
       log_printf(MODNAME_CONSOLE " is ready!\n");
    } else {

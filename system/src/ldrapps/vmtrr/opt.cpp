@@ -108,7 +108,7 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit, int defWB) {
    *memlimit = 0;
 
    if (is_included(wc_addr,wc_len)<0 && is_intersection(wc_addr, wc_len)<0 &&
-      is_regavail(&reg))
+      is_include(wc_addr,wc_len)<0 && is_regavail(&reg))
    {
       mtrr[reg].start = wc_addr;
       mtrr[reg].len   = wc_len;
@@ -120,13 +120,18 @@ int mtrropt(u64t wc_addr, u64t wc_len, u32t *memlimit, int defWB) {
    if (wc_addr<_2GbLL || wc_addr+wc_len>_4GbLL) return OPTERR_VIDMEM3GB;
    /* turn off previous write combine on the same memory,
       but leave this block to catch low UC border successfully,
-      also denies any included block other than UC (WT too) */
+      also denies any included block other than UC (WT allowed
+      only on exact match to the video memory block) */
    for (ii=0; ii>=0; ) {
       ii = is_include(wc_addr, wc_len, ii);
       if (ii>=0)
-         if (mtrr[ii].cache==MTRRF_WC) mtrr[ii].cache=MTRRF_UC; else
-            if (mtrr[ii].cache!=MTRRF_UC) return OPTERR_UNKCT; else ii++;
+         if (mtrr[ii].cache==MTRRF_WC || mtrr[ii].cache==MTRRF_WT &&
+            mtrr[ii].start==wc_addr && mtrr[ii].len==wc_len)
+               mtrr[ii].cache=MTRRF_UC;
+         else
+         if (mtrr[ii].cache!=MTRRF_UC) return OPTERR_UNKCT; else ii++;
    }
+
    // only WB and UC/WT allowed in first 4Gb
    for (ii=0; ii<regs; ii++) {
       int ct = mtrr[ii].cache;

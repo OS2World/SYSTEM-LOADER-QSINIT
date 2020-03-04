@@ -46,6 +46,9 @@ echo
 echo - <<Mounted volumes>> ----------
 mount list /v
 echo
+echo - <<FS handlers>> --------------
+mode sys list fs
+echo
 echo - <<Disks>> --------------------
 dmgr list /v
 echo --

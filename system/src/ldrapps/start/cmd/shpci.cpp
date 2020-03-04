@@ -1,5 +1,4 @@
 #include "qshm.h"
-#include "qscon.h"
 #include "pci.h"
 
 // function called both from INI reader & "MODE SYS" handler

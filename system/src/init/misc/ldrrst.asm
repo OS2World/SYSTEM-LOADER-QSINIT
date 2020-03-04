@@ -22,7 +22,7 @@ TEXT16          segment
                 public  _dd_bpbofs, _dd_bpbseg
                 public  _dd_rootofs, _dd_rootseg
                 public  _dd_firstsector
-_LdrRstCode     proc    near                                    ;
+_LdrRstCode     proc    far                                     ;
                 assume  cs:nothing, ds:nothing, es:nothing, ss:nothing
                 mov     eax,cr4                                 ; wipe QSINIT paging
                 and     ax,not (CPU_CR4_PAE or CPU_CR4_PGE)     ; to not confuse
@@ -30,10 +30,14 @@ _LdrRstCode     proc    near                                    ;
                 xor     eax,eax                                 ;
                 mov     cr3,eax                                 ;
 
+                mov     bp,sp                                   ;
+                xor     ecx,ecx                                 ; no filetab update
+
                 mov     al,_dd_bootflags                        ; fix moveton`s PXE
                 test    al,BF_MICROFSD                          ; broken filetable
                 jz      @@rstldt_common                         ; (use own cached copy)
                 mov     si,offset _filetable                    ;
+                mov     ecx,[si].ft_loaderlen                   ; new loader len
                 cmp     [si].ft_cfiles,6                        ;
                 jnz     @@rstldt_common                         ;
                 
@@ -43,7 +47,7 @@ _LdrRstCode     proc    near                                    ;
 
                 push    FILETAB_SEG                             ;
                 pop     es                                      ;
-                mov     cx,size filetable_s                     ;
+                mov     ecx,size filetable_s                    ;
                 cld                                             ;
             rep movsb                                           ;
                 xor     di,di                                   ;
@@ -54,7 +58,10 @@ _dd_rootseg     dw      0                                       ; es
                 mov     es, ax                                  ;
                 db      0BFh                                    ;
 _dd_rootofs     dw      0                                       ; di
+                jecxz   @@rstldt_run                            ;
+                mov     es:[di].ft_loaderlen,ecx                ; update length
 @@rstldt_run:
+                mov     ecx,[bp+4]                              ; transition data
                 db      0B8h                                    ;
 LdrRstSS        dw      0                                       ;
                 cli                                             ;
@@ -71,7 +78,6 @@ _dd_bpbseg      dw      0                                       ; ds
                 mov     ds, ax                                  ;
                 db      0BBh                                    ;
 _dd_firstsector dw      0                                       ; bx
-                                                                ;
                 sti                                             ;
                 db      0EAh                                    ;
                 dw      0                                       ;

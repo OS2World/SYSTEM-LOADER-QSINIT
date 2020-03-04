@@ -622,7 +622,7 @@ API.
 
 There are 2 predefined disks:
 
-@li 0:/A: - FAT boot drive (not used in micro-FSD boot: JFS, PXE, cd-rom).
+@li 0:/A: - boot drive volume (not used in pure micro-FSD boot: PXE, cd-rom).
 @li 1:/B: - own virtual disk with data and apps, unpacked from qsinit.ldi
 
 Disk numbers 2:..9:(C:..J:) can be used to mount FAT/FAT32/exFAT/HPFS/JFS
@@ -851,10 +851,9 @@ QSINIT can load both LE and LX modules.
 
 Loader features and disadvantages:
 @li does not load LE with iterated pages (who can link it?)
-@li imports/exports/forwards by name is not supported at all
 @li module <b>must</b> contain internal fixups! This is <b>required</b> because
 of lack of real page mapping.
-@li 32bit ordinal values is not supported (and again - who able link with it?)
+@li 32bit ordinal values is not supported (and again - who able to make it?)
 @li up to 32 imported modules per module (this can be changed in code).
 @li 16 bit objects can be used, but cannot be start or stack objects.
 @li "chaining fixups" can be used to optimize fixup table size.
@@ -896,8 +895,8 @@ it. Second copy of the same EXE should hang).
 @li module can import functions from self (useful to trace internal module
 calls, at least).
 @li forward entries resolved at the moment of first import. So, you can load
-DLL with forward to missing index in existing module. But this forward can't
-be used.
+DLL with forward to a missing index in the existing module. But this forward
+can't be used.
 
 Environment is not global, child process inherits it in current state. Any
 changes was made by setenv() affects current process only.
@@ -942,7 +941,7 @@ Static variables and classes initialization is supported.
 On FAT boot you can access entire boot partition and, even, write to it via
 common fopen() functions. For HPFS/JFS partition access is read-only.
 
-On JFS/RIPL boot only root dir files can be accessed via hlp_fopen() API.
+On PXE/cd-rom boot only root dir files can be accessed via hlp_fopen() API.
 This is limitation of micro-FSD, available at boot time.
 
 Any call to int 21h will return CF=1 and do nothing. QSINIT is not DOS! ;)
@@ -1002,7 +1001,7 @@ and many other ...
 @subsection sec_bootstep1 Step 1: QSINIT module
 @li QSINIT (named as OS2LDR) loaded by a micro-FSD code or FAT boot sector.
 @li save registers on init (for exit_restart() code), zero own bss, etc
-@li micro-FSD header checked for various errors, if present
+@li micro-FSD header checked for various errors, if used
 @li memory allocated for protected mode data (GDT, etc)
 @li copying self to the top of low memory (9xxx:0000) and saves mini-FSD (binary file)
 @li makes some real mode task: i/o delay calculation, initial query of PC memory map,
@@ -1012,13 +1011,13 @@ remap low 8 ints to 50h
 @li loads QSINIT.LDI zip file and read START module from it
 @li launch START module. This will be PID 1 process (named QSINIT anywhere is system).
 
-@subsection sec_bootstep2 Step 2: START module continue initialization in this order:
+@subsection sec_bootstep2 Step 2: START module continues initialization:
 @li exception handlers
 @li heap manager (memmgr.cpp)
 @li internal log and key storage (micro-registry).
 @li session management
 @li file i/o and clib i/o. At this stage ram-disk is created for a system volume B:
-@li exports function set for QSINIT binary, it marks that main code is running
+@li exports a set of function for QSINIT binary, this marks that main code is ready
 @li reading minor options from QSINIT.INI/OS2LDR.INI
 @li unpack QSINIT.LDI to the disk B:
 @li more advanced memory setup
@@ -1165,5 +1164,5 @@ Some dumps are available during keyboard wait (in MT mode - at any time):
 @li Ctrl-Alt-F12 - pool block list (very long)
 
 @section sec_comport COM port output.
-COM port address and baud rate can be changed "on fly", by "mode sys"
+COM port address and baud rate can be changed "on the fly", by "mode sys"
 shell command.*/

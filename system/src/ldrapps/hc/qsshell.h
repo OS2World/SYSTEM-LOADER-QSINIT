@@ -54,6 +54,26 @@ char*     _std str_mergeargs(str_list*list);
     do nothing */
 void      _std str_delentry (str_list*list, u32t index);
 
+/** insert one or more entries to the list.
+    Note, that function is *really* slow, it rebuilds entire list, calc each
+    string length and copy one by one. Use it only when no other way.
+
+    @param list          source string list
+    @param pos           position where to insert (use FFFF for the end)
+    @param str           one or more strings, splitted by a "delimeter", if
+                         delimeter value is zero, then then the end of list
+                         should be marked as \0\0. Can be 0 to simple duplicate
+                         the list.
+    @param delimeter     string delimeter
+    @param free          free original list
+    @return a copy of source list with inserted entries in the application
+            owned heap block */
+str_list* _std str_newentry (str_list*list, u32t pos, const char *str,
+                             char delimeter, int free);
+
+/// create a copy of list
+#define str_duplist(x) str_newentry(x,0,0,0,0)
+
 /** read current environment to a string list.
     See also env_create() for reverse operation.
     @return string list in the process owned heap block. */
@@ -80,6 +100,14 @@ char*     _std str_gettostr (const str_list*list, char *separator);
     @param [in,out] pos  start position on enter, found on exit. Can be 0
     @return pointer to first character of "value" in found string or 0 */
 char*     _std str_findkey  (str_list *list, const char *key, u32t *pos);
+
+/** search for a value in the string list.
+    @param list          source string list
+    @param str           string to search
+    @param pos           list position to start from
+    @param icase         case sensitive search (0) or insensitive (1)
+    @return index in the list or -1 if not found */
+int       _std str_findentry(str_list *list, const char *str, u32t pos, int icase);
 
 /** parse argument list and set flags from it.
     Example of call:
@@ -269,6 +297,18 @@ qserr     _std cmd_printfile(qshandle handle, long len, int flags, u8t color);
     @return number of printer characters */
 int    __cdecl cmd_printf(const char *fmt, ...);
 
+/** split long text to a lines of defined width.
+    All Tabs assumed as 4 spaces.
+    ^ symbol means eol, as well as char codes 10 and 13.
+    @param text     text to split
+    @param width    maximum line width
+    @param flags    options (SplitText_* bits below)
+    @return string list in the application owned heap block */
+str_list* _std cmd_splittext(const char *text, u32t width, u32t flags);
+
+#define SplitText_NoAnsi   1    ///< disable ansi line length calculation
+#define SplitText_HelpMode 2    ///< help printing, with & as soft-cr
+
 /** print help message from msg.ini.
     This function init pause line counter and print text with pauses.
     @param topic    message name
@@ -340,6 +380,15 @@ cmd_eproc _std cmd_modermv(const char *name, cmd_eproc proc);
 
 /// query list of all supported devices in MODE command
 str_list* _std cmd_modeqall(void);
+
+/** get shell history list.
+    read internal shell (cmd.exe) user commands history list.
+    @return string list in the process owned heap block or 0 if list is
+            empty. */
+str_list* _std cmd_historyread(void);
+
+/// clear shell history list.
+qserr     _std cmd_historywipe(void);
 
 //===================================================================
 //  shell commands, can be called directly (shell)
@@ -448,7 +497,8 @@ u32t      _std shl_stop   (const char *cmd, str_list *args);
 u32t      _std shl_ps     (const char *cmd, str_list *args);
 /// VER command.
 u32t      _std shl_ver    (const char *cmd, str_list *args);
-
+/// MD5 command.
+u32t      _std shl_md5    (const char *cmd, str_list *args);
 
 #ifdef __cplusplus
 }

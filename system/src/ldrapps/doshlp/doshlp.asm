@@ -5,6 +5,7 @@
                 .586p
                 include segdef.inc
                 include doshlp.inc
+                include devsym.inc
                 include ldrparam.inc
                 include devhlp.inc
                 include inc/qstypes.inc
@@ -76,7 +77,8 @@ panic_msg       label   word                                    ;
                 db      'implemented!',13,10,'$'                ;
 panic_msg_end   label   word                                    ;
                 db      0                                       ;
-                align   4
+SelfDDName      db      'OEMHLP$ '                              ;
+                align   4                                       ;
 BaudRateTable   dd      BD_150                                  ;
                 dd      BD_300                                  ;
                 dd      BD_600                                  ;
@@ -98,6 +100,11 @@ LastSerOutChar  db      0                                       ;
 KAT             KernelAccess <>
 idtinvalidate   dw      7                                       ;
                 dd      0                                       ;
+ResetPacket     SrHead <PktHeadSize+LENGenIOCTL,0,10h,0,0,0>    ;
+                db      90h,20h                                 ; category/function
+                dd      0,0                                     ; parameter/data ptr
+                dw      0                                       ;
+                dw      0,0                                     ; parameter/data len
 DOSHLP_DATA     ends
 
 DOSHLP_CODE     segment
@@ -138,13 +145,27 @@ DHReboot        proc    far                                     ;
                 call    get_dgroup                              ;
                 mov     ds,ax                                   ;
 
-                mov     ax,ROM_DATASEG                          ; same both in RM and PM
-                mov     es,ax                                   ;
+                push    ROM_DATASEG                             ; same both in RM and PM
+                pop     es                                      ;
                 mov     si,72h                                  ; set warm/cold start indicator
                 mov     word ptr es:[si],1234h                  ;
 
-                test    External.CpuFBits,8000000h              ; in virtual machine?
-                jz      @@dhrb_triplefault                      ; if no then go to the triple fault
+                mov     ecx,cr0                                 ; we should NEVER be
+                test    cl,CR0_PE                               ; called in real mode
+                jz      @@dhrb_skipcall                         ; but "better safe than sorry" ;)
+
+                test    External.Flags,EXPF_ACPIRESET           ; ACPI reset
+                jz      @@dhrb_skipcall                         ;
+                mov     es,ax                                   ;
+                mov     bx,offset ResetPacket                   ; es:bx - request packet
+                mov     di,offset SelfDDName                    ; ds:di - driver name
+                push    ds                                      ;
+                call    dword ptr KAT.IOCTLWorker               ;
+                pop     ds                                      ;
+@@dhrb_skipcall:
+; let it be in "old way"
+;                test    External.CpuFBits,SFEA_INVM             ; in virtual machine?
+;                jz      @@dhrb_triplefault                      ; if no then go to the triple fault
 
                 cli                                             ; disable ints
                 mov     al,0Bh                                  ; is anyone still need this clock
@@ -1231,7 +1252,8 @@ DHWaitNPX       endp                                            ;
 ;
                 public  DHClrBusyNPX
 DHClrBusyNPX    proc    near                                    ;
-                push    eax                                     ;
+                assume  ds:FLAT                                 ; allow FLAT ds here ...
+                push    eax                                     ; (for NCpuRun++)
                 mov     eax,cr0                                 ;
                 test    eax,CR0_EM + CR0_TS                     ; check for exceptions
                 jnz     @@dhcnpx_nobusy                         ;
@@ -1247,16 +1269,20 @@ DHClrBusyNPX    proc    near                                    ;
                 sub     eax,offset @@dhcnpx_label               ;
                 pushad                                          ;
                 mov     esi,eax                                 ; doshlp flat
+
+                test    [PublicInfo.BootFlags+esi],BOOTFLAG_SMP ; Warp kernel FPU calls?
+                jz      @@dhcnpx_no_msrlist                     ;
+                inc     [External.NCpuRun+esi]                  ; # of CPU
                 xor     edx,edx                                 ;
                 movzx   eax,word ptr [External.ClockMod+esi]    ;
                 or      eax,eax                                 ;
                 jz      @@dhcnpx_no_clockmod                    ;
-                test    [External.Flags+esi], EXPF_AMDCPU       ; is it AMD?
+                test    [External.CpuFBits+esi], SFEA_AMD       ; is it AMD?
                 jnz     @@dhcnpx_no_clockmod                    ;
                 add     al,10h                                  ; set clock modulation
                 mov     ecx,MSR_IA32_CLOCKMODULATION            ; on Intel
                 wrmsr                                           ;
-@@dhcnpx_no_clockmod:                
+@@dhcnpx_no_clockmod:
                 cmp     word ptr [External.MsrTableCnt+esi],dx  ;
                 jz      @@dhcnpx_no_msrlist                     ; MSR setup list is empty
                 test    [External.Flags+esi],EXPF_DISCARDED     ;
@@ -1269,6 +1295,7 @@ DHClrBusyNPX    proc    near                                    ;
 @@dhcnpx_no_msrlist:
                 popad                                           ;
                 pop     eax                                     ;
+                assume  ds:nothing                              ;
                 ret                                             ;
 DHClrBusyNPX    endp                                            ;
 ; ---------------------------------------------------------------
@@ -1487,6 +1514,52 @@ DHTmrSetRollover proc   near                                    ;
                 pop     eax                                     ;
                 ret                                             ;
 DHTmrSetRollover endp                                           ;
+
+; ---------------------------------------------------------------
+; 32-bit helpers
+
+MAX_EXT_FNNO    =       2                                       ; max function index
+                public  ExtCall32                               ;
+ExtCall32       proc    near                                    ;
+                mov     eax,[esp+4]                             ;
+                cmp     eax,MAX_EXT_FNNO                        ;
+                ja      @@ec32_err                              ;
+                call    @@ec32_label                            ; get flat doshlp pointer
+@@ec32_label:
+                pop     ecx                                     ;
+                sub     ecx,offset @@ec32_label                 ;
+                or      eax,eax                                 ;
+                jz      @@ec32_maxfnno                          ;
+                dec     eax                                     ;
+                jz      @@ec32_affinity                         ;
+                dec     eax                                     ;
+                jnz     @@ec32_err                              ;
+                test    [PublicInfo.BootFlags+ecx],BOOTFLAG_SMP ;
+                jz      @@ec32_ret                              ; return 0 on UNI
+                mov     eax,MPDATAFLAT+0A90h                    ; _curProcNum (constant in fact)
+                mov     eax,[eax]                               ;
+                ret                                             ;
+@@ec32_affinity:
+                or      eax,[External.PFEPtr+ecx]               ;
+                jz      @@ec32_noaffinity                       ;
+                mov     edx,[esp+8]                             ;
+                push    edx                                     ;
+                sub     esp,48h                                 ;
+                call    eax                                     ;
+                add     esp,4Ch                                 ;
+                ret                                             ;
+@@ec32_noaffinity:
+                mov     eax,1                                   ; ERROR_INVALID_FUNCTION
+                ret
+@@ec32_maxfnno:
+                mov     eax,MAX_EXT_FNNO
+                ret                                             ;
+@@ec32_err:
+                mov     eax,-1                                  ; 0xFFFFFFFF
+@@ec32_ret:
+                ret                                             ;
+ExtCall32       endp                                            ;
+
 ; ---------------------------------------------------------------
 ; IRQ routers
 

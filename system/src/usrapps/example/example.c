@@ -306,6 +306,18 @@ int main(int argc,char *argv[]) {
             printf("gcvt: %s\n", _gcvt(fv, 3, s1));
          }
       } else
+      if (stricmp(argv[1],"d")==0 && argc==2) {
+         static const char *vn[] = { "BIOS Vendor", "BIOS Version",
+            "BIOS Date", "SYS Vendor", "SYS Product", "SYS Version",
+            "SYS Serial", "SYS UUID", "MB Vendor", "MB Product", "MB Version",
+            "MB Serial" };
+         u32t ii;
+         for (ii=SMI_BIOS_Vendor; ii<=SMI_MB_Serial; ii++) {
+            char *info = sys_dmiinfo(ii);
+            printf("%-14s: %s\n", vn[ii], info?info:"");
+            if (info) free(info);
+         }
+      } else
       if (stricmp(argv[1],"d")==0 && argc==3) {
          // delay x ms
          u32t delay = atoi(argv[2]);

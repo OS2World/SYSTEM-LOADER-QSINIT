@@ -83,7 +83,7 @@ AcpiMemInfo* _std hlp_int15mem(void);
 /** internal use only: mounted volumes data.
     Note, that VDTA_RO flag is not equal to VIF_READONLY in public
     disk_volume_data struct. VIF_READONLY means r/o filesystem implementation,
-    but VDTA_RO - r/o volume i/o on the sector level */
+    but VDTA_RO - r/o volume i/o on a sector level */
 typedef struct {
    u32t                 flags;            ///< flags for volume (VDTA_*)
    u32t                  disk;            ///< disk number
@@ -105,6 +105,7 @@ typedef struct {
 #define VDTA_FAT    0x010  // volume mounted to FatFs
 #define VDTA_VFS    0x020  // volume is virtual (no disk i/o)
 #define VDTA_RO     0x040  // volume mounted as read-only
+#define VDTA_NOFS   0x080  // deny any FS mount, volume mounted with IOM_RAW
 //@}
 
 #define STOKEY_ZIPDATA  "zip"             ///< key with .ldi file
@@ -121,7 +122,13 @@ typedef struct {
 #define STOKEY_MFSDCRC  "mfsdcrc"         ///< mini-FSD crc32
 #define STOKEY_SHOTDIR  "screenshot_dir"  ///< directory for screenshots
 #define STOKEY_LOGSIZE  "dh_logsize"      ///< custom log size for doshlp
-#define STOKEY_ACPIADDR "acpi_table"      ///< ACPI table address (EFI build)
+#define STOKEY_BIOSTAB  "biostables"      ///< BIOS table list (EFI host)
+#define STOKEY_ACPIRST  "acpireset"       ///< ACPI reset can be used
+#define STOKEY_CMDSTORY "cmd_h_list"      ///< shell history (ptr_list)
+#define STOKEY_CMDHINIT "cmd_h_init"      ///< shell history (string)
+#define STOKEY_RSTCPNUM "rst_cpage"       ///< inherited codepage (init time only)
+#define STOKEY_DUMPSEQ  "dump_order"      ///< dump order key
+#define STOKEY_DUMPSRCH "dump_srch"       ///< dump "search on" flag
 
 /// cache i/o ioctl
 //@{
@@ -248,7 +255,7 @@ void _std sys_notifyexec(u32t eventtype, u32t infovalue);
     In non-MT mode function calling interval is random, in MT mode it called
     once per second.
 
-    sys_dcenew() and sys_dcedel() may be used inside callback function.
+    sys_dcenew() and sys_dcedel() can be used inside callback function.
 
     @param   code   notification code (DCN_* constant)
     @param   usr    data cache entry
@@ -260,6 +267,7 @@ typedef u32t _std (*dc_notify)(u32t code, void *usr);
 #define DCN_COMMIT       0x0001           ///< commit to the safe state
 #define DCN_TIMER        0x0002           ///< max time reached
 #define DCN_MEM          0x0003           ///< "low system memory" event
+#define DCN_CPCHANGE     0x0004           ///< system codepage changed
 //@}
 
 /// data cache notification result

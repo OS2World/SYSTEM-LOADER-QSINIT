@@ -1,6 +1,5 @@
 [project]
 name=doshlp
-version=0x0001
 
 [config]
 0=Common

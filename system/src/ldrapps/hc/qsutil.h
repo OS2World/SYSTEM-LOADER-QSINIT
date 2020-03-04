@@ -112,11 +112,18 @@ void* _std hlp_memreserve(u32t physaddr, u32t length, u32t *reason);
 u32t  _std hlp_memavail(u32t *maxblock, u32t *total);
 
 /** query used memory size.
-    @param pid       Process id for process owned memory or 0 for global
-                     allocations.
+    Used addresses are always aligned to 64k (highest then decreased by 1).
+
+    With FFFF arg function allows to query a full range of memory, used for
+    QSINIT at the time of call (with exception of initialization module).
+
+    @param pid             Process id for process owned memory (0 for global
+                           allocations or FFFF for all existing blocks).
+    @param [out] usedlow   Lowest address used (ptr can be 0).
+    @param [out] usedhigh  Highest address used (ptr can be 0).
     @return used memory size in bytes (rounded up to 64k because of
             system memory manager alignment). */
-u32t  _std hlp_memused (u32t pid);
+u32t  _std hlp_memused (u32t pid, u32t *usedlow, u32t *usedhigh);
 
 //===================================================================
 //  boot filesystem (OS/2 micro-FSD) file management
@@ -205,7 +212,7 @@ typedef struct {
 } disk_geo_data;
 
 /** return disk size.
-    @attention BIOS 16384x63x16 has returned in geo parameter for HDDs.
+    @attention BIOS 16384x63x16 is returned in geo parameter for HDDs.
     This value usable for floppy drives/ancient small HDDs only. Use
     dsk_getptgeo() to get actual MBR partition table geometry.
 
@@ -213,7 +220,7 @@ typedef struct {
     @param [out]  sectsize  Size of disk sector, can be 0
     @param [out]  geo       Disk data (optional, can be 0, can return zeroed data)
     @return number of sectors on disk. Actually, geo->TotalSectors must be
-            check to be sure. */
+            checked to be sure. */
 u32t  _std hlp_disksize(u32t disk, u32t *sectsize, disk_geo_data *geo);
 
 /** return 64bit disk size.
@@ -224,8 +231,8 @@ u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 
 /** read a physical disk.
     @param  disk      Disk number. Note, that QDSK_VOLUME can be added for
-                      a mounted volume. In this case function acts as volume-level
-                      sector i/o api.
+                      a mounted volume. In this case function acts as
+                      a volume-level sector i/o api.
     @param  sector    Start sector
     @param  count     Number of sectors to read
     @param  data      Buffer for data
@@ -233,7 +240,7 @@ u64t  _std hlp_disksize64(u32t disk, u32t *sectsize);
 u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
 
 /** write to a physical disk.
-    Be careful with QDSK_VOLUME flag! 0x100 value mean boot partition, 0x102 -
+    Be careful with QDSK_VOLUME flag! 0x100 value means boot partition, 0x102 -
     volume C: (if mounted one) and so on!
 
     @param  disk      Disk number. hlp_diskread() note applied here too.
@@ -243,7 +250,7 @@ u32t _std hlp_diskread(u32t disk, u64t sector, u32t count, void *data);
     @return number of sectors was actually written */
 u32t _std hlp_diskwrite(u32t disk, u64t sector, u32t count, void *data);
 
-/** is FDD was changed?
+/** is floppy media changed?
     @param  disk      Disk number.
     @return -1 if no disk, not a floppy or no changeline on it, 0 - if was not
             changed, 1 - is changed since last call */
@@ -252,7 +259,7 @@ int  _std hlp_fddline(u32t disk);
 /** translate BIOS disk number to QSINIT disk number and vise versa.
     Works on BIOS host only!
     @param  disk      Source disk number.
-    @param  qs2bios   Direction flag (zero for BIOS->QS, else QS->BIOS)
+    @param  qs2bios   Direction flag (zero for BIOS->QS, non-zero - QS->BIOS)
     @return FFFF on error or translated disk number */
 u32t _std hlp_diskbios(u32t disk, int qs2bios);
 
@@ -282,7 +289,7 @@ u32t _std hlp_diskmode(u32t disk, u32t flags);
 #define HDT_INVALID     0       ///< Invalid disk number
 #define HDT_REGULAR     1       ///< Regular disk device (HDD or flash drive)
 #define HDT_FLOPPY      2       ///< Floppy disk
-#define HDT_CDROM       3       ///< CD-ROM (rare case, when BIOS maps it as a HDD)
+#define HDT_CDROM       3       ///< CD-ROM (rare case when it visible in BIOS)
 #define HDT_RAMDISK     4       ///< Ram disk
 #define HDT_EMULATED    5       ///< Other emulated device (VHDD)
 //@}
@@ -297,6 +304,11 @@ u32t _std hlp_disktype(u32t disk);
 /** try to mount a part of disk as a known filesystem (any FAT type or HPFS/JFS).
     This is low level mount function, use vol_mount() for partition based
     mounting.
+
+    Note, that now mounting of the partition with 64-bit length in sectors
+    is not supported in QSINIT. I.e. max mountable partition is 2Tb for 512
+    bytes sector size.
+
     @param  drive     Drive number: 2..9 only, remounting of 0,1 is not allowed.
     @param  disk      Disk number.
     @param  sector    Start sector of partition
@@ -338,21 +350,27 @@ typedef struct {
 
 /// @name hlp_volinfo() InfoFlags bits
 //@{
-#define VIF_READONLY    0x0001  ///< read-only volume
+#define VIF_READONLY    0x0001  ///< read-only filesystem mounted
 #define VIF_VFS         0x0002  ///< virtual fs (no disk data)
+#define VIF_NOWRITE     0x0004  ///< read-only volume (disk i/o)
 //@}
-
 
 /** mounted volume info.
     Actually function is bad designed, it returns FST_NOTMOUNTED both
-    on non-mounted volume and mounted non-FAT volume. To check volume
+    for non-mounted volume and mounted unrecognized volume. To check volume
     presence info.TotalSectors can be used, it will always be 0 if volume
     is not mounted.
     Also, io_volinfo() available in i/o API, with the same functionality.
 
-    For VIF_VFS file system type Disk, StartSector and DataSector fields
-    are invalid and SectorSize, ClSize, ClAvail and ClTotal just emulate
-    "block" allocation.
+    For VIF_VFS file system Disk, StartSector and DataSector fields are invalid
+    and SectorSize, ClSize, ClAvail and ClTotal only emulates "block" allocation.
+
+    Note, that VIF_READONLY - is a read-only filesystem implementation, volume
+    i/o on sector level still supports write access. But VIF_NOWRITE means
+    r/o disk i/o in any case, with any possible filesystem and without it.
+
+    VIF_READONLY is always set for HPFS and JFS volumes, VIF_NOWRITE is a
+    result of "mount /ro" or other special cases (UEFI boot volume).
 
     @param  drive     Drive number
     @param  info      Buffer for data to fill in, can be 0.
@@ -364,8 +382,8 @@ u32t _std hlp_volinfo(u8t drive, disk_volume_data *info);
     @return 1 on success. */
 u32t _std hlp_unmountvol(u8t drive);
 
-/** unmount all QSINIT volumes from specified disk.
-    Function can not unmount boot partition!
+/** unmount all QSINIT volumes from the specified disk.
+    Function does not unmount boot partition!
     @param  disk      Disk number
     @return number of unmounted volumes. */
 u32t _std hlp_unmountall(u32t disk);
@@ -456,7 +474,7 @@ u32t  _std hlp_segtoflat(u16t Segment);
                    first 640k. Use hlp_rmcallreg() to skip this crazy logic.
     @param dwcopy  number of words to copy to the real mode stack. RMC_* can
                    be ORed here (note, that absence of RMC_EXITCALL in final
-                   QSINIT`s exit can cause REAL troubles for feature code).
+                   QSINIT`s exit will cause REAL troubles for feature code).
     @param ...     arguments. Be careful with 32bit push and 16bit args! ;)
 
     @return real mode dx:ax and OF, SF, ZF, AF, PF, CF flags */
@@ -475,7 +493,7 @@ u32t __cdecl hlp_rmcall(u32t rmfunc, u32t dwcopy, ...);
                             call with cs:ip in regs.
     @param [in,out] regs    registers. cs:ip must be filled for far call,
                             ss:sp can be 0 to use DPMI stack.
-    @param [in]     dwcopy  number of words to copy to real mode stack,
+    @param [in]     dwcopy  number of words to copy to the real mode stack,
                             RMC_* flags can be ORed here. RMC_IRET assumed for
                             the interrupt call.
     @param [in]     ...     arguments, be careful with 32bit push and 16bit args.
@@ -569,15 +587,25 @@ u32t _std hlp_insafemode(void);
 
 /** abort execution and stop.
     This is complete exit from QSINIT to the real mode in BIOS host and
-    back to the UEFI (on EFI host). Call is used by load process, mainly.
+    back to the UEFI (on EFI host).
 
     @param rc  Error code for text message */
 void _std exit_pm32(int rc);
 
-/** exit and restart another os2ldr.
+/** exit and restart another OS/2 loader.
     This is "RESTART" shell command API analogue.
-    @param loader  OS2LDR file name */
-void _std exit_restart(char *loader);
+
+    Note, that QSINIT starting from rev 500 is able to inherit shell history
+    and custom environment from the current loader.
+    Starting from rev 511 active codepage is also inherited.
+
+    @param loader  OS2LDR file name
+    @param env     Optional environment for the main loader process (affects
+                   only QSINIT starting from rev 500), can be 0.
+    @param nosend  Do not send shell history and codepage number to the next
+                   loader (1/0)
+    @return error code. */
+qserr _std exit_restart(char *loader, void *env, int nosend);
 
 /// @name exit_bootmbr flags
 //@{
@@ -618,7 +646,7 @@ int  _std exit_bootvbr(u32t disk, long index, char letter, void *sector);
 u32t _std exit_poweroff(int suspend);
 
 /** reboot the system.
-    @param warm       Wark reboot flag (1/0).
+    @param warm       Warm reboot flag (1/0).
     @return if failed */
 void _std exit_reboot(int warm);
 
@@ -648,8 +676,7 @@ void _std exit_reboot(int warm);
 void _std exit_prepare(void);
 
 /** internal call: exit_prepare() was called or executing just now.
-    @return 0 - for no, 1 - if called already and 2 if you calling from
-            exit notification callback (i.e. exit_prepare() is in progress) */
+    @return 0 - if not, 1 - if called already, 2 - call in progress) */
 u32t _std exit_inprocess(void);
 
 /** setup PIC reset on QSINIT exit.

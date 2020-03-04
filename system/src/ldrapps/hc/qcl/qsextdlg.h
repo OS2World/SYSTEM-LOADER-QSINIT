@@ -37,17 +37,21 @@ typedef struct qs_extcmd_s {
                             that default position will be overriden to the top
                             left corner. Use MSG_POS_CUSTOM value here to
                             force list into the center position.
-       @param type          Dialog type (see BTDT_* below). Note, that filter
-                            bits (BTDT_F*) applied to the selected view and can
-                            be inverted to exclude from the list. If no filter
-                            bits present - no filtering at all.
+       @param type          Dialog type (see BTDT_* below). Note, that file
+                            system filter bits (BTDT_F*) are applied to the
+                            selected view and can be inverted to exclude from
+                            the list. If no filter bits present - no filtering
+                            at all. BTDT_FLTLVM, BTDT_FLTQS, BTDT_QSM and
+                            BTDT_NOQSM - are the separate filtering methods.
+       @param letters       Drive letter filter (bit 0 for A:, 1 for B:, etc),
+                            only with one of BTDT_FLTLVM or BTDT_FLTQS bits.
        @param [out] disk    Disk number (on success)
        @param [out] index   Partition index (on success, can be 0 for BTDT_HDD),
                             value of -1 means big floppy or mbr (for BTDT_HDD).
        @return 0 after success selection, E_SYS_UBREAK if Esc was pressed or
                one of disk error codes */
    qserr      _exicc (*bootmgrdlg   )(const char *header, u32t flags, u32t type,
-                                      u32t *disk, long *index);
+                                      u32t letters, u32t *disk, long *index);
 
    /** shows "task list".
        @param header        Dialog header, can be 0
@@ -103,7 +107,12 @@ typedef struct qs_extcmd_s {
 #define BTDT_HDD            1  ///< show HDD list only
 #define BTDT_ALL            2  ///< show all partitions in plain list
 #define BTDT_DISKTREE       3  ///< show all partitions, but with submenu for every HDD
+#define BTDT_FLTLVM     0x400  ///< add QS drive letter column at 1st pos
+#define BTDT_FLTQS      0x800  ///< add QS drive letter column at 1st pos
 #define BTDT_NOEMU     0x1000  ///< skip emulated HDDs in enumeration
+#define BTDT_QSM       0x2000  ///< include only mounted to QSINIT
+#define BTDT_NOQSM     0x4000  ///< exclude all mounted to QSINIT
+#define BTDT_QSDRIVE   0x8000  ///< add QS drive letter column at 1st pos
 #define BTDT_FILTER 0xFFF0000  ///< mask for the filesystem type filter
 #define BTDT_FFAT   0x0010000  ///< include FAT12/16
 #define BTDT_FFAT32 0x0020000  ///< include FAT32

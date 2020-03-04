@@ -15,23 +15,24 @@
                 extrn   _apic_spr_vnum:byte                     ;
                 extrn   rm_timer_ofs  :word                     ; rm timer int offset
                 extrn   rm_spur_ofs   :word                     ; rm spurious int offset
+                extrn   tmr32call     :dword                    ;
 
 _TEXT           segment
                 assume  cs:FLAT, ds:FLAT, es:FLAT, ss:FLAT
                 .686p
 
 ;----------------------------------------------------------------
-; u32t _std sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint);
+; u32t _std sys_tmirq32(u32t lapicaddr, u8t tmrint, u8t sprint, void *tm32);
                 public  _sys_tmirq32
 _sys_tmirq32    proc    near                                    ;
                 movzx   ecx,byte ptr [esp+8]                    ; tmrint
                 movzx   edx,byte ptr [esp+12]                   ; sprint
+                mov     eax,[esp+4]                             ; lapicaddr
+                or      eax,eax                                 ;
+                jz      @@setapic_tmrmode                       ;
                 test    cl,0F0h                                 ;
                 jz      @@setapic_exiterr                       ; must be above 16
                 test    dl,0F0h                                 ;
-                jz      @@setapic_exiterr                       ;
-                mov     eax,[esp+4]                             ; lapicaddr
-                or      eax,eax                                 ;
                 jz      @@setapic_exiterr                       ;
                
                 push    gs                                      ;
@@ -68,7 +69,12 @@ _sys_tmirq32    proc    near                                    ;
                 setnz   al                                      ;
 @@setapic_exit:
                 movzx   eax,al                                  ;
-                ret     12                                      ;
+                ret     16                                      ;
+@@setapic_tmrmode:
+                mov     eax,[esp+16]                            ; tm32
+                mov     tmr32call,eax                           ;
+                mov     al,1                                    ;
+                jmp     @@setapic_exit                          ;
 _sys_tmirq32    endp                                            ;
 
 _TEXT           ends

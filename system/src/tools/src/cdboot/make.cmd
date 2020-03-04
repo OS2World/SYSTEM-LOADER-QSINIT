@@ -18,8 +18,6 @@ if "%bldarg%".=="". set bldarg=*
 
 call ..\..\..\setup.cmd
 
-rem creating dirs (else spprj will fail to write misc files before build)
-spprj -b -w -nb %toolprjkey% %prjname%.prj %bldtype% makedirs
 rem writing makefile for reference
 spprj -nb %prjname%.prj %bldtype% bld\%prjname%.mak
 rem and build it

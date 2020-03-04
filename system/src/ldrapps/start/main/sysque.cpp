@@ -306,19 +306,20 @@ qe_event* _std qe_waitevent(qshandle queue, u32t timeout_ms) {
    if (err) return 0; else
    if (!rc && timeout_ms && in_mtmode) {
       qs_mtlib     mt = get_mtlib();
-      mt_waitentry we[2] = {{QWHT_QUEUE,1}, {QWHT_CLOCK,0}};
+      mt_waitentry we[3] = {{QWHT_QUEUE,1}, {QWHT_SIGNAL,2}, {QWHT_CLOCK,0}};
       u32t        sig;
       we[0].wh  = queue;
-      we[1].tme = sys_clock() + (u64t)timeout_ms*1000;
-      do {
+      if (timeout_ms!=FFFF) we[2].tme = sys_clock() + (u64t)timeout_ms*1000;
+      while (1) {
          sig = 0;
-         err = mt->waitobject(we, 2, 0, &sig);
+         err = mt->waitobject(we, timeout_ms==FFFF?2:3, 0, &sig);
          //log_it(2, "qe_waitevent(%08X) err = %X, sig = %u \n", queue, err, sig);
-         if (sig==1) err = get_index(queue, 0, &rc); 
-            else break; // timeout or error
-      } while (!err && !rc);
+         // error or timeout
+         if (err || sig==0) break;
+         if (sig==1) { err = get_index(queue, 0, &rc); break; }
+      }
    }
-   // make it caller process owned
+   // make it caller`s process owned
    if (rc) mem_localblock(rc);
    return rc;
 }

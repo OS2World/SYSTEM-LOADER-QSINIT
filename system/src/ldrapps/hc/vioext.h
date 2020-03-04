@@ -22,6 +22,7 @@ extern "C" {
 #define MSG_RED           0x0006
 #define MSG_LIGHTRED      0x0007
 #define MSG_WHITE         0x0008
+#define MSG_USERCOLOR     0x0009
 
 #define MSG_CENTER        0x0000
 #define MSG_LEFT          0x0100
@@ -78,8 +79,12 @@ typedef int _std (*vio_mboxcb)(u16t key);
 
 /** shows message box.
     With MSG_POPUP flag function acts as normal message box in non-MT mode and
-    as "vio popup" in MT mode. This mean - it showed in a separate session
-    (by another thread) and can be called from detached processes.
+    as "vio popup" in MT mode. This mean that it opens a separate session (in
+    the another thread) for this message box and can be called from detached
+    processes.
+
+    For MSG_USERCOLOR value color scheme should be stored in QTLS_POPUPCOLOR
+    TLS variable in this byte order: box text button selbutton.
 
     @param header   Header string
     @param text     Message text. Use ^ symbol for manual EOL.
@@ -88,6 +93,9 @@ typedef int _std (*vio_mboxcb)(u16t key);
     @return result code (MRES_*) */
 u32t  _std vio_msgbox(const char *header, const char *text, u32t flags,
                       vio_mboxcb cbfunc);
+
+/// draw double line colored box
+void  _std vio_drawborder(u32t x, u32t y, u32t dx, u32t dy, u32t color);
 
 /** query/set ANSI state.
     ANSI state is unique for every process. Child inherits current
@@ -157,7 +165,7 @@ typedef struct {
    long       bsize;     ///< string buffer length (malloc)
    char      *rcstr;     ///< current string
    u16t    defshape;     ///< original cursor shape
-   u32t    userdata;     ///< userdata for callback, initialized with 0
+   u32t    userdata;     ///< userdata for callback (key_getstrex())
 } key_strcbinfo;
 
 /** callback for key_getstr().
@@ -178,9 +186,11 @@ char* _std key_getstr(key_strcb cbfunc);
     @param col        Column of first pos, can be -1 for current pos.
     @param line       Line of first pos, can be -1.
     @param len        Length (until the end of screen max), can be -1.
-    @param init       Initial string value, can be 0
+    @param init       Initial string value, can be 0.
+    @param userdata   User value for key_strcbinfo.
     @return string, need to be free() */
-char* _std key_getstrex(key_strcb cbfunc, int col, int line, int len, const char *init);
+char* _std key_getstrex(key_strcb cbfunc, int col, int line, int len,
+                        const char *init, u32t userdata);
 
 struct _vio_list;
 
@@ -237,7 +247,7 @@ typedef struct _vio_list {
 #define VLSF_LOCMASK      0x000F      ///< location value mask
 #define VLSF_HINT         0x0100      ///< this is a hint - list without keyboard focus
 #define VLSF_COLOR        0x0200      ///< color value is valid
-#define VLSF_COLMASK      0xF000      ///< MSG_GRAY...MSG_WHITE << 12
+#define VLSF_COLMASK      0xF000      ///< MSG_GRAY...MSG_USERCOLOR << 12
 //@}
 
 /** execute listbox selection (with possible submenus).
@@ -259,7 +269,9 @@ typedef struct _vio_list {
 
     @param ref        Data to show
     @param flags      Subset of vio_msgbox() flags accepted here: MSG_POPUP,
-                      color scheme and position values.
+                      color scheme and position values. If no information
+                      header line, then MSG_LEFT & MSG_RIGHT are also used,
+                      but affect first column of the top menu only.
     @param focus      Focused item on open (0..ref->items-1).
     @return 0 if ESC was pressed or value from the ref->id array (from one of
        submenus too) or (if ref->id==0) - just a one-based line number of the

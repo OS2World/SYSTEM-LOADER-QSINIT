@@ -19,7 +19,7 @@
 #include "qsdm.h"
 #endif
 
-#define MAX_ACTION  16
+#define MAX_ACTION  24
 
 #define PARTFILT_PT      1     ///< show partitions only
 #define PARTFILT_FREE    2     ///< show free space entries only
@@ -96,12 +96,12 @@ class TDMgrDialog : public TWalkDiskDialog {
    enum { actd_mbrboot, actd_clone, actd_init, actd_initgpt, actd_bf_format,
           actd_bf_mount, actd_mbrcode, actd_restvhdd, actd_bf_unmount,
           actd_bf_code, actd_updlvm, actd_savevhdd, actd_wipe, actd_writelvm,
-          actd_bf_inst, actd_bf_dirty, actd_detect,
+          actd_bf_inst, actd_bf_dirty, actd_bf_label, actd_detect,
 
           actp_first, actp_boot, actp_delete, actp_format, actp_active,
           actp_mount, actp_unmount, actp_letter, actp_rename, actp_clone,
           actp_makelp, actp_makepp, actp_setgptt, actp_view, actp_bootcode,
-          actp_inst, actp_dirty, actp_bootos2
+          actp_inst, actp_dirty, actp_bootos2, actp_label
         } action;
 
    virtual void FreeDiskData();

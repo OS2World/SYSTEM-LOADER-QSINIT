@@ -1,6 +1,5 @@
 [project]
 name=partmgr
-version=0x0001
 
 [config]
 0=Common
@@ -90,8 +89,11 @@ op vfr
 op el
 op nod
 op osname=%(QS_NAME)
-op de '$(name) v$(vershort). $(config) build, $(timestr)'
+op de '$(name) v%(QS_VERSION). $(config) build, $(timestr)'
 anonymousexport=$(outdir)\$(name).lbc
+export bsect16
+export bsect32
+export bsectexf
 
 [config.0]
 *out=$(outname) | nolink | \

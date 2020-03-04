@@ -64,17 +64,27 @@ void _std log_mdtdump(printf_function pfn) {
          }
          if (len) { pfn("\n"); pfn("%s\n",st); }
          if (md->exports) {
+            int lcnt = 0;
             pfn("\n");
             pfn("  exports:\n");
             for (obj=0; obj<md->exports; obj++) {
-               mod_export *ee=md->exps+obj;
-               if ((obj&3)==0) len=sprintf(st,"  ");
-               if (ee->forward) len+=sprintf(st+len,"%4d.<FORWARD> ",ee->ordinal); else
-               if (ee->is16) len+=sprintf(st+len,"%4d.%04X:%04X ",ee->ordinal,ee->sel,
-                  ee->address);
-               else len+=sprintf(st+len,"%4d.%08X  ",ee->ordinal,ee->address);
-
-               if ((obj&3)==3||obj+1==md->exports) pfn("%s\n",st);
+               mod_export *ee = md->exps+obj;
+               if (lcnt==0) len=sprintf(st,"  ");
+               if (ee->forward) len+=sprintf(st+len, "%4d.<FORWARD> ", ee->ordinal);
+                  else
+               if (ee->is16) len+=sprintf(st+len,"%4d.%04X:%04X ", ee->ordinal, ee->sel, ee->address);
+                  else len+=sprintf(st+len,"%4d.%08X  ", ee->ordinal, ee->address);
+               if (ee->name) {
+                  // max name length is 127
+                  len+=sprintf(st+len,"(%s)", ee->name);
+                  lcnt = 4;
+               } else
+                  lcnt++;
+               // flush line if name is in the next
+               if (lcnt==4 || obj+1==md->exports || md->exps[obj+1].name) {
+                  pfn("%s\n",st);
+                  lcnt = 0;
+               }
             }
          }
 
@@ -170,7 +180,7 @@ void _std mempanic(u32t type, void *addr, u32t info, char here, u32t caller) {
    }
    mt_swlock();
    trap_screen_prepare();
-   draw_border(1, 2, 78, hdt+5, 0x4F);
+   vio_drawborder(1, 2, 78, hdt+5, 0x4F);
    vio_setpos(py, px); vio_strout(" \xFE SYSTEM HEAP FATAL ERROR \xFE");
    py+=2;
    vio_setpos(py++, px); vio_strout(em[type]);

@@ -454,37 +454,24 @@ typedef Set<Array65536>   setw;
 
 template <class L>
 void List<L>::AdjustAllocOn(l Value) {
-  L *NewValues=(L*)new L[Value];
+  /* this call, as well as Clear() below - should not leave list in damaged
+     state if thread is killed in the middle of execution */
+  L *NewValues=(L*)new L[Value], *CV=Values;
   for (l ll=0;ll<=MaxIndex;ll++) NewValues[ll]=Values[ll];
-  if (Values) delete[]Values;
-  AllocOn=Value;
-  Values =NewValues;
+  Values  = NewValues;
+  AllocOn = Value;
+  if (CV) delete[]CV;
 }
 
 template <class L>
 void List<L>::Clear() {
-  if (AllocOn) {
-    if (Values) delete[]Values;
-    AllocOn=0;
-  }
-  MaxIndex=-1;
-  IndexOfCache=-1;
-  Values  =NULL;
+  L *CV = Values;
+  IndexOfCache = -1;
+  MaxIndex     = -1;
+  AllocOn      =  0;
+  Values       = NULL;
+  if (CV) delete[]CV;
 }
-
-/*
-template <class L>
-void List<L>::Pack() {
-  l ii,jj;
-  for (ii=0,jj=0;ii<=MaxIndex;ii++)
-    if (l(Values[ii])) {
-      if (ii!=jj) Values[ii]=Values[jj]; jj++;
-    }
-  MaxIndex    =jj-1;
-  IndexOfCache=-1;
-  Compact();
-}
-*/
 
 template <class L>
 Bool List<L>::Equal(const List<L> &Lst) const {

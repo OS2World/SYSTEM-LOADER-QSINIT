@@ -20,7 +20,10 @@
                 extrn   _edparmtable:byte
                 extrn   _eddparmtable:byte
                 extrn   _i13ext_table:byte
+                extrn   GSIC_Data:byte
                 extrn   FONT_TABLE:dword
+                extrn   BIOSTAB_Data:byte
+                extrn   ExtCall32:near
 
 PUBLIC_INFO     segment
                 dw      DOSHLP_SIGN                             ; check bytes
@@ -29,6 +32,7 @@ PUBLIC_INFO     segment
                 public  External                                ;
 PublicInfo      LoaderInfoData <size LoaderInfoData>            ; must be at 100:4
 ; interface with bootos2.exe
+; but also a public structure for several users (like HD4DISK) ...
                 public  External                                ; too long init line to
 External        label   near                                    ; wasm it, write separately
 e@InfoSign      dd      0                                       ;
@@ -98,6 +102,20 @@ e@FBDMaskB      dd      0                                       ; not used
 e@RMEFList      dd      0FFFFFFFFh                              ; not used
 e@LogMapSize    dd      0                                       ;
 e@CpuFBits      dd      0                                       ;
+e@CfgData       dd      0                                       ;
+e@CfgDataLen    dw      0                                       ;
+e@GSICPktOfs    dw      offset GSIC_Data                        ;
+e@BiosTabOfs    dw      offset BIOSTAB_Data                     ;
+e@VBiosPhys     dd      0                                       ; not used
+e@PFCall32      dd      offset ExtCall32                        ;
+e@PFEPtr        dd      0                                       ;
+e@DumpBufLin    dd      0                                       ;
+e@DumpBufPhys   dd      0                                       ;
+e@FlagsEx       dd      0                                       ;
+e@EFDStructSize dw      ExtFini - External                      ;
+e@DumpHubOrder  dw      0                                       ;
+e@PCILastBus    db      0                                       ;
+e@NCpuRun       db      1                                       ;
 ExtFini         label   near                                    ;
 PUBLIC_INFO     ends
 

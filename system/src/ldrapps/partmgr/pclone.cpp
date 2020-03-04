@@ -440,7 +440,7 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
    if (hidden_upd) {
       u8t       vol = 0;
       // mounts destination temporary and checks boot.ini, but ignore any errors
-      if (vol_mount(&vol, dstdisk, dstindex)==0) {
+      if (vol_mount(&vol, dstdisk, dstindex, 0)==0) {
          u32t vt = hlp_volinfo(vol, 0);
          if (vt==FST_FAT12 || vt==FST_FAT16 || vt==FST_FAT32) {
             char    path[12];

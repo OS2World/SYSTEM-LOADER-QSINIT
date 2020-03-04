@@ -26,7 +26,8 @@
 #define FMT_STR_GMLIST     ">|<"
 #define FMT_STR_MODELIST   "9|>7|"
 #define FMT_STR_HDDLIST    "9|>10"
-#define FMT_STR_PTLIST     ">|>10|<9|4|<"
+#define FMT_STR_PTLIST1    ">|>10|<9|4|<"
+#define FMT_STR_PTLIST2    "4|" FMT_STR_PTLIST1
 
 /** menu/submenu allocation.
     @param count            # of items
@@ -133,7 +134,7 @@ static u32t _exicc ext_selectmodedlg(EXI_DATA, const char *header, u32t flags,
       for (mcount=0; mcount<2; mcount++) {
          u32t console = mod_query(MODNAME_CONSOLE, MODQ_NOINCR);
          if (console) {
-            fp_gmlist = (fpcon_gmlist)mod_getfuncptr(console, ORD_CONSOLE_con_gmlist);
+            fp_gmlist = (fpcon_gmlist)mod_getfuncptr(console, ORD_CONSOLE_con_gmlist, 0);
             break;
          } else
             // let the shell will load it, using EXTCMD.INI rules.
@@ -238,6 +239,7 @@ static u32t _exicc ext_selectmodedlg(EXI_DATA, const char *header, u32t flags,
                   "%u x %-4s|%2u (%s)":"%u x %-4s|%2u"): "%u x %-4s|text",
                      cp->mx, hgt_str, cp->bits, fmtstr);
             }
+            key_clear();
             // fix number of items
             rm->items = pos;
             rm->text->count = pos+1;
@@ -295,6 +297,7 @@ static u32t _exicc ext_selectmodedlg(EXI_DATA, const char *header, u32t flags,
          }
          ii++;
       }
+      key_clear();
       // fix number of items
       rm->items = pos;
       rm->text->count = pos+1;
@@ -315,10 +318,11 @@ typedef u8t (_std *fpdsk_ptquery64)(u32t disk, u32t index, u64t *start, u64t *si
                                     char *filesys, u32t *flags);
 
 static void att_pt(fplvm_partinfo fp_lpi, fpdsk_ptquery64 fp_ptq, u32t disk,
-                   u32t sector, dsk_mapblock *mb, vio_listref *mref, u32t *rcnt)
+                   u32t sector, dsk_mapblock *mb, vio_listref *mref,
+                   u32t *rcnt, int qstab)
 {
     lvm_partition_data pd;
-    char       fsname[17], letter[3];
+    char       fsname[17], letter[3], qsletter[7];
     pd.VolName[0] = 0;
     fsname[0]     = 0;
     // ask PARTMGR
@@ -328,11 +332,20 @@ static void att_pt(fplvm_partinfo fp_lpi, fpdsk_ptquery64 fp_ptq, u32t disk,
     if (!mb->DriveLVM || mb->DriveLVM=='-') letter[0] = 0; else
        { letter[0] = mb->DriveLVM; letter[1] = ':'; letter[2] = 0; }
 
+    if (!qstab) qsletter[0] = 0; else
+       if (mb->Flags&DMAP_MOUNTED) {
+          char ltr = mb->DriveQS;
+          // fix 0:-9: to A:-J:
+          if (ltr>='0' && ltr<='9') ltr=ltr-'0'+'A';
+          sprintf(qsletter, "%c:|", ltr);
+       } else
+          strcpy(qsletter,"|");
+
     mref->id[*rcnt] = mb->Index+1<<16|disk+1;
     *rcnt += 1;
-    mref->text->item[*rcnt] = sprintf_dyn("%s.%u|%s|%s|%s|%s", dsk_disktostr(disk, 0),
-       mb->Index, dsk_formatsize(sector, mb->Length, 0, 0), fsname, letter,
-          pd.VolName[0]?pd.VolName:"-");
+    mref->text->item[*rcnt] = sprintf_dyn("%s%s.%u|%s|%s|%s|%s", qsletter,
+       dsk_disktostr(disk, 0), mb->Index, dsk_formatsize(sector, mb->Length,
+          0, 0), fsname, letter, pd.VolName[0]?pd.VolName:"-");
 }
 
 /** shows "boot manager" selection dialog.
@@ -345,7 +358,8 @@ static void att_pt(fplvm_partinfo fp_lpi, fpdsk_ptquery64 fp_ptq, u32t disk,
     @return 0 after success selection, E_SYS_UBREAK if Esc was pressed or
             one of disk error codes */
 static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
-                                   u32t type, u32t *disk, long *index)
+                                   u32t type, u32t letters, u32t *disk,
+                                   long *index)
 {
    fpdsk_getmap   fp_getmap = 0;
    fplvm_partinfo fp_lpinfo = 0;
@@ -355,14 +369,22 @@ static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
    u32t                hdds = hlp_diskcount(0),
                       fbits = type&BTDT_FILTER;
    int                noemu = type&BTDT_NOEMU?1:0,
-                       finv = type&BTDT_INVERT?1:0;
+                       finv = type&BTDT_INVERT?1:0,
+                      qstab = type&BTDT_QSDRIVE?1:0,
+                     qsfilt = type&(BTDT_QSM|BTDT_NOQSM),
+                    ltrfilt = type&(BTDT_FLTLVM|BTDT_FLTQS);
+   const char   *ptlist_hdr = qstab ? FMT_STR_PTLIST2 : FMT_STR_PTLIST1;
    // drop flags
-   type &= ~(BTDT_NOEMU|BTDT_FILTER);
+   type &= ~(BTDT_NOEMU|BTDT_FILTER|BTDT_QSM|BTDT_NOQSM|BTDT_QSDRIVE|
+             BTDT_FLTLVM|BTDT_FLTQS);
    // adjust "default" position
    if ((flags&MSG_POSMASK)==0) flags|=MSG_POSX(-5)|MSG_POSY(-5);
    // and check args
    if (!disk || !index && type!=BTDT_HDD) return E_SYS_ZEROPTR;
    if (fbits==BTDT_INVERT || type>BTDT_DISKTREE) return E_SYS_INVPARM;
+   if (qsfilt==(BTDT_QSM|BTDT_NOQSM)) return E_SYS_INVPARM;
+   if (ltrfilt==(BTDT_FLTLVM|BTDT_FLTQS)) return E_SYS_INVPARM;
+
    if (!hdds) return E_SYS_NOTFOUND;
    /* query PARTMGR every time, because we mark this module as a system,
       so leaving PARTMGR loaded forever is not a good idea. It looks better
@@ -370,9 +392,9 @@ static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
    partmgr = mod_query(MODNAME_DMGR, 0);
    if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0, 0);
    if (partmgr) {
-      fp_getmap = (fpdsk_getmap)mod_getfuncptr(partmgr, ORD_PARTMGR_dsk_getmap);
-      fp_lpinfo = (fplvm_partinfo)mod_getfuncptr(partmgr, ORD_PARTMGR_lvm_partinfo);
-      fp_ptq    = (fpdsk_ptquery64)mod_getfuncptr(partmgr, ORD_PARTMGR_dsk_ptquery64);
+      fp_getmap = (fpdsk_getmap)mod_getfuncptr(partmgr, ORD_PARTMGR_dsk_getmap, 0);
+      fp_lpinfo = (fplvm_partinfo)mod_getfuncptr(partmgr, ORD_PARTMGR_lvm_partinfo, 0);
+      fp_ptq    = (fpdsk_ptquery64)mod_getfuncptr(partmgr, ORD_PARTMGR_dsk_ptquery64, 0);
    }
    // no partmgr?
    if (!fp_getmap) res = E_SYS_UNSUPPORTED; else 
@@ -417,8 +439,21 @@ static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
                         inc = fbits&mask?1:0;
                         if (fbits&BTDT_INVERT) inc = !inc;
                      }
-                     // use it as a flag storage
-                     mb->DriveQS = inc;
+                     // filter by QS mounting
+                     if (inc && (qsfilt&BTDT_QSM))
+                        if ((mb->Flags&DMAP_MOUNTED)==0) inc = 0;
+                     if (inc && (qsfilt&BTDT_NOQSM))
+                        if (mb->Flags&DMAP_MOUNTED) inc = 0;
+                     // filter by drive letters
+                     if (inc && (ltrfilt&BTDT_FLTQS))
+                        if (mb->Flags&DMAP_MOUNTED)
+                           if ((letters&1<<mb->DriveQS-'0')==0) inc = 0;
+                     if (inc && (ltrfilt&BTDT_FLTLVM))
+                        if (mb->Flags&DMAP_LVMDRIVE)
+                           if ((letters&1<<mb->DriveLVM-'A')==0) inc = 0;
+                     // use high bit as a flag storage
+                     mb->Flags = mb->Flags&~0x80 | (inc?0x80:0);
+                     
                      if (inc) {
                         all++; pcnt[ii]++;
                         if (mb->Flags&DMAP_BMBOOT) inbm++;
@@ -433,7 +468,7 @@ static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
       } else {
          vio_listref *mref = alloc_menu_ref(type==BTDT_ALL?all:(type==BTDT_LVM?inbm:rdcnt),
                                             type!=BTDT_HDD, 1, 0, 0);
-         mref->text->item[0] = sprintf_dyn(hddmenu?FMT_STR_HDDLIST:FMT_STR_PTLIST);
+         mref->text->item[0] = sprintf_dyn(hddmenu?FMT_STR_HDDLIST:ptlist_hdr);
 
          for (ii=0, rdcnt=0; ii<hdds; ii++)
             if (map[ii]) {
@@ -446,20 +481,21 @@ static qserr _exicc ext_bootmgrdlg(EXI_DATA, const char *header, u32t flags,
                   if (type==BTDT_DISKTREE) {
                      vio_listref *sm = alloc_menu_ref(pcnt[ii], 0, 1, VLSF_RIGHT, 0);
                      mref->subm[rdcnt-1] = sm;
-                     sm->text->item[0]   = sprintf_dyn(FMT_STR_PTLIST);
+                     sm->text->item[0]   = sprintf_dyn(ptlist_hdr);
                   }
                }
                do {
-                  if (map[ii][idx].Type && map[ii][idx].DriveQS) {
+                  if (map[ii][idx].Type && (map[ii][idx].Flags&0x80)) {
                      if (type==BTDT_DISKTREE)
                         att_pt(fp_lpinfo, fp_ptq, ii, sectorsz[ii], map[ii]+idx,
-                           mref->subm[rdcnt-1], &rpcnt); else
+                           mref->subm[rdcnt-1], &rpcnt, qstab); else
                      if (type==BTDT_ALL || type==BTDT_LVM && (map[ii][idx].Flags&DMAP_BMBOOT))
                         att_pt(fp_lpinfo, fp_ptq, ii, sectorsz[ii], map[ii]+idx,
-                           mref, &rdcnt);
+                           mref, &rdcnt, qstab);
                   }
                } while ((map[ii][idx++].Flags&DMAP_LEND)==0);
             }
+         key_clear();
          id = vio_showlist(header, mref, flags, 0);
          if (id) {
             *disk = (id&0xFFFF)-1;

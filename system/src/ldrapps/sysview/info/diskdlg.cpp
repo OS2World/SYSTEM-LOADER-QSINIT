@@ -748,13 +748,14 @@ void TSysApp::BootDirect(u32t disk, long index) {
    u8t  vol = 0;
    TempVolumeMounter automount(vol, disk, index);
    if (vol==0xFF) errDlg(MSGE_MOUNTERROR); else {
-      char fs[20];
+      char fs[80];
       fs[0] = 0;
       dsk_ptquery64(disk, index, 0, 0, fs, 0);
 
       if (strcmp(fs,"HPFS") && strcmp(fs,"JFS")) errDlg(MSGE_FSUNSUITABLE); else {
          TKernBootDlg *dlg = new TKernBootDlg();
-         snprintf(fs, 20, "SOURCE=%c", vol+'A');
+         u16t   port = hlp_seroutinfo(0);
+         snprintf(fs, 80, port?"SOURCE=%c,DBPORT=0x%04X":"SOURCE=%c", vol+'A', (u32t)port);
          if (SetupBootDlg(dlg, "OS2KRNL", fs)) execView(dlg);
          destroy(dlg);
       }
@@ -913,7 +914,7 @@ void TSysApp::Unmount(u8t vol) {
 #endif
 }
 
-static void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
+void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
    TView   *control;
    char     str[36];
    u32t  sectorsize = 0;
@@ -963,10 +964,10 @@ static void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
 void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
    // just a little check
    if (!qsmode && index<0) return;
-
-   TView *control;
-   TDialog   *dlg = new TDialog(TRect(14, 7, 65, 16), qsmode?"Mount QSINIT disk":
-      "LVM volume letter");
+   TView         *control;
+   TCheckBoxes *elOptions = 0;
+   TDialog   *dlg = new TDialog(qsmode ? TRect(8,7,71,16) : TRect(14,7,65,16),
+                                qsmode?"Mount QSINIT disk":"LVM volume letter");
    if (!dlg) return;
    dlg->options |= ofCenterX | ofCenterY;
    u32t usedmask = 0;
@@ -984,7 +985,9 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
       usedmask |= ~((1<<'Z'-'A'+1)-1);
    }
 #endif
-   TInputLine *elDrive = new TInputLine(TRect(27, 3, 31, 4), 11);
+   int dlofs = qsmode?-2:0;
+
+   TInputLine *elDrive = new TInputLine(TRect(27+dlofs,3,31+dlofs,4), 11);
    dlg->helpCtx = qsmode ? hcQSDrive : hcLVMDrive;
    dlg->insert(elDrive);
 
@@ -998,14 +1001,23 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
          TSItem *item = new TSItem(tmp,0);
          if (!list) next = list = item; else { next->next = item; next = item; }
       }
-   TCombo *cbDrvName = new TCombo(TRect(31, 3, 34, 4), elDrive, cbxOnlyList |
-      cbxDisposesList | cbxNoTransfer, list);
+   TCombo *cbDrvName = new TCombo(TRect(31+dlofs, 3, 34+dlofs, 4), elDrive,
+      cbxOnlyList | cbxDisposesList | cbxNoTransfer, list);
    dlg->insert(cbDrvName);
-   dlg->insert(new TLabel(TRect(25, 2, 34, 3), "to drive", elDrive));
+   dlg->insert(new TLabel(TRect(25+dlofs, 2, 34+dlofs, 3), "to ~d~rive", elDrive));
 
-   control = new TButton(TRect(39, 2, 49, 4), "~O~k", cmOK, bfDefault);
+   if (qsmode) {
+      elOptions = new TCheckBoxes(TRect(34, 3, 49, 5), new TSItem("~r~ead-only",
+         new TSItem("r~a~w mount", 0)));
+      elOptions->helpCtx = hcMountRO;
+      dlg->insert(elOptions);
+      dlg->insert(new TLabel(TRect(34, 2, 47, 3), "~w~ith options", elOptions));
+   }
+   dlofs = qsmode?12:0;
+
+   control = new TButton(TRect(39+dlofs, 2, 49+dlofs, 4), "~O~k", cmOK, bfDefault);
    dlg->insert(control);
-   control = new TButton(TRect(39, 4, 49, 6), "~C~ancel", cmCancel, bfNormal);
+   control = new TButton(TRect(39+dlofs, 4, 49+dlofs, 6), "~C~ancel", cmCancel, bfNormal);
    dlg->insert(control);
 
    FillDiskInfo(dlg, disk, index);
@@ -1021,13 +1033,17 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
    if (execView(dlg)==cmOK) {
       char rcbuf[24];
       elDrive->getData(rcbuf);
-      destroy(dlg);
       char ltr = rcbuf[0];
       if ((ltr<'A' || ltr>'Z') && ltr!='-') errDlg(MSGE_INVVALUE); else {
 #ifdef __QSINIT__
          if (qsmode) {
-            u8t wl = ltr - 'A';
-            u32t pterr  = vol_mount(&wl, disk, index);
+            u8t     wl = ltr - 'A';
+            u32t  opts = 0, pterr;
+            if (elOptions) {
+               if (elOptions->mark(0)) opts|=IOM_READONLY;
+               if (elOptions->mark(1)) opts|=IOM_RAW;
+            }
+            pterr  = vol_mount(&wl, disk, index, opts);
             if (pterr) PrintPTErr(pterr);
          } else {
             qserr lvmerr = lvm_assignletter(disk, index, ltr=='-'?0:ltr, 0);
@@ -1035,8 +1051,8 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
          }
 #endif
       }
-   } else
-      destroy(dlg);
+   }
+   destroy(dlg);
 }
 
 void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
@@ -1176,6 +1192,8 @@ void TSysApp::FormatDlg(u8t vol, u32t disk, long index) {
          u32t fstype = hlp_volinfo(vol, &vi);
          u32t clsize = vi.ClSize * vi.SectorSize;
          int  msgidx = !fstype || fstype>=FST_OTHER ? (vi.FsName[0]?-1:0) : fstype;
+
+         SetVolLabel(vol, disk, index);
 
          dlg = new TDialog(TRect(17, 3, 63, 19), "Format");
          if (!dlg) return;
@@ -1772,3 +1790,35 @@ void TSysApp::ChangeDirty(u8t vol, u32t disk, long index) {
 #endif // __QSINIT__
 }
 
+void TSysApp::SetVolLabel(u8t vol, u32t disk, long index) {
+#ifdef __QSINIT__
+   TempVolumeMounter  vm(vol, disk, index);
+   disk_volume_data   di;
+   // check - was it really mounted?
+   qserr err = io_volinfo(vol, &di);
+
+   if (!err) {
+      TDialog* dlg = new TDialog(TRect(25, 9, 54, 14), "Volume label");
+      if (dlg) {
+         dlg->options |= ofCenterX | ofCenterY;
+         dlg->helpCtx = hcVolLabelDlg;
+
+         TInputLine *LabelName = new TInputLine(TRect(3, 2, 17, 3), 12);
+         LabelName->helpCtx = hcVolLabelDlg;
+         dlg->insert(LabelName);
+         setstr(LabelName, di.Label);
+
+         dlg->insert(new TButton(TRect(19, 2, 27, 4), "O~K~", cmOK, bfDefault));
+
+         dlg->selectNext(False);
+
+         int   ok = execView(dlg)==cmOK;
+         char *fn = ok?getstr(LabelName):0;
+         destroy(dlg);
+         // set only if it changed
+         if (ok && strcmp(fn,di.Label)) err = io_vollabel(vol,fn);
+      }
+   }
+   if (err) PrintPTErr(err);
+#endif // __QSINIT__
+}

@@ -167,7 +167,7 @@ qserr _std mt_checkpidtid(mt_pid pid, mt_tid tid, u32t *state) {
          mt_thrdata *th = get_by_tid(pd, tid?tid:1);
          if (!th) rc = E_MT_BADTID; else {
             rc = th->tiState==THRD_FINISHED?E_MT_GONE:0;
-            if (*state) *state = th->tiState | (u32t)th->tiWaitReason<<16;
+            if (state) *state = th->tiState | (u32t)th->tiWaitReason<<16;
          }
       }
    }
@@ -391,9 +391,9 @@ mt_prcdata* _std mt_new(process_context *pq, void *mtdata) {
    //log_it(2, "%04X:%08X: %6lb\n", rd.tss_ss, rd.tss_esp, rd.tss_esp);
    rd.tss_eflags = CPU_EFLAGS_IOPLMASK|CPU_EFLAGS_IF;
    mt_setregs(fd, &rd);
-   // insert process into tree
+   // insert process into the tree
    mt_linktree(ppd, pd);
-   // and into index for search
+   // and into the index for search
    pidlist_add(pq->pid, pd);
 
    return pd;
@@ -920,6 +920,8 @@ static u32t _std sleeper(void *arg) {
    mt_threadname("system idle");
    while (1) {
       __asm { hlt }
+      // noapic: try to schedule after ANY interrupt
+      if (tmr_mode==TmIrq0) mt_yield();
    }
    return 0;
 }

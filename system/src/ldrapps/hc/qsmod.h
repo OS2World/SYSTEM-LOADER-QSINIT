@@ -55,6 +55,9 @@ s32t  _std mod_exec      (u32t module, const char *env, const char *params,
     Add processes and events, which waits for the current module will stay
     untuned.
 
+    Note, that inherited handles are closed too and reopened in its current
+    state.
+
     @param       module  Module handle.
     @param       env     Environment data. Use 0 for current environment.
     @param       params  Arguments string, can be 0.
@@ -109,9 +112,10 @@ u32t  _std mod_query     (const char *name, u32t flags);
 
 /** get pointer to module function (by index).
     @param  module  Module handle.
-    @param  index   Entry index.
+    @param  index   Entry index (one of "index" and "name" should be zero).
+    @param  name    Entry name, use 0 to import by index.
     @return function pointer or 0 */
-void *_std mod_getfuncptr(u32t module, u32t index);
+void *_std mod_getfuncptr(u32t module, u32t index, const char *name);
 
 /** free and unload module.
     Function will decrement usage counter until one, then tries to unload

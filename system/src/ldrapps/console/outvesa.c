@@ -168,6 +168,8 @@ void vesadetect(u32t mmask) {
       log_it(0, "VirtualPC detected, disabling LFB!\n");
       fbaddr_enabled = 0;
    }
+   // lock is required here, because this buffer is used in disk i/o
+   mt_swlock();
 
    memset(&rr, 0, sizeof(rr));
    rr.r_ds  = rmbuff;
@@ -176,8 +178,8 @@ void vesadetect(u32t mmask) {
    // make vesa 2.x call
    vib->VBESignature = MAKEID4('V','B','E','2');
    // query list of modes
-   if (!int10h(&rr)) return;
-   if ((rr.r_eax&0xFFFF)!=0x004F) return;
+   if (!int10h(&rr)) { mt_swunlock(); return; }
+   if ((rr.r_eax&0xFFFF)!=0x004F) { mt_swunlock(); return; }
    nonfb_cnt = 0;
    vesa_ver  = vib->VBEVersion;
    vmem_size = (u32t)vib->TotalMemory<<16;
@@ -245,6 +247,7 @@ void vesadetect(u32t mmask) {
       }
       mpt++;
    }
+   mt_swunlock();
    // re-init handlers because we have bank switching :(
    if (nonfb_cnt) plinit_vesa();
 
@@ -255,8 +258,10 @@ void vesadetect(u32t mmask) {
 u32t vesamodeinfo(VBEModeInfo *vinfo, u16t mode) {
    u16t     rmbuff = boot_info.diskbuf_seg, *modes;
    VBEModeInfo *cm = (VBEModeInfo*)hlp_segtoflat(rmbuff);
+   u32t        res = 0;
    struct rmcallregs_s rr;
-
+   // lock is required here, because this buffer is used in disk i/o
+   mt_swlock();
    memset(&rr, 0, sizeof(rr));
    memset(cm, 0, sizeof(VBEModeInfo));
    rr.r_ds  = rmbuff;
@@ -267,9 +272,10 @@ u32t vesamodeinfo(VBEModeInfo *vinfo, u16t mode) {
    if (int10h(&rr)) {
       // update it and hope it will be the same ;)
       if (fixmodeinfo(mode,cm)) *vinfo = *cm;
-      return 1;
+      res = 1;
    }
-   return 0;
+   mt_swunlock();
+   return res;
 }
 
 /// call mode info for single mode

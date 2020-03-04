@@ -75,13 +75,18 @@ _con_drawchar   proc    near
                 jz      @@dch_line_loop                         ; ecx=0 if no
                 mov     ecx,[ebx].cdi_CurColor                  ; cursor here
 @@dch_line_loop:
-                mov     dl,[ebx].cdi_FontX                      ;
                 lodsd                                           ; font bits (one line)
                 dec     dh                                      ;
+                push    esi                                     ;
+                mov     esi,eax                                 ;
+                mov     al,[ebx].cdi_FontMult                   ;
+@@dch_mult_loop:
+                mov     dl,[ebx].cdi_FontX                      ;
                 push    edi                                     ;
-@@dch_point_loop:
-                shl     eax,1                                   ;
                 push    eax                                     ;
+                push    esi                                     ;
+@@dch_point_loop:
+                shl     esi,1                                   ;
                 jc      @@dch_pix_txcol                         ;
                 jecxz   @@dch_pix_bgcol                         ;
                 xor     eax,eax                                 ; cursor here
@@ -96,34 +101,45 @@ _con_drawchar   proc    near
 @@dch_pix_bgcol:
                 mov     eax,@@bgcolor                           ; background
 @@dch_putpix:
-                push    ebx                                     ;
-                mov     ebx,[ebx].cdi_vbpps                     ;
-                test    ebx,4                                   ;
+                push    ecx                                     ;
+                movzx   ecx,[ebx].cdi_FontMult                  ;
+                mov     bl,byte ptr [ebx].cdi_vbpps             ;
+                test    bl,4                                    ;
                 jnz     @@dch_putpix4                           ;
-                test    ebx,2                                   ;
+                test    bl,2                                    ;
                 jz      @@dch_putpix1                           ;
-                test    ebx,1                                   ;
+                test    bl,1                                    ;
                 jz      @@dch_putpix2                           ;
+                bswap   eax                                     ; slow, but
+                mov     ch,ah                                   ; 24-bit is slow
+                bswap   eax                                     ; anyway
 @@dch_putpix3:
                 stosw                                           ;
-                shr     eax,16                                  ;
-                stosb                                           ;
+                mov     es:[edi],ch                             ;
+                inc     edi                                     ;
+                dec     cl                                      ;
+                jnz     @@dch_putpix3                           ;
                 jmp     @@dch_pix_next                          ;
 @@dch_putpix1:
-                stosb
+            rep stosb
                 jmp     @@dch_pix_next                          ;
 @@dch_putpix4:
-                stosd                                           ;
+            rep stosd                                           ;
                 jmp     @@dch_pix_next                          ;
 @@dch_putpix2:
-                stosw                                           ;
+            rep stosw                                           ;
 @@dch_pix_next:
-                pop     ebx                                     ;
-                pop     eax                                     ;
-                dec     dl                                      ;
+                pop     ecx                                     ;
+                dec     dl                                      ; next font dot
+                mov     ebx,@@cdi                               ;
                 jnz     @@dch_point_loop                        ;
+                pop     esi                                     ; next screen line
+                pop     eax                                     ;
                 pop     edi                                     ;
                 add     edi,@@bytes_in_line                     ;
+                dec     al                                      ;
+                jnz     @@dch_mult_loop                         ;
+                pop     esi                                     ; next font line
                 or      dh,dh                                   ;
                 jnz     @@dch_line_loop                         ;
 

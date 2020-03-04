@@ -1,7 +1,7 @@
 #
 # start module export table
 # -------------------------
-# file contain information for export, import and trace file.
+# file contains information for export, import and trace file.
 #
 # the special "start" module feature is importing of some functions from self,
 # it used to catch internal calls by trace code.
@@ -316,6 +316,9 @@ exports = {
                          expname = "__tprintf"
                        }
    _strftime         = { index =698  group = "clib"    format = "u&susp" }
+   __bgetcmd         = { index =699  group = "clib"    format = "i&si"  }
+   _exit_with_popup  = { index =680  group = "clib"    format = "Vsi"   }
+   _getwordpos       = { index =681  group = "string"  format = "ussi"  }
 
    # memory manager
 
@@ -348,7 +351,7 @@ exports = {
    _str_splitargs    = { index =142  group = "strlist" format = "ps"    }
    _str_getenv       = { index =143  group = "strlist" format = "pv"    }
    _str_getargs      = { index =144  group = "strlist" format = "puu"   }
-   # ordinal 145 removed (ini functions)
+   _str_newentry     = { index =145  group = "strlist" format = "ppusci" }
    _log_printlist    = { index =146  group = "strlist" format = "vsp"   }
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
@@ -358,6 +361,7 @@ exports = {
    _str_length       = { index =452  group = "vio"     format = "us"    }
    _str_findkey      = { index =453  group = "strlist" format = "sps!*u" }
    _str_settext      = { index =454  group = "strlist" format = "psu"   }
+   _str_findentry    = { index =455  group = "strlist" format = "ipsui" }
 
    # shell
 
@@ -387,6 +391,9 @@ exports = {
    _env_getvar       = { index =494  group = "shell"   format = "ssi"   }
    _env_copy         = { index =495  group = "module"  format = "ppu"   }
    _env_create       = { index =496  group = "module"  format = "ppu"   }
+   _cmd_historyread  = { index =497  group = "shell"   format = "pv"    }
+   _cmd_historywipe  = { index =498  group = "shell"   format = "@uv"   }
+   _cmd_splittext    = { index =499  group = "strlist" format = "psu@u" }
 
    # modules
 
@@ -455,6 +462,8 @@ exports = {
    _exi_instenum     = { index =218  group = "exi"     format = "i@up@u" }
    _exi_mtsafe       = { index =219  group = "exi"     format = "ipi"   }
    _exi_provider     = { index =460  group = "exi"     format = "u@u"   }
+   _exi_lock         = { index =461  group = "exi"     format = "vp"    }
+   _exi_unlock       = { index =462  group = "exi"     format = "vp"    }
 
    # shell commands
 
@@ -504,10 +513,10 @@ exports = {
    # additional vio funcs
 
    _key_getstr       = { index =250  group = "vio"     format = "sp"    }
-   # ordinal 251 reserved (moved to QSINIT)
+   _vio_drawborder   = { index =251  group = "vio"     format = "vuuuu@u" }
    _vio_fillrect     = { index =252  group = "vio"     format = "vuuuu@b@h" }
    _vio_msgbox       = { index =253  group = "vio"     format = "uss@u" }
-   _key_getstrex     = { index =254  group = "vio"     format = "spiiis" }
+   _key_getstrex     = { index =254  group = "vio"     format = "spiiis@u" }
    _vio_setansi      = { index =255  group = "vio"     format = "ui"    }
    _vio_modeinfo     = { index =256  group = "vio"     format = "puui"  }
    _vio_setmodeid    = { index =257  group = "vio"     format = "@u@u"  }
@@ -543,7 +552,7 @@ exports = {
                          index =277  group = "system"  format = "i@u"
                          expname = "__hlp_mtrrstate"
                        }
-   _hlp_getmsrsafe   = { index =278  group = "system"  format = "uu&@u&@u" }
+   _hlp_getmsrsafe   = { index =278  group = "system"  format = "uu&@*u&@*u" }
    _hlp_setmsrsafe   = { index =279  group = "system"  format = "uuuu"  }
    _hlp_mtrrchanged  = { index =280  group = "system"  format = "iiii"  }
    _hlp_mtrrbatch    = { index =281  group = "system"  format = "up"    }
@@ -576,6 +585,8 @@ exports = {
    _hlp_pcifindaddr  = { index =379  group = "pci"     format = "u@qp"  }
 
    _hlp_pcimaxbus    = { index =590  group = "pci"     format = "uv"    }
+   _hlp_mtrrctuse    = { index =591  group = "pci"     format = "uuii"  }
+
 
    # additional shell
 
@@ -632,6 +643,12 @@ exports = {
    _sys_dcedel       = { index =392  group = "dce"     format = "@up"   }
    _sys_dccommit     = { index =393  }
    _sys_acpiroot     = { index =394  group = "system"  format = "pv"    }
+   _sys_gettable     = { index =395  group = "system"  format = "@uu&*@u" }
+   _sys_dmiinfo      = { index =396  group = "system"  format = "su"    }
+   _dsk_guidtostr    = { index =397  group = "guid"    format = "ip&s"  }
+   _dsk_strtoguid    = { index =398  group = "guid"    format = "isp"   }
+   _dsk_makeguid     = { index =399  group = "guid"    format = "vp"    }
+
 
    # mt functions
 
@@ -667,6 +684,9 @@ exports = {
    _mt_eventcreate   = { index =524  group = "mt"      format = "@uis&*@u" }
    _mt_eventopen     = { index =525  group = "mt"      format = "@us&*@u" }
    _mt_eventact      = { index =526  group = "mt"      format = "@u@uu" }
+   _mt_waitsingle    = { index =527  group = "mt"      format = "@upu"  }
+
+   # session handling
 
    _se_dataptr       = { index =550  group = "sesmgr"  format="pu"      }
    _se_stat          = { index =551  group = "sesmgr"  format="pu"      }
@@ -772,12 +792,13 @@ exports = {
                          index =638  group = "io"      format = "@u@bp"
                          expname = "__io_volinfo"
                        }
-   _io_mount         = { index =639  group = "io"      format = "@u@b@u@q@q" }
+   _io_mount         = { index =639  group = "io"      format = "@u@b@u@q@q@u" }
    _io_unmount       = { index =640  group = "io"      format = "@u@b@u" }
-   _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@ui" }
+   _io_duphandle     = { index =641  group = "io"      format = "@u@u&*@u@u" }
    _io_dumpsft       = { index =642  group = "io"      format = "vp"    }
    _io_blocksize     = { index =643  group = "io"      format = "u@u"   }
    _io_registerfs    = { index =644  group = "io"      format = "@u@u"  }
+   _io_seterror      = { index =645  group = "io"      format = "@u@u@u" }
 
    # queue functions
 

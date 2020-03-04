@@ -30,7 +30,7 @@ kbCtrlY     = 0x0019,   kbCtrlZ     = 0x001a,
 
 // Extended key codes
 
-#ifdef __OS2__
+#if defined(__OS2__) || defined(__QSINIT__)
 kbAltSpace  = 0x3900,   kbCtrlIns   = 0x9200,
 kbShiftIns  = 0x0400,   kbCtrlDel   = 0x9300,   kbShiftDel  = 0x0500,
 #else
@@ -72,7 +72,9 @@ kbAlt1      = 0x7800,   kbAlt2      = 0x7900,   kbAlt3      = 0x7a00,
 kbAlt4      = 0x7b00,   kbAlt5      = 0x7c00,   kbAlt6      = 0x7d00,
 kbAlt7      = 0x7e00,   kbAlt8      = 0x7f00,   kbAlt9      = 0x8000,
 kbAlt0      = 0x8100,   kbAltMinus  = 0x8200,   kbAltEqual  = 0x8300,
-kbCtrlPgUp  = 0x8400,   kbCtrlTab   = 0x9400,   kbAltTab    = 0xA500,
+kbCtrlPgUp  = 0x8400,   kbCtrlTab   = 0x9400,   kbAltHome   = 0x9700,
+kbAltPgUp   = 0x9900,   kbAltEnd    = 0x9F00,   kbAltPgDn   = 0xA100,
+kbAltIns    = 0xA200,   kbAltDel    = 0xA300,   kbAltTab    = 0xA500,
 kbNoKey     = 0x0000,   kbF11       = 0x8500,   kbF12       = 0x8600,
 
 //  Keyboard state and shift masks

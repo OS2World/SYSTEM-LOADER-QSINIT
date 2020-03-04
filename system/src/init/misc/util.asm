@@ -192,6 +192,34 @@ _memcpy         endp
 
 
 ;----------------------------------------------------------------
+;void* __stdcall memcpyw(void *dst, const void *src, u32t length);
+                public  _memcpyw                                ;
+_memcpyw        proc    near                                    ;
+@@cpw_dst       =  4                                            ;
+@@cpw_src       =  8                                            ;
+@@cpw_length    = 12                                            ;
+                mov     ecx,[esp+@@cpw_length]                  ;
+                jecxz   @@cpw_exit                              ;
+                push    edi                                     ;
+                cld                                             ;
+                mov     edi,[esp+4+@@cpw_dst]                   ;
+                push    esi                                     ;
+                shr     ecx,1                                   ;
+                mov     esi,[esp+8+@@cpw_src]                   ;
+                jz      @@cpw_lastbyte                          ;
+            rep movsw                                           ;
+@@cpw_lastbyte:
+                jnc     @@cpw_nlb                               ;
+                movsb                                           ;
+@@cpw_nlb:
+                pop     esi                                     ;
+                pop     edi                                     ;
+@@cpw_exit:
+                mov     eax,[esp+@@cpw_dst]                     ;
+                ret     12                                      ;
+_memcpyw        endp
+
+;----------------------------------------------------------------
 ;void* __stdcall memmove(void *dst, void *src, u32t length);
                 public  _memmove                                ;
 _memmove        proc    near                                    ;
@@ -372,6 +400,7 @@ _strnicmp       endp                                            ;
 _strlen         proc near
 @@str         =  4                                              ;
                 push    edi                                     ;
+                cld                                             ;
                 xor     ecx,ecx                                 ;
                 xor     edi,edi                                 ; avoid supplied
                 or      edi,dword ptr [esp+4+@@str]             ; NULL (return 0)
@@ -394,9 +423,11 @@ _strchr         proc near
 @@src           =  4                                            ;
 @@cc            =  8                                            ;
                 xor     eax,eax                                 ;
+                movzx   ecx,byte ptr [esp+@@cc]                 ;
+                cld                                             ;
+                jecxz   @@strchr_zero                           ; search for zero
                 push    esi                                     ;
-                mov     ecx, [esp+4+@@cc]                       ;
-                mov     esi, [esp+4+@@src]                      ;
+                mov     esi,[esp+4+@@src]                       ;
 @@strchr_loop:
                 lodsb                                           ;
                 test    al,al                                   ;
@@ -406,6 +437,14 @@ _strchr         proc near
                 lea     eax,[esi-1]                             ;
 @@strchr_fail:
                 pop     esi                                     ;
+                ret     8                                       ;
+@@strchr_zero:
+                push    edi                                     ;
+                mov     edi,[esp+4+@@src]                       ;
+                dec     ecx                                     ;
+          repne scasb                                           ;
+                lea     eax,[edi-1]                             ;
+                pop     edi                                     ;
                 ret     8                                       ;
 _strchr         endp                                            ;
 
@@ -1524,8 +1563,8 @@ _sys_setcr3     proc    near                                    ;
                 inc     eax                                     ; set register first
                 jz      @@spgr_nocr3                            ; and variable next!!
                 dec     eax                                     ;
-                mov     cr3,eax                                 ; this skip var update in
-                mov     _syscr3,eax                             ; case of catched exception
+                mov     cr3,eax                                 ; this will skip var update in
+                mov     _syscr3,eax                             ; the case of catched exception
 @@spgr_nocr3:
                 mov     eax,[esp+12]                            ;
                 inc     eax                                     ;
@@ -1567,7 +1606,7 @@ _sys_rmtstat    endp                                            ;
 ; void _std mt_yield(void);
 ; void _std mt_swunlock(void);
 ;----------------------------------------------------------------
-; preserve all, except flags, because called asm code too.
+; preserve all, except flags, because called by asm code too.
 ; i.e. this is pure thread switiching point, which saves all.
                 public  _mt_yield, _mt_swunlock                 ;
 _mt_yield       proc    near                                    ;

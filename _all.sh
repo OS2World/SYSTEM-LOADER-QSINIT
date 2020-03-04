@@ -14,8 +14,16 @@ fi
 cd system/src/init
 . ./make.sh $1 $2
 
+# * efi 32-bit code *
+cd ../ldrefi
+. ./make.sh 1 $1 $2
+
 # * ldi *
 cd ../ldrapps
 . ./make.sh $1 $2
 
-cd ../../..
+# * biostab.exe * just useful
+cd ../usrapps/biostab
+. ./make.sh $1 $2
+
+cd ../../../..

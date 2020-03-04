@@ -16,8 +16,9 @@ CODE32          segment para public USE32 'CODE'
                 extrn   _thunk_panic:near                       ;
                 extrn   _mt_swlock:near                         ;
                 extrn   _mt_swunlock:near                       ;
-                extrn   _sys_exfunc4:near                       ;
                 extrn   _log_printf :near                       ;
+                extrn   _hlp_dumpregs:near                      ;
+                extrn   _exit_with_popup:near                   ;
                 extrn   _mt_exechooks:mt_proc_cb_s              ;
 
 ; call interception thunk
@@ -117,6 +118,8 @@ _chain_entry    label   near
 @@chain_calldone:
                 push    ebp                                     ;
                 pushfd                                          ;
+                cmp     ebp,PAGESIZE                            ; avoid trap on page 0
+                jc      @@chain_realpanic                       ; access
                 cmp     [ebp].es_sign,EXIT_SIGN                 ;
                 jnz     @@chain_realpanic                       ;
                 call    _mt_swlock                              ;
@@ -144,7 +147,7 @@ _chain_entry    label   near
                 popfd                                           ;
                 ret                                             ;
 
-@@fname         db      'chaina.asm',0                          ;
+@@errmsg        db      'Exit chain failure (register ebp damaged)',0 ;
 @@chain_realpanic:
 ;  really bad - we`re do not know point to return here
                 pushad                                          ;
@@ -154,11 +157,12 @@ _chain_entry    label   near
                 popad                                           ;
                 popfd                                           ;
                 pop     ebp                                     ;
-; generate exception with all registers, flags & esp preserved
-                push    144                                     ; line 
-                push    offset @@fname                          ; filename
-                push    0FFFDh                                  ; xcpt_hookerr
-                call    _sys_exfunc4                            ; _throw_ it
+; dump all registers and call exit() (still fatal for pid 1)
+                call    _hlp_dumpregs                           ;
+
+                push    255                                     ;
+                push    offset @@errmsg                         ;
+                call    _exit_with_popup                        ;
 
 CODE32          ends
                 end

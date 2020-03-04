@@ -14,7 +14,7 @@ exports = {
    _vol_index        = { index =  32  group = "disk"   format = "ib&*@u"  }
    _dsk_getptgeo     = { index =  33  group = "disk"   format = "@u@up"   }
    _dsk_getmap       = { index =  34  group = "disk"   format = "p@u"     }
-   _vol_mount        = { index =  35  group = "disk"   format = "@u*@!b@ui" }
+   _vol_mount        = { index =  35  group = "disk"   format = "@u*@!b@ui@u" }
    _dsk_partcnt      = { index =  36  group = "disk"   format = "i@u"     }
    # ordinal 37 reserved (moved to START)
    _dsk_ptquery64    = { index =  38  group = "disk"   format = "b@uu&*@q&*@q&s&*@u" }
@@ -62,11 +62,6 @@ exports = {
 
    _exit_bootmbr     = { index =  70  group = "exit"   format = "i@u@u"   } # boot
    _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uicp"  }
-
-   # ordinal 80 reserved (moved to START)
-   _dsk_guidtostr    = { index =  81  group = "dmhelp" format = "ip&s"    }
-   _dsk_strtoguid    = { index =  82  group = "dmhelp" format = "isp"     }
-   _dsk_makeguid     = { index =  83  group = "dmhelp" format = "vp"      }
 
    _lvm_diskinfo     = { index =  90  group = "lvm"    format = "i@up"    } # a bit of lvm
    _lvm_partinfo     = { index =  91  group = "lvm"    format = "i@uup"   }

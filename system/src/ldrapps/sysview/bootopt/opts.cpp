@@ -104,11 +104,12 @@ void  opts_bootkernel(char *name, char *opts) {
    TProgram::application->redraw();
 }
 
-void  opts_loadldr(char *name) {
+u32t opts_loadldr(char *name) {
    TProgram::application->suspend();
-   exit_restart(name);
+   u32t rc = exit_restart(name,0,0);
    TProgram::application->resume();
    TProgram::application->redraw();
+   return rc;
 }
 
 void  opts_run(char *cmdline, int echoon, int pause) {
@@ -270,12 +271,14 @@ void  opts_bootkernel(char *name, char *opts) {
    TProgram::application->redraw();
 }
 
-void  opts_loadldr(char *name) {
+unsigned long opts_loadldr(char *name) {
    TProgram::application->suspend();
    printf("[%s]\npress any key\n",name);
    getch();
    TProgram::application->resume();
    TProgram::application->redraw();
+   // E_SYS_UNSUPPORTED
+   return 14;
 }
 
 void  opts_run(char *cmdline, int echoon, int pause) {

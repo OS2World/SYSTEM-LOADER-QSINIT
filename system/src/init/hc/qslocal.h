@@ -27,6 +27,7 @@ int   _std tolower     (int cc);
 u32t  _std strlen      (const char *str);
 u32t  _std wcslen      (const u16t *str);
 u16t       ff_convert  (u16t chr, unsigned int dir);
+u32t       env_length  (const char *env);
 
 void       mem_procexit(process_context *pq);
 u32t       hlp_fopen2  (const char *name, int allow_pxe);
@@ -53,6 +54,9 @@ extern u16t           ComPortAddr;
 extern u32t              BaudRate;
 
 extern u32t         cvio_ttylines;
+extern void             *init_env;
+
+extern u16t                cp_num;
 
 #ifndef EFI_BUILD
 /// check/reset BIOS Ctrl-Break flag in 040:0071h
@@ -60,9 +64,26 @@ int   _std check_cbreak(void);
 /// boot flags
 extern u8t           dd_bootflags,
                       dd_bootdisk;
+extern u32t        transition_ptr;  ///< ecx value at loader start
 #endif
 
 /// get current thread data
 mt_thrdata* _std mt_curthread(void);
+
+/* - - - - - - - - - - - - - - - - - */
+typedef struct {
+   u32t                  sign;
+   u32t                 crc32;
+   u32t                length;
+   u32t                  type;
+} transition_data;
+
+#define TRND_ENV                1         ///< block with env. data
+#define TRND_CMDHIST            2         ///< block with shell history list
+#define TRND_CODEPAGE           3         ///< codepage selected
+#define TRND_LAST      0x80000000         ///< last block flag
+#define TRND_SIGN      0x444E5254
+
+#define next_trblock(td) ((transition_data*)((u8t*)(td+1) + Round16(td->length)))
 
 #endif // QSINIT_LOCAL_HEADER

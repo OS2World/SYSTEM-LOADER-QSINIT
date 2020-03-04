@@ -9,7 +9,6 @@
 #include "vioext.h"
 #include "time.h"
 
-#define ML_Y   (1)           ///< vertical menu position
 #define HELP_Y (-2)          ///< offset of help str from the bottom of screen
 #define SLEEP_TIME (20)      ///< key_wait interval
 
@@ -21,10 +20,22 @@ static char  *kmenu_help = 0,
              *cmenu_help = 0,
              *pmenu_help = 0,
              *eline_help = 0,
-               *FXaction[12];
+               *FXaction[12],
+               *wait_msg = 0,
+              *wait_msg1 = 0,
+               *stop_msg = 0;
 static int      m_inited = 0,
              firstlaunch = 1;
-static int      no_clock = 0;
+static int      no_clock = 0,
+                no_title = 0;
+static int       m_width = 78,
+                m_height = 0,
+                m_center = 0,
+                  m_view = 0;
+static u32t in_menu_wait = 0,
+                  mpos_x = 1,
+                  mpos_y = 1;
+static qsclock inm_clock = 0;
 
 union {
    u32t pl;
@@ -39,32 +50,67 @@ static char  menu_fp[16],
 #define getFXindex(keyh) (keyh>=0x3B && keyh<=0x44? keyh-0x3B: keyh-0x85+10)
 #define isFXaction(keyh) (isFXkey(keyh) && FXaction[getFXindex(keyh)])
 
-static void DrawMenuBorder(int line, int chr) {
+static void DrawMenuLine(int line) {
+   u8t buf[160], *bptr = buf;
+   int   bl_pos = m_view==1?1:0, ii;
+
+   for (ii=0; ii<m_width; ii++) {
+      int border = ii==bl_pos || ii==m_width-1-bl_pos;
+      if (m_view==1) {
+         *bptr++ = border ? 0xB3 : ' ';
+         *bptr++ = MenuPalette.pa[3];
+      } else {
+         *bptr++ = 0xDB;
+         *bptr++ = MenuPalette.pa[border?3:2];
+      }
+   }
+   if (m_view==1) line++;
+   vio_writebuf(mpos_x, mpos_y+line, m_width, 1, buf, 0);
+}
+
+static void DrawMenuBorder(int bottom) {
    u8t buf[160], *bptr = buf;
    int ii;
-   for (ii=0;ii<78;ii++) { *bptr++=chr; *bptr++=MenuPalette.pa[3]; }
-   vio_writebuf(1,line,78,1,buf,0);
+   
+   for (ii=0; ii<m_width; ii++) {
+      u8t col = MenuPalette.pa[3];
+      if (m_view==1) {
+         if (ii==0 || ii==m_width-1) {
+            col = MenuPalette.pa[3];
+            *bptr++ = ' ';
+         } else
+         if (ii==1) *bptr++ = bottom?0xC0:0xDA; else
+         if (ii==m_width-2) *bptr++ = bottom?0xD9:0xBF; else
+            *bptr++ = 0xC4;
+      } else
+         *bptr++=bottom?0xDF:0xDC;
+      *bptr++=col;
+   }
+   vio_writebuf(mpos_x, mpos_y+(bottom?m_height-1:0), m_width, 1, buf, 0);
+   // empty line in alt. view mode
+   if (m_view==1) DrawMenuLine(bottom?m_height-3:0);
 }
 
 static void DrawMenuTopText(int pos, char *str) {
    u8t  buf[160], *bp = buf,
         col = MenuPalette.pa[3]<<4|MenuPalette.pa[3]>>4;
    int  len = strlen(str);
-   if (!len || len>68) return;
+   if (!len || len>m_width-10) return;
    if (pos<0) pos = -pos-len-2;
 
    *bp++=' '; *bp++=col;
    *bp++=toupper(*str++); *bp++=col;
    while (--len) { *bp++=*str?*str++:' '; *bp++=col; }
    *bp++=' '; *bp++=col;
-   vio_writebuf(pos, ML_Y, bp-buf>>1, 1, buf, 0);
+   vio_writebuf(mpos_x+pos, mpos_y, bp-buf>>1, 1, buf, 0);
 }
 
 static void DrawMenuTop(int full) {
    if (no_clock>0) {
       if (!full) return;
-      DrawMenuBorder(ML_Y, 0xDC);
-      if (menu_title[0]) DrawMenuTopText(-76, menu_title);
+      DrawMenuBorder(0);
+      if (!no_title && menu_title[0])
+         DrawMenuTopText(-mpos_x-m_width+3, menu_title);
    } else {
       char  cstr[16];
       struct tm  tmd;
@@ -74,6 +120,7 @@ static void DrawMenuTop(int full) {
       
       if (!full) full = strcmp(cstr, menu_time);
       if (full) {
+         int pmove = m_view==1?2:0;
          strcpy(menu_time, cstr);
          // Fri,13  May,30 (qsinit`s birthday ;) Dec,31 & Jan, 1
          if (no_clock<0 || tmd.tm_mday==13 && tmd.tm_wday==5 || tmd.tm_mday==30
@@ -81,24 +128,16 @@ static void DrawMenuTop(int full) {
                tmd.tm_mday==1 && tmd.tm_mon==0)
                   strftime(menu_fp, sizeof(menu_time), "%a,%e", &tmd);
                      else menu_fp[0] = 0;
-         DrawMenuBorder(ML_Y, 0xDC);
-         DrawMenuTopText(-79, menu_time);
-         if (menu_fp[0]) DrawMenuTopText(1, menu_fp);
-         if (menu_title[0]) DrawMenuTopText(-71, menu_title);
+         DrawMenuBorder(0);
+         DrawMenuTopText(-m_width+pmove, menu_time);
+         if (menu_fp[0]) DrawMenuTopText(pmove, menu_fp);
+         if (!no_title && menu_title[0])
+            DrawMenuTopText(-m_width+8+pmove, menu_title);
       }
    }
 }
 
-static void DrawMenuLine(int line) {
-   u8t buf[160], *bptr = buf;
-   int ii;
-   for (ii=0;ii<78;ii++) {
-      *bptr++=0xDB;
-      *bptr++=MenuPalette.pa[ii==0||ii==77?3:2];
-   }
-   vio_writebuf(1,line,78,1,buf,0);
-}
-
+// help string draw
 static void DrawColoredText(int line, int column, char *text, u8t color) {
    u8t buf[160], *bptr = buf;
    while (*text) {
@@ -108,48 +147,100 @@ static void DrawColoredText(int line, int column, char *text, u8t color) {
    vio_writebuf(column,line,bptr-buf>>1,1,buf,0);
 }
 
+// line = 1..n
 static void DrawKernelMenuText(int line, int idx, int sel, str_list *items) {
-   u8t   buf[160], *bptr = buf,
-         col = sel?MenuPalette.pa[0]<<4|MenuPalette.pa[1]:
+   u8t   buf[160],
+         col = sel && m_view!=1?MenuPalette.pa[0]<<4|MenuPalette.pa[1]:
                MenuPalette.pa[2]<<4|MenuPalette.pa[0];
    char *txt = strchr(items->item[idx-1],'=');
-   char   cc;
-   int    ii;
+   int    bw = m_view==1?2:1, ii,
+        txtw = m_width - bw*2,
+        spcw = m_view==1?4:2;
    if (txt) txt++;
 
-   *bptr++=' '; *bptr++=col;
-   *bptr++=(idx<10?'0':'A'-10)+idx; *bptr++=col;
-   *bptr++='.'; *bptr++=col;
-   *bptr++=' '; *bptr++=col;
-   cc=1;
-   for (ii=0;ii<72;ii++) {
-      if (cc&&txt) cc=*txt++;
-      if (cc==',') cc=0;
-      *bptr++=cc?cc:' '; *bptr++=col;
+   memsetw((u16t*)&buf, (u16t)col<<8|' ', txtw);
+
+   if (m_view==1 && sel) {
+      buf[2*2] = 0x10;
+      buf[(txtw-2)*2] = 0x11;
    }
-   vio_writebuf(2,line,76,1,buf,0);
+   if (m_view==0) {
+      buf[1*2] = (idx<10?'0':'A'-10)+idx;
+      buf[2*2] = '.';
+   }
+   for (ii=0; ii<txtw-4-spcw; ii++) {
+      char cc = *txt++;
+      if (!cc || cc==',') break;
+      buf[4+ii<<1] = cc;
+   }
+   if (m_view==1) line++;
+   vio_writebuf(mpos_x+bw, mpos_y+line, txtw, 1, buf, 0);
+}
+
+static void DrawCommonMenuLine(int line, char *txt, int sel, int mark) {
+   u8t   buf[160],
+         col = sel && m_view==0?MenuPalette.pa[0]<<4|MenuPalette.pa[1]:(
+               sel && m_view==1?MenuPalette.pa[1]:(
+               MenuPalette.pa[2]<<4|MenuPalette.pa[0]));
+   int    bw = m_view==1?2:1,
+        txtw = m_width - bw*2;
+
+   if (txt[0]=='-' && txt[1]==0) {
+      u16t lcol = MenuPalette.pa[2]<<12|MenuPalette.pa[3]<<8;
+      if (m_view==1) {
+         txtw+=2;
+         bw  -=1;
+         memsetw((u16t*)&buf, lcol|0xC4, txtw);
+         buf[0] = 0xC3;
+         buf[txtw-1<<1] = 0xB4;
+      } else
+         memsetw((u16t*)&buf, lcol|0xCD, txtw);
+   } else {
+      int spcw = m_view==1?4:2, ii;
+      memsetw((u16t*)&buf, (u16t)col<<8|' ', txtw);
+
+      if (m_view==1 && sel) {
+         buf[2*2] = 0x10;
+         buf[(txtw-2)*2] = 0x11;
+      }
+      if (m_view==0 && mark) buf[1*2] = 0xF9;
+
+      for (ii=0; ii<txtw-spcw*2; ii++) {
+         char cc = *txt++;
+         if (!cc) break;
+         buf[spcw+ii<<1] = cc;
+      }
+   }
+   if (m_view==1) line++;
+   vio_writebuf(mpos_x+bw, mpos_y+line, txtw, 1, buf, 0);
 }
 
 static void DrawCommonMenuText(int line, int idx, int sel, str_list *items, int mark) {
-   u8t   buf[160], *bptr = buf,
-         col = sel?MenuPalette.pa[0]<<4|MenuPalette.pa[1]:
-               MenuPalette.pa[2]<<4|MenuPalette.pa[0];
-   char *txt = items->item[idx-1];
+   DrawCommonMenuLine(line, items->item[idx-1], sel, mark);
+}
 
-   if (txt[0]=='-' && txt[1]==0) {
-      memsetw((u16t*)bptr, MenuPalette.pa[2]<<12|MenuPalette.pa[3]<<8|0xCD, 76);
-   } else {
-     char   cc;
-     int    ii;
+static void DrawInMenuTimeout(int timeout, int init) {
+   char     *str = 0;
+   str_list *lst;
+   if (timeout>0) {
+      if (timeout==1) str = wait_msg1;
+      if (!str) str = wait_msg;
+      str = sprintf_dyn(str, timeout);
+   } else
+      str = strdup(stop_msg);
+   lst = cmd_splittext(str, m_width - (m_view==1?6:3)*2, SplitText_NoAnsi);
 
-     *bptr++=' '; *bptr++=col;
-     if (mark) { *bptr++=0xF9; *bptr++=col; } else { *bptr++=' '; *bptr++=col; }
-     for (ii=0;ii<74;ii++) {
-        if ((cc=*txt)!=0) txt++;
-        *bptr++=cc?cc:' '; *bptr++=col;
-     }
+   if (init) {
+      int ii;
+      for (ii=0; ii<3; ii++) DrawMenuLine(m_height-4-ii);
    }
-   vio_writebuf(2,line,76,1,buf,0);
+   DrawCommonMenuLine(m_height-6, "", 0, 0);
+   DrawCommonMenuLine(m_height-5, lst->item[0], 0, 0);
+   DrawCommonMenuLine(m_height-4, lst->count>1?lst->item[1]:"", 0, 0);
+
+   free(lst);
+   free(str);
+   inm_clock = sys_clock() + CLOCKS_PER_SEC - CLOCKS_PER_SEC/20;
 }
 
 static int KeyToKNumber(char key, int kerncnt) {
@@ -175,7 +266,7 @@ void InitParameters(void) {
    u32t ii;
    if (m_inited) return;
    m_inited   = 1;
-   kmenu_help = m_ini->getstr("common", "km_help", "[Esc] - shell, menu.ini is missing!");
+   kmenu_help = m_ini->getstr("common", "km_help", "");
    cmenu_help = m_ini->getstr("common", "cm_help", "");
    pmenu_help = m_ini->getstr("common", "pm_help", "");
    eline_help = m_ini->getstr("common", "nw_help", "");
@@ -185,7 +276,24 @@ void InitParameters(void) {
       FXaction[ii] = m_ini->getstr("common",key,0);
    }
    // env_istrue() return -1 if no string, so check it first
-   if (getenv(noclock_key)) no_clock = env_istrue("menu_no_clock");
+   if (m_ini->getuint("common", "noclock", 0)) no_clock = 1; else
+      if (getenv(noclock_key)) no_clock = env_istrue("menu_no_clock");
+
+   no_title = m_ini->getuint("common", "notitle", 0);
+   m_width  = m_ini->getuint("common", "width", 78);
+   m_center = m_ini->getuint("common", "center", 0);
+   m_view   = m_ini->getuint("common", "view", 0);
+   if (m_view>1) m_view = 0;
+   if (m_width>78) m_width = 78;
+   if (m_width<20) m_width = 20;
+
+   in_menu_wait = m_ini->getuint("common", "in_menu_wait", 0);
+   if (in_menu_wait) {
+      if (in_menu_wait<3) in_menu_wait = 3;
+      wait_msg1 = m_ini->getstr("common", "wait_msg_1s", 0);
+      wait_msg  = m_ini->getstr("common", "wait_msg" , "");
+      stop_msg  = m_ini->getstr("common", "stop_msg" , "");
+   }
 }
 
 void DoneParameters(void) {
@@ -196,6 +304,10 @@ void DoneParameters(void) {
    if (cmenu_help) { free(cmenu_help); cmenu_help=0; }
    if (pmenu_help) { free(pmenu_help); pmenu_help=0; }
    if (eline_help) { free(eline_help); eline_help=0; }
+   if (wait_msg1) { free(wait_msg1); wait_msg1=0; }
+   if (wait_msg) { free(wait_msg); wait_msg=0; }
+   if (stop_msg) { free(stop_msg); stop_msg=0; }
+
    for (ii=0; ii<12; ii++)
       if (FXaction[ii]) { free(FXaction[ii]); FXaction[ii]=0; }
 }
@@ -213,6 +325,25 @@ static void run_onmenu(void) {
 static void play(u32t hz, u32t ms) {
    vio_beep(hz, ms);
    usleep(ms*1000);
+}
+
+static void update_menu_pos(int mtype, u32t lines) {
+   u32t mx, my;
+   vio_getmode(&mx,&my);
+   lines += m_view==1?4:2;
+   if (in_menu_wait && firstlaunch && mtype==1) lines+=3;
+
+   if (m_width>mx) m_width = mx-2;
+   if (lines>my) lines = my-2;
+   m_height = lines;
+
+   if (!m_center) {
+      mpos_x = 1;
+      mpos_y = 1;
+   } else {
+      mpos_x = mx-m_width>>1;
+      mpos_y = my-m_height>>1;
+   }
 }
 
 // show "waiting..." if no kernels/partitions to select from
@@ -260,6 +391,7 @@ int MenuKernel(char *rcline, int errors) {
    if (defcfg<=0 || defcfg>kl->count) defcfg=1;
 
    vio_getmode(0,&lines);
+   update_menu_pos(0, kl->count);
 
    if (kl->count >= 1) {
       int  key = 0;
@@ -271,12 +403,12 @@ int MenuKernel(char *rcline, int errors) {
       // and draw menu with or without clock
       DrawMenuTop(1);
       for (ii = 1; ii <= kl->count; ii++) {
-         DrawMenuLine(ML_Y+ii);
-         DrawKernelMenuText(ML_Y+ii, ii, ii == defcfg, kl);
+         DrawMenuLine(ii);
+         DrawKernelMenuText(ii, ii, ii == defcfg, kl);
       }
-      DrawMenuBorder(ML_Y+1+kl->count,0xDF);
+      DrawMenuBorder(1);
       DrawColoredText(lines+HELP_Y, 2, kmenu_help, 0x08);
-      vio_setpos(ML_Y+1+kl->count, 0);
+      vio_setpos(mpos_y+m_height, 0);
       vio_charout('\n');
       if (usebeep) { play(600,100); play(500,100); play(600,100); }
       // drop timeout on second and later menu launch
@@ -335,8 +467,8 @@ int MenuKernel(char *rcline, int errors) {
                   }
                   if (!defcfg) defcfg=kl->count; else
                   if (defcfg>kl->count) defcfg=1;
-                  DrawKernelMenuText(ML_Y+prev, prev, 0, kl);
-                  DrawKernelMenuText(ML_Y+defcfg, defcfg, 1, kl);
+                  DrawKernelMenuText(prev, prev, 0, kl);
+                  DrawKernelMenuText(defcfg, defcfg, 1, kl);
 
                   if (usebeep)
                      if (defcfg!=1) play(5000,100); else {
@@ -445,7 +577,7 @@ int MenuKernel(char *rcline, int errors) {
          } else {
             char buf[256];
             log_printf("[%s]\n",modname);
-            exit_restart(modname);
+            exit_restart(modname, 0, 0);
             sprintf(buf,"echo\necho Unable to find OS2LDR file \"%s\"!\necho\npause",modname);
             strcpy(initln,buf);
          }
@@ -459,8 +591,10 @@ int MenuKernel(char *rcline, int errors) {
 #define is_menu_item(idx) (values->item[(idx)-1][0]=='@')
 
 int MenuCommon(char *menu, char *rcline, u32t pos) {
-   str_list *keys, *values;
-   u32t ii, selected = pos?pos:1, rc = 1, lines=25;
+   str_list   *keys, *values;
+   u32t    selected = pos?pos:1, rc = 1, lines=25, ii;
+   int      timeout = -1;
+
    if (!menu) return 0;
    keys = m_ini->keylist(menu, &values);
    if (!keys) return 0;
@@ -525,8 +659,10 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
    if (!keys->count) { free(keys); free(values); return 0; }
 
    vio_getmode(0,&lines);
+   update_menu_pos(1, keys->count);
 
-   MenuPalette.pl = m_ini->getuint("common", palette_key, 0x0F070F01);
+   MenuPalette.pl = m_ini->getuint("common", palette_key,
+                                   m_view==1?0xF80F0708:0x0F070F01);
    if (selected>keys->count) selected = 1;
 
    strncpy(menu_title, menu, sizeof(menu_title));
@@ -537,23 +673,31 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
    vio_clearscr();
    DrawMenuTop(1);
    for (ii = 1; ii <= keys->count; ii++) {
-      DrawMenuLine(ML_Y+ii);
-      DrawCommonMenuText(ML_Y+ii, ii, ii == selected, keys, is_menu_item(ii));
+      DrawMenuLine(ii);
+      DrawCommonMenuText(ii, ii, ii == selected, keys, is_menu_item(ii));
    }
-   DrawMenuBorder(ML_Y+1+keys->count,0xDF);
-
+   DrawMenuBorder(1);
    DrawColoredText(lines+HELP_Y, 2, cmenu_help, 0x08);
-   vio_setpos(ML_Y+1+keys->count, 0);
+   vio_setpos(mpos_y+m_height, 0);
    vio_charout('\n');
-   if (firstlaunch) { firstlaunch=0; run_onmenu(); }
+   if (firstlaunch) { 
+      firstlaunch=0;
+      run_onmenu();
+      if (in_menu_wait) DrawInMenuTimeout(timeout = in_menu_wait, 1);
+   }
+   vio_setshape(VIO_SHAPE_NONE);
 
    ii = 0;
    while (1) {
-      u16t key  = no_clock>0 ? key_read() : key_wait(SLEEP_TIME);
+      u16t key  = no_clock>0 && timeout<0 ? key_read() :
+                  key_wait(timeout>=0?1:SLEEP_TIME);
       u8t  keyh = key>>8,
            keyl = key&0xFF;
 
       DrawMenuTop(0);
+      if (timeout>0 && sys_clock()>inm_clock)
+         if (--timeout==0) { selected=1; break; }
+            else DrawInMenuTimeout(timeout, 0);
       if (!key) continue;
 
       if (keyh==0x48||keyh==0x50||keyh==0x47||keyh==0x4F) {
@@ -570,11 +714,16 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
          // check and update menu lines
          if (!selected) selected=keys->count; else
          if (selected>keys->count) selected=1;
-         DrawCommonMenuText(ML_Y+prev, prev, 0, keys, is_menu_item(prev));
-         DrawCommonMenuText(ML_Y+selected, selected, 1, keys, is_menu_item(selected));
+         DrawCommonMenuText(prev, prev, 0, keys, is_menu_item(prev));
+         DrawCommonMenuText(selected, selected, 1, keys, is_menu_item(selected));
       } else
       // escape/backspace pressed second time
       if (keyl==0x1B||keyh==0x0E) {
+         // first esc stops timer
+         if (keyl==0x1B && timeout>0) {
+            DrawInMenuTimeout(timeout = 0, 0);
+            continue;
+         }
          vio_clearscr();
          rc = 0;
          break;
@@ -600,6 +749,7 @@ int MenuCommon(char *menu, char *rcline, u32t pos) {
          }
       }
    }
+   vio_setshape(VIO_SHAPE_LINE);
    if (rc) rc = selected;
    free(values);
    free(keys);
@@ -620,6 +770,7 @@ int MenuPtBoot(char *rcline) {
    MenuPalette.pl = m_ini->getuint("common", "ptpalette", 0x0F070F01);
 
    vio_getmode(0,&lines);
+   update_menu_pos(0, kl->count);
    // fix wrong number
    if (defcfg<=0 || defcfg>kl->count) defcfg=1;
 
@@ -632,12 +783,12 @@ int MenuPtBoot(char *rcline) {
          menu_title[0] = 0;
          DrawMenuTop(1);
          for (ii = 1; ii <= kl->count; ii++) {
-            DrawMenuLine(ML_Y+ii);
-            DrawKernelMenuText(ML_Y+ii, ii, ii == defcfg, kl);
+            DrawMenuLine(ii);
+            DrawKernelMenuText(ii, ii, ii == defcfg, kl);
          }
-         DrawMenuBorder(ML_Y+1+kl->count,0xDF);
+         DrawMenuBorder(1);
          DrawColoredText(lines+HELP_Y, 2, pmenu_help, 0x08);
-         vio_setpos(ML_Y+1+kl->count, 0);
+         vio_setpos(mpos_y+m_height, 0);
          vio_charout('\n');
          if (usebeep) { play(600,100); play(500,100); play(600,100); }
          // drop timeout on second and later menu launch
@@ -687,8 +838,8 @@ int MenuPtBoot(char *rcline) {
                      if (!defcfg) defcfg=kl->count; else
                      if (defcfg>kl->count) defcfg=1;
 
-                     DrawKernelMenuText(ML_Y+prev, prev, 0, kl);
-                     DrawKernelMenuText(ML_Y+defcfg, defcfg, 1, kl);
+                     DrawKernelMenuText(prev, prev, 0, kl);
+                     DrawKernelMenuText(defcfg, defcfg, 1, kl);
    
                      if (usebeep)
                         if (defcfg!=1) play(5000,100); else {

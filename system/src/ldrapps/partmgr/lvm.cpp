@@ -533,6 +533,8 @@ qserr _std lvm_setname(u32t disk, u32t index, u32t nametype, const char *name) {
    rc = lvm_checkinfo(disk);
    if (rc) return rc;
    if (nametype && index>=hi->pt_view) return E_PTE_PINDEX;
+   // wrong action key
+   if (nametype&~(LVMN_PARTITION|LVMN_VOLUME)) return E_SYS_INVPARM;
    // disk name
    if (!nametype) {
 
@@ -626,8 +628,14 @@ qserr _std lvm_wipeall(u32t disk) {
 }
 
 qserr _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index) {
-   if (!disk||!name||!*name||(nametype&~(LVMN_PARTITION|LVMN_VOLUME)))
-      return E_SYS_INVPARM;
+   int  is_vol = nametype&(LVMN_PARTITION|LVMN_VOLUME) ? 1 : 0,
+       is_char = nametype&LVMN_LETTER ? 1 : 0;
+   // check args
+   if (!disk||!name||!*name) return E_SYS_INVPARM;
+   if (nametype&~(LVMN_PARTITION|LVMN_VOLUME|LVMN_LETTER)) return E_SYS_INVPARM;
+   if (is_vol+is_char>1) return E_SYS_INVPARM;
+   if (is_char && !isalpha(name[0])) return E_SYS_INVPARM;
+      
    if (nametype!=LVMN_DISK && !index) return E_SYS_INVPARM;
    if (strlen(name)>LVM_NAME_SIZE)
       return nametype==LVMN_DISK?E_LVM_DSKNAME:E_LVM_PTNAME;
@@ -658,18 +666,27 @@ qserr _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index
    } else {
       hdd_info *hi = get_by_disk(*disk);
       u32t     idx;
+      char    vltr = is_char ? toupper(name[0]) : 0;
       if (!hi) return E_DSK_DISKNUM;
       *index = FFFF;
       dsk_ptrescan(*disk,0);
       if (!hi->lvm_snum) return E_LVM_NOINFO;
 
+
       for (idx=0; idx<hi->pt_size; idx++)
          if (hi->dlat[idx>>2].DLA_Signature1) {
             DLA_Entry *de = &hi->dlat[idx>>2].DLA_Array[idx&3];
-            char  *ptname = nametype&LVMN_PARTITION ? de->Partition_Name :
-                            de->Volume_Name;
+            int     match = 0;
 
-            if (ptname[0] && strnicmp(name,ptname,LVM_NAME_SIZE)==0) {
+            if (vltr) {
+               if (de->Drive_Letter)
+                  match = toupper(de->Drive_Letter)==vltr;
+            } else {
+               char  *ptname = nametype&LVMN_PARTITION ? de->Partition_Name :
+                               de->Volume_Name;
+               match = ptname[0] && strnicmp(name,ptname,LVM_NAME_SIZE)==0;
+            }
+            if (match) {
                u32t ii;
                // search partition entry for this DLAT entry
                for (ii=0; ii<4; ii++) {

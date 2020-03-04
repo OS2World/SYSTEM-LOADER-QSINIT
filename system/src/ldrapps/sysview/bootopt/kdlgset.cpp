@@ -257,7 +257,9 @@ int SetupBootDlg(TKernBootDlg *dlg, char *kernel, char *opts) {
    }
 
    nm=opts_get("LETTER");
-   if (nm) setstr(dlg->k_letter,nm); else {
+   if (nm) setstr(dlg->k_letter,nm); else 
+   // current boot letter is wrong when source redirection active
+   if (!dlg->source) {
       bstr[0]=opts_bootdrive();
       bstr[1]=0;
       setstr(dlg->k_letter,bstr);

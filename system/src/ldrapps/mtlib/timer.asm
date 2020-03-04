@@ -121,7 +121,9 @@ _yield          label   near                                    ;
                 push    edx                                     ; cli also is a flag
                 cli                                             ; for timer32cb()
 
-                mov     eax,_apic                               ;
+                xor     eax,eax                                 ;
+                or      eax,_apic                               ;
+                jz      @@yie_tmrok                             ;
                 mov     edx,[eax+APIC_LVT_TMR*4]                ;
                 cmp     edx,APIC_DISABLE                        ;
                 jnz     @@yie_tmrok                             ;

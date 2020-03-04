@@ -72,6 +72,11 @@ u32t      _std se_foreground(void);
     Note, that no way to switch thread`s session to an existing one. Only
     a new session can be created.
 
+    Also note, that thread must reopen CON device if needed, since default
+    per-process std i/o console handle will deny any ops because of session
+    number mismatch. This note does not affect printf() function, but affect
+    fprintf(stdout/stderr,...) and analogues.
+
     @param devices     list of devices to use (in bits, 0..31). Use zero to
                        clone device list of current session. Note, that this
                        parameter also defines initial video mode for a new

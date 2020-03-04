@@ -8,7 +8,7 @@ void main(void) {
    OEMHLP_MEMINFO    mi;
    OEMHLP_MEMINFOEX xmi;
    HFILE           drvh = 0;
-   ULONG         action = 0, psize;
+   ULONG         action = 0, psize, ii;
    APIRET            rc;
 
    rc = DosOpen("\\DEV\\OEMHLP$", &drvh, &action, 0, FILE_NORMAL,
@@ -40,5 +40,19 @@ void main(void) {
       }
    }
 
+   for (ii=OEMHLP_TAB_ACPI; ii<=OEMHLP_TAB_MP; ii++) {
+      OEMHLP_BIOSTABLE  bt;
+      ULONG          asize = 2;
+      static const char *title[] = {"ACPI root", "SMBIOS", "SMBIOS v.3",
+         "Legacy DMI", "PNP BIOS", "BIOS32", "PCI Int.Routing", "Intel MP"};
+
+      psize = sizeof(bt);
+      rc    = DosDevIOCtl(drvh, IOCTL_OEMHLP, OEMHLP_GETBIOSTABLE, &ii, asize,
+                          &asize, &bt, psize, &psize);
+
+      if (!rc) printf("%-16s : %08X %5u bytes\n", title[ii], bt.Addr, bt.Length);
+   }
+
    DosClose(drvh);
 }
+

@@ -16,7 +16,7 @@ ifndef EFI_BUILD
           MFSDBASE       = 07C0h                                ; lowest MFSD phys address
           RIPLBASE       = 0800h                                ; lowest RIPL phys address
 
-          QSM_STACK16    = 3072                                 ; internal 16-bit stack size
+          QSM_STACK16    = 7168                                 ; internal 16-bit stack size
           QSM_STACK32    = 16384                                ; internal 32-bit stack size
 ;cc #if 0  // selectors in common & EFI build are different
           SELCODE        = 08h                                  ; TEXT16 code selector
@@ -30,7 +30,7 @@ ifndef EFI_BUILD
 ;cc #endif
 ;cr #endif // EFI_BUILD
 endif
-          STO_BUF_LEN    = 8                                    ; internal storage buffer size
+          STO_BUF_LEN    = 12                                   ; internal storage buffer size
           STOINIT_ESIZE  = 20                                   ; internal storage entry size
 
           MAX_QS_DISK    = 16                                   ; number of supported fdd+hdd

@@ -508,8 +508,6 @@ can be selected as a kernel for current boot.
     - 8, 12, 13 exceptions stops VPC VM (because of task gates used).
       Add "NOTASK=1" to OS2LDR.INI to disable task gates in this case.
 
-    - VPC does not support multitasking (no APIC timer).
-
     - VBox is much better, except PAE paging mode - it looks unstable
       (at least in VBox 4.x).
 
@@ -517,9 +515,11 @@ can be selected as a kernel for current boot.
       This is VBox bug in CPU _into_ command processing, just update QSINIT
       to more fresh version.
 
-   EFI version works in QEMU only (with TianoCore), but even here small bugs
-   still possible (at least CPU _xlat_ command cause troubles in amd64
-   compatible mode emulation).
+    - EFI version works in QEMU (with TianoCore), with possible small bugs
+      (CPU _xlat_ command looks unstable when 64-bit mode is on).
+
+    - in VBox make sure, that 64-bit EFI firmware is launched. OS selection
+      "Other" + "Unknown 64 bit" may help.
 
  * note, that huge USB HDDs can be non-operable via BIOS, especially on
    old motherboards. Only a starting part of disk can be readed, up to 128Gb,
@@ -535,6 +535,9 @@ can be selected as a kernel for current boot.
 
    "Detect size" option available in Disk Management dialog in SysView as well
    as "dmgr mode" command is able to set number of sectors directly.
+
+ * if old BIOS returns zeroed high dword of disk size (i.e. 700Gb instead of
+   2700Gb) and disk has GPT inside, then size can be fixed automatically.
 
  * pressing LEFT SHIFT key during load will cause skipping of QSSETUP.CMD and
    direct start of QSINIT shell (cmd.exe). This is some kind of emergency mode
@@ -710,12 +713,15 @@ HDD (in SysView) - this is real.
 
    Additional setup is available, by SET string in qssetup.cmd:
 
-     set mtlib = on/off [, timeres=..]
+     set mtlib = on/off [,noapic] [, timeres=..]
      set kbres = value
 
    where OFF parameter will disable MT mode at all, TIMERES set thread "tick"
 time, in milliseconds (default is 16 (4 in EFI build)) and KBRES is keyboard
 polling period (default is 18 ms (8 in EFI)).
+
+   NOAPIC forces to use inaccurate system timer (irq 0) instead of APIC.
+Anyway, this is still enough for QSINIT lazy multitasking.
 
    Shell command execution can be terminated by Ctrl-C in MT mode.
 
@@ -1019,8 +1025,8 @@ allows to solve possible problems with OS/4 loader.
    in 1st Mb.
 
    Min. system requirements: 80486DX, 24Mb of memory (first 16 is reserved for
-   OS/2 boot). Multithreading mode requires PPro at least, because of APIC
-   timer utilization.
+   OS/2 boot). Multithreading mode requires Pentium at least, because of rdtsc
+   instruction utilization.
 
    Small article on russian is available on RU/2, you can try to google
    translate it (at least half of text will be readable ;)

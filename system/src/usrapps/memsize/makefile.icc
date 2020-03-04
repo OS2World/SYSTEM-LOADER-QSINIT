@@ -21,7 +21,7 @@ OUT=$(OUTDIR)/
 CC=icc
 CXX=icc
 LINK=ilink
-EXENAME=memesize.exe
+EXENAME=memsize.exe
 
 result    : $(OUTDIR) $(EXENAME)
 

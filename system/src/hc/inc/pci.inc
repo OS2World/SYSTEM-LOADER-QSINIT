@@ -50,7 +50,7 @@ PCI_VENDOR_ID             = 0000h        ;
 PCI_DEVICE_ID             = 0002h        ;
 PCI_COMMAND               = 0004h        ;
 PCI_STATUS                = 0006h        ;
-PCI_CLASS_REV             = 0008h        ; 
+PCI_CLASS_REV             = 0008h        ;
 PCI_REVISION_ID           = 0008h        ; revision ID
 PCI_PROG_IF               = 0009h        ; programming interface
 PCI_DEV_CLASS             = 000Ah        ; device class
@@ -306,12 +306,13 @@ PCI_CB_DSP                = 0011h        ; data acquisition and signal processin
 PCI_CB_STRANGE            = 00FFh        ; device does not fit in any defined
 
 ; PCI_CB_STORAGE:
-PCI_CS_STORAGE_SCSI       = 0000h        ; SCSI bus controller          
+PCI_CS_STORAGE_SCSI       = 0000h        ; SCSI bus controller
 PCI_CS_STORAGE_IDE        = 0001h        ; IDE controller
-PCI_CS_STORAGE_FLOPPY     = 0002h        ; floppy disk controller       
-PCI_CS_STORAGE_IPI        = 0003h        ; IPI bus controller           
-PCI_CS_STORAGE_RAID       = 0004h        ; RAID controller              
-PCI_CS_STORAGE_ATA        = 0005h        ; ATA controller               
+PCI_CS_STORAGE_FLOPPY     = 0002h        ; floppy disk controller
+PCI_CS_STORAGE_IPI        = 0003h        ; IPI bus controller
+PCI_CS_STORAGE_RAID       = 0004h        ; RAID controller
+PCI_CS_STORAGE_ATA        = 0005h        ; ATA controller
+PCI_CS_STORAGE_SATA       = 0006h        ; SATA controller
 PCI_CS_STORAGE_OTHER      = 0080h        ; other mass storage controller
 
 ; PCI_CB_NETWORK:
@@ -325,7 +326,7 @@ PCI_CS_NET_PICMG          = 0006h        ; PICMG
 PCI_CS_NET_OTHER          = 0080h        ; other network controller
 
 ; PCI_CB_DISPLAY:
-PCI_CS_VIDEO_VGA          = 0000h        ; VGA-compatible controller.  
+PCI_CS_VIDEO_VGA          = 0000h        ; VGA-compatible controller.
 PCI_CS_VIDEO_XGA          = 0001h        ; XGA controller
 PCI_CS_VIDEO_3D           = 0002h        ; 3D controller
 PCI_CS_VIDEO_OTHER        = 0080h        ; other display controller

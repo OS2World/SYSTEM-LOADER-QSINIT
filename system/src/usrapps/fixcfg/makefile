@@ -8,7 +8,7 @@ CPP = @wpp386
 CFLAGS = -5s $(%QS_CFLAGS) $(%QS_WCCINC) -s -mf -oxs -fi=$(%QS_MHDR)
 CPPFLAGS = $(CFLAGS) -zv -i$(%QS_APPINC)/rt
 
-all : $(PRJNAME).exe
+all : pack
 
 FILE1 = fixcfg.obj
 FILE2 = process.obj
@@ -23,11 +23,13 @@ BUILDFILES = $(FILE1) $(FILE2)
       @echo $*.cpp
       $(CPP) $(CPPFLAGS) -fo=$@ $<
 
+pack: .SYMBOLIC $(PRJNAME).exe
+      @zip -q -9 -X -j $(%QS_BIN)/$(%QS_ARCH) $(PRJNAME).exe
+
 $(PRJNAME).exe : $(PRJNAME).lnk $(BUILDFILES)
       @echo Linking $(PRJNAME) ...
       @wlink @$(PRJNAME).lnk 
       @lxlite $(PRJNAME).exe >nul
-      @zip -q -9 -X -j $(%QS_BIN)/$(%QS_ARCH) $@
 
 clean: .SYMBOLIC
       @echo Cleaning $(PRJNAME) ...
@@ -48,6 +50,8 @@ $(PRJNAME).lnk : makefile
       @echo lib $(%QS_BASE)/ldrapps/runtime/runtime.lib>>$@
       @echo lib $(%QS_BASE)/ldrapps/runtime/cpplib.lib>>$@
       @echo lib $(%WATCOM)/lib386/plib3s.lib>>$@
+      @echo op map=$(PRJNAME).map>>$@
+      @echo op statics           >>$@
       @echo op quiet             >>$@
       @echo op el                >>$@
       @echo op internalrelocs    >>$@

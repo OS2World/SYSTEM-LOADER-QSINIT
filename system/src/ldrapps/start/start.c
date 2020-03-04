@@ -21,6 +21,7 @@ void setup_storage(void);
 void setup_hardware(void);
 void setup_sessions(void);
 void setup_tasklist(void);
+void check_codepage(void);
 void check_version(void);
 int  get_ini_parms(void);
 int  unpack_ldi(void);
@@ -75,6 +76,8 @@ void _std mod_main(void) {
    } else {
       if (hlp_hosttype()==QSHT_BIOS) setup_exceptions(1);
       key_speed(0,0);
+      // check for codepage, inherited via RESTART
+      check_codepage();
       cmd_exec("b:\\start.cmd",0);
    }
    /* WARNING! START module is never released by QSINIT, so exported code

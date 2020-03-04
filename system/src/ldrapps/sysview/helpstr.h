@@ -147,11 +147,14 @@ const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Show session list",
   "Switch to the selected session",
   "System process listing and information",
-  "",
+  "Update volume name here (up to 36 characters)",
   "Switch to the selected process",
   "Terminate selected process",
   "Terminate process and any processes which were started by it",
-  "","","","","","","","",""
+  "Mount volume as read-only",
+  "Mount for sector level i/o only (i.e. deny filesystem detection)",
+  "Set or update volume label",
+  "","","","","",""
   };
 
 const char *EmptyStr="";

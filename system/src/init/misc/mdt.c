@@ -16,6 +16,7 @@ module           *mod_self = 0, // QSINIT module reference
                 *mod_start = 0; // START module reference
 u32t           lastusedpid = 1; // unique pid for processes
 pf_mtpexitcb    mt_pexitcb = 0;
+void             *init_env = 0;
 
 static char     qsinit_str[] = MODNAME_QSINIT;
 extern u32t  exptable_data[];
@@ -486,8 +487,9 @@ u32t mod_load(const char *path, u32t flags, qserr *error, void *extdta) {
       if ((md->flags&MOD_LIBRARY)==0)
          md->stack_ptr = mod_makeaddr(md,eh->e32_stackobj,eh->e32_esp);
 
-      log_misc(2, "%s: base %08X start %08X stack %08X\n", md->name, md->baseaddr,
-         md->start_ptr, md->stack_ptr);
+      log_misc(2, md->flags&MOD_LIBRARY?"%s: base %08X start %08X\n":
+         "%s: base %08X start %08X stack %08X\n", md->name, md->baseaddr,
+            md->start_ptr, md->stack_ptr);
    } while (false);
 
    /* this module was a first in recursive calls, so here we are done
@@ -809,12 +811,12 @@ int mod_unpackobj(module *mh, lx_exe_t *eh, lx_obj_t *ot, u32t object,
    return res;
 }
 
-static void *mod_getindex(u32t mh, u32t index, int direct) {
+static void *mod_getindex(u32t mh, u32t index, int direct, const char *name) {
    module  *md = (module*)mh;
    void   *res = 0;
    ldr_lock();
    if (md->sign==MOD_SIGN) {
-      mod_export *exp = mod_findexport(md, index, 0, 0);
+      mod_export *exp = mod_findexport(md, index, name, 0);
       if (exp) res = (void*)(direct?exp->direct:exp->address);
    }
    ldr_unlock();
@@ -822,16 +824,16 @@ static void *mod_getindex(u32t mh, u32t index, int direct) {
 }
 
 // get pointer to module function by index
-void *mod_getfuncptr(u32t mh, u32t index) {
-   return mod_getindex(mh, index, 0);
+void *mod_getfuncptr(u32t mh, u32t index, const char *name) {
+   return mod_getindex(mh, index, 0, name);
 }
 
 // the same, but direct
-void *mod_apidirect(u32t mh, u32t index) {
-   return mod_getindex(mh, index, 1);
+void *mod_apidirect(u32t mh, u32t index, const char *name) {
+   return mod_getindex(mh, index, 1, name);
 }
 
-static u32t env_length(const char *env) {
+u32t env_length(const char *env) {
    u32t  size = 0;
    char  *pos = (char*)env;
    while (*pos) {
@@ -867,7 +869,7 @@ static s32t mod_execcall(u32t mh, const char *env, const char *params,
       { ldr_unlock(); return -1; }
    /* envinonment allocation:
       * hlp_memalloc(r) is used for the first launch only and never released
-      * for common launch block is marked as "module owned" and will be released
+      * common launch block is marked as "module owned" and will be released
         by mod_free() call at the end of this function */
    if (!env && mod_secondary)
       env = parent_env = mod_secondary->envcopy(mt_exechooks.mtcb_ctxmem, 0);
@@ -881,9 +883,13 @@ static s32t mod_execcall(u32t mh, const char *env, const char *params,
       newctx = mod_secondary->mem_alloc(QSMEMOWNER_COLIB, mh, sizeof(process_context));
       memset(newctx, 0, sizeof(process_context));
       memset(envseg, 0, env_sz);
+      newctx->inherited = 0;
    } else {
-      envseg = hlp_memallocsig(env_sz + sizeof(process_context), "MCtx", QSMA_READONLY);
+      // +4 for the empty inherited list
+      envseg = hlp_memallocsig(env_sz + sizeof(process_context) + sizeof(void*),
+                               "MCtx", QSMA_READONLY);
       newctx = (process_context*)(envseg + env_sz);
+      newctx->inherited = (u32t*)(u8t*)newctx + sizeof(process_context);
    }
    // fill process context data
    newctx->size = sizeof(process_context);
@@ -970,7 +976,7 @@ static s32t mod_execcall(u32t mh, const char *env, const char *params,
             pd->piParent->piFirstChild = 0;
       }
       /* !!!! be careful, this finalization block duplicatied in MTLIB - in
-         session exit code !!!! */
+         the session exit code !!!! */
       rc = mod_secondary->exit_cb(newctx, rc);
       
       mt_exechooks.mtcb_fini(newctx);
@@ -981,7 +987,7 @@ static s32t mod_execcall(u32t mh, const char *env, const char *params,
       mod_free((u32t)md);
    } else {
       /* START module launching.
-         This is, actually, NOT DLL init (it already called by mod_load),
+         This is, actually, NOT a DLL init (it already called by mod_load),
          but ptr to START.189 - main function in START.
          Called via dll32init() to use its simple save/restore features. */
       mt_exechooks.mtcb_ctxmem = newctx;
@@ -1139,6 +1145,6 @@ int start_it() {
    mt_pexitcb = (pf_mtpexitcb)stpexit->direct;
    /* some kind of hack - simulate "QSINIT" launch to create 1st process
       context (mod_exec() knows what to do in this case) */
-   mod_exec((u32t)mod_self,0,0,0);
+   mod_exec((u32t)mod_self, (char*)init_env, 0, 0);
    return 0;
 }

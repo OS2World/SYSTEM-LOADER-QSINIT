@@ -263,11 +263,11 @@ endif
 int13check      endp
 
 int13           proc    near                                    ; save registers
-                SaveReg <esi,edi,ds,es>                         ; bios can destroy ANYTHING ;)
+                SaveReg <esi,edi,ds,es,bp>                      ; bios can destroy ANYTHING ;)
                 int     13h                                     ;
-                RestReg <es,ds,edi,esi>                         ;
-                sti                                             ;
-                cld                                             ;
+                RestReg <bp,es,ds,edi,esi>                      ; my test PC gigabyte bios
+                sti                                             ; just wipes BP in _some_ cases
+                cld                                             ; of data in stack
                 ret                                             ;
 int13           endp                                            ;
 
@@ -477,9 +477,9 @@ endif
                 push    esi                                     ;
                 mov     si,di                                   ;
                 ;dbg16print <"int13ext: %x %lx %x %x:%x",10>,<bx,di,cx,edx,ax>
-                push    bx                                      ;
+                push    ebx                                     ;
                 call    int13                                   ; make it!
-                pop     bx                                      ;
+                pop     ebx                                     ;
                 pop     esi                                     ;
                 pop     eax                                     ;
                 pop     edx                                     ;

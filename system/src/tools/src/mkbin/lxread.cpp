@@ -216,7 +216,7 @@ void read_object(MKBIN_HEADER &bh, int obj, u32t offset, int savebss, u8t *desta
                   rel.ro_flags   = (fsel==FXSEL16 ? FXRELO_T16 : 0) |
                                    (is16 ? FXRELO_S16 : 0);
                   relo->Add(rel);
-                  /* actually this is NOT an error, but can be used to check
+                  /* actually this is NOT a error, but can be used to check
                      assembler/linker results */
                   if (fsel==FXSEL16 && warnlvl>1) FIXUP_WARN("32-bit fixup to 16-bit object");
                   break;

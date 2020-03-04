@@ -272,6 +272,47 @@ char *__stdcall _strspnp(const char *str, const char *charset) {
    return str[index] ? (char*)str + index : 0;
 }
 
+/** get left/right word position.
+    @param str          Source string
+    @param separators   Word separator list (ex. " \t\n-;,")
+    @param pos          Position in the source string ( -pos - search to the
+                        left, +pos - search to the right)
+    @return found position */
+u32t __stdcall getwordpos(const char *str, const char *charset, int pos) {
+   u8t vector[32];
+   u32t    rp = pos<0?-pos:pos,
+          len = str?strlen(str):0,
+        start = 1;
+   if (len<=1) return 0;
+   // fix position in any case
+   if (rp>=len) rp = len - 1;
+   // wrong charset - just return current (or valid) position
+   if (!charset||!*charset) return rp;
+   _setbits(vector,charset);
+
+   while (1) {
+      u8t ch;
+      if (pos<0) {
+         if (rp) rp--;
+         if (!rp) break;
+      } else
+      if (++rp>=len-1) {
+         rp = len;
+         break;
+      }
+      ch = str[rp];
+      if (pos<0) {
+         if ((vector[ch>>3]&bits[ch&0x07])==0) start=0; else
+            if (!start) { rp++; break; }
+      } else {
+         if ((vector[ch>>3]&bits[ch&0x07])!=0) start=0; else
+            if (!start) break;
+      }
+   }
+   return rp;
+}
+
+
 char* __stdcall trimleft(char *src, char *charset) {
    u32t len = strspn(src, charset);
    if (len) memmove(src, src+len, strlen(src+len)+1);
@@ -502,6 +543,7 @@ int __stdcall qserr2errno(qserr errv) {
       case E_MT_LOCKLIMIT     :return EMLINK;
       case E_SYS_DIRNOTEMPTY  :return ENOTEMPTY;
       case E_SYS_ISDIR        :return EISDIR;
+      case E_SYS_TTYDEV       :return ENOTBLK;
    }
    return ERANGE;
 }
@@ -510,6 +552,27 @@ int set_errno_qserr(u32t err) {
    int rc = qserr2errno(err);
    set_errno(rc);
    return rc;
+}
+
+int __stdcall _bgetcmd(char *cmd_line, int buflen) {
+   process_context *pq = mod_context();
+   char           *env = (char*)pq->rtbuf[RTBUF_ENVORG];
+   int             len;
+   // skip environment
+   do {
+      env+=strlen(env)+1;
+   } while (*env);
+   len = strlen(++env)+1;
+   // skip program name
+   env+= len*2;
+   len = strlen(env);
+
+   if (cmd_line && buflen) {
+      int epos = buflen<=len?buflen-1:len;
+      memcpy(cmd_line, env, epos);
+      cmd_line[epos] = 0;
+   }
+   return len;
 }
 
 char* __stdcall START_EXPORT(getcwd)(char *buf,size_t size) {
@@ -609,6 +672,9 @@ qserr __stdcall START_EXPORT(_dos_stat)(const char *path, dir_t *fp) {
    if (!path||!fp) { set_errno(EINVAL); return E_SYS_INVPARM; }
 
    err = io_pathinfo(path, &hi);
+   // deny device info here
+   if (!err && (hi.attrs&IOFA_DEVICE)) err = E_SYS_TTYDEV;
+   
    if (err) set_errno_qserr(err); else {
       fp->d_wtime = io_iototime(&hi.wtime);
       fp->d_ctime = io_iototime(&hi.ctime);
@@ -640,7 +706,8 @@ int __stdcall stat(const char *path, struct stat *fi) {
       fi->st_dev   = hi.vol;
 
       fi->st_mode  = S_IRUSR|S_IRGRP|S_IROTH;
-      fi->st_mode |= hi.attrs&IOFA_DIR?S_IFDIR:S_IFREG;
+      fi->st_mode |= hi.attrs&IOFA_DEVICE?S_IFCHR:(hi.attrs&IOFA_DIR?S_IFDIR:S_IFREG);
+
       if ((hi.attrs&IOFA_READONLY)==0) fi->st_mode |= S_IWUSR|S_IWGRP|S_IWOTH;
    }
    return err?-1:0;
@@ -1111,7 +1178,9 @@ qserr __stdcall START_EXPORT(_dos_getfileattr)(const char *path, unsigned *attri
    if (!attributes||!path) { set_errno(EINVAL); return E_SYS_INVPARM; }
 
    err = io_pathinfo(path, &hi);
+   if (!err && (hi.attrs&IOFA_DEVICE)) err = E_SYS_TTYDEV;
    if (err) set_errno_qserr(err); else *attributes = hi.attrs;
+
    return err;
 }
 

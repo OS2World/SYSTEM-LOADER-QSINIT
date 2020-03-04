@@ -54,8 +54,8 @@ static int dmgr_load(void) {
       if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0, 0);
       // query functions & install unload proc
       if (partmgr) {
-         plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo);
-         pvol_index      = (fpvol_index)      mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index);
+         plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo,0);
+         pvol_index      = (fpvol_index)      mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index,0);
          atexit(dmgr_free);
       }
    }

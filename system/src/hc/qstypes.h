@@ -36,6 +36,7 @@ typedef unsigned long  ptrdiff_t;
 #define   _1KB       (  1UL* 1024)       // 1 kb
 #define   _2KB       (  2UL* _1KB)       // 2 kb
 #define   _4KB       (  4UL* _1KB)       // 4 kb
+#define   _8KB       (  8UL* _1KB)       // 8 kb
 #define  _16KB       ( 16UL* _1KB)       // 32 kb
 #define  _32KB       ( 32UL* _1KB)       // 32 kb
 #define  _64KB       ( 64UL* _1KB)       // 64 kb

@@ -61,11 +61,13 @@ typedef struct mod_chaininfo_s {
     Exit chain is a harder choice. It cannot be used if callee changes ebp
     register and it can, theoretically, exhaust internal stack of 128 recursive
     calls if exception occured in callee function and catched in caller.
-    Also, do not set it on mod_exec() ;) because it recusive in fact (every
-    module execute mod_exec() until child`s exit).
+
     Stack exhaustion will cause stop exit chain calling for this ordinal and
-    produce warning message to log on every call.
-    Altering ebp will cause immediate panic (critical data saved in it
+    produce warning message to the log on every call. Entries in stack are
+    thread owned, so termiation of this thread will restore functionality.
+
+    When any exit hook is present - altering of ebp register in the called
+    function cause immediate process termination (critical data saved in it
     during function call).
 
     By default entry/exit hook appends to the end of chain list for this
@@ -76,7 +78,7 @@ typedef struct mod_chaininfo_s {
     entry list and last in exit).
 
     Entry/exit hooks calling occurs in MT locked state (i.e. thread switching
-    is blocked). This, also, mean what they should not be too long.
+    is blocked). This, also, mean what they should be as fast as it possible.
 
     @param  info    Call info.
     @return 1 to process next chain, 0 to stop chain list processing */
@@ -93,14 +95,14 @@ typedef int _std (*mod_chainfunc)(mod_chaininfo *info);
 /** install api chain procedure.
 
     Intercepted call will be performed in this way:
-    * call all entry functions (if exists) until end of list or 0 returned by
-      one of them
+    * call to all entry functions (if exists) until end of list or 0 returned
+      by one of them
     * call replacement function (if specified) or original function
-    * call all exit functions (if exists) until end of list or 0 returned by
-      one of them
+    * call of all exit functions (if exists) until end of list or 0 returned
+      by one of them
 
-    Note, what if multiple replacement handlers was installed for function, the
-    last installed will be in use.
+    Note, what if multiple replacement handlers was installed for the function,
+    the last installed will be used.
 
     @param  module      Module handle
     @param  ordinal     Function ordinal
@@ -161,9 +163,9 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
 
 
 /** get direct pointer to module function (by index).
-    Function return direct pointer to original function (without thunk, used
+    Function returns direct pointer to original function (without thunk, used
     to intercept calls).
-    Do not query it without CRITICAL needs, because API chaining is used
+    Do not query it without *CRITICAL* needs, because API chaining is used
     widely (in cache, trace, console and so on...). I.e., in many cases direct
     call will cause system malfunction.
 
@@ -172,9 +174,10 @@ u32t  _std mod_fnunchain (u32t module, void *thunk, u32t chaintype, void *handle
     example - after module unloading).
 
     @param  module      Module handle.
-    @param  ordinal     Function ordinal.
+    @param  ordinal     Function ordinal (use 0 when import by name).
+    @param  name        Function name (use 0 to import by ordinal).
     @return pointer to function code or 0. */
-void* _std mod_apidirect(u32t module, u32t ordinal);
+void* _std mod_apidirect(u32t module, u32t ordinal, const char *name);
 
 /// get current process pid
 u32t  _std mod_getpid   (void);
@@ -192,7 +195,7 @@ u32t  _std mod_getmodpid(u32t module, u32t *parent);
 /** query current or parent process module name.
     @param  [out] name    Buffer for name (128 bytes), returned in upper case.
     @param        parent  Flag 1 for parent, 0 for current process.
-    @return current pid or 0 on error (GS register altered) */
+    @return current pid or 0 on error (invalid arg) */
 u32t  _std mod_appname(char *name, u32t parent);
 
 /** query module name.
@@ -243,7 +246,7 @@ qserr _std mod_objectinfo(u32t module, u32t object, u32t *addr, u32t *size,
                           u32t *flags, u16t *sel);
 
 /** return process list.
-    Function returns active processes list as a process id enumeration
+    Function returns a list of all active process as a process id enumeration
     array with zero in the last entry. Returning list must be released via
     free() call */
 u32t* _std mod_pidlist(void);
@@ -283,13 +286,15 @@ u32t  _std mod_processenum(process_information **ppdl);
 /** makes a copy of process environment for mod_exec() function.
     @param  pq          Process context
     @param  addspace    Additional space to allocate in result memory block.
-    @return environment data in process owned heap block, called should free it */
+    @return environment data in the process owned heap block, caller should
+            free it */
 char* _std env_copy    (process_context *pq, u32t addspace);
 
 /** build environment from a string list.
     @param  env         Source data.
     @param  addspace    Additional space to allocate in result memory block.
-    @return environment data in process owned heap block, called should free it */
+    @return environment data in the process owned heap block, caller should
+            free it */
 char* _std env_create  (const str_list *env, u32t addspace);
 
 #ifdef __cplusplus

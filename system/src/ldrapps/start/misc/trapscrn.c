@@ -64,7 +64,7 @@ static char *softname[7] = {"Exception stack broken", "Exit hook failed",
    "Process data structures damaged", "Internal data is broken",
    "System error" };
 
-void draw_border(u32t x,u32t y,u32t dx,u32t dy,u32t color) {
+void __stdcall vio_drawborder(u32t x,u32t y,u32t dx,u32t dy,u32t color) {
    u32t ii,jj;
    if (dx<=2 || dy<=2) return;
    vio_setcolor(color);
@@ -134,6 +134,7 @@ static void reset_video(void) {
    VHTable[VHI_ACTIVE] = VHTable[VHI_CVIO];
    // processing screen
    vio_resetmode();
+   vio_setcolor(VIO_COLOR_RESET);
    vio_clearscr();
    vio_setshape(VIO_SHAPE_NONE);
 }
@@ -257,7 +258,7 @@ void __stdcall trap_screen(struct tss_s *ti, const char *file, u32t line) {
    combuf[1] = 0;
 
    if (xcpt_broken) height++;
-   draw_border(1,2,78,height,0x4F);
+   vio_drawborder(1,2,78,height,0x4F);
    vio_setpos(3,3);
    snprintf(buffer, PRNBUF_SIZE, "Exception %d: %s\n", ti->tss_reservdbl,
       get_trap_name(ti));
@@ -326,7 +327,7 @@ void __stdcall trap_screen_64(struct tss_s *ti, struct xcpt64_data *xd) {
    combuf[0] = '\n';
    combuf[1] = 0;
    if (xcpt_broken) height++;
-   draw_border(1,2,78,height,0x4F);
+   vio_drawborder(1,2,78,height,0x4F);
    vio_setpos(3,3);
    snprintf(buffer, PRNBUF_SIZE, "Exception %d: %s\n", ti->tss_reservdbl,
       get_trap_name(ti));

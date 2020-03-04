@@ -19,6 +19,25 @@ static void shell_cmd(const char *cmd, const char *args) {
    free(cstr);
 }
 
+static u32t get_flag_value(str_list *cfg, const char *key, u32t def) {
+   char *value = str_findkey(cfg, key, 0), *uv, *uvp;
+   u32t    res;
+   if (!value) return def;
+   uvp = strdup(value);
+   uv  = trimleft(uvp, " \t");
+   uv  = trimright(uv, " \t");
+   if (*uv==0) res = def; else {
+      strupr(uv);
+      if (strcmp(uv,"TRUE")==0 || strcmp(uv,"ON")==0 || strcmp(uv,"YES")==0)
+         res = 1; else
+      if (strcmp(uv,"FALSE")==0 || strcmp(uv,"OFF")==0 || strcmp(uv,"NO")==0)
+         res = 0; else
+      res = str2ulong(uv);
+   }
+   free(uvp);
+   return res;
+}
+
 int main(int argc, char *argv[]) {
    u32t       flen;
    void     *fdata;
@@ -69,8 +88,16 @@ int main(int argc, char *argv[]) {
          }
       }
    }
+   // ACPI reset can be used
+   if (get_flag_value(cfg, "ACPIRESET", 0)) sto_savedword(STOKEY_ACPIRST, 1);
+   // save dump flags for BOOTOS2
+   value = str_findkey(cfg, "DUMP_ORDER", 0);
+   if (value) sto_save(STOKEY_DUMPSEQ, value, strlen(value)+1, 1);
+   if (get_flag_value(cfg, "DUMP_SEARCH", 0)) sto_savedword(STOKEY_DUMPSRCH, 1);
+
    // ramdisk creation (only if not exist one)
    value = str_findkey(cfg, "RAMDISKNAME", 0);
+   // this setenv affects only RAMDISK shell command below
    if (value) setenv("VDISKNAME", value, 1);
 
    value = str_findkey(cfg, "RAMDISK", 0);

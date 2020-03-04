@@ -25,9 +25,25 @@ MPDATAFLAT             = 0FF800000h                             ; MPDATA FLAT ad
 
 EXPDATA_SIGN           = 74645351h                              ; QSdt
 
+OS2DUMP_BUFFER_SIZE    = 80000h                                 ; 512k
+
+;
+; 32-bit helpers.
+; note, that SSToDS() must be used for stack args
+;
+;cc typedef unsigned long (_cdecl *EFDCall32)(unsigned long, ...);
+EFDC32_MaxIndex        = 0                                      ; () - max suported index
+EFDC32_SetThAffinity   = 1                                      ; (u64t *mask)
+EFDC32_CurProcNum      = 2                                      ; () = 0..x - current processor
+
 ; info struct for bootos2, it must fill all parameters, marked with ">".
 ; note: signature field added for hd4disk only, was no way before to
 ; check loader type (QS or OS/4) in loaded OS/2 system.
+;
+; note, that structure is shared with AOSLDR and some fields are just not used here
+;
+; struct size (EFDStructSize) is valid only if EXPF_FLAGSEX flag is set
+;
 ExportFixupData struc
 InfoSign        dd      ?                                       ; signature
 Init1Ofs        dw      ?                                       ; offset of init1 call
@@ -96,6 +112,21 @@ FBDMaskB        dd      ?                                       ; >
 RMEFList        dd      ?                                       ; > not used in QSINIT
 LogMapSize      dd      ?                                       ; > log area map size, in 64kb
 CpuFBits        dd      ?                                       ; > sys_isavail() result
+CfgData         dd      ?                                       ; > config.sys text (ofs from LogBufPAddr)
+CfgDataLen      dw      ?                                       ; > config.sys text length
+GSICPktOfs      dw      ?                                       ; offset of GSIC data packet
+BiosTabOfs      dw      ?                                       ; offset of BIOS tables array
+VBiosPhys       dd      ?                                       ; > not used in QSINIT
+;EFDCall32
+PFCall32        dd      ?                                       ; > 32-bit api entry point
+PFEPtr          dd      ?                                       ; > internal, for Call32
+DumpBufLin      dd      ?                                       ; buffer for OS2DUMP (lin.addr)
+DumpBufPhys     dd      ?                                       ; buffer for OS2DUMP (phys.addr)
+FlagsEx         dd      ?                                       ; more flags
+EFDStructSize   dw      ?                                       ; this struct size
+DumpHubOrder    dw      ?                                       ; > order of disk search for OS2DUMP
+PCILastBus      db      ?                                       ; > PCI last bus
+NCpuRun         db      ?                                       ; # of initialized CPUs
 ExportFixupData ends
 
 ; ExportFixupData.Flags bits (loader information & state)
@@ -105,9 +136,42 @@ EXPF_DISCARDED  equ     4                                       ; Boot part was 
 EXPF_TWODSKBOOT equ     8                                       ; Two disk boot
 EXPF_FULLCABLE  equ    10h                                      ; COM port full cable option active
 EXPF_COMINITED  equ    20h                                      ; COM port inited at least once
-EXPF_AMDCPU     equ    40h                                      ; this is AMD CPU
+EXPF_EFIHOST    equ    40h                                      ; (not used in QSINIT)
 EXPF_DBCSI10H   equ    80h                                      ; DBCS int 10h call done
 EXPF_MODE3      equ   100h                                      ; set 80x25 mode was called after EXPF_DISCARDED
+EXPF_PFLIST     equ   200h                                      ; preload files available (RMEFList is valid)
+EXPF_CFGTEXT    equ   400h                                      ; config.sys text is valid
+EXPF_ACPIRESET  equ   800h                                      ; use ACPI reset call
+EXPF_CALL32     equ  1000h                                      ; PFCall32 supported
+EXPF_FLAGSEX    equ  2000h                                      ; extra flags present (as well as struct size)
+
+; DumpHubOrder bits
+DUMPHAB_AHCI    equ     1                                       ;
+DUMPHAB_BIOS    equ     2                                       ;
+
+EXPFX_NEWDUMP   equ     1                                       ; new OS2DUMP loaded
+EXPFX_FORCEDUMP equ     2                                       ; force system dump in SCREEN01.SYS init
+EXPFX_DUMPSRCH  equ     4                                       ; enable volume search logic in dump
+
+; sys_isavail() values (stored in ExportFixupData.CpuFBits above)
+;cc #ifndef SFEA_INVM
+SFEA_PAE        equ   00000001h                                 ; PAE supported              
+SFEA_PGE        equ   00000002h                                 ; PGE supported              
+SFEA_PAT        equ   00000004h                                 ; PAT supported              
+SFEA_CMOV       equ   00000008h                                 ; CMOV instructions (>=P6)   
+SFEA_MTRR       equ   00000010h                                 ; MTRR present               
+SFEA_MSR        equ   00000020h                                 ; MSRs present               
+SFEA_X64        equ   00000040h                                 ; AMD64 present              
+SFEA_CMODT      equ   00000080h                                 ; clock modulation supported 
+SFEA_LAPIC      equ   00000100h                                 ; Local APIC available       
+SFEA_FXSAVE     equ   00000200h                                 ; FXSAVE available           
+SFEA_XSAVE      equ   00000400h                                 ; XSAVE available            
+SFEA_SSE1       equ   00000800h                                 ; SSE available              
+SFEA_SSE2       equ   00001000h                                 ; SSE2 available             
+SFEA_INVM       equ   08000000h                                 ; running in virtual machine 
+SFEA_INTEL      equ   10000000h                                 ; CPU is Intel               
+SFEA_AMD        equ   20000000h                                 ; CPU is AMD                 
+;cc #endif // SFEA_INVM
 
 KernelAccess    struc                                           ;
 ; AllocGDT call:                                                ;
@@ -284,5 +348,19 @@ HD4Entry        ends                                            ;
 
 ;cc typedef struct HD4DiskInfo       HD4_Header;
 ;cc typedef struct HD4Entry        HD4_TabEntry;
+
+; always returned as zero-filled in QSINIT
+GSIC_Packet     struc                                           ;
+gsic_ver        dd      ?                                       ;
+gsic_info       dd      ?                                       ;
+gsic_cmd        db      ?                                       ;
+gsic_cmdport    dw      ?                                       ;
+gsic_ep2        db      ?                                       ;
+gsic_eventport  dw      ?                                       ;
+gsic_flhi       dw      ?                                       ;
+gsic_fl1        db      ?                                       ;
+gsic_fl2        db      ?                                       ;
+gsic_reserved   db      8 dup (?)                               ;
+GSIC_Packet     ends                                            ;
 
 ;cc #endif // QS_DOSHLP_HEADER

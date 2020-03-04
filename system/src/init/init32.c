@@ -73,6 +73,47 @@ void _std init_common(void) {
       u32t crc = crc32(0, minifsd_ptr, filetable.ft_mfsdlen);
       sto_save(STOKEY_MFSDCRC, &crc, 4, 1);
    }
+   /* read block, passed from the loader, who RESTARTs us.
+      it should be placed in common memory, on 64k border (hlp_memalloc()) */
+   if (transition_ptr && (transition_ptr&0xFFFF)==0) {
+      // used just to range check here
+      void *rb = hlp_memreserve(transition_ptr, sizeof(transition_data), 0);
+      if (rb) {
+         transition_data *td = (transition_data*)rb;
+         while (td->sign==TRND_SIGN) {
+            u32t  btype = td->type&~TRND_LAST;
+
+            if (btype==0 || btype>TRND_CODEPAGE) break; else {
+               u32t crc = crc32(0, (u8t*)(td+1), td->length);
+
+               if (crc==td->crc32) {
+                  void *blk = 0;
+               
+                  switch (btype) {
+                     case TRND_ENV    :
+                        blk = hlp_memallocsig(td->length, "ienv", QSMA_READONLY|
+                                              QSMA_RETERR|QSMA_NOCLEAR);
+                        init_env = blk;
+                        break;
+                     case TRND_CMDHIST:
+                        blk = hlp_memalloc(td->length, QSMA_RETERR|QSMA_NOCLEAR);
+                        if (blk) sto_save(STOKEY_CMDHINIT, blk, td->length, 0);
+                        break;
+                     case TRND_CODEPAGE:
+                        crc = *(u16t*)(td+1);
+                        sto_save(STOKEY_RSTCPNUM, &crc, 4, 1);
+                        break;
+                  }
+                  if (blk) memcpy(blk, td+1, td->length);
+               } else
+                  break;
+            }
+            if (td->type&TRND_LAST) break;
+            td = next_trblock(td);
+         }
+         hlp_memfree(rb);
+      }
+   }
 #endif
    memset(ExCvt, '.', OEMTAB_SIZE);
    // save some storage keys for START module
@@ -132,19 +173,34 @@ int _std init32(u32t rmstack) {
    return 0;
 }
 
-// exit and restart another os2ldr
-void exit_restart(char *loader) {
 #ifndef EFI_BUILD
-   u32t   ldrsize=0, rc;
+static void add_trblock(transition_data *td, void *data, u32t len, u32t type) {
+   td->sign   = TRND_SIGN;
+   td->length = len;
+   td->type   = type;
+   memcpy(td+1, data, len);
+   td->crc32  = crc32(0, data, len);
+   // log_printf("rst %u %X %u!\n", type, td->crc32, len);
+}
+#endif // EFI_BUILD
+
+// exit and restart another os2ldr
+qserr _std exit_restart(char *loader, void *env, int nosend) {
+#ifndef EFI_BUILD
+   u32t   ldrsize = 0, rc,
+           envlen = env ? env_length(env) : 0, hlen;
    void  *ldrdata;
+   char    *hdata;
+   void   *trdata;
 
-   if (!mod_secondary) return;
+   if (!mod_secondary) return E_SYS_UNSUPPORTED;
    // loading from boot drive, if failed - from virtual disk
-   ldrdata = hlp_freadfull(loader,&ldrsize,0);
-   if (!ldrdata) ldrdata = mod_secondary->freadfull(loader,&ldrsize);
-   if (!ldrdata||!ldrsize) return;
+   ldrdata = hlp_freadfull(loader, &ldrsize, 0);
+   if (!ldrdata) ldrdata = mod_secondary->freadfull(loader, &ldrsize);
+   if (!ldrdata || !ldrsize) return E_SYS_NOFILE;
+   if (ldrsize>_512KB) return E_SYS_NOMEM;
 
-   // copying mini-fsd back to original location
+   // copy mini-fsd back to original location
    if (minifsd_ptr)
       rc = mod_secondary->memcpysafe((void*)hlp_segtoflat(filetable.ft_mfsdseg),
          minifsd_ptr, filetable.ft_mfsdlen, MEMCPY_PG0);
@@ -180,20 +236,55 @@ void exit_restart(char *loader) {
       rc = mod_secondary->memcpysafe((char*)hlp_segtoflat(dd_bpbseg)+dd_bpbofs, &BootBPB,
          dd_bootflags&BF_NEWBPB?sizeof(struct Disk_NewPB):sizeof(BootBPB), MEMCPY_PG0);
    // copy new loader to the right place
-   if (rc) memcpy((void*)hlp_segtoflat(LdrRstCS),ldrdata,ldrsize);
+   if (rc) memcpy((void*)hlp_segtoflat(LdrRstCS), ldrdata, ldrsize);
    hlp_memfree(ldrdata);
    // one of copy ops failed
-   if (!rc) return;
+   if (!rc) return E_SYS_SOFTFAULT;
+   // build data for the next loader
+   hdata  = nosend ? 0 : mod_secondary->shl_history();
+   hlen   = hdata ? strlen(hdata)+1 : 0;
+   rc     = 0;
+   trdata = 0;
+   // environment copy
+   if (envlen) rc += Round16(envlen) + sizeof(transition_data);
+   // cmd.exe history
+   if (hlen)   rc += Round16(hlen) + sizeof(transition_data);
+   // current codepage
+   if (cp_num && !nosend) rc += 16 + sizeof(transition_data);
+   if (rc) {
+      trdata = hlp_memalloc(rc, QSMA_RETERR|QSMA_NOCLEAR|QSMA_MAXADDR);
+      if (trdata) {
+         transition_data *td = (transition_data *)trdata;
+         td->sign = 0;
+         td->type = 0;
+         // save env strings block
+         if (envlen) add_trblock(td, env, envlen, TRND_ENV);
+         // save shell history block
+         if (hlen) {
+            if (td->type) td = next_trblock(td);
+            add_trblock(td, hdata, hlen, TRND_CMDHIST);
+         }
+         // save current codepage
+         if (cp_num && !nosend) {
+            if (td->type) td = next_trblock(td);
+            add_trblock(td, &cp_num, 2, TRND_CODEPAGE);
+         }
+         if (td->type) td->type |= TRND_LAST;
+      }
+   }
    // clear screen
    vio_clearscr();
    // disable micro-FSD "terminate" call
    mfsd_noterm = 1;
    // and call restart code
    exit_prepare();
-
-   rmcall(LdrRstCode, RMC_EXITCALL);
+   // this size will be copied to original filetable
+   filetable.ft_loaderlen = ldrsize;
+   // and launch it
+   rmcall(LdrRstCode, RMC_EXITCALL|2, trdata);
+   return E_SYS_SOFTFAULT;
 #else
-   log_printf("exit_restart() is unsupported!\n");
+   return E_SYS_EFIHOST;
 #endif // EFI_BUILD
 }
 

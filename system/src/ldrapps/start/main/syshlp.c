@@ -2,6 +2,7 @@
 // QSINIT "start" module
 // CPU low level functions (msr, mtrr, etc)
 //
+#include "dpmi.h"
 #include "qsbase.h"
 #include "cpudef.h"
 #include "syslocal.h"
@@ -17,7 +18,15 @@
 #define FIXED_RANGE_REGS    11
 #define MTRR_SAVE_BUFFER    32
 #define MAX_VAR_RANGE_REGS  10
-#define ACPI_RSDP_LENGTH    20
+
+typedef struct {
+   u8t      sign[5];
+   u8t          sum;
+   u16t      length;
+   u32t       paddr;
+   u16t      nblock;
+   u8t     revision;
+} dmi_header;
 
 /** disable interrupts, cache and turn off MTRRs.
     @param [out]     state  State to save - for hlp_mtrrmend() call */
@@ -38,9 +47,13 @@ static u32t       mtrr_regs = 0,
 static u64t  PHYS_ADDR_MASK = 0,        // supported addr mask for this CPU
                   apic_phys = 0;
 static u32t      *apic_data = 0;
-static u32t      acpi_table = 0;        // EFI host only
+static u8t        *dmi_data = 0;
+static u32t      acpi_table = 0;
 qshandle             mhimux = 0;        // mutex for sys_memhicopy()
 u8t            fpu_savetype = 0;
+
+#define SYSTAB_SIZE    (SYSTAB_SYSID+1)
+static bios_table_ptr  btab[SYSTAB_SIZE];
 
 extern char            _std   aboutstr[];
 extern boot_data       _std    boot_info;
@@ -658,6 +671,36 @@ u32t _std hlp_mtrrsum(u64t start, u64t length) {
    return ctype;
 }
 
+u32t  _std hlp_mtrrctuse(u32t cache, int fixed, int variable) {
+   u32t res = 0, ii, idx;
+
+   if (cache>MTRRF_WB || !hlp_mtrrquery(0,0,0)) return 0;
+
+   if (variable)
+      for (ii=0; ii<mtrr_regs; ii++) {
+         u64t base, mask;
+         int   err = 0;
+         _try_ {
+            hlp_readmsr(MSR_IA32_MTRR_PHYSBASE0+ii*2, (u32t*)&base, (u32t*)&base+1);
+            hlp_readmsr(MSR_IA32_MTRR_PHYSMASK0+ii*2, (u32t*)&mask, (u32t*)&mask+1);
+         }
+         _catch_(xcpt_all) { err=1; }
+         _endcatch_
+         // register is off?
+         if (err || (mask&0x800)==0) continue;
+
+         if (((u8t)base & MTRRF_TYPEMASK)==(u8t)cache) res++;
+      }
+   if (fixed)
+      for (ii=0; ii<FIXED_RANGE_REGS; ii++) {
+         u64t bits;
+         if (!hlp_getmsrsafe(fixedmtrregs[ii], (u32t*)&bits, (u32t*)&bits+1))
+            continue;
+         for (idx=0; idx<8; idx++)
+            if (((u32t)(bits>>(idx<<3)) & MTRRF_TYPEMASK)==cache) res++;
+      }
+   return res;
+}
 
 void _std hlp_mtrrbios(void) {
    mt_swlock();
@@ -1110,40 +1153,351 @@ static void _std cm_restore(sys_eventinfo *info) {
 #endif
 }
 
-/* we have 2 variants of memory location: 1st MB in BIOS host and top of ram
-   in UEFI host. In both cases area must be mapped and readable */
-static int check_rsdp(u32t mem) {
-   static const char *sig = "RSD PTR ";
-   u8t *ptr = (u8t*)mem;
-   if (!ptr) return 0;
-   if (*(u64t*)ptr==*(u64t*)sig) {
-      u8t sum = 0, ii = 0;
-      // check standard checksum only, this is well enough for us
-      while (ii<ACPI_RSDP_LENGTH) sum += ptr[ii++];
-      if (sum==0) return 1;
+typedef struct {
+   u32t     p1;
+   u16t     p2;
+   u16t     p3;
+   u64t     p4;
+} _guidrec;
+
+/** convert GPT GUID to string.
+    @param  guid     16 bytes GUID array
+    @param  str      target string (at least 38 bytes)
+    @return boolean (success flag) */
+int _std dsk_guidtostr(void *guid, char *str) {
+   _guidrec *gi = (_guidrec*)guid;
+   if (!guid || !str) return 0; else {
+      _guidrec *gi = (_guidrec*)guid;
+      u64t     sw4 = bswap64(gi->p4);
+
+      sprintf(str, "%08X-%04X-%04X-%04X-%012LX", gi->p1, gi->p2, gi->p3,
+         (u16t)(sw4>>48), sw4&0xFFFFFFFFFFFFUL);
+   }
+   return 1;
+}
+
+/** convert string to GPT GUID.
+    String format must follow example: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX.
+    @param  str      source string
+    @param  guid     16 bytes GUID array
+    @return boolean (success flag) */
+int _std dsk_strtoguid(const char *str, void *guid) {
+   if (!guid || !str) return 0;
+   while (*str==' ' || *str=='\t') str++;
+
+   if (strlen(str)<36) return 0; else
+   if (str[8]!='-' || str[13]!='-' || str[18]!='-' || str[23]!='-') return 0; else
+   {
+      _guidrec *gi = (_guidrec*)guid;
+      char     *ep;
+      u32t      p1 = strtoul(str, &ep, 16), px[3], ii;
+      u64t      p4;
+
+      if (ep-str!=8) return 0;
+      str += 9;
+      for (ii=0; ii<3; ii++) {
+         px[ii] = strtoul(str, &ep, 16);
+         if (ep-str!=4) return 0;
+         str  += 5;
+      }
+      p4 = strtoull(str, 0, 16);
+      if (p4>0xFFFFFFFFFFFFUL) return 0;
+
+      gi->p1 = p1;
+      gi->p2 = px[0];
+      gi->p3 = px[1];
+      gi->p4 = bswap64(p4|(u64t)px[2]<<48);
+   }
+   return 1;
+}
+
+/** generate pseudo-unique GPT GUID.
+    @param  [out] guid  16 bytes GUID array */
+void _std dsk_makeguid(void *guid) {
+   _guidrec *gi = (_guidrec*)guid;
+
+   gi->p1 = random(FFFF);
+   srand(tm_counter());
+   gi->p2 = random(0xFFFF);
+   gi->p3 = 0x4000 | random(0xFFF);
+   gi->p4 = (u64t)random(FFFF) << 32 | random(FFFF);
+}
+
+static int _sum(u8t *ptr, u32t len) {
+   u32t  ii = 0;
+   u8t  sum = 0;
+   while (ii<len) sum += ptr[ii++];
+   return sum==0;
+}
+
+typedef struct {
+   char  *sign;
+   u32t    ofs;
+} BiosTableDef;
+
+static BiosTableDef ctbl[SYSTAB_SIZE] = {
+   {"\x8RSD PTR ",   0}, {"\4_SM_" , 0x10000}, {"\5_SM3_", 0x10000},
+   {"\5_DMI_", 0x10000}, {"\4$PnP" , 0x10000}, {"\4_32_" ,       0},
+   {"\4$PIR" , 0x10000}, {"\4_MP_" ,       0}, {"\7_SYSID_",     0} };
+
+static int _checktable(u32t table, u8t *ptr) {
+   if (table<SYSTAB_SIZE)
+   if (memcmp(ptr, ctbl[table].sign+1, ctbl[table].sign[0])==0) {
+      u32t len = 0;
+      int  sum = -1;
+      switch (table) {
+         case SYSTAB_ACPI:
+            len = ptr[15]==2 ? 36 : 20;
+            sum = _sum(ptr,20);
+            break;
+         case SYSTAB_SMBIOS:
+            len = ptr[5]==0x1E ? 0x1F : ptr[5];
+            if (len<0x1F || memcmp("_DMI_", ptr+0x10, 5))
+               len = 0;
+            else
+               sum = _sum(ptr,ptr[5]) && _sum(ptr+0x10, 0x0F);
+            break;
+         case SYSTAB_SMBIOS3:
+            if (ptr[6]>=0x18) len = ptr[6];
+            break;
+         case SYSTAB_DMI:
+            len = 15;
+            break;
+         case SYSTAB_PNPBIOS:
+            if (ptr[5]>=0x21) len = ptr[5];
+            break;
+         case SYSTAB_BIOS32:
+            len = (u32t)ptr[9]<<4;
+            break;
+         case SYSTAB_IRQROUTE:
+            len = *(u16t*)(ptr+6);
+            if (len<32) len = 0;
+            break;
+         case SYSTAB_MP:
+            len = (u32t)ptr[8]<<4;
+            break;
+         case SYSTAB_SYSID:
+            len = *(u16t*)(ptr+8);
+            if (len<0x11) len = 0;
+            break;
+      }
+      if (len) {
+         if (sum<0) sum = _sum(ptr,len);
+         btab[table].addr   = (u32t)ptr;
+         btab[table].length = len;
+         btab[table].status = sum>0?0:1;
+         return 1;
+      }
    }
    return 0;
 }
 
-u32t _std sys_acpiroot(void) {
-   if (acpi_table) return acpi_table; else {
-      u32t xbda = 0;
-      // do it in intel way
+/** get BIOS table address and length.
+    Note, that some tables are missing on EFI host (at least ACPI should exist).
+    @param       table  table number (SYSTAB_xxxxx above)
+    @param [out] data   buffer for requested data.
+    @return zero on success, E_SYS_NOTFOUND is table is not found */
+qserr _std sys_gettable(u32t table, bios_table_ptr *data) {
+   static int tab_inited = 0;
+   if (data) {
+      data->addr   = 0;
+      data->length = 0;
+   }
+   if (table>=SYSTAB_SIZE) return E_SYS_INVPARM;
+
+   if (!tab_inited) {
+      volatile u32t ofs;
+      u32t         xbda = 0;
+
       if (!hlp_memcpy(&xbda, (void*)(0x40E), 2, MEMCPY_PG0)) xbda = 0; else
          if (xbda<0x400) xbda = 0;
 
-      while (1) {
-         u32t addr, len, ofs;
-         if (xbda) { addr = xbda<<PARASHIFT; len = _1KB; } else
-            { addr = 0xE0000; len = _128KB; }
-
-         for (ofs=0; ofs<len; ofs+=16)
-            if (check_rsdp(addr+ofs)) return acpi_table = addr+ofs;
-
-         if (!xbda) break; else xbda = 0;
+      _try_ {
+         u32t   ii;
+         u8t  *mem = (u8t*)hlp_segtoflat(0xE000);
+         // addresses from UEFI host
+         for (ii=0; ii<SYSTAB_SIZE; ii++)
+            if (btab[ii].addr)
+               if (!_checktable(ii, (u8t*)btab[ii].addr)) btab[ii].addr = 0;
+         // scan XBDA for ACPI address
+         if (!btab[SYSTAB_ACPI].addr)
+            for (ofs=0; ofs<=_1KB-16; ofs+=16) {
+               u8t *ptr = (u8t*)(xbda<<PARASHIFT) + ofs;
+               if (ctbl[SYSTAB_ACPI].sign[1]==*ptr)
+                  if (_checktable(SYSTAB_ACPI,ptr)) break;
+            }
+         // scan BIOS in any case
+         for (ofs=0; ofs<=0x1FFF0; ofs+=16) {
+            u8t *ptr = mem+ofs;
+         
+            for (ii=0; ii<SYSTAB_SIZE; ii++)
+               if (!btab[ii].addr && ofs>=ctbl[ii].ofs && ctbl[ii].sign[1]==*ptr)
+                  if (_checktable(ii,ptr)) {
+                     // seek forward
+                     ofs += btab[ii].length-1>>4<<4;
+                     break;
+                  }
+         }
+         if (btab[SYSTAB_ACPI].addr && !acpi_table)
+            acpi_table = btab[SYSTAB_ACPI].addr;
       }
-      return 0;
+      _catch_(xcpt_all) {
+         log_it(2,"Exception in sys_gettable(), ofs %X\n", ofs);
+      }
+      _endcatch_
+
+      tab_inited = 1;
    }
+   if (!btab[table].addr) return E_SYS_NOTFOUND;
+   if (data) memcpy(data, btab+table, sizeof(bios_table_ptr));
+   return 0;
+}
+
+u32t _std sys_acpiroot(void) {
+   if (!acpi_table) sys_gettable(SYSTAB_ACPI,0);
+   return acpi_table; 
+}
+
+#if 0
+static void dmi_via_pnpbios(u32t pnpptr, u16t pnpdata) {
+   rmcallregs_t r;
+   u16t       res, nblk, maxsize, totsize,
+              rmb = boot_info.diskbuf_seg,
+             *rmp = (u16t*)hlp_segtoflat(rmb);
+   u32t       baseaddr;
+
+   memset(&r, 0, sizeof(r));
+   r.r_cs = pnpptr>>16;
+   r.r_ip = pnpptr;
+   r.r_ds = pnpdata;
+   r.r_es = pnpdata;
+
+   // lock MT to prevent any disk i/o buffer use from another threads
+   mt_swlock();
+   // zero target space in disk buffer
+   memset(rmp, 0, 0x110);
+   /* call to PNP BIOS, args here in a such crazy manner because
+      push is 32-bit, but rm stack is 16-bit */
+   res = hlp_rmcallreg(-1, &r, 12, 0x50, 0x1000000|rmb,
+      0x1020000|rmb, 0x1040000|rmb, 0x1080000|rmb,
+         (u32t)pnpdata<<16|rmb);
+   nblk     = rmp[0x80];
+   maxsize  = rmp[0x81];
+   baseaddr = *(u32t*)(rmp+0x82);
+   totsize  = rmp[0x84];
+
+   mt_swunlock();
+
+   log_it(2,"pnp bios dmi info %04X: nblk:%u maxsize:%u addr:%08X size:%X\n",
+      res, nblk, maxsize, baseaddr, totsize);
+}
+#endif
+
+/** query SMBIOS/DMI information string.
+    @return value in the application owned heap block or 0 if there is no such string */
+char* _std sys_dmiinfo(u32t value) {
+   bios_table_ptr bt;
+   static char *sptr[SMI_MB_Serial+1], guid[40];
+   static u32t pnpptr  = 0;
+   static u16t pnpdata = 0;
+
+   if (value>SMI_MB_Serial) return 0;
+   // this should be fast after 1st init and does not require mt lock
+   if (!sys_gettable(SYSTAB_SMBIOS, &bt)) bt.addr += 16; else
+      if (sys_gettable(SYSTAB_DMI, &bt))
+#if 0
+         if (hlp_hosttype()==QSHT_BIOS && !sys_gettable(SYSTAB_PNPBIOS, &bt)) {
+            if (!pnpptr) {
+               pnpptr  = *(u32t*)(bt.addr + 13);
+               pnpdata = *(u16t*)(bt.addr + 0x1B);
+
+               dmi_via_pnpbios(pnpptr, pnpdata);
+            }
+         } else 
+#endif
+            return 0;
+
+   mt_swlock();
+   if (!dmi_data) {
+      // bt.addr is accessible because sys_gettable() above read it
+      dmi_header *dmi = (dmi_header*)bt.addr;
+      u32t     blkcnt = dmi->nblock,
+                ddlen = dmi->length;
+
+      memset(sptr, 0, sizeof(sptr));
+
+      dmi_data = (u8t*)pag_physmap(dmi->paddr, ddlen, 0);
+      if (dmi_data) {
+         u32t fcnt = 3, pos = 0;
+
+         log_it(3,"dmi data: %X\n", dmi_data);
+
+         while (blkcnt-- && fcnt && pos<ddlen) {
+            u8t   target[4];
+            union {
+               u8t   num[4];
+               u32t    numd;
+            } si;
+            u32t    idx, ii;
+
+            si.numd = 0;
+
+            if (dmi_data[pos]==0) {
+               si.num[0] = dmi_data[pos+4]; target[0] = SMI_BIOS_Vendor;
+               si.num[1] = dmi_data[pos+5]; target[1] = SMI_BIOS_Version;
+               si.num[2] = dmi_data[pos+8]; target[2] = SMI_BIOS_Date;
+               fcnt--;
+            } else
+            if (dmi_data[pos]==1) {
+               si.numd = *(u32t*)(dmi_data+pos+4);
+               target[0] = SMI_SYS_Vendor;
+               target[1] = SMI_SYS_Product;
+               target[2] = SMI_SYS_Version;
+               target[3] = SMI_SYS_Serial;
+               fcnt--;
+               // UUID present
+               if (dmi_data[pos+1]>=24) {
+                  dsk_guidtostr(dmi_data+pos+8, guid);
+                  sptr[SMI_SYS_UUID] = guid;
+               }
+            } else
+            if (dmi_data[pos]==2) {
+               si.numd = *(u32t*)(dmi_data+pos+4);
+               target[0] = SMI_MB_Vendor;
+               target[1] = SMI_MB_Product;
+               target[2] = SMI_MB_Version;
+               target[3] = SMI_MB_Serial;
+               fcnt--;
+            }
+            pos += dmi_data[pos+1];
+            idx  = 1;
+            // search for the next block
+            while (pos<ddlen-1) {
+               u8t *ep = (u8t*)memchr(dmi_data+pos, 0, ddlen-1-pos);
+               if (!ep) { blkcnt= 0; break; }
+
+               for (ii=0; ii<4; ii++)
+                  if (si.num[ii]==idx) {
+                     sptr[target[ii]] = (char*)dmi_data+pos;
+                     break;
+                  }
+               pos = ep - dmi_data + 1;
+               idx++;
+               if (ep[1]==0) { pos++; break; }
+            }
+         }
+      }
+   }
+   mt_swunlock();
+   
+   if (dmi_data && sptr[value]) {
+      u32t len = strlen(sptr[value]);
+      char *rc = malloc_local(len+1);
+      rc[len]  = 0;
+      memcpy(rc, sptr[value], len);
+      return rc;
+   }
+   return 0;
 }
 
 void* malloc_local(u32t size) {
@@ -1213,9 +1567,22 @@ u32t _std sys_queryinfo(u32t index, void *outptr) {
 }
 
 void setup_hardware(void) {
-   // take address, saved by EFI host
-   acpi_table = sto_dword(STOKEY_ACPIADDR);
-   if (acpi_table) log_it(3, "ACPI table at %X\n", acpi_table);
+   u32t *tabptr = (u32t*)sto_data(STOKEY_BIOSTAB),
+        tabsize = sto_size(STOKEY_BIOSTAB) / sizeof(u32t), ii;
+   if (tabsize>SYSTAB_SIZE) tabsize = SYSTAB_SIZE;
+
+   memset(&btab, 0, sizeof(btab));
+   // copy pointers, saved in table by initialization code (EFI host)
+   if (tabptr)
+      for (ii=0; ii<tabsize; ii++) {
+         btab[ii].addr = tabptr[ii];
+         if (tabptr[ii])
+            if (ii==SYSTAB_ACPI) {
+               acpi_table = tabptr[ii];
+               log_it(3, "ACPI table at %X\n", tabptr[ii]); 
+            } else
+            if (ii==SYSTAB_SMBIOS) log_it(3, "SMBIOS at %X\n", tabptr[ii]);
+      }
 
    if (!sys_isavail(SFEA_CMODT)) log_it(3, "no cm\n"); else {
       u32t cmv = hlp_cmgetstate();

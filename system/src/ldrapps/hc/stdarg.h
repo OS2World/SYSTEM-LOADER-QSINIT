@@ -22,7 +22,7 @@ void *__va_arg_get(char **cp, int size);
     "and     eax,not 3"    \
     "xadd    [ecx],eax"    \
     parm  [ecx][eax]       \
-    value [eax];
+    value [eax] modify exact [eax];
 #else
 #define va_arg(ap,type) (ap+=Round4(sizeof(type)),*(type*)(ap-Round4(sizeof(type)))
 #endif

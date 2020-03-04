@@ -143,7 +143,7 @@ void TWalkDiskDialog::UpdatePartList() {
                msg = cmd_shellgetmsg(guidstr);
 
                if (msg) sprintf(str, "%-24s", msg); else
-                  strcpy(str, "unknown partition type  ");
+                  strcpy(str, "unknown type            ");
             } else {
                // MBR partition list
                char *fsname = ddta[cur_disk].fsname+32*mb->Index;
@@ -482,11 +482,14 @@ void TDMgrDialog::NavCurPartChanged(int prevpos) {
 #endif
 }
 
-void TDMgrDialog::handleEvent( TEvent& event) {
+void TDMgrDialog::handleEvent(TEvent& event) {
    TWalkDiskDialog::handleEvent(event);
    switch (event.what) {
       case evCommand:
-         if (event.message.command==cmRescan) UpdateAll(True);
+         if (event.message.command==cmRescan) {
+            UpdateAll(True);
+            clearEvent(event);
+         }
          break;
       default:
          break;
@@ -498,12 +501,13 @@ void TDMgrDialog::AddAction(TCollection *list, u8t action) {
       "Format (big floppy)", "Mount (big floppy)", "Replace MBR code",
       "Restore MBR backup", "Unmount (big floppy)", "Update bootstrap code",
       "Update LVM info", "Backup MBR", "Wipe disk", "Write LVM info",
-      "Install QSINIT (big floppy)", "Dirty state", "Detect size",
+      "Install QSINIT (big floppy)", "Dirty state", "Set label",
+      "Detect size",
       0,
       "Boot", "Delete", "Format", "Make active", "Mount", "Unmount",
       "LVM drive letter", "LVM options", "Clone", "Create logical",
-      "Create primary", "Set type GUID", "Sector view", "Update bootstrap code",
-      "Install QSINIT", "Dirty state", "Boot OS/2" };
+      "Create primary", "GPT options", "Sector view", "Update bootstrap code",
+      "Install QSINIT", "Dirty state", "Boot OS/2", "Set label" };
 
    if (action==actp_first) return; else
    if (action<actp_first) {
@@ -566,6 +570,7 @@ void TDMgrDialog::UpdatePartList() {
       if (floppy && ddta[cur_disk].letter>=0 && (fs<=FAT64 || fs==HPFS)) {
          AddAction(lst_e, actd_bf_code);
          AddAction(lst_e, actd_bf_dirty);
+         AddAction(lst_e, actd_bf_label);
       }
       // mount as big floppy
       if (lvme==E_PTE_EMPTY || floppy && ddta[cur_disk].letter<0)
@@ -671,7 +676,10 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
          // known types
          knowntype fs = ddta[cur_disk].fstype[Index];
 
-         if (!efiboot && (fs<=FAT64 || fs==HPFS)) AddAction(lst_a, actp_dirty);
+         if (!efiboot && (fs<=FAT64 || fs==HPFS)) {
+            AddAction(lst_a, actp_dirty);
+            AddAction(lst_a, actp_label);
+         }
          if (!efihost && (fs==HPFS || fs==JFS)) AddAction(lst_a, actp_bootos2);
          // not in a single dialog mode
          if (!SysApp.bootcmd) AddAction(lst_a, actp_view);
@@ -697,7 +705,8 @@ Boolean TDMgrDialog::ActionCall(u8t acode, u32t disk, long index) {
    if (acode==actp_inst) hf = TSysApp::QSInstDlg; else
       if (acode==actp_bootcode) hf = TSysApp::BootCodeDlg; else
          if (acode==actp_format) hf = TSysApp::FormatDlg; else
-            if (acode==actp_dirty) hf = TSysApp::ChangeDirty;
+            if (acode==actp_dirty) hf = TSysApp::ChangeDirty; else
+               if (acode==actp_label) hf = TSysApp::SetVolLabel; 
    if (SysApp.CanChangeDisk(disk)) {
 #ifdef __QSINIT__
       u32t vol = dsk_ismounted(disk, index);
@@ -751,6 +760,8 @@ Boolean TDMgrDialog::valid(ushort command) {
                case actd_bf_inst  : rescan = ActionCall(actp_inst, cur_disk, -1);
                                     break;
                case actd_bf_dirty : rescan = ActionCall(actp_dirty, cur_disk, -1);
+                                    break;
+               case actd_bf_label : rescan = ActionCall(actp_label, cur_disk, -1);
                                     break;
                case actd_bf_mount :
                   SysApp.MountDlg(True, cur_disk, -1);
@@ -809,6 +820,7 @@ Boolean TDMgrDialog::valid(ushort command) {
                case actp_bootcode:
                case actp_dirty   :
                case actp_inst    :
+               case actp_label   :
                   rescan = ActionCall(acode, cur_disk, Index);
                   break;
                case actp_active  :
