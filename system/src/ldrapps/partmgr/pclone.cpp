@@ -391,9 +391,9 @@ qserr _std dsk_clonedata(u32t dstdisk, u32t dstindex, u32t srcdisk,
          reasons:
          * NTFS/ExFat have own 8 byte field at offset 72 and half-compatible
            BPB format.
-         * some hypotetic code can depends on this value (i.e. check some
-           FS structures and so on) 
-         So, update HiddenSectors & CHS values only (if it possible). */
+         * some hypotetic code may depend on this value (i.e. check some
+           FS structs and so on) 
+         So, update HiddenSectors & CHS values only (if this is possible). */
       if (bstype==DSKST_BOOTFAT || bstype==DSKST_BOOTBPB) {
          disk_geo_data  geo;
          u32t   wrt = 0, nv = dpos>=_4GBLL ? FFFF : dpos;

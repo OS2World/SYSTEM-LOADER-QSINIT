@@ -45,7 +45,7 @@ u32t _std shl_pci(const char *cmd, str_list *args) {
          cmd_shellhelp(cmd,CLR_HELP);
          return 0;
       }
-      args = str_parseargs(args, 0, 1, argstr, argval, &nopause, &tolog);
+      args = str_parseargs(args, 0, SPA_RETLIST, argstr, argval, &nopause, &tolog);
 
       // process command
       if (args->count>0) {
@@ -232,19 +232,20 @@ u32t _std shl_pci(const char *cmd, str_list *args) {
 }
 
 u32t _std shl_log(const char *cmd, str_list *args) {
-   int rc=-1, nopause=0, usedate=0, usetime=1, usecolor=1, level=-1, useflags=0;
+   int rc=-1, nopause=0, usedate=0, usetime=1, usecolor=1, level=-1,
+       useflags=0, ncol=1, openend=0;
 
    if (args->count>0) {
-      static char *argstr   = "/f|/d|/np|/nt|/nc|/l|/l:0|/l:1|/l:2|/l:3";
-      static short argval[] = { 1, 1,  1, 0, 0,   3,   0,   1,   2,   3};
+      static char *argstr   = "f|d|np|nt|nc|l|l:0|l:1|l:2|l:3|2|e";
+      static short argval[] = {1,1, 1, 0, 0,3,  0,  1,  2,  3,2,1};
       // help overrides any other keys
       if (str_findkey(args, "/?", 0)) {
          cmd_shellhelp(cmd,CLR_HELP);
          return 0;
       }
-      args = str_parseargs(args, 0, 1, argstr, argval,
+      args = str_parseargs(args, 0, SPA_RETLIST|SPA_NOSLASH, argstr, argval,
                    &useflags, &usedate, &nopause, &usetime, &usecolor,
-                   &level, &level, &level, &level, &level);
+                   &level, &level, &level, &level, &level, &ncol, &openend);
       // process command
       if (args->count>0 && level>=-1 && level<=3) {
          char *arg0 = args->item[0];
@@ -252,7 +253,7 @@ u32t _std shl_log(const char *cmd, str_list *args) {
          // init "paused" output
          cmd_printseq(0, 1, 0);
 
-         if (strcmp(arg0,"SAVE")==0 || strcmp(arg0,"TYPE")==0) {
+         if (strcmp(arg0,"SAVE")==0 || strcmp(arg0,"TYPE")==0 || strcmp(arg0,"LIST")==0) {
             int is_save = arg0[0]=='S';
 
             if (!is_save || args->count==2) {

@@ -146,6 +146,23 @@ static void set_lvmname(u32t index, str_list* vol_names, u32t *pl_rc) {
             vol_names->item[index]);
 }
 
+static void set_gptname(u32t index, str_list* vol_names, u32t *pd_rc) {
+   if (vol_names)
+      if (vol_names->count>index && vol_names->item[index][0]) {
+         dsk_gptpartinfo di;
+         *pd_rc = dsk_gptpinfo(chdd, index, &di);
+         if (!*pd_rc) {
+            char *src = vol_names->item[index];
+            u32t  len = strlen(src), ii;
+            // a bit dumb :)
+            if (len>35) len = 35;
+            for (ii=0; ii<len; ii++) di.Name[ii] = ff_convert(src[ii], 1);
+            di.Name[ii] = 0;
+            *pd_rc  = dsk_gptpset(chdd, index, &di);
+         }
+      }
+}
+
 static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
    u32t rc = 0;
    // set LVM drive letter
@@ -171,7 +188,7 @@ static u32t make_partition(u32t index, u32t flags, char letter, u32t *pl_rc) {
          }
       }
       if (!rc) rc = vol_formatfs(vol, flags&VFDF_HPFS?"HPFS":"FAT",
-          DFMT_ONEFAT|DFMT_QUICK, usize, 0);
+          /*DFMT_ONEFAT|*/DFMT_QUICK|DFMT_NOALIGN, usize, 0);
       // un-format FAT32 formatted partition
       if (!rc && (flags&VFDF_NOFAT32)!=0) wipe_fat32bs(vol);
 
@@ -280,6 +297,7 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
    // invalid flags
    if ((flags&(VFDF_NOHIGH|VFDF_NOLOW))==(VFDF_NOHIGH|VFDF_NOLOW) ||
        (flags&(VFDF_EMPTY|VFDF_SPLIT))==(VFDF_EMPTY|VFDF_SPLIT) ||
+       (flags&(VFDF_EMPTY|VFDF_GPT))==(VFDF_EMPTY|VFDF_GPT) ||
        (flags&(VFDF_FAT32|VFDF_NOFAT32))==(VFDF_FAT32|VFDF_NOFAT32) ||
        (flags&(VFDF_FAT32|VFDF_HPFS))==(VFDF_FAT32|VFDF_HPFS) ||
        (flags&VFDF_EXACTSIZE)!=0 && !minsize ||
@@ -491,36 +509,52 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
             dsk_newmbr(chdd, DSKBR_CLEARALL);
             // wipe LVM sector (to prevent of using previous disk data after "ramdisk delete")
             dsk_emptysector(chdd, cdh->h4_spt-1, 1);
-            // init mbr & first lvm dlat
-            d_rc = dsk_ptinit(chdd, 1);
+
+            // init mbr/gpt & first lvm dlat (on mbr)
+            d_rc = flags & VFDF_GPT ? dsk_gptinit(chdd) : dsk_ptinit(chdd, 1);
             // create partition(s) and format it
             if (!d_rc) {
                // set disk LVM name
-               l_rc = lvm_setname(chdd, 0, LVMN_DISK, "PAE_RAM_DISK");
+               if ((flags & VFDF_GPT)==0)
+                  l_rc = lvm_setname(chdd, 0, LVMN_DISK, "PAE_RAM_DISK");
 
                if ((flags&VFDF_EMPTY)==0) {
                   u64t  start, size;
                   // div pos in megabytes
                   divpos >>= 20-PAGESHIFT;
-                  // create single partition
-                  d_rc = dsk_ptalign(chdd, 0, divpos?divpos:100, DPAL_CHSSTART|DPAL_CHSEND|
-                     (divpos?0:DPAL_PERCENT), &start, &size);
-                  if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
-                  // and make it active
-                  if (!d_rc) d_rc = dsk_setactive(chdd, 0);
+                  // create a single partition
+                  d_rc = dsk_ptalign(chdd, 0, divpos?divpos:100, DPAL_CHSSTART|
+                     DPAL_CHSEND|(divpos?0:DPAL_PERCENT), &start, &size);
+                  if (flags & VFDF_GPT) {
+                     if (!d_rc) d_rc = dsk_gptcreate(chdd, start, size, DFBA_PRIMARY,
+                        CGUID_OS2DATA);
+                     if (!d_rc) d_rc = dsk_gptactive(chdd, 0);
+                  } else {
+                     if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
+                     // and make it active
+                     if (!d_rc) d_rc = dsk_setactive(chdd, 0);
+                  }
                   // format partition & assign LVM drive letter
                   if (!d_rc) d_rc = make_partition(0, flags, letter1, &l_rc);
                   // set custom (non-empty) volume name
-                  if (vol_names) set_lvmname(0, vol_names, &l_rc);
+                  if (vol_names)
+                     if (flags & VFDF_GPT) set_gptname(0, vol_names, &d_rc);
+                        else set_lvmname(0, vol_names, &l_rc);
                   /* second partition processing */
                   if (divpos) {
                      d_rc = dsk_ptalign(chdd, 0, 100, DPAL_CHSSTART|DPAL_CHSEND|DPAL_PERCENT,
                         &start, &size);
-                     if (!d_rc) d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
+                     if (!d_rc)
+                        if (flags & VFDF_GPT)
+                           d_rc = dsk_gptcreate(chdd, start, size, DFBA_PRIMARY, CGUID_OS2DATA);
+                        else
+                           d_rc = dsk_ptcreate(chdd, start, size, DFBA_PRIMARY, 12);
                      // format partition & assign LVM drive letter
                      if (!d_rc) d_rc = make_partition(1, flags, letter2, &l_rc);
                      // set custom (non-empty) volume name
-                     if (vol_names) set_lvmname(1, vol_names, &l_rc);
+                     if (vol_names)
+                        if (flags & VFDF_GPT) set_gptname(1, vol_names, &d_rc);
+                           else set_lvmname(1, vol_names, &l_rc);
                   }
                }
             }
@@ -548,7 +582,7 @@ qserr _exicc vdisk_init(EXI_DATA, u32t minsize, u32t maxsize, u32t flags,
             sto_savedword(STOKEY_VDPAGE, cdhphys>>PAGESHIFT);
 
             dsk_disktostr(chdd, dname);
-            sto_save(STOKEY_VDNAME, dname, strlen(dname+1), 1);
+            sto_save(STOKEY_VDNAME, dname, strlen(dname)+1, 1);
          }
       }
    }

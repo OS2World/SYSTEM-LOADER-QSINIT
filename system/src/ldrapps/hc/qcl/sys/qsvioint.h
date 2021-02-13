@@ -105,7 +105,7 @@ typedef struct qs_vh_s {
 
        If VHI_SLOW flag returned here, vio system starts to optimize
        vio_writebuf() call on the device, handled by this class. It scans for
-       memory changes (in shadow copy of device memory) and then write only
+       memory changes (in a shadow copy of device memory) and then write only
        mismatched data.
        Now this logic used on TTY and native UEFI consoles.
 

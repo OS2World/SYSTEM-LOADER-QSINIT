@@ -79,7 +79,7 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
       disk_volume_data vi[DISK_COUNT];
       for (ii=0; ii<DISK_COUNT; ii++) vt[ii] = hlp_volinfo(ii, vi+ii);
 
-      args = str_parseargs(args, 0, 1, argstr, argval, &select, &list,
+      args = str_parseargs(args, 0, SPA_RETLIST, argstr, argval, &select, &list,
                            &verbose, &ro, &raw);
 
       if (args->count>=1 && stricmp(args->item[0],"QUERY")==0) {
@@ -912,7 +912,8 @@ u32t _std shl_dm_clone(const char *cmd, str_list *args, u32t disk, u32t pos) {
          static short argval[] = { 1,   1};
          int    ident = 0, sameid = 0, ignspt = 0, nowipe = 0, rcnt;
          u32t   flags = DCLN_MBRCODE;
-         args = str_parseargs(args, pos, 1, argstr, argval, &ident, &sameid, &ignspt, &nowipe);
+         args = str_parseargs(args, pos, SPA_RETLIST, argstr, argval, &ident,
+                              &sameid, &ignspt, &nowipe);
          rcnt = args->count;
          free(args);
          // we must get empty list, else unknown keys here
@@ -1345,8 +1346,8 @@ u32t _std shl_lvm(const char *cmd, str_list *args) {
          int      boot = 0;
          char  *dskvar = 0,
                *ptivar = 0;
-         str_list *arr = str_parseargs(args, 1, 1, argstr, argval, &dt, &dt,
-                                       &boot, &emu, &emu);
+         str_list *arr = str_parseargs(args, 1, SPA_RETLIST, argstr, argval,
+                                       &dt, &dt, &boot, &emu, &emu);
          if (emu==FFFF) emu = boot?BTDT_NOEMU:0;
          // filter variants without error
          if (boot && arr->count==0) rc = 0; else
@@ -1507,9 +1508,10 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
          char  se_char = 'S', *pt;
          int   percent = 0,
                  argsc = args->count,
-               forceaf = -1, isgpt;
+               forceaf = -1, isgpt,
+               forceac = -1;
 
-         if (argsc<pos+2 || argsc>pos+5) break;
+         if (argsc<pos+2 || argsc>pos+6) break;
          if (!isdigit(args->item[pos][0])) break;
 
          fb_index = str2long(args->item[pos]);
@@ -1520,9 +1522,17 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
          if (stricmp(pt,"LOGICAL")==0 || stricmp(pt,"L")==0) flags = DFBA_LOGICAL;
             else break;
          // check for af+/-
-         if (argsc>=pos+3)
-            if (stricmp(args->item[argsc-1],"AF+")==0) { forceaf=1; argsc--; } else
-               if (stricmp(args->item[argsc-1],"AF-")==0) { forceaf=0; argsc--; }
+         if (argsc>=pos+3) {
+            int argsp;
+            do {
+               char *str = args->item[argsc-1];
+               argsp = argsc;
+               if (stricmp(str,"AF+")==0) { forceaf=1; argsc--; } else
+                  if (stricmp(str,"AF-")==0) { forceaf=0; argsc--; } else
+                     if (stricmp(str,"AC+")==0) { forceac=1; argsc--; } else
+                        if (stricmp(str,"AC-")==0) { forceac=0; argsc--; }
+            } while (argsc!=argsp && argsc>=pos+2);
+         }
          // partition size
          if (argsc>=pos+3) {
             pt = args->item[pos+2];
@@ -1542,10 +1552,13 @@ u32t shl_pm(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   printf("Position string must be \"s[tart]\" or \"e[nd]\"!\n");
                   return EINVAL;
                }
-            }
+            } else
+            if (argsc>pos+4) break;
          }
          isgpt  = dsk_isgpt(disk,-1) > 0;
          aflags = forceaf<0 ? (isgpt?DPAL_AF:0) : (forceaf>0?DPAL_AF:0);
+
+         if (isgpt && forceac>0) aflags |= DPAL_CYLSIZE;
 
          if (percent)            aflags |= DPAL_PERCENT;
          if (!isgpt)             aflags |= DPAL_CHSSTART|DPAL_CHSEND;

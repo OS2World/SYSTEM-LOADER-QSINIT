@@ -783,8 +783,10 @@ static int _std pkill_cb(struct _vio_list *ref, u16t key, u32t id) {
           if (!msg) msg = sprintf_dyn("Internal error %X", err);
           vio_msgbox("Task list", msg, MSG_LIGHTRED|MSG_OK, 0);
           free(msg);
-       } else
-          return INT_MAX;
+       }
+       // at least someone was deleted - update the list
+       if (err==E_MT_PARTIALSTOP) err = 0;
+       if (!err) return INT_MAX;
     }
     return 0;
 }
@@ -887,14 +889,15 @@ static u32t _exicc ext_tasklistdlg(EXI_DATA, const char *header, u32t flags,
       if (e_del && (id&TLDR_DEL)) { // process "del" internally
          id  &=~TLDR_DEL;
          loop = 1;
-         // search for parent in the process data list
-         for (ii=0; ii<nproc; ii++) {
-            process_information *pi = pos2pi[ii];
-            if (pi->pid==id) {
-               id = pi->parent ? pi->parent->pid : 0;
-               break;
+         // pos to the parent process if this one is gone
+         if (mt_checkpidtid(id, 1, 0))
+            for (ii=0; ii<nproc; ii++) {
+               process_information *pi = pos2pi[ii];
+               if (pi->pid==id) {
+                  id = pi->parent ? pi->parent->pid : 0;
+                  break;
+               }
             }
-         }
       }
       free(pos2pi);
       free(pd);

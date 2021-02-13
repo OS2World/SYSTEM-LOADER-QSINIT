@@ -262,8 +262,8 @@ void       splittext(const char *text, u32t width, TStrings &lst, u32t flags=0);
 
 /** waiting for Y/N/A/Esc key.
     @param allow_all  Allow 'A' key press.
-    @return -1 on Esc, 0 - N, 1 - Y, 2 - A. */
-int        ask_yn(int allow_all=0);
+    @return -1 on Esc, 0 - N, 1 - Y, 2 - A, 3 - S */
+int        ask_yn(int allow_all=0, int allow_skip=0);
 
 /** search and load module.
     @param [in]  name   Module path (name will be uppercased by function)

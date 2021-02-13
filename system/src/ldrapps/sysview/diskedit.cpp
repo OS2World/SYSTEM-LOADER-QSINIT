@@ -375,7 +375,8 @@ void TSysApp::errDlg(int MsgType) {
                                "\3""Specified name is a directory!",
                                "\3""Selected file is already open!",
                                "\3""Unable to perform action on the target file system!",
-                               "\3""One or more characters in the specified name is invalid"
+                               "\3""One or more characters in the specified name is invalid",
+                               "\3""Incompatible partition GUID"
                                };
    messageBox(errMsgArray[MsgType], mfError+mfOKButton);
 }

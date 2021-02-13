@@ -19,7 +19,7 @@
    
 
    Exceptions 8, 12, 13 will hang Virtual PC - because of task gate use.
-   Both VBox and hardware PC works fine.
+   Both VBox and hardware PC work fine.
 */
 
 #ifdef __cplusplus

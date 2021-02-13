@@ -64,6 +64,7 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       remove_hooks();
       scan_free();
       cache_free();
+      gptcfg_free();
       if (cmux)
          if (mt_closehandle(cmux)) log_it(2, "mutex fini error!\n");
       log_printf("%s unloaded!\n",selfname);
@@ -72,4 +73,3 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
    }
    return 1;
 }
-

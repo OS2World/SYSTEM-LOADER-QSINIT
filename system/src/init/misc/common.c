@@ -91,22 +91,30 @@ int _std checkbaudrate(u32t baudrate) {
 }
 
 int _std hlp_seroutset(u16t port, u32t baudrate) {
+   int rc;
    if (baudrate)
       if (checkbaudrate(baudrate)) BaudRate = baudrate; else
          return 0;
    mt_swlock();
+   rc = 1;
    if (port==0xFFFF) ComPortAddr = 0; else {
-      if (port) serial_init(ComPortAddr = port); else
-         if (baudrate && ComPortAddr) hlp_serialrate(ComPortAddr, baudrate);
+      if (port) {
+         if (!serial_init(ComPortAddr = port)) {
+            ComPortAddr = 0;
+            rc = 0;
+         }
+      } else
+      if (baudrate && ComPortAddr) hlp_serialrate(ComPortAddr, baudrate);
       // reset lock
       if (mod_secondary && mod_secondary->dbport_lock)
          mod_secondary->dbport_lock = 0;
    }
    mt_swunlock();
-   return 1;
+   return rc;
 }
 
 int _std hlp_serialset(u16t port, u32t baudrate) {
+   int rc;
    if (!port) return 0;
    if (!baudrate) baudrate = 115200;
    if (!checkbaudrate(baudrate)) return 0;
@@ -114,11 +122,12 @@ int _std hlp_serialset(u16t port, u32t baudrate) {
    mt_swlock();
    if (port==ComPortAddr)
       if (mod_secondary) mod_secondary->dbport_lock = 1; else ComPortAddr = 0;
-   serial_init(port);
-   hlp_serialrate(port, baudrate);
+   rc = serial_init(port);
+   if (rc) hlp_serialrate(port, baudrate); else
+      if (mod_secondary) mod_secondary->dbport_lock = 0; 
    mt_swunlock();
 
-   return 1;
+   return rc;
 }
 
 // ******************************************************************

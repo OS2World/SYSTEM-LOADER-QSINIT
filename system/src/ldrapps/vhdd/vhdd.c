@@ -8,17 +8,18 @@
 #include "qsdm.h"
 
 // interface array for every possible disk number
-qs_emudisk mounted[QDSK_DISKMASK+1];
+qs_dyndisk mounted[QDSK_DISKMASK+1];
 // disk info static buffer
 static disk_geo_data di_info;
 static char         di_fpath[_MAX_PATH+1];
-static u32t         di_total, di_used;
+static u32t         di_total, di_used, di_flags;
 static qshandle         cmux = 0;
 u32t                 cid_ext = 0,
                     cid_vhdd = 0,
-                    cid_vhdf = 0;
+                    cid_vhdf = 0,
+                    cid_binf = 0;
 /* list of class id-s to create/open (in order of mount) */
-static u32t*      cid_list[] = { &cid_vhdd, &cid_vhdf, 0 };
+static u32t*      cid_list[] = { &cid_vhdd, &cid_vhdf, &cid_binf, 0 };
 
 u32t _std diskio_read (u32t disk, u64t sector, u32t count, void *data) {
    disk &= ~(QDSK_DIRECT|QDSK_IAMCACHE|QDSK_IGNACCESS);
@@ -40,15 +41,15 @@ static qserr _exicc de_getgeo(EXI_DATA, disk_geo_data *geo) {
    instance_ret(de_data, de, E_SYS_INVOBJECT);
    if (!geo) return E_SYS_ZEROPTR;
    if (!de->self) return E_SYS_NONINITOBJ;
-   // call parent, it shoud be safe in its mutex
-   return de->self->query(geo, 0, 0, 0);
+   // call parent, it should be safe in its mutex
+   return de->self->query(geo, 0, 0, 0, 0);
 }
 
 static u32t _exicc de_setgeo(EXI_DATA, disk_geo_data *geo) {
    instance_ret(de_data, de, E_SYS_INVOBJECT);
    if (!geo) return E_SYS_ZEROPTR;
    if (!de->self) return E_SYS_NONINITOBJ;
-   // call parent, it shoud be safe in its mutex
+   // call parent, it should be safe in its mutex
    return de->self->setgeo(geo);
 }
 
@@ -56,13 +57,19 @@ static char* _exicc de_getname(EXI_DATA) {
    char *rc, fname[QS_MAXPATH+1];
    instance_ret(de_data, de, 0);
    if (!de->self) return 0;
-   if (de->self->query(0, fname, 0, 0)) return 0;
+   if (de->self->query(0, fname, 0, 0, 0)) return 0;
    rc = strdup("VHDD disk. File ");
    rc = strcat_dyn(rc, fname);
    return rc;
 }
 
-static u32t _exicc de_state(EXI_DATA, u32t state) { return EDSTATE_NOCACHE; }
+static u32t _exicc de_state(EXI_DATA, u32t state) {
+   instance_ret(de_data, de, 0);
+   if (!de->self) return 0;
+   // call parent, it should be safe in its mutex
+   if (de->self->query(0, 0, 0, 0, &state)) return 0;
+   return state;
+}
 
 static void *qs_de_list[] = { de_getgeo, de_setgeo, de_getname, de_state };
 
@@ -84,16 +91,32 @@ static void shell_lock(void) { if (cmux) mt_muxcapture(cmux); }
 static void shell_unlock(void) { if (cmux) mt_muxrelease(cmux); }
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+// get format string from a class instance. buf - 4 bytes buffer
+static void get_format_str(qs_dyndisk dsk, char *buf) {
+   char *name = exi_classname(dsk);
+   // assumed "qs_%sdisk" name
+   if (name && strlen(name)==strlen(VHDD_VHDD)) {
+      name[6] = 0;
+      strupr(name);
+      strcpy(buf, name+3);
+   } else
+      strcpy(buf, "???");
+   free(name);
+}
 
-static void print_diskinfo(void) {
+static void print_diskinfo(qs_dyndisk dsk) {
+   char fmtname[4];
+   get_format_str(dsk, fmtname);
+
    printf("Size: %s (%LX sectors, %d bytes per sector)\n",
       dsk_formatsize(di_info.SectorSize, di_info.TotalSectors, 0, 0),
          di_info.TotalSectors, di_info.SectorSize);
-   printf("File: %s (%d sectors total, %d used (%2d%%))\n", di_fpath,
-      di_total, di_used, di_used*100/di_total);
+   printf("File: %s (%d sectors, %d used (%2d%%), %s%s)\n",
+      di_fpath, di_total, di_used, di_used*100/di_total, fmtname,
+         di_flags&EDSTATE_RO?", read-only":"");
 }
 
-static void mount_action(qs_emudisk dsk, char *prnname) {
+static void mount_action(qs_dyndisk dsk, char *prnname) {
    s32t  disk;
    shell_lock();
    disk = dsk->mount();
@@ -102,9 +125,31 @@ static void mount_action(qs_emudisk dsk, char *prnname) {
       DELETE(dsk);
    } else {
       printf("File \"%s\" mounted as disk %s\n", prnname, dsk_disktostr(disk,0));
-      if (dsk->query(&di_info, di_fpath, &di_total, &di_used)==0) print_diskinfo();
+      if (dsk->query(&di_info, di_fpath, &di_total, &di_used, &di_flags)==0)
+         print_diskinfo(dsk);
    }
    shell_unlock();
+}
+
+/* Get 3 char format string and return class id or 0.
+   It is assumes, that class name follows the rule "qs_???disk", where
+   ??? is "format string" */
+static u32t check_format(const char *fmt) {
+   char cname[32], idstr[4];
+   u32t   cid;
+
+   if (strlen(fmt)!=3) return 0;
+   // copt string ;)
+   *(u32t*)&idstr = *(u32t*)fmt;
+   snprintf(cname, 32, "qs_%sdisk", strlwr(idstr));
+   cid = exi_queryid(cname);
+   // enum list of supported classes
+   if (cid) {
+      u32t **plcid = cid_list;
+      while (*plcid)
+         if (**plcid++==cid) return cid;
+   }
+   return 0;
 }
 
 u32t _std shl_vhdd(const char *cmd, str_list *args) {
@@ -142,23 +187,12 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
             and then use it as a class name. But check that it is really listed
             in cid_list[] first */
          if (acnt==4) {
-            char cname[32];
-            u32t    cidalt;
-            snprintf(cname, 32, "qs_%sdisk", strlwr(args->item[3]));
-
-            cidalt = exi_queryid(cname);
+            u32t cidalt = check_format(args->item[3]);
             if (!cidalt) {
                printf("Unknown format string (%s)\n", args->item[3]);
                showerr = 0; sector = 0; // force error
-            } else {
-               u32t **plcid = cid_list;
-               while (*plcid)
-                  if (**plcid++==cidalt) { cid = cidalt; break; }
-               if (cid!=cidalt) {
-                  printf("Format class is unknown (%s)\n", cname);
-                  showerr = 0; sector = 0; // force error
-               }
-            }
+            } else
+               cid = cidalt;
          }
 
          if (sector)
@@ -168,12 +202,25 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
                // force EINVAL error if garbage at the end
                if (*endptr) sectors = 0;
             } else {
-               u32t size = str2long(args->item[2]);
-               sectors   = (u64t)size * _1GB / sector;
+               char *endptr = 0;
+               u32t    size = strtoul(args->item[2], &endptr, 10);
+               u64t    base = _1GB;
+
+               if (*endptr)
+                  if (!stricmp(endptr,"M") || !stricmp(endptr,"Mb")) base = _1MB;
+                     else
+                  if (!stricmp(endptr,"T") || !stricmp(endptr,"Tb"))
+                     base = (u64t)_1GB * 1024; else
+                  if (!stricmp(endptr,"K") || !stricmp(endptr,"Kb")) base = _1KB;
+                     else
+                  if (!stricmp(endptr,"G") || !stricmp(endptr,"Gb")) ;
+                     else base = 0;
+               // 0 if base == 0, this cause E_SYS_INVPARM error message
+               sectors = base * size / sector;
             }
 
          if (sector && sectors) {
-            qs_emudisk dsk = (qs_emudisk)exi_createid(cid, EXIF_SHARED);
+            qs_dyndisk dsk = (qs_dyndisk)exi_createid(cid, EXIF_SHARED);
             rc = dsk->make(args->item[1], sector, sectors);
             switch (rc) {
                case E_SYS_TOOLARGE:
@@ -192,22 +239,140 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
                else DELETE(dsk);
          }
       } else
-      if (strcmp(args->item[0],"MOUNT")==0 && args->count==2) {
-         u32t   **plcid = cid_list;
-         qs_emudisk dsk = 0;
-         /* just try it as VHDD first, VHD then, etc */
-         while (*plcid) {
-            if (dsk) DELETE(dsk);
-            dsk = (qs_emudisk)exi_createid(**plcid, EXIF_SHARED);
-            if (dsk) rc = dsk->open(args->item[1]); else rc = E_SYS_BADFMT;
-            if (!rc) break; else plcid++;
-         }
-         if (rc==0) mount_action(dsk, args->item[1]); else {
-            if (rc==E_SYS_BADFMT) {
-               printf("File \"%s\" format is unknown!\n", args->item[1]);
-               showerr = 0;
+      if (strcmp(args->item[0],"MOUNT")==0 && args->count>=2) {
+         u32t   **plcid = cid_list,
+              forcedcid = 0;
+         qs_dyndisk dsk = 0;
+         int        err = 0;
+         u32t   secsize = 0,
+                 length = 0,
+                  heads = 0,
+                    spt = 0,
+               readonly = 0;
+         u64t    offset = 0;
+
+         if (args->count>2) {
+            u32t ii;
+            for (ii=2; ii<args->count; ii++) {
+               char *key,
+                    *val = str_keyvalue(args->item[ii], &key);
+               err = 1;
+               rc  = E_SYS_INVPARM;
+               if (key) {
+                  if (!stricmp(key, "sector")) {
+                     // sector=... sector size (512, 1024, 2048, 4096, default is 512)
+                     secsize = str2long(val);
+                     if (secsize==512 || secsize==1024 || secsize==2048 ||
+                        secsize==4096) err = 0; else rc = E_DSK_SSIZE;
+                  } else
+                  if (!stricmp(key, "offset")) {
+                     // offset=... offset of image in the file (in bytes), default is 0
+                     offset = str2uint64(val);
+                     err = 0;
+                  } else
+                  if (!stricmp(key, "size")) {
+                     /* size=...   length of image in the file (in sectors!),
+                        default - from offset to the end of file */
+                     length = str2long(val);
+                     err = !length;
+                  } else
+                  if (!stricmp(key, "spt")) {
+                     // spt=...    forced sectors per track value (1..255)
+                     spt = str2long(val);
+                     if (!spt || spt>255) rc = E_DSK_INVCHS; else err = 0;
+                  } else
+                  if (!stricmp(key, "heads")) {
+                     // heads=...  forced heads value (1..255)
+                     heads = str2long(val);
+                     if (!heads || heads>255) rc = E_DSK_INVCHS; else err = 0;
+                  } else 
+                  if (!stricmp(key, "readonly") || !stricmp(key, "ro")) {
+                     if (*val==0) { readonly = 1; err = 0; }
+                  } else {
+                     // allow mount file fmt [options]
+                     int fmtarg = ii==2 && strlen(key)==3 && !*val;
+
+                     if (!stricmp(key, "format") || fmtarg) {
+                        // format=... force image format (BIN, DYN, VDH)
+                        char *fmt = fmtarg ? key : val;
+                        forcedcid = check_format(fmt);
+
+                        if (forcedcid) err = 0; else {
+                           printf("Unknown format string (%s)\n", fmt);
+                           rc = E_SYS_NOTFOUND;
+                           showerr = 0; 
+                        }
+                     }
+                  }
+                  free(key);
+               }
+               if (err) {
+                  if (rc==E_SYS_INVPARM) {
+                     printf("Invalid mount option \"%s\"\n", args->item[ii]);
+                     showerr = 0; 
+                  }
+                  break;
+               }
             }
-            DELETE(dsk);
+         }
+
+         if (!err) {
+            char *fmtstr = 0, buf[64];
+            // do while args exist
+            do {
+               buf[0] = 0;
+               if (secsize) {
+                  snprintf(buf, sizeof(buf), "sector=%u;", secsize);
+                  secsize = 0;
+               } else
+               if (length) {
+                  snprintf(buf, sizeof(buf), "size=%u;", length);
+                  length = 0;
+               } else
+               if (offset) {
+                  snprintf(buf, sizeof(buf), "offset=%Lu;", offset);
+                  offset = 0;
+               } else
+               if (spt) {
+                  snprintf(buf, sizeof(buf), "spt=%u;", spt);
+                  spt = 0;
+               } else
+               if (heads) {
+                  snprintf(buf, sizeof(buf), "heads=%u;", heads);
+                  heads = 0;
+               } else
+               if (readonly) {
+                  strcpy(buf, "readonly;");
+                  readonly = 0;
+               }
+               if (buf[0]) fmtstr = strcat_dyn(fmtstr, buf);
+            } while (buf[0]);
+            // drop last ';'
+            if (fmtstr)
+               if (strclast(fmtstr)==';') fmtstr[strlen(fmtstr)-1] = 0;
+
+            if (forcedcid) {
+               dsk = (qs_dyndisk)exi_createid(forcedcid, EXIF_SHARED);
+               if (dsk) rc = dsk->open(args->item[1], fmtstr);
+                  else rc = E_SYS_BADFMT;
+            } else
+            /* just try it as VHDD first, VHD then, etc */
+            while (*plcid) {
+               if (dsk) DELETE(dsk);
+               dsk = (qs_dyndisk)exi_createid(**plcid, EXIF_SHARED);
+               if (dsk) rc = dsk->open(args->item[1], fmtstr);
+                  else rc = E_SYS_BADFMT;
+               if (!rc) break; else plcid++;
+            }
+            if (fmtstr) free(fmtstr);
+
+            if (rc==0) mount_action(dsk, args->item[1]); else {
+               if (rc==E_SYS_BADFMT) {
+                  printf("File \"%s\" format is unknown!\n", args->item[1]);
+                  showerr = 0;
+               }
+               DELETE(dsk);
+            }
          }
       } else
       if (strcmp(args->item[0],"LIST")==0 && args->count==1) {
@@ -215,9 +380,12 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
          shell_lock();
          for (ii=0, any=0; ii<=QDSK_DISKMASK; ii++)
             if (mounted[ii])
-               if (mounted[ii]->query(&di_info, di_fpath, 0, 0)==0) {
-                  printf("%s: %8s  %s\n", dsk_disktostr(ii,0), dsk_formatsize(di_info.SectorSize,
-                     di_info.TotalSectors,0,0), di_fpath);
+               if (mounted[ii]->query(&di_info, di_fpath, 0, 0, &di_flags)==0) {
+                  char fmt[4];
+                  get_format_str(mounted[ii], fmt);
+                  printf("%s: %8s  %s  %s  %s\n", dsk_disktostr(ii,0),
+                     dsk_formatsize(di_info.SectorSize,di_info.TotalSectors,0,0),
+                        fmt, di_flags & EDSTATE_RO ? "ro":"  ", di_fpath);
                   any++;
                }
          shell_unlock();
@@ -241,11 +409,11 @@ u32t _std shl_vhdd(const char *cmd, str_list *args) {
                mounted[disk]->trace(-1,1);
             } else
             if (args->item[0][0]=='I') {
-               rc = mounted[disk]->query(&di_info, di_fpath, &di_total, &di_used);
-               if (rc==0) print_diskinfo();
+               rc = mounted[disk]->query(&di_info, di_fpath, &di_total, &di_used, 0);
+               if (rc==0) print_diskinfo(mounted[disk]);
             } else
             if (args->item[0][0]=='U') {
-               qs_emudisk  dinst = mounted[disk];
+               qs_dyndisk  dinst = mounted[disk];
                // umount will zero mounted[disk] value, so save it and free after
                rc = mounted[disk]->umount();
                if (!rc) printf("Disk %s unmounted!\n", dsk_disktostr(disk,0));
@@ -284,11 +452,13 @@ static int release_all(void) {
       if (exi_unregister(cid_vhdd)) cid_vhdd = 0;
    if (cid_vhdf)
       if (exi_unregister(cid_vhdf)) cid_vhdf = 0;
+   if (cid_binf)
+      if (exi_unregister(cid_binf)) cid_binf = 0;
    // if one of main classes still exists, then ext will deny unreg too
-   if (cid_ext && !cid_vhdd && !cid_vhdf)
+   if (cid_ext && !cid_vhdd && !cid_vhdf && !cid_binf)
       if (exi_unregister(cid_ext)) cid_ext = 0;
 
-   return !cid_ext && !cid_vhdd && !cid_vhdf;
+   return !cid_ext && !cid_vhdd && !cid_vhdf && !cid_binf;
 }
 
 // shutdown handler - delete all disks
@@ -306,13 +476,15 @@ unsigned __cdecl LibMain( unsigned hmod, unsigned termination ) {
       /* register all */
       cid_vhdd = init_rwdisk();
       cid_vhdf = init_vhdisk();
+      cid_binf = init_bfdisk();
       cid_ext  = exi_register(VHDD_VHDD "_ext", qs_de_list,
                     sizeof(qs_de_list)/sizeof(void*), sizeof(de_data), 0,
                        de_init, de_done, 0);
-      log_it(3, "vhdd cid: %u vhd=%u ext=%u\n", cid_vhdd, cid_vhdf, cid_ext);
+      log_it(3, "vhdd cid: %u vhd=%u bin=%u ext=%u\n", cid_vhdd, cid_vhdf,
+         cid_binf, cid_ext);
 
-      if (!cid_vhdd || !cid_vhdf || !cid_ext) {
-         log_printf("vhdd class reg error!\n");
+      if (!cid_vhdd || !cid_vhdf || !cid_binf || !cid_ext) {
+         log_printf("vhdd class registration error!\n");
          release_all();
          return 0;
       }

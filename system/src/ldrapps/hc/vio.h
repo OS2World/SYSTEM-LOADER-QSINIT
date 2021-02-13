@@ -18,9 +18,17 @@ u32t  _std vio_charout(char ch);
 
 /** print string to the current cursor position.
     @param   str  string to print.
-    @return number of new lines occured (both \n and end of line), i.e. number
-    of scrolled lines. */
+    @return actual number of new lines (both \n and the end of screen) occured
+            during the source string output. */
 u32t  _std vio_strout(const char *str);
+
+/** print string to the current cursor position with ^A..^_ special support.
+    Function shows x01..x1F as *green* A.._ characters.
+
+    @param   str  string to print.
+    @return actual number of new lines (both \n and the end of screen) occured
+            during the source string output. */
+u32t  _std vio_strout_spec(const char *str);
 
 /// clear screen
 void  _std vio_clearscr(void);
@@ -153,7 +161,7 @@ typedef struct {
    u16t        fonty;    ///< font height (in dots)
    u32t        flags;    ///< mode information flags
    u32t      mode_id;    ///< unique mode identifier over system
-   /* data starting from this point provided for graphic modes only,
+   /* data starting from this point provided for graphics modes only,
       when CONSOLE module is active */
    u32t          gmx;
    u32t          gmy;
@@ -162,6 +170,7 @@ typedef struct {
    u32t        gmask;    ///< green color mask (bpp>=15)
    u32t        bmask;    ///< blue color mask (bpp>=15)
    u32t        amask;    ///< reserved bits mask (bpp>=15)
+   u32t      gmpitch;    ///< graphics mode line length
 } vio_mode_info;
 
 #define VIO_MI_SHORT   (FIELDOFFSET(vio_mode_info,gmx))
@@ -198,6 +207,12 @@ vio_mode_info* _std vio_modeinfo(u32t mx, u32t my, int dev_id);
     mode_id can be queried via vio_modeinfo() mode enumeration.
     return 0 on success or error code */
 qserr _std vio_setmodeid(u32t mode_id);
+
+/** query mode information by mode_id value.
+    Note, that mode_id is a device-specific value.
+    mib->size should be set to VIO_MI_SHORT or VIO_MI_FULL before the call.
+    return 0 on success or error code */
+qserr _std vio_querymodeid(u32t mode_id, vio_mode_info *mib);
 
 /** set intensity or blink for text mode background.
     After mode init INTENSITY is selected (unlike BIOS).

@@ -83,7 +83,7 @@ static qserr dsk_flushgpt(hdd_info *hi) {
 
    if (!hi || !hi->gpthead || !hi->ptg || !pt) return E_SYS_INVPARM;
    // update partition data crc32
-   pt ->GPT_PtCRC = crc32(crc32(0,0,0), (u8t*)hi->ptg, sizeof(struct GPT_Record) *
+   pt->GPT_PtCRC = crc32(crc32(0,0,0), (u8t*)hi->ptg, sizeof(struct GPT_Record) *
       pt->GPT_PtCout);
    // there is no second copy? reconstruct one
    if (!pt2) {
@@ -98,6 +98,7 @@ static qserr dsk_flushgpt(hdd_info *hi) {
       pt2->GPT_Hdr1Pos = pt->GPT_Hdr2Pos;
       pt2->GPT_Hdr2Pos = pt->GPT_Hdr1Pos;
    }
+   pt2->GPT_PtCRC  = pt->GPT_PtCRC;
    // update crc32 in headers
    pt->GPT_HdrCRC  = 0;
    pt->GPT_HdrCRC  = crc32(crc32(0,0,0), (u8t*)pt, sizeof(struct Disk_GPT));
@@ -224,12 +225,19 @@ qserr dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid) {
       // make happy this imbecile whar_t implementaion in OW 1.9 (requires type cast)
       static u16t *str_unnamed = (u16t*)L"Custom (QSINIT)";
       struct GPT_Record    *ne = hi->ptg + widx;
-      static u32t  windataguid[4] = {0xEBD0A0A2, 0x4433B9E5, 0xB668C087, 0xC79926B7};
       char             guidstr[40], *ptstr;
 
       memset(ne, 0, sizeof(struct GPT_Record));
+      // apply guid aliases
+      if ((u32t)guid <= (u32t)CGUID_EFISYS) {
+         switch ((u32t)guid) {
+            case 0: guid = windataguid; break;
+            case 1: guid = lindataguid; break;
+            case 2: guid = os2guid; break;
+            case 3: guid = efiguid; break;
+         }              
+      }
       // query printable partition name (and use "Custom" if failed)
-      if (!guid) guid = windataguid;
       dsk_guidtostr(guid, guidstr);
       ptstr = guidstr[0] ? cmd_shellgetmsg(guidstr) : 0;
       if (ptstr) {
@@ -301,11 +309,16 @@ qserr _std dsk_gptpset(u32t disk, u32t index, dsk_gptpartinfo *pinfo) {
 }
 
 qserr _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
-   if (!disk||!guid||(guidtype&~(GPTN_PARTITION|GPTN_PARTTYPE)))
-      return E_SYS_INVPARM;
+   char srchltr = 0;
+   if (!disk || !guid || guidtype>GPTN_LETTER) return E_SYS_INVPARM;
+   if (guidtype!=GPTN_DISK && !index) return E_SYS_INVPARM;
+
+   if (guidtype==GPTN_LETTER) {
+      srchltr = toupper(*(char*)guid);
+      if (srchltr<'A' || srchltr>'Z') return E_SYS_INVPARM;
+   } else
    // empty GUID arg
    if (!memchrnb((u8t*)guid,0,16)) return E_SYS_INVPARM;
-   if (guidtype!=GPTN_DISK && !index) return E_SYS_INVPARM;
 
    FUNC_LOCK  lk;
 
@@ -338,12 +351,28 @@ qserr _std dsk_gptfind(void *guid, u32t guidtype, u32t *disk, u32t *index) {
       dsk_ptrescan(*disk,0);
       if (!hi->gpt_size) return E_PTE_MBRDISK;
 
+      if (guidtype==GPTN_LETTER) {
+         dsk_gptpartinfo gpp;
+
+         for (idx=0; idx<hi->gpt_view; idx++)
+            if (dsk_isgpt(*disk, idx) > 0) {
+               dsk_gptpartinfo  gpi;
+               char              lt;
+
+               if (!dsk_gptpinfo(*disk, idx, &gpp))
+                  if (!dsk_gptletter(&gpp, -1, &lt))
+                     if (lt==srchltr) {
+                        *index = idx;
+                        return 0;
+                     }
+            }
+      } else
       for (idx=0; idx<hi->gpt_size; idx++)
          if (hi->ptg[idx].PTG_FirstSec) {
             struct GPT_Record  *pte = hi->ptg + idx;
             // if partition is not indexed, then skip it and search next
-            if (memcmp(guidtype&GPTN_PARTITION ? pte->PTG_GUID : pte->PTG_TypeGUID,
-               guid, 16)==0)
+            if (memcmp(guidtype&GPTN_PARTITION ? pte->PTG_GUID :
+                       pte->PTG_TypeGUID, guid, 16)==0)
                if (hi->gpt_index[idx]!=FFFF) {
                   *index = hi->gpt_index[idx];
                   return 0;

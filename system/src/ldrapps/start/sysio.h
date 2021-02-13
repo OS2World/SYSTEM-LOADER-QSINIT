@@ -83,6 +83,8 @@ typedef struct _io_handle_data {
       struct {
          u32t        omode;             ///< open mode (shared with .file)
          st_handle_int  xh;
+         u8t           eof;             ///< EOF (^Z) received for this handle
+         u8t           efe;             ///< EOF enabled for this handle
       } std;
    };
 } io_handle_data;
@@ -178,8 +180,10 @@ int             ioh_singleobj    (sft_entry *fe);
 io_handle_data *ioh_setuphandle  (u32t ifno, u32t fno, u32t pid);
 /// set heap onwer for new sft entries
 void            sft_setblockowner(sft_entry *fe, u32t fno);
-// have no locks inside, must be called inside MT lock
+/// have no locks inside, must be called inside MT lock
 int _std        qe_available_spec(qshandle queue, u32t *ppid, u32t *sft_no);
+/// MTLIB service function, ignores access rights
+qe_eid* _std    qe_getschedlist  (qshandle queue);
 // call for io_dumpsft() dump, assumes MT lock too
 int _std        qe_available_info(void *pi, u32t *n_sched);
 /** start of MT mode callback.

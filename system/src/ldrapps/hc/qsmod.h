@@ -35,7 +35,7 @@ u32t  _std mod_load      (const char *path, u32t flags, qserr *error, void *extd
 
 /** execute module.
     Low level exec function.
-    Module is unloaded after call.
+    Module is unloaded after the call.
     See also mod_execse().
 
     @param       module  Module handle.

@@ -82,6 +82,7 @@ int main(int argc, char *argv[]) {
       value = str_findkey(cfg, "DBCARD", 0);
       if (value) shell_cmd("dbcard ", value); else {
          value = str_findkey(cfg, "DBPORT", 0);
+         if (!value) value = str_findkey(cfg, "DBGPORT", 0);
          if (value) {
             u32t port = str2ulong(value);
             if (port) hlp_seroutset(port, 0);

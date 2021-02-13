@@ -266,7 +266,10 @@ int _std _prt_common(void *fp, const char *fmt, long *arg, print_outf outc) {
                         (*outc)('x'-'b'+fmtc,fp); 
                         nch += 2; 
                      }
-                     while (len++<prec*2) (*outc)('0',fp);
+                     while (len<prec*2) {
+                        (*outc)('0',fp);
+                        len++;
+                     }
                      while (*str) (*outc)(*str++,fp);
                      nch  += len;
                      if (width) { (*outc)(' ',fp); nch++; }

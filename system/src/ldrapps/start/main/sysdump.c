@@ -56,6 +56,8 @@ void _std sys_gdtdump(printf_function pfn) {
             edn = gd->d_access&D_EXPDN;
             cp += sprintf(cp, "%c %2s   ", gd->d_access&D_ACCESSED?'A':' ',
                edn?(code?"CN":"ED"):"  ");
+            // conforming bit for code
+            if (code) edn = 0;
 
             good = 1;
          } else {

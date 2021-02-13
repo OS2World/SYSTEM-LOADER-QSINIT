@@ -23,6 +23,7 @@
 #ifdef __QSINIT__
 #include "qsshell.h"
 #endif
+#include "ptabdlg.h"
 
 #define GPTYPESTR_LEN   64
 
@@ -48,6 +49,21 @@ public:
    TCombo     *cbGPTType;
    TInputLine *elTypeGUID;
    TInputLine *elName;
+};
+
+class TAOSGUIDDlg : public TDialog {
+public:
+   unsigned char   orgbyte;
+   char           orgdrive;
+
+   TAOSGUIDDlg(unsigned long disk, unsigned long index, char letter);
+   ~TAOSGUIDDlg();
+   virtual void handleEvent(TEvent&);
+   virtual Boolean valid( ushort );
+
+   TInputLine  *elDrive;
+   TCombo      *cbDrvName;
+   TPTypeByte  *elType;
 };
 
 #endif  // __SETGPT_H

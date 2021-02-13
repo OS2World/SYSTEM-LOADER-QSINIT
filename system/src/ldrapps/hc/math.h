@@ -23,6 +23,8 @@ double _std sqrt (double value);
 double _std fabs (double value);
 double _std atan (double value);
 
+double _std modf (double value,double *iptr);
+
 #ifdef __WATCOMC__
 // the only real intrinsic on watcom, anything else wants runtime code
 #pragma intrinsic(cos,sin,tan,sqrt,fabs,atan)

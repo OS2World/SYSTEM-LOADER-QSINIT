@@ -90,7 +90,6 @@ qserr _std zip_openfile(ZIP *zip, const char *path, int bootvol) {
       if (res) return res;
 
       res = mod_secondary->io_size(zip->fh, &sz64);
-      if (!res && sz64>=FFFF) res = E_SYS_BADFMT;
       if (!res) zip->srcsize = sz64;
    }
    zip->sign = ZIP_SIGN;
@@ -124,9 +123,9 @@ qserr _std zip_openfile(ZIP *zip, const char *path, int bootvol) {
             the end of file on PXE boot. In this case out bytes value will be
             smaller, than in! */
 static qserr zip_getdata(ZIP *zip, void *buffer, u32t *bytes) {
-   u32t   rest = 0, 
-       readlen = *bytes;
-   qserr  errv = 0;
+   u64t      rest = 0;
+   u32t   readlen = *bytes;
+   qserr     errv = 0;
    // we should have size even for PXE, after we reach the end of file
    if (zip->srcsize && zip->srcpos>=zip->srcsize) return E_SYS_EOF;
    if (zip->srcsize) {
@@ -179,7 +178,7 @@ static qserr zip_getdata(ZIP *zip, void *buffer, u32t *bytes) {
             int tocache = readlen<CACHE_SIZE;
             u32t  rsize = tocache ? (rest<CACHE_SIZE?rest:CACHE_SIZE) : readlen;
 #if 0
-            log_printf("zip->srcsize %u zip->srcpos %u(%X) rsize %u readlen %u\n",
+            log_printf("zip->srcsize %Lu zip->srcpos %Lu(%LX) rsize %u readlen %u\n",
                zip->srcsize, zip->srcpos, zip->srcpos, rsize, readlen);
 #endif
             if (mod_secondary->io_read(zip->fh, tocache?zip->buf:buffer, rsize)!=rsize) {
@@ -284,8 +283,48 @@ qserr _std zip_nextfile(ZIP *zip, char** filename, u32t *filesize) {
             if (res) return res;
 
             if (hdr.extra) {
-               res = zip_next(zip, 0, hdr.extra, "ZIP error: broken extra\n");
-               if (res) return res;
+               u16t elen = hdr.extra;
+               while (elen>4) {
+                  u32t   hdrid, hdrlen;
+                  res = zip_next(zip, &hdrid, 4, "ZIP error: extra\n");
+                  if (res) return res; else elen-=4;
+
+                  hdrlen = hdrid>>16;
+                  hdrid &= 0xFFFF;
+                  if (elen<hdrlen) {
+                     Message("ZIP error: missing extra data\n");
+                     return E_SYS_BADFMT;
+                  } else
+                     elen -= hdrlen;
+                  //log_printf("%u bytes ext id %u\n", hdrlen, hdrid);
+
+                  // ZIP64 extra (I saw this header for a file of 2.2Gb size)
+                  if (hdrid==1) {
+                     u64t tmp;
+                     if (hdr.size==FFFF && hdrlen>=8) {
+                        res = zip_next(zip, &tmp, 8, "ZIP error: extra usize\n");
+                        if (res) return res;
+                        hdrlen-=8;
+                        if (tmp>=_4GBLL) return E_SYS_TOOLARGE;
+                        hdr.size = (u32t)tmp;
+                     }
+                     if (hdr.csize==FFFF && hdrlen>=8) {
+                        res = zip_next(zip, &tmp, 8, "ZIP error: extra csize\n");
+                        if (res) return res;
+                        hdrlen-=8;
+                        if (tmp>=_4GBLL) return E_SYS_TOOLARGE;
+                        hdr.csize = (u32t)tmp;
+                     }
+                  }
+                  if (hdrlen) {
+                     res = zip_next(zip, 0, hdrlen, "ZIP error: broken extra\n");
+                     if (res) return res;
+                  }
+               }
+               if (elen) {
+                  res = zip_next(zip, 0, elen, "ZIP error: unk extra?\n");
+                  if (res) return res;
+               }
             }
             /* DUMB option. It requires slow forward searching with unknown
                size and, at least, JAR archives use it */

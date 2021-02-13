@@ -945,12 +945,12 @@ intr:                                                           ; general interr
 ;-----------------------------------------------------------------------------
 intrirq:                                                        ; an IRQ redirection
                 mov     ds:@@intrirqintnum[edi],al              ; modify code with interrupt number
+                or      ds:call_state[edi],CST_IRQ              ; signal for switch code!
 
                 mov     si,cs:_rm16code                         ; real mode target CS:IP
                 mov     di,off @@intrirqf0
                 sub     bx,6                                    ; adjust real mode SP for stored vars
 
-                or      ds:call_state[edi],CST_IRQ              ; signal for switch code!
                 db      66h                                     ; JMP DWORD PTR, as in 32bit offset,
                 jmp     word ptr cs:pmtormswrout                ;  not seg:16bit offset
 

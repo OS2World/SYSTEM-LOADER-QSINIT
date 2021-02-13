@@ -206,12 +206,8 @@ int _std exit_bootvbr(u32t disk, long index, char letter, void *sector) {
          For exFAT - allow to boot everywhere, it has 64-bit volume
          position field in own BPB */
       if (start>=_4GBLL && bstype!=DSKST_BOOTEXF) return EFBIG;
-      // query volume letter from DLAT data
-      if (!letter && !floppy) {
-         lvm_partition_data info;
-         if (lvm_partinfo(disk, index, &info))
-            if (info.Letter) letter = info.Letter;
-      }
+      // query volume letter from DLAT/GPT data
+      if (!letter && !floppy) letter = lvm_ismounted(disk, index);
       if (letter) letter = toupper(letter);
       if (letter<'C') letter = 0;
 
@@ -356,11 +352,8 @@ qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name) {
       u32t  phdisk;
       long  volidx = vol_index(disk&~QDSK_VOLUME, &phdisk);
       if (volidx>0) {
-         lvm_partition_data lvd;
-         if (lvm_partinfo(phdisk, volidx, &lvd)) {
-            lvm_letter = toupper(lvd.Letter);
-            if (lvm_letter<'C' || lvm_letter>'Z') lvm_letter = 0;
-         }
+         lvm_letter = toupper(lvm_ismounted(phdisk, volidx));
+         if (lvm_letter<'C' || lvm_letter>'Z') lvm_letter = 0;
       }
    }
 

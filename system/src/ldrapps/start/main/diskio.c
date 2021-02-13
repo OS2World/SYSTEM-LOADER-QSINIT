@@ -75,6 +75,40 @@ u32t _std dsk_strtodisk(const char *str) {
    return FFFF;
 }
 
+qserr _std dsk_fakechs(disk_geo_data *geo) {
+   u32t shift, heads, spt;
+
+   if (!geo) return E_SYS_ZEROPTR;
+   // all parameters for calulation should be zero-filled!
+   if (!geo->TotalSectors || geo->Heads>255 || geo->SectOnTrack>255)
+      return E_SYS_INVPARM;
+   // default sector size
+   if (!geo->SectorSize) geo->SectorSize = 512;
+
+   shift = bsf32(geo->SectorSize);
+   if (shift!=bsr32(geo->SectorSize) || shift<9 || shift>12) return E_DSK_SSIZE;
+
+   heads = geo->Heads ? geo->Heads : 1;
+   spt   = geo->SectOnTrack ? geo->SectOnTrack : 17;
+   // just deny all < 17 sectors?
+   if (heads * spt > geo->TotalSectors) return E_SYS_TOOSMALL;
+
+   while ((u64t)1024*spt*heads < geo->TotalSectors) {
+      if (!geo->SectOnTrack && spt<63)
+         { spt   = (spt   + 1 & 0xF0) * 2 - 1; continue; }
+      if (!geo->Heads && heads<255)
+         { heads = (heads + 1) * 2 - 1; continue; }
+      break;
+   }
+   if (geo->TotalSectors / (spt*heads) > (u64t)FFFF) return E_SYS_TOOLARGE;
+
+   geo->Cylinders   = geo->TotalSectors / (spt*heads);
+   geo->Heads       = heads;
+   geo->SectOnTrack = spt;
+
+   return 0;
+}
+
 char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf) {
    static char *suffix[] = { "kb", "mb", "gb", "tb", "pb", "eb", "zb" }; // ;)
    char fmt[16];

@@ -29,7 +29,7 @@ BDA_VPageStart  dw      ?                 ;
 BDA_VCurPos     dw      8 dup (?)         ;
 BDA_VCurType    dw      ?                 ;
 BDA_VPage       db      ?                 ;
-BDA_VCrtAddr    dw      ?                 ;
+BDA_VCrtPort    dw      ?                 ;
 BDA_VCrtLast    db      ?                 ; last value written to 3D8h
 BDA_VPalLast    db      ?                 ; last value written to 3D9h
 BDA_Reset       dd      ?                 ;
@@ -47,7 +47,8 @@ BDA_KbBufStart  dw      ?                 ;
 BDA_KbBufEnd    dw      ?                 ;
 BDA_VRows       db      ?                 ;
 BDA_VCharLines  dw      ?                 ; scan-lines in character
-BDA_VMisc       dw      ?                 ;
+BDA_VCtl        db      ?                 ;
+BDA_VSwitches   db      ?                 ;
 BDA_VModeOpts   db      ?                 ; next mode set options
 BDA_VDCCIndex   db      ?                 ;
 BDA_FsLastRate  db      ?                 ; floppy last data rate
@@ -65,5 +66,40 @@ BDA_Unused4     db      7 dup (?)         ;
 BDA_VSaveTable  dd      ?                 ;
 BDA_Unused5     dd      21 dup (?)        ;
 BiosDataArea    ends 
+
+StaticFuncTable struc                     ; int 10h 1Bh
+VST_Mode0       db      ?                 ; modes 0..7 supported
+VST_Mode1       db      ?                 ; modes 8..F supported
+VST_Mode2       db      ?                 ; modes 10..13 supported
+VST_Unused1     dd      ?                 ;
+VST_ScanLines   db      ?                 ; scan lines supported
+VST_CBlk        db      ?                 ;
+VST_ActiveCblk  db      ?                 ;
+VST_MiscFlags   dw      ?                 ;
+VST_Unused2     dw      ?                 ;
+VST_SaveFlags   db      ?                 ;
+VST_Unused3     db      ?                 ;
+StaticFuncTable ends                      ;
+
+VideoFuncInfo   struc                     ; int 10h 1Bh
+VFI_StaticTab   dd      ?                 ; far ptr to StaticFuncTable
+VFI_BDA1        db      30 dup (?)        ; copy of BiosDataArea starting from BDA_VMode
+VFI_VRows       db      ?                 ;
+VFI_VCharLines  dw      ?                 ; scan-lines in character
+VFI_ActiveDCC   db      ?                 ;
+VFI_AltDCC      db      ?                 ;
+VFI_Colors      dw      ?                 ;
+VFI_Pages       db      ?                 ;
+VFI_ScanLines   db      ?                 ;
+VFI_CBPrimary   db      ?                 ; primary character block
+VFI_CBSec       db      ?                 ; secondary character block
+VFI_MiscFlags   db      ?                 ;
+VFI_NonVGA      db      ?                 ;
+VFI_Unused1     db      2 dup (?)         ;
+VFI_VideoMem    db      ?                 ; video memory available
+VFI_SaveFlags   db      ?                 ;
+VFI_DispInfo    db      ?                 ;
+VFI_Unused2     db      12 dup (?)        ;
+VideoFuncInfo   ends                      ;
 
 ;cc #endif // QS_BASE_BIOSDATA_INC

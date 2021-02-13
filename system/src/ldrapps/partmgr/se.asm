@@ -1413,7 +1413,8 @@ gptsect:
                 jnz     @@pt_g_missing                          ;
                 or      edx,edx                                 ; start above 2Tb?
                 movzx   dx,@@pt_g_disknum                       ; then skip BPB check
-                jnz     @@pt_g_notbpb                           ;
+                jnz     @@pt_g_notbpb                           ; and I13X in 3000:0
+
                 bsr     ax,[bp].Boot_Record.BR_BPB.BPB_BytePerSect ; check bps
                 bsf     cx,[bp].Boot_Record.BR_BPB.BPB_BytePerSect ; is it 1 bit
                 cmp     ax,cx                                   ; in range 512..4096?
@@ -1423,6 +1424,13 @@ gptsect:
                 cmp     al,13                                   ;
                 jnc     @@pt_g_notbpb                           ;
                 mov     [bp].Boot_Record.BR_BPB.BPB_HiddenSec,ebx ;
+
+                xor     di,di                                   ;
+                mov     eax,58333149h                           ;
+                push    I13X_SEG                                ; IBM boot only:
+                pop     es                                      ; 2 dd at 3000:0 
+                stosd                                           ; 
+                mov     es:[di],ebx                             ;
 @@pt_g_notbpb:
                 JmpF16a 0,LOC_7C00h                             ;
 
@@ -1480,7 +1488,7 @@ gptsect:
 @@pt_g_msg_xr:  db      '<no i13x!>',0                          ;
 @@pt_g_msg_os:  db      '<no operating system>',0               ;
 @@pt_g_msg_io:  db      '<disk read error>',0                   ;
-@@pt_g_msg_pt:  db      '<error in partition table>',0          ;
+@@pt_g_msg_pt:  db      '<bad partition table>',0               ;
 gptsect_end:
 
 pt_g_reserved   equ     size MBR_Code - (gptsect_end - gptsect) ;

@@ -598,7 +598,7 @@ extern s16 _RndCScale;
 l FAST RoundN (l N,l I);
 l FAST RoundP2(l I);
 
-l FAST roundfd(f64 value);
+l __stdcall roundfd(f64 value);
 
 #define ROUNDF roundfd
 

@@ -105,6 +105,14 @@ static void process_sysq(qe_event *ev) {
       case SYSQ_ALARM:
          mtlib->sendsignal(ev->a, ev->b, QMSV_ALARM, 0);
          break;
+      case SYSQ_SCHEDAT:
+         log_it(3,"AT task (%s)!\n", ev->a);
+         if (ev->a) {
+            cmd_shellcall(cmd_shellrmv("START", 0), (char*)ev->a, 0);
+            free((char*)ev->a);
+            ev->a = 0;
+         }
+         break;
       default:
          log_it(3,"unknown sys_q event %X %X %X %X!\n", ev->code, ev->a, ev->b, ev->c);
    }
@@ -205,12 +213,14 @@ void _std mt_startcb(qs_sysmutex mproc) {
    qserr      err;
    // and we need this pointer too ;)
    if (!mtlib) get_mtlib();
-   // create & detach service queue
+   /* create & detach service queue.
+      Detached state allows access from any thread, calls like
+      qe_unschedule() and so on */
    if (qe_create(0,&sys_q)) log_it(0, "sys_q init error!\n"); else
       io_setstate(sys_q, IOFS_DETACHED, 1);
    // call back to the MT lib
    mtmux     = mproc;
-   mtmux->init(muxcvtfunc, qe_available_spec, sys_q);
+   mtmux->init(muxcvtfunc, qe_available_spec, sys_q, qe_getschedlist);
    in_mtmode = 1;
    // create mutexes for QSINIT binary (module loader & micro-FSD access)
    setup_loader_mt();

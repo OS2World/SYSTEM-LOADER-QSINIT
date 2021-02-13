@@ -14,11 +14,11 @@
 static const char *keys[] = { "ALTE", "ALTF1", "ALTF2", "ALTF3", "ALTF4",
    "ALTF5", "CTRLC", "PRELOAD", "MEMLIMIT", "NODBCS", "LOGSIZE", "NOREV",
    "NOLOGO", "CFGEXT", "SYM", "RESTART", "DBPORT", "CALL", "VALIMIT",
-   "CPUCLOCK", "DEFMSG", "FORCEDUMP" };
+   "CPUCLOCK", "DEFMSG", "FORCEDUMP", "OHTRACE", "OHTRAP" };
 
 enum _keys { kAltE, kAltFX, kAltFXe=5, kCtrlC, kPreload, kLimit, kDbcs,
    kLogSize, kNoRev, kNoLogo, kCfgExt, kSymName, kRestart, kDbPort, kCall,
-   kVAlimit, kCpuClock, kDefMsg, kForceDump, kEnd };
+   kVAlimit, kCpuClock, kDefMsg, kForceDump, kOemHlpTrace, kOemHlpTrap, kEnd };
 
 /* options to remove from result line.
    there is no more "DISKSIZE", but let it will be here. */

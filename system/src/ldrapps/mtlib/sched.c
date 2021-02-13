@@ -225,7 +225,7 @@ void _std switch_context_timer(void *regs, int is64) {
       memcpy(fbregs, regs, sizeof(struct tss_s));
 
    /* disable custom yield() / yield in mt_swunlock()!
-      this is critical, because function below calls a tonns of api with
+      this is critical, because function below calls a tons of api with
       lock/unlock */
    next_rdtsc = FFFF64;
 

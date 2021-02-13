@@ -333,7 +333,7 @@ typedef struct {
     With SECB_THREAD flag - callback called in separate thread (with 16k
     stack). Note, that for deletion events (SECB_DISKREM, SECB_DEVDEL) -
     instance will be removed already at the moment of thread activation.
-    Only absence of SECB_THREAD guarantee it presence during call. */
+    Only absence of SECB_THREAD guarantee its presence during call. */
 typedef void _std (*sys_eventcb)(sys_eventinfo *info);
 
 /** register callback procedure for selected system events.

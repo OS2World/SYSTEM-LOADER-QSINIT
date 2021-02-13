@@ -18,8 +18,8 @@ typedef struct {
    /* service data, do not touch it! */
    u32t               sign;    ///< check signature
    char           *memdata;    ///< full memory buffer (0 in file mode)
-   u32t            srcsize;
-   u32t             srcpos;
+   u64t            srcsize;
+   u64t             srcpos;
    char               *buf;
    u32t               bpos;
    qshandle             fh;    ///< file handle

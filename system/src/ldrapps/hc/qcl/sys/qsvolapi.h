@@ -23,8 +23,7 @@ typedef u32t  dir_handle_int;
 typedef struct qs_sysvolume_s {
    /** initialize it.
        Note, that function should not modify anything in FS, especially
-       unknown. During mount volume may be shared between default FAT handler
-       (forced) and init function.
+       unknown one.
        @param   vol      Volume (0==A, 1==B and so on)
        @param   flags    No flags now (just 0)
        @param   bootsec  Boot sector data (only when append==0)

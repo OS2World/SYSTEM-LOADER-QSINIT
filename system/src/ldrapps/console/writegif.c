@@ -63,9 +63,9 @@ void *con_writegif(int *ressize,          // result size buffer
 {
    if (!ressize) return 0;
    *ressize = 0;
-   if (!srcdata||!Palette||x<=0||y<=0) return 0; else {
+   if (!srcdata || !Palette || x<=0 || y<=0) return 0; else {
       int rcsize = x*y+1024, xx, yy, result = 0,
-           GIF89 = Copyright||trcolor>=0&&trcolor<256;
+           GIF89 = Copyright || trcolor>=0 && trcolor<256;
       CodeTableEntry *Table=0;
       u8t *rcbuf = (u8t*)malloc_th(rcsize),
            *bptr = rcbuf,
@@ -90,7 +90,7 @@ void *con_writegif(int *ressize,          // result size buffer
       memcpy(bptr+=13,Palette,yy);
       bptr+=yy;
 
-      if (GIF89&&Copyright) {
+      if (GIF89 && Copyright) {
          int len=strlen(Copyright);
          if (len>255) len=255;
          *bptr++=0x21; *bptr++=0xFE;
@@ -98,7 +98,7 @@ void *con_writegif(int *ressize,          // result size buffer
          strcpy((char*)bptr,Copyright);
          bptr+=len+1;
       }
-      if (GIF89&&trcolor>=0) {
+      if (GIF89 && trcolor>=0) {
          *bptr++=0x21; *bptr++=0xF9; *bptr++=0x04; *bptr++=0x05;
          *bptr++=0x20; *bptr++=0x00; *bptr++=trcolor; *bptr++=0x00;
       }
@@ -117,7 +117,7 @@ void *con_writegif(int *ressize,          // result size buffer
 
       *bptr++=CBits;
 
-      if (Table&&PixBuf&&Code&&Prefix&&Append) {
+      if (Table && PixBuf && Code && Prefix && Append) {
          int  CCode,OldCode;
          int    CC=1<<CBits,
                    EOI=CC+1,

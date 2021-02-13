@@ -37,7 +37,7 @@ TKernBootDlg::TKernBootDlg() :
    control->helpCtx = hcKernBatchName;
    insert(control);
 
-   k_opts = new TCheckBoxes(TRect(2, 7, 23, 15),
+   k_opts = new TCheckBoxes(TRect(2, 7, 24, 15),
       new TSItem("Preload BASEDEV",
       new TSItem("Edit CONFIG.SYS",
       new TSItem("No logo",
@@ -50,11 +50,11 @@ TKernBootDlg::TKernBootDlg() :
    insert(k_opts);
    insert(new TLabel(TRect(2, 6, 10, 7), "Op~t~ions", k_opts));
 
-   k_pkey = new TInputLine(TRect(25, 7, 34, 8), 11);
+   k_pkey = new TInputLine(TRect(26, 7, 35, 8), 11);
    k_pkey->helpCtx = hcKernPushKey;
    insert(k_pkey);
 
-   control1 = new TCombo(TRect(35, 7, 38, 8), k_pkey,
+   control1 = new TCombo(TRect(36, 7, 39, 8), k_pkey,
       cbxOnlyList | cbxDisposesList | cbxNoTransfer,
       new TSItem("Alt-F1",
       new TSItem("Alt-F2",
@@ -63,23 +63,23 @@ TKernBootDlg::TKernBootDlg() :
       new TSItem("Alt-F5",
       new TSItem("none", 0)))))));
    insert(control1);
-   insert(new TLabel(TRect(24, 6, 33, 7), "Push key", k_pkey));
+   insert(new TLabel(TRect(25, 6, 34, 7), "Push key", k_pkey));
 
-   k_limit = new TInputLine(TRect(25, 9, 34, 10), 10);
+   k_limit = new TInputLine(TRect(26, 9, 35, 10), 10);
    k_limit->helpCtx = hcKernMemLimit;
    insert(k_limit);
-   insert(new TLabel(TRect(24, 8, 37, 9), "Limit memory", k_limit));
+   insert(new TLabel(TRect(25, 8, 38, 9), "Limit memory", k_limit));
 
-   k_logsize = new TInputLine(TRect(25, 11, 34, 12), 10);
+   k_logsize = new TInputLine(TRect(26, 11, 35, 12), 10);
    k_logsize->helpCtx = hcKernLogSize;
    insert(k_logsize);
-   insert(new TLabel(TRect(24, 10, 33, 11), "Log size", k_logsize));
+   insert(new TLabel(TRect(25, 10, 34, 11), "Log size", k_logsize));
 
-   k_loglevel = new TInputLine(TRect(25, 13, 30, 14), 4);
+   k_loglevel = new TInputLine(TRect(26, 13, 31, 14), 4);
    k_loglevel->helpCtx = hcKernLogLevel;
    insert(k_loglevel);
 
-   control1 = new TCombo(TRect(30, 13, 33, 14), k_loglevel,
+   control1 = new TCombo(TRect(31, 13, 34, 14), k_loglevel,
       cbxOnlyList | cbxDisposesList | cbxNoTransfer,
       new TSItem("no",
       new TSItem("0",
@@ -87,7 +87,7 @@ TKernBootDlg::TKernBootDlg() :
       new TSItem("2",
       new TSItem("all", 0))))));
    insert(control1);
-   insert(new TLabel(TRect(24, 12, 34, 13), "Log level", k_loglevel));
+   insert(new TLabel(TRect(25, 12, 35, 13), "Log level", k_loglevel));
 
    k_cfgext = new TInputLine(TRect(44, 7, 49, 8), 4);
    k_cfgext->helpCtx = hcKernConfigExt;
@@ -99,24 +99,25 @@ TKernBootDlg::TKernBootDlg() :
    insert(k_letter);
    insert(new TLabel(TRect(43, 8, 61, 9), "Boot drive letter", k_letter));
 
-   deb_opts = new TCheckBoxes(TRect(2, 16, 23, 19),
+   deb_opts = new TCheckBoxes(TRect(2, 16, 24, 20),
       new TSItem("Allow Ctrl-C",
       new TSItem("Full COM cable",
-      new TSItem("Verbose log", 0))));
+      new TSItem("OEMHLP trace",
+      new TSItem("OEMHLP PCI trace", 0)))));
    deb_opts->helpCtx = hcKernDebOptions;
    insert(deb_opts);
    insert(new TLabel(TRect(2, 15, 16, 16), "~D~ebug options", deb_opts));
 
-   deb_port = new TInputLine(TRect(25, 16, 34, 17), 10);
+   deb_port = new TInputLine(TRect(26, 16, 35, 17), 10);
    deb_port->helpCtx = hcKernCOMPortAddr;
    insert(deb_port);
-   insert(new TLabel(TRect(24, 15, 41, 16), "COM port address", deb_port));
+   insert(new TLabel(TRect(25, 15, 34, 16), "COM port", deb_port));
 
-   deb_rate = new TInputLine(TRect(25, 18, 34, 19), 13);
+   deb_rate = new TInputLine(TRect(26, 18, 35, 19), 13);
    deb_rate->helpCtx = hcKernCOMPortRate;
    insert(deb_rate);
 
-   control1 = new TCombo(TRect(35, 18, 38, 19), deb_rate,
+   control1 = new TCombo(TRect(36, 18, 39, 19), deb_rate,
       cbxOnlyList | cbxDisposesList | cbxNoTransfer,
       new TSItem("115200",
       new TSItem("1200",
@@ -130,7 +131,7 @@ TKernBootDlg::TKernBootDlg() :
       new TSItem("600",
       new TSItem("9600", 0))))))))))));
    insert(control1);
-   insert(new TLabel(TRect(24, 17, 34, 18), "Baud rate", deb_rate));
+   insert(new TLabel(TRect(25, 17, 35, 18), "Baud rate", deb_rate));
 
    deb_symname = new TInputLine(TRect(44, 16, 58, 17), 12);
    deb_symname->helpCtx = hcKernSYMName;
@@ -142,9 +143,9 @@ TKernBootDlg::TKernBootDlg() :
    insert(control);
    control = new TButton(TRect(52, 18, 62, 20), "~C~ancel", cmCancel, bfNormal);
    insert(control);
-   control = new TStaticText(TRect(35, 9, 38, 10), "Mb");
+   control = new TStaticText(TRect(36, 9, 39, 10), "Mb");
    insert(control);
-   control = new TStaticText(TRect(35, 11, 38, 12), "kb");
+   control = new TStaticText(TRect(36, 11, 39, 12), "kb");
    insert(control);
 
    l_lvminfo = new TColoredText(TRect(44, 11, 64, 14), "" /*"LVM L:\n"

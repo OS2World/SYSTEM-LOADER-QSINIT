@@ -21,10 +21,10 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/t|/o|/c|/q|/p|/boot|/key|/test|/view|/np|/list|/v|/beep";
-      static short argval[] = { 1, 1, 1, 1, 0,    1,   1,    1,   1,   1,    1, 1,    1};
-      process_args(al, argstr, argval,
-                   &testmode, &force, &preload, &quiet, &nopause, &frombp,
+      static char *argstr   = "t|o|s|c|q|p|boot|key|test|view|np|list|v|beep";
+      static short argval[] = {1,1,-1,1,1,0,  1,  1,   1,   1, 1,   1,1,   1};
+      process_args(al, SPA_NOSLASH, argstr, argval,
+                   &testmode, &force, &force, &preload, &quiet, &nopause, &frombp,
                    &fromstor, &testmode, &view, &nopause, &view, &view, &beep);
       al.TrimEmptyLines();
       // by default pause off in "unzip" mode and on in "list"
@@ -114,7 +114,7 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                    errors = 0,
                    ftotal = 0;
             u64t total_uc = 0;
-            u32t  total_c = 0;
+            u64t  total_c = 0;
 
             if (view) {
                pause_println(" compr.    uncompr.   crc        date/time      name", nopause?-1:0);
@@ -158,15 +158,26 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                      // do_it flag
                      int doit = 1;
 
-                     if (!testmode && !force) {
+                     if (!testmode && force<=0) {
                         unsigned attrs;
                         if (!_dos_getfileattr(cname(),&attrs) && (attrs&_A_SUBDIR)==0) {
-                           printf("\rOverwrite %.44s (y/n/all/esc)?",cname());
-                           doit = ask_yn(1);
-                           printf("\r");
-                           if (doit<0) { rc = EINTR; break; }
-                           // "all"
-                           if (doit==2) force = 1;
+                           if (force<0) doit = 0; else {
+                              {
+                                 ansi_push_set color(1);
+                                 printf(ANSI_RESET "\rOverwrite %.44s ("
+                                    ANSI_WHITE "y" ANSI_RESET "/"
+                                    ANSI_WHITE "n" ANSI_RESET "/"
+                                    ANSI_WHITE "a" ANSI_RESET "ll/"
+                                    ANSI_WHITE "s" ANSI_RESET "kip all/"
+                                    ANSI_WHITE "e" ANSI_RESET "sc)?", cname());
+                              }
+                              doit = ask_yn(1,1);
+                              printf("\r");
+                              if (doit<0) { rc = EINTR; break; }
+                              // "all"
+                              if (doit==2) force = 1; else
+                                 if (doit==3) force = -1;
+                           }
                         }
                      }
                      if (doit) {
@@ -235,10 +246,11 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
             if (!quiet)
                if (view) {
                   pause_println(zipviewline, nopause?-1:0);
-                  cmd_printseq(" %d files, %Lu bytes uncompressed, %u compressed\n",
+                  cmd_printseq(" %d files, %Lu bytes uncompressed, %Lu compressed\n",
                      nopause?-1:0, 0, ftotal, total_uc, total_c);
                } else
-                  printf("\r%d files extracted with %d error(s)\n", ftotal, errors);
+                  printf("\r%d files extracted with %d error(s)"
+                         "                                   \n", ftotal, errors);
             zip_close(&zip);
             if (!fromstor && zdata) hlp_memfree(zdata);
             if (errors) rc=EIO;

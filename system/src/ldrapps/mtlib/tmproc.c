@@ -68,7 +68,7 @@ void _std timer64cb(struct xcpt64_data *user) {
    timer_cnt++;
    if (!wrongmode) {
       wrongmode = !sys_selquery(user->x64_cs, &sd);
-      // we`re in 64-bit code? wrong place to switch thread
+      // we`re in 64-bit code? wrong place to switch a thread
       if (!wrongmode)
          if (sd.d_attr&D_LONG) wrongmode = 1;
    }
@@ -102,7 +102,7 @@ void _std timer32cb(struct tss_s *user) {
    if (!mt_exechooks.mtcb_glock) lockcaller = 0;
    // is it main task?
    if (!wrongmode && main_tss) wrongmode = get_taskreg()!=main_tss;
-   // a good time to switch thread
+   // good time to switch a thread
    if (!wrongmode) {
       switch_context_timer(user, 0);
       // next check time for mt_yield()

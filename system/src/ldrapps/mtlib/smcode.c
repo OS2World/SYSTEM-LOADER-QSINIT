@@ -210,8 +210,8 @@ qserr mt_sigfiberstart(mt_thrdata *th) {
       ops.stack      = 0;
       ops.stacksize  = SIGNAL_STACK;
       /* create signal fiber, but just leave it.
-         scheduler will swap fiber to th->tiSigFiber when discover existing
-         signal queue before thread will receive time slice next time. */
+         scheduler will swap fiber to th->tiSigFiber when discover the existing
+         signal queue before the thread will receive a time slice next time. */
       th->tiSigFiber = mt_newfiber(th, signal_fiber, MTCF_APC, &ops, 0);
       return th->tiSigFiber ? 0 : ops.errorcode;
    }
@@ -299,7 +299,7 @@ qserr _std mod_stop(mt_pid pid, int tree, u32t rval) {
       if (res) return res;
    }
    mt_swlock();
-   pd = pid?get_by_pid(pid):pt_current->tiParent;
+   pd = pid ? get_by_pid(pid) : pt_current->tiParent;
    if (!pd) res = E_MT_BADPID;
 
    if (!res) {
@@ -308,26 +308,33 @@ qserr _std mod_stop(mt_pid pid, int tree, u32t rval) {
             here and terminate it one by one without possibility to catch
             someone else */
          dd_list   pl = mt_gettree(pd,1);
-         int     self = pl->delvalue(pt_current->tiPID);
-         // stop them, but release lock between because of too long timeouts
+         int     self = pl->delvalue(pt_current->tiPID),
+                 once = 0;
+         // lock must include get_by_pid() and tree build in mt_gettree()
+         mt_swunlock();
+         // stop them one by one, without a lock
          if (pl)
             while (pl->count()) {
                u32t lres = mod_stop(pl->value(pl->max()), 0, rval);
-               /* return to the user last non-zero error code, but ignore
-                  any errors */
-               if (lres) res = lres;
-
+               // return first non-zero error code, but ignore any errors
+               if (!lres) once = 1; else
+                  if (!res) res = lres;
                pl->del(pl->max(),1);
-               mt_swunlock();
-               // yield some time for other threads
-               mt_swlock();
             }
          if (pl) DELETE(pl);
          // some kind of sin, i think ;)
          if (self) mod_stop(0, 0, rval);
+         /* lock is off, so exit here.
+            return E_MT_PARTIALSTOP if at least one stop has success */
+         return res ? (once?E_MT_PARTIALSTOP:res) : 0;
       } else
       if (pd->piPID==1 || (pd->piMiscFlags&PFLM_SYSTEM)) res = E_MT_ACCESS; else {
-         u32t ii, self;
+#if MAX_TID_BITS!=12
+#error fixme (u16t)
+#endif
+         u32t ii, self, idx;
+         u16t tids[32], *ptid = 0;
+         int  dynarray;
          /* try to suspend them first - to be safe a bit more.
 
             use "pid" arg here and in mt_termthread() below to save zero value
@@ -337,17 +344,28 @@ qserr _std mod_stop(mt_pid pid, int tree, u32t rval) {
             mt_thrdata *th = pd->piList[ii];
             if (th && th!=pt_current) mt_suspendthread(pid, th->tiTID, 0);
          }
-         /* stop threads, but current must be the last, because no return
+         // allocate array for the TID list (using pd is really unsafe)
+         if ((dynarray = pd->piListAlloc>32))
+            ptid = (u16t*)calloc_th(pd->piListAlloc, sizeof(u16t));
+         else
+            memset(ptid = &tids, 0, sizeof(tids));
+         /* collect to the list, but current must be the last, because no return
             from mt_termthread() in this case */
-         for (ii=0, self=0; ii<pd->piListAlloc+self; ii++) {
-            mt_thrdata *th = ii==pd->piListAlloc?(mt_thrdata*)pt_current:pd->piList[ii];
+         for (ii=0, idx=0, self=0; ii<pd->piListAlloc+self; ii++) {
+            mt_thrdata *th = ii==pd->piListAlloc ? (mt_thrdata*)pt_current
+                                                 : pd->piList[ii];
             if (th) {
                if (th==pt_current && !self) { self=1; continue; }
-               res = mt_termthread(pid, th->tiTID, rval);
-               if (res==E_MT_GONE) res = 0;
-               if (res) break;
+               ptid[idx++] = th->tiTID;
             }
          }
+         // stop threads
+         for (ii=0; ii<idx; ii++) {
+            res = mt_termthread(pid, ptid[ii], rval);
+            if (res==E_MT_GONE) res = 0;
+            if (res) break;
+         }
+         if (dynarray) free(ptid);
       }
    }
    mt_swunlock();

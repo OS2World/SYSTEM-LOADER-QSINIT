@@ -3,8 +3,8 @@
 #ifdef HRT
 #include "sp_mem.h"
 #endif
-#ifndef SP_QSINIT
 #include <math.h>
+#ifndef SP_QSINIT
 #if !defined(__GNUC__)&&!defined(KYLIX)&&!defined(__LINUX__)
 #include <io.h>
 #else
@@ -565,8 +565,8 @@ void FAST memswap(void*mem,d size,d len) {
   }
 }
 
-#ifndef SRT
-l FAST roundfd(f64 value) {
+#if !defined(SRT) || defined(SP_QSINIT)
+l __stdcall roundfd(f64 value) {
   f64 intv;
   f64 fp=MODF(value,&intv);
   return l(fabs(fp)>=.5?(value>=0?intv+1:intv-1):intv);

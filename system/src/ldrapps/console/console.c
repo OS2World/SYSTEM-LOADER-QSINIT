@@ -627,7 +627,10 @@ u32t _std con_handler(const char *cmd, str_list *args) {
                // default direct match
                if (mw && mh && emu<0 && !mlow) {
                   vio_mode_info *mi = vio_modeinfo(cols, lines, 0);
-                  if (!mi) cmd_printf("There is no such mode.\n"); else {
+                  if (!mi) {
+                     cmd_printf("There is no such mode.\n");
+                     log_printf("Mode %ux%u not found.\n", cols, lines);
+                  } else {
                      free(mi);
                      if (!vio_setmodeex(cols, lines))
                         cmd_printf("Unable to set the specified mode (%dx%d).\n",

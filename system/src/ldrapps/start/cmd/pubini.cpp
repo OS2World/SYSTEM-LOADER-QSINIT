@@ -110,16 +110,17 @@ static qserr _exicc inif_open(EXI_DATA, const char *fname, u32t mode) {
       hlp_memavail(&maxavail,0);
       if (fsz>>2 >= maxavail) { res = E_SYS_NOMEM; break; }
 
-      src = (char*)malloc(fsz);
-      if (!src) { res = E_SYS_NOMEM; break; }
-      if (io_read(fd->ifh, src, fsz)<fsz) { 
-         res = io_lasterror(fd->ifh);
-         if (!res) res = E_DSK_ERRREAD;
-         break; 
-      }
       TStrings slst;
-      slst.SetText(src,fsz);
-
+      if (fsz) {
+         src = (char*)malloc(fsz);
+         if (!src) { res = E_SYS_NOMEM; break; }
+         if (io_read(fd->ifh, src, fsz)<fsz) { 
+            res = io_lasterror(fd->ifh);
+            if (!res) res = E_DSK_ERRREAD;
+            break; 
+         }
+         slst.SetText(src,fsz);
+      }
       fd->flags = mode;
       fd->ifl   = new TINIFile(&slst);
       if (!is_lock) { io_close(fd->ifh); fd->ifh = 0; }

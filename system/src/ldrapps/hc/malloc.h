@@ -52,7 +52,7 @@ Note, that maximum block size is 2Gb - 64k.
 Also note, that block address is ALWAYS aligned to 16 bytes.
 
 It is a good practice to use malloc_thread() for any temporary buffer. Killing
-this thread will release such block immediately.
+this thread will release such a block immediately.
 */
 
 #ifndef QSINIT_MALLOC

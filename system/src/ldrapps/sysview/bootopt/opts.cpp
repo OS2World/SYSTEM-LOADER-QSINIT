@@ -416,6 +416,36 @@ int opts_fseek(FILE *ff, long long offset, int where) {
    return fseek(ff, offset, where);
 }
 
+#define CRC_POLYNOMIAL    0xEDB88320
+static unsigned long CRC_Table[256];
+static int CRC_Ready = 0;
+
+static void lvm_buildcrc(void) {
+   unsigned long ii, jj, crc;
+   for (ii=0; ii<=255; ii++) {
+      crc = ii;
+      for (jj=8; jj>0; jj--)
+         if (crc&1) crc = crc>>1^CRC_POLYNOMIAL; else crc>>=1;
+      CRC_Table[ii] = crc;
+   }
+   CRC_Ready = 1;
+}
+
+extern "C"
+unsigned long _stdcall lvm_crc32(unsigned long crc, void *Buffer, unsigned long BufferSize) {
+   unsigned char *Current_Byte = (unsigned char*) Buffer;
+   unsigned long Temp1, Temp2, ii;
+
+   if (!CRC_Ready) lvm_buildcrc();
+
+   for (ii=0; ii<BufferSize; ii++) {
+     Temp1 = crc >> 8 & 0x00FFFFFF;
+     Temp2 = CRC_Table[( crc ^ (unsigned long) *Current_Byte ) & (unsigned long)0xFF];
+     Current_Byte++;
+     crc = Temp1 ^ Temp2;
+   }
+   return crc;
+}
 #endif
 
 u64t opts_fsize(const char *str) {

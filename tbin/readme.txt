@@ -236,6 +236,19 @@ file and so on; just remember - this is not a BIG OS).
     * "mem hide" command can be used to hide memory ranges from OS/2
       (if memory tests show error in this range, for example)
 
+    * "vhdd" command supports mounting of fixed size VHD and plain bunary
+      disk images.
+      An example what you can do with binary file mounting:
+        - get Arca OS UEFI boot ISO, open it in the binary file editor in
+          sysview and search string MSDOS5.0 (FAT boot sector signature).
+        - remember offset of this line, for example 1CA1800 
+        - type 
+              vhdd mount iso_file_path offset=0x1CA1800
+          and then mount this new disk as a big floppy (in the disk
+          management in SysView).
+        - full access is available to the FAT image of the UEFI boot
+          partition, used to boot from this ISO.
+
     * look for more in the section 5 below.
 
    QSINIT can be loaded by "WorkSpace On-Demand" PXE loader, but further
@@ -390,8 +403,8 @@ directory.
   ------------------------------------
 
    QSINIT supports Arca OS loader configuration file. This file is used, at
-least for HIDEMEM, MEMLIMIT, LOGSIZE, DBCARD, DBPORT, RAMDISKNAME and RAMDISK
-options.
+least for HIDEMEM, MEMLIMIT, LOGSIZE, DBCARD, DB(G)PORT, RAMDISKNAME,
+ACPIRESET, DUMP_SEARCH and RAMDISK options.
    But own QSINIT settings have a priority above options, listed above.
 
    This mean, that OS2LDR.INI parameter will override LOGSIZE value.
@@ -402,7 +415,7 @@ processing - from OS2LDR.INI or rare VMTRR cut of a small part of 4th Gb.
    RAMDISK and RAMDISKNAME keys will affect only if NO ramdisk present (i.e.
 no RAMDISK command was used in qssetup.cmd).
 
-   DBCARD or DBPORT options will be used if no debug COM port in use (i.e.
+   DBCARD or DB(G)PORT options will be used if no debug COM port in use (i.e.
 OS2LDR.INI does not define it).
 
    To remove OS2DLR.CFG processing - just delete file AOSCFG.EXE from the
@@ -593,6 +606,8 @@ only exFAT able to boot from it.
 
    You can set "BIOS Bootable" attribute via "gpt" command or "sysview" app.
 
+   With GPT.FLT in CONFIG.SYS it is possible to boot OS/2 from a GPT disk.
+
    As example, you can create "dual boot" flash/hdd drive:
 
    * init it to GPT in QSINIT
@@ -708,7 +723,7 @@ should make PC more quiet and peaceful ;)
    Multithreading is far from ideal. For example, long file write operations
 can cause huge delays for other threads, but, hey!! - this is not a premium
 desktop OS and it uses BIOS as a driver layer!
-   At least, you can play tetris while second session searches data on huge
+   At least, you can play tetris while second session searches data on a huge
 HDD (in SysView) - this is real.
 
    Additional setup is available, by SET string in qssetup.cmd:
@@ -725,8 +740,8 @@ Anyway, this is still enough for QSINIT lazy multitasking.
 
    Shell command execution can be terminated by Ctrl-C in MT mode.
 
-   Another one of unobvious features is that all QSINIT Ctrl-Alt-Fx hotkeys
-(various dumps) starts to react at any time (not only during key waiting).
+   Another unobvious feature is that all QSINIT Ctrl-Alt-Fx hotkeys (various
+dumps) start to react at any time (not only during key waiting).
 
   =======================================================================
   11. Supported kernels
@@ -914,9 +929,9 @@ of them are supported now: CPUCLOCK and NOMTRR.
 
                By default QSINIT blocks them while reading from boot device.
                This cause elimination of JFS boot copyright message (a kind of
-               garbage on screen) and deactivate PXE BIOS keyboard polling for
-               ESC key (i.e., PXE BIOS stucks keyboard until the end of file
-               load).
+               garbage on the screen) and deactivate PXE BIOS keyboard polling
+               for ESC key (common PXE BIOS stucks keyboard until the end of
+               file load).
 
                Turning this option ON is actual only for someone, who writes
                own micro-FSD :)
@@ -942,6 +957,11 @@ of them are supported now: CPUCLOCK and NOMTRR.
                on national language).
 
  * NOREV     - do not show kernel revision.
+
+ * OHTRACE=1..3 - print OEMHLP$ calls information into the log, (1 - ordinary
+               debug; 2 - only PCI calls; 3 - both). Also note that ACPI.PSD
+               intercepts most of OEMHLP calls when active. OS/4 kernel uses
+               its own OEMHLP$ driver and that is extremly bad.
 
  * PCISCAN_ALL=1 - scan all 256 PCI buses. By default QSINIT scan only number
                of buses, reported by PCI BIOS. This key can be really sloooow
@@ -993,7 +1013,7 @@ of them are supported now: CPUCLOCK and NOMTRR.
                of VIRTUALADDRESSLIMIT in CONFIG.SYS will be used (actual for
                later OS/4 kernels only, where VIRTUALADDRESSLIMIT is absent).
 
- * VIEWMEM   - open memory editor just before starting of kernel (when it
+ * VIEWMEM   - open memory editor just before starting the kernel (when it
                loaded and ready to launch).
 
    In  OS2LDR.INI  keys  CTRLN,  DBPORT,  DBCARD,  NOAF,  BAUDRATE, UNZALL,

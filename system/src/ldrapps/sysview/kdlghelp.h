@@ -3,7 +3,6 @@ const int
   hcKernOptions          = 2001,
   hcKernDriveLetter      = 2009,
   hcKernDebOptions       = 2010,
-  hcKernPushKey          = 2013,
   hcKernCOMPortAddr      = 2014,
   hcKernCOMPortRate      = 2015,
   hcKernSYMName          = 2016,
@@ -141,4 +140,6 @@ const int
   hcProcInfoKillTree     = 2151,
   hcMountRO              = 2152,
   hcMountRaw             = 2153,
-  hcVolLabelDlg          = 2154;
+  hcVolLabelDlg          = 2154,
+  hcKernPushKey          = 2155,
+  hcAOSGuidType          = 2156;

@@ -48,4 +48,19 @@ public:
    virtual void handleEvent( TEvent& );
    virtual Boolean valid( ushort );
 };
+
+class TPTypeByte : public TInputLong {
+   unsigned long  prevValue;
+   TColoredText  *cmControl;
+   void updateComment();
+public:
+   char          *type0text;
+   TPTypeByte(const TRect& bounds, TColoredText *attComment,
+      const char* labelName = 0) : TInputLong(bounds, 3, 0, 255, 
+         ilPureHex|ilHex, labelName) , type0text(0)
+            { prevValue = 0xFFFFFFFF; cmControl = attComment; }
+   virtual void handleEvent(TEvent& event);
+   virtual void setData(void *rec);
+};
+
 #endif  // __PARTTBL_H

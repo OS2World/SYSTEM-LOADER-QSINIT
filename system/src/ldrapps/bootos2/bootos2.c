@@ -24,6 +24,7 @@
 #include "qsinit.h"
 #include "loadmsg.h"
 #include "seldesc.h"
+#include "qsdump.h"
 
 #undef  MAP_LOGADDR                // make linear address of log
 #define MAP_REMOVEHOLES            // mark memory holes as used blocks
@@ -366,7 +367,7 @@ void load_kernel(module  *mi) {
 
          memcpy((void*)hlp_segtoflat(efd->DumpSeg), os2dmp, dmpsize);
          hlp_memfree(os2dmp); os2dmp = 0;
-         log_printf("os2dump: %04X\n", efd->DumpSeg);
+         log_printf("os2dump: %04X %u\n", efd->DumpSeg, dmpsize);
       }
       pa++;
    }
@@ -912,8 +913,15 @@ void memparm_init(void) {
          efd->LogBufSize<<6, efd->LogMapSize<<6);
    }
    // try to reserve allocated log address in memory manager
-   if (resblock_addr)
+   if (resblock_addr) {
       logresv = hlp_memreserve(resblock_addr, resblock_len<<16, &resblock_err);
+      // this should be a panic, actually
+      if (resblock_err==QSMR_USED) {
+         log_printf("!!!! phys %08X, size %dkb => USED !!!!\n", resblock_addr,
+            resblock_len<<6);
+         hlp_memprint(0);
+      }
+   }
 }
 
 static u8t* _flat(module *mi, u32t addr) {
@@ -1041,6 +1049,7 @@ void patch_kernel(module *mi, int isSMP, int branchAT) {
          }
       }
    }
+#if 0
    // a long way to find TKSetThreadAffinity pointer :)
    if (isSMP)
       for (ii=0; ii<mi->objects; ii++)
@@ -1060,25 +1069,27 @@ void patch_kernel(module *mi, int isSMP, int branchAT) {
                if (etab) {
                   etab+= 2+659*3;
                   gate = *(u16t*)(etab+1);
-               }
-               // GATE
-               if (*etab==2 && mi->obj[gdtseg].size>gate) {
-                  struct gate_s *sd = (struct gate_s*)((u8t*)mi->obj[gdtseg].address + 
-                                                       (gate&RPL_CLR));
-                  if (sd->g_access==D_GATE332) {
-                     u32t addr = sd->g_handler;
-                     fn = _flat(mi, addr);
-                     if (fn[1]==0x6A && fn[2]==8 && fn[8]==0x8D && fn[9]==5) {
-                        fn = *(u8t**)(fn+10);
-                        efd->PFEPtr = (u32t)fn;
-                     } else
-                        fn = 0;
+
+                  // GATE
+                  if (*etab==2 && mi->obj[gdtseg].size>gate) {
+                     struct gate_s *sd = (struct gate_s*)((u8t*)mi->obj[gdtseg].address + 
+                                                          (gate&RPL_CLR));
+                     if (sd->g_access==D_GATE332) {
+                        u32t addr = sd->g_handler;
+                        fn = _flat(mi, addr);
+                        if (fn[1]==0x6A && fn[2]==8 && fn[8]==0x8D && fn[9]==5) {
+                           fn = *(u8t**)(fn+10);
+                           efd->PFEPtr = (u32t)fn;
+                        } else
+                           fn = 0;
+                     }
                   }
+                  log_printf("aff: %08X %02X %04X %08X\n", psmte, *etab, gate, fn);
                }
-               log_printf("aff: %08X %02X %04X %08X\n", psmte, *etab, gate, fn);
             }
             break;
          }
+#endif
    // try to change stack pointer for OS2DUMP
    if (doscode>=0) {
       static u8t sd[16] = { 0x8C, 0xD1, 0x8B, 0xD4, 0x68 };
@@ -1552,6 +1563,16 @@ void main(int argc,char *argv[]) {
          log_printf("cpu clock set to %u.%2.2u%% for OS/2!\n", value/100, value%100);
       }
    }
+   // OEMHLP$ trace level
+   parmptr = key_present("OHTRACE");
+   if (parmptr) {
+      u32t tl = strtoul(parmptr,0,0);
+      if (tl>3) tl = 3;
+      if (tl) efd->FlagsEx |= tl<<EXPFX_OHTSHIFT;
+   }
+   // enable int 3 on writing string "1111" to OEMHLP$
+   if (key_present("OHTRAP")) efd->FlagsEx |= EXPFX_OHTRAP;
+
    // check keys
    cfgext  = key_present("CFGEXT");
    if (cfgext) {

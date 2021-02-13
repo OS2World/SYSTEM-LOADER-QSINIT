@@ -41,7 +41,7 @@ typedef struct {
 /* format to FAT12/FAT16.
    return >0 - FST_* constant, <0 - errno */
 int     format(DWORD vol_start, DWORD vol_size, DWORD unitsz, WORD heads,
-               WORD spt, WORD n_rootdir);
+               WORD spt, WORD n_rootdir, DWORD hsec_offset);
 
 /// check disk for GPT partition and for fixed VHD footer
 void    disk_check(media *dst, u32t *vol_start, u32t *vol_size, u8t *sec_shift);

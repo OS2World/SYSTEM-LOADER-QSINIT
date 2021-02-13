@@ -278,7 +278,7 @@ typedef struct _process_info {
     Returned data is bounded into the single block and should be released
     via one free() call. 
 
-    This is a kind of snapshot of system state.
+    This is a kind of snapshot of the system state.
     @param [out] ppdl    Pointer to the returned process list.
     @return number of processes in list */
 u32t  _std mod_processenum(process_information **ppdl);

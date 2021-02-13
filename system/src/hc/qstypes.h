@@ -103,6 +103,9 @@ typedef unsigned long  ptrdiff_t;
 #define MAKEFAR32(sel,ofs) ((u64t)(sel)<<32|(ofs))
 #define MAKEID4(c1,c2,c3,c4)  ((u32t)((s8t)(c4))<<24|(u32t)((s8t)(c3))<<16|(u32t)((s8t)(c2))<<8|((s8t)(c1)))
 #define FIELDOFFSET(type,field) ((u32t)&(((type*)0)->field))
+#define BYTEOF(p,i) (((u8t*)&(p))[i])
+#define WORDOF(p,i) (((u16t*)&(p))[i])
+#define DWORDOF(p,i) (((u32t*)&(p))[i])
 #define TRUE   (1)
 #define FALSE  (0)
 #endif // OS2_INCLUDED

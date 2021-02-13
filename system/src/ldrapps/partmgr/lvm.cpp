@@ -271,24 +271,34 @@ qserr _std lvm_flushall(u32t disk, int force) {
 
 qserr _std lvm_assignletter(u32t disk, u32t index, char letter, int force) {
    FUNC_LOCK  lk;
+   dsk_gptpartinfo gpp;
    u32t     ridx, didx;
-   char      ltr = toupper(letter);
-   qserr      rc;
+   char            ltr = toupper(letter);
+   qserr            rc;
    // check letter
    if (ltr && (ltr<'A' || ltr>'Z') && ltr!='*') return E_LVM_LETTER;
    if (!force)
       if (ltr && ltr!='*')
          if ((lvm_usedletters()&1<<ltr-'A')!=0) return E_LVM_LETTER;
-   // query dlat with error code
-   rc = lvm_dlatpos(disk, index, &ridx, &didx);
-   if (!rc) {
-      hdd_info *hi = get_by_disk(disk);
-      // save letter
-      DLA_Table_Sector *dls = hi->dlat + (ridx>>2);
-      dls->DLA_Array[didx].Drive_Letter = ltr;
-      // and flush it
-      rc = lvm_flushdlat(disk,ridx>>2);
+
+   // is it GPT?
+   if (!dsk_gptpinfo(disk, index, &gpp)) {
+      rc = dsk_gptletter(&gpp, ltr, 0);
+      if (!rc) rc = dsk_gptpset(disk, index, &gpp);
+   } else {
+      // query dlat with error code
+      rc = lvm_dlatpos(disk, index, &ridx, &didx);
+      if (!rc) {
+         hdd_info *hi = get_by_disk(disk);
+         // save letter
+         DLA_Table_Sector *dls = hi->dlat + (ridx>>2);
+         dls->DLA_Array[didx].Drive_Letter = ltr;
+         // and flush it
+         rc = lvm_flushdlat(disk,ridx>>2);
+      }
    }
+   // update BPB but ignore any error
+   if (!rc) dsk_setbpbdrive(disk, index, ltr);
    return rc;
 }
 
@@ -333,7 +343,10 @@ qserr _std lvm_setvalue(u32t disk, u32t index, u32t vtype, u32t value) {
             if (vtype&LVMV_PARTSER) de->Partition_Serial = value;
             if (vtype&LVMV_INBM   ) de->On_Boot_Manager_Menu = (u8t)value;
             if (vtype&LVMV_INSTALL) de->Installable = (u8t)value;
-            if (vtype&LVMV_LETTER ) de->Drive_Letter = (u8t)value;
+            if (vtype&LVMV_LETTER ) {
+               if (de->Drive_Letter!=(u8t)value) dsk_setbpbdrive(disk, index, value);
+               de->Drive_Letter = (u8t)value;
+            }
             // and flush it
             rc = lvm_flushdlat(disk, ridx>>2);
          }

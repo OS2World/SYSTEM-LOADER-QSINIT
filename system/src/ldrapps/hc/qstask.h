@@ -112,7 +112,7 @@ qserr    _std mt_resumethread(mt_pid pid, mt_tid tid);
 
 /** suspend thread.
    Note, that function will fail if thread is in waiting state.
-   Thread can suspend self, with the same rules. If this case function will
+   Thread can suspend self, with the same rules. In this case function will
    return after resume.
 
    @param  pid           Process ID, use 0 for current process.
@@ -580,11 +580,21 @@ qe_eid   _std qe_reschedule  (qe_eid eventid, clock_t attime);
 
 /** unschedule an event.
    @param  eventid       Event id.
-   @return event (in heap block, which must be released by caller), or
+   @return event (in the heap block, which must be released by caller), or
            0 on error (event has already been delivered or invalid event id
            or access error) */
 qe_event*_std qe_unschedule  (qe_eid eventid);
 
+/** query scheduled event.
+   @attention original event may already be fired/released at the moment when
+              function returns. This means that any pointers, passed in a,b,c
+              can be invalid.
+
+   @param  eventid       Event id.
+   @return event *copy* (in the heap block, which must be released by caller),
+           or 0 on error (event has already been delivered or invalid event id
+           or access error) */
+qe_event*_std qe_getschedule (qe_eid eventid);
 
 /* Signals */
 
@@ -696,8 +706,8 @@ qserr    _std mod_execse     (u32t module, const char *env, const char *params,
     Note, that function starts MT mode as well as mod_execse().
 
     With non-zero "tree" parameter function stops all processes, which it
-    can stop. In this case it may return E_MT_ACCESS if one of processes,
-    selected to delete - was a system.
+    can stop. In this case it returns E_MT_PARTIALSTOP if at least one (but
+    not all processes) was stopped (a process can be system or gone already).
 
     @param       pid     Process ID, can be 0 for current.
     @param       tree    Kill process tree flag (1/0).

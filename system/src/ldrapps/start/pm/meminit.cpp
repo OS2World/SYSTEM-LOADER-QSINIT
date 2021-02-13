@@ -52,6 +52,27 @@ IMPLEMENT_FAKE_COMPARATION(vmem_entry)
 static TSysMemList       pcmem;
 static TSysPGAllocList    memx;
 
+static void pcmem_print(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   // lock pager mutex!
+   PAGEMUX_THIS_FUNC lk;
+
+   for (u32t ii=0; ii<pcmem.Count(); ii++) {
+      u64t start = pcmem[ii].start,
+             len = pcmem[ii].len;
+      pfn("%2d. %010LX-%010LX, size: %8u kb, flags %02X %04X\n", ii+1, start,
+         start+len-1, (u32t)(len>>10), pcmem[ii].flags, pcmem[ii].owner);
+   }
+}
+
+void _std hlp_memcprint(printf_function pfn) {
+   if (!pfn) pfn = log_printf;
+   pfn("<=====PC memory dump=====>\n");
+   pcmem_print(pfn);
+   // print page allocator table
+   hlp_pgprint(pfn);
+}
+
 // sort callback
 static int __stdcall mem_addr_compare(const void *b1, const void *b2) {
    register mem_entry *m1 = (mem_entry*)b1,
@@ -93,13 +114,6 @@ void setup_memory(void) {
          if (ci->len>=_4KB) {
             me.start = ci->start;
             me.len   = ci->len;
-            // align start address and length to page
-            if (me.start & 0xFFF) {
-               u64t diff = 0x1000 - (me.start & 0xFFF);
-               me.start += diff;
-               me.len   -= diff;
-            }
-            if (me.len & 0xFFF) me.len &= ~(u64t)0xFFF;
             if (!me.len) continue;
 
             me.flags = 0;
@@ -130,6 +144,31 @@ void setup_memory(void) {
       }
    }
    free(tbl);
+   // sort by address
+   qsort((void*)pcmem.Value(), pcmem.Count(), sizeof(mem_entry), mem_addr_compare);
+   // print it sorted, but unaligned
+   log_printf("<=====Original table=====>\n");
+   pcmem_print(0);
+   // align free entries to 64k
+   for (ii = 0; ii<pcmem.Count(); ) {
+      mem_entry  &me = pcmem[ii];
+   
+      if (me.start>=_1MB)
+         if (me.owner==PCMEM_FREE) {
+            /* align free blocks down to 64k and delete all smaller than 64k.
+               this alignment should restore a match between free blocks and
+               memory holes, reseved in memmgr (and aligned UP to 64k) */
+            if (me.len<_64KB) { pcmem.Delete(ii); continue; }
+            if (me.start & 0xFFFF) {
+               u32t diff = 0x10000 - (me.start & 0xFFFF);
+               me.start += diff;
+               me.len   -= diff;
+            }
+            if (me.len & 0xFFFF) me.len &= ~(u64t)0xFFFF;
+            if (me.len<_64KB) { pcmem.Delete(ii); continue; }
+         }
+      ii++;
+   }
    // search for lowest border of usable memory in first 4Gbs
    maxmap4g = _1MB;
    for (ii = 0; ii<pcmem.Count(); ii++) {
@@ -160,8 +199,6 @@ void setup_memory(void) {
    }
    // dump to log
    log_it(2, "phys top: %08X\n", maxmap4g);
-   // sort by address
-   qsort((void*)pcmem.Value(), pcmem.Count(), sizeof(mem_entry), mem_addr_compare);
    // update physmem to actual values
    hlp_setupmem(0, 0, 0, SETM_SPLIT16M);
    /* leave pcmem array for multiple hlp_setupmem() calls (it contain pure
@@ -170,22 +207,6 @@ void setup_memory(void) {
    /* print it to log (except safe mode, where it will use too many lines
       on screen) */
    if (!hlp_insafemode()) hlp_memcprint(0);
-}
-
-void _std hlp_memcprint(printf_function pfn) {
-   if (!pfn) pfn = log_printf;
-   pfn("<=====PC memory dump=====>\n");
-   // lock pager mutex!
-   PAGEMUX_THIS_FUNC lk;
-
-   for (u32t ii=0; ii<pcmem.Count(); ii++) {
-      u64t start = pcmem[ii].start,
-             len = pcmem[ii].len;
-      pfn("%2d. %010LX-%010LX, size: %8u kb, flags %02X %04X\n", ii+1, start,
-         start+len-1, (u32t)(len>>10), pcmem[ii].flags, pcmem[ii].owner);
-   }
-   // print page allocator table
-   hlp_pgprint(pfn);
 }
 
 pcmem_entry* _std sys_getpcmem(int freeonly) {
@@ -416,7 +437,7 @@ u32t _std hlp_setupmem(u32t fakemem, u32t *logsize, u32t *removemem, u32t flags)
       } else
          ccount++;
    }
-   // fix too large log size
+   // fix too large log size (leave at least 15Mb for the system)
    if (lactsize && lactsize + (15 << 4) > csize)
       lactsize = csize <= (15 << 4) ? 0 : csize - (15 << 4);
    // split block on 16M border (we always must fit to icnt+1)

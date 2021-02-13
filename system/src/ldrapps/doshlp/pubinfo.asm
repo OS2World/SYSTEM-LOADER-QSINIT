@@ -24,6 +24,7 @@
                 extrn   FONT_TABLE:dword
                 extrn   BIOSTAB_Data:byte
                 extrn   ExtCall32:near
+                extrn   _bprintf16:near
 
 PUBLIC_INFO     segment
                 dw      DOSHLP_SIGN                             ; check bytes
@@ -116,6 +117,7 @@ e@EFDStructSize dw      ExtFini - External                      ;
 e@DumpHubOrder  dw      0                                       ;
 e@PCILastBus    db      0                                       ;
 e@NCpuRun       db      1                                       ;
+e@BPrintFOfs    dw      offset _bprintf16                       ;
 ExtFini         label   near                                    ;
 PUBLIC_INFO     ends
 

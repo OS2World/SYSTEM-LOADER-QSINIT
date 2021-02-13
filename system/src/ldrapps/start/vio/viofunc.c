@@ -13,6 +13,38 @@ char* _std key_getstr(key_strcb cbfunc) {
    return key_getstrex(cbfunc, -1, -1, -1, 0, 0);
 }
 
+/** print string to the current cursor position with ^A..^_ special support.
+    Function shows x01..x1F as *green* A.._ characters.
+
+    @param   str  string to print.
+    @return actual number of new lines (both \n and the end of screen) occured
+            during the source string output. */
+u32t _std vio_strout_spec(const char *str) {
+   u32t  len = 0,
+        spec = 0;
+   // check that string has 01-1F ...
+   while (1) {
+      char ch = str[len];
+      if (!ch) break; else len++;
+      if (ch<' ') spec++;
+   }
+   if (!spec) return vio_strout(str); else {
+      u32t ii, lcnt = 0;
+      u16t defcol = vio_getcolor();
+
+      for (ii=0; ii<len; ii++) {
+         char ch = str[ii];
+         if (ch<' ') {
+            vio_setcolor(VIO_COLOR_GREEN);
+            spec += vio_charout(ch+'@');
+            vio_setcolor(defcol);
+         } else
+            spec += vio_charout(ch);
+      }
+      return lcnt;
+   }
+}
+
 char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
                         const char *init, u32t userdata)
 {
@@ -52,7 +84,7 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
          pos    = clen;
       }
    } else {
-      pos=0; bsize=1024; clen=0; scroll=0; 
+      pos=0; bsize=128; clen=0; scroll=0;
       ld.rcstr  = (char*)malloc_local(bsize);
       *ld.rcstr = 0;
    }
@@ -82,7 +114,11 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
 
       if (all&2) all&=1; 
          else
-      if (keyl>=0x20&&keyl<=0x7E) {
+      if (keyl==27 && keyh!=0x1A) {  // filter out Ctrl-[
+         scroll=0; pos=0; all=1; *ld.rcstr=0; clen=0;
+      } else
+      if (keyl==13) break; else
+      if (keyl>0 && keyl<=0x7E && keyh!=0x0E) {
          if (clen+2>bsize) ld.rcstr = (char*)realloc(ld.rcstr, bsize=(clen+2)*2);
          if (pos+scroll>=clen) ld.rcstr[clen] = keyl; else {
             memmove(ld.rcstr+pos+scroll+1, ld.rcstr+pos+scroll, clen-(pos+scroll));
@@ -90,10 +126,6 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
          }
          ld.rcstr[++clen]=0; mve=1;
       } else
-      if (keyl==27) {
-         scroll=0; pos=0; all=1; *ld.rcstr=0; clen=0;
-      } else
-      if (keyl==13) break; else
       switch (keyh) {
          case 0x47: scroll=0; pos=0; all=1;     break; // home
          case 0x4D: if (pos+scroll<clen) mve=1; break; // right
@@ -167,10 +199,10 @@ char* _std key_getstrex(key_strcb cbfunc, int col1, int line1, int len1,
          vio_setshape(VIO_SHAPE_NONE);
          vio_setpos(line, col);
          strncpy(buf, ld.rcstr+scroll, width); buf[width]=0;
-         vio_strout(buf);
+         vio_strout_spec(buf);
          memset(buf, 0x20, width);
          //log_printf("left space: %d, scroll: %d, clen: %d\n",clen-scroll,scroll,clen);
-         if ((clen-scroll)<width) vio_strout(buf+(clen-scroll));
+         if ((clen-scroll)<width) vio_strout_spec(buf+(clen-scroll));
          vio_setpos(line, col+pos);
          vio_setshape(ld.defshape);
          //         pos       clen   width
@@ -251,12 +283,18 @@ static char *ansi_out(ansi_state *st, char *src) {
       st->str[ANSI_BUF_LEN-1] = 0;
       cs = st->str;
    } else 
-   if (*src!=27) return src; else
+   if (*src!=27) {
+      vio_charout(*src);
+      return src+1;
+   } else
    if (src[1]==0) {
       st->str[st->seq++] = 27;
       return src+1;
    } else
-   if (src[1]!='[') return src; else
+   if (src[1]!='[') {
+      vio_charout(*src);
+      return src+1;
+   } else
    if (src[2]==0) {
       st->str[st->seq++] = 27;
       st->str[st->seq++] = '[';

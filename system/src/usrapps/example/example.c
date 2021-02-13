@@ -279,7 +279,7 @@ int main(int argc,char *argv[]) {
          static const char* pastr[4] = {"unknown", "not present", 
                                         "read only", "writeable"};
          u32t addr = strtoul(argv[2],0,16),
-              mode = pag_query((void*)addr);
+              mode = bsr32(pag_query((void*)addr));
          printf("page at %08X is %s\n", addr&~PAGEMASK, pastr[mode]);
       } else
       if (stricmp(argv[1],"s")==0 && argc==3) {

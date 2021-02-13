@@ -4,6 +4,7 @@
 ;
 
 OS4MAGIC        equ 342F534Fh         ; OS/4 string (placed at 100:0)
+LDRINFO_MAGIC   equ 41435241h
 
 LDRINFO_OFS     equ 4                 ; offset of LoaderInfoData from 100:0
 

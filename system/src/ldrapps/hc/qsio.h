@@ -318,6 +318,8 @@ qserr    _std io_duphandle(qshandle src, qshandle *dst, u32t flags);
 #define IOFS_SECTORIO     0x0010    ///< file offsets and sizes calculated in sectors (blocks)
 #define IOFS_INHERIT      0x0020    ///< handle will be inhertied by a child process
 #define IOFS_INHERITED    0x0040    ///< handle is inheried from the parent process
+#define IOFS_CHAREOF      0x0080    ///< EOF received on a character device handle
+#define IOFS_CHAREFE      0x0100    ///< EOF handling enabled on a character device handle
 //@}
 
 /// @name io_handletype() result
@@ -342,7 +344,8 @@ qserr    _std io_remove   (const char *path);
 /** query path information.
     Function accepts character devices too. In this case info->vol==0xFF, attr
     is IOFA_DEVICE and size field contains the number of bytes available to
-    read in the character device.
+    read in the character device (which may be actual less because of EOF
+    character in the middle of the stream).
 
     Non-zero info->fileno value means that file is opened already by someone,
     this value is a constant all the time while at least one file handle for

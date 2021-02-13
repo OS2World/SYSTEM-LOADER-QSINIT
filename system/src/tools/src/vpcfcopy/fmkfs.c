@@ -16,7 +16,9 @@
 
 extern BYTE bsdata[];
 
-int format(DWORD vol_start, DWORD vol_size, DWORD unitsz, WORD heads, WORD spt, WORD n_rootdir) {
+int format(DWORD vol_start, DWORD vol_size, DWORD unitsz, WORD heads, WORD spt,
+           WORD n_rootdir,  DWORD hsec_offset)
+{
    static const WORD cst[] = {1, 4, 16, 64, 256, 512, 0};
    BYTE            bs[512];  // 1k
    struct Boot_Record  *br = (struct Boot_Record*)&bs;
@@ -73,7 +75,7 @@ int format(DWORD vol_start, DWORD vol_size, DWORD unitsz, WORD heads, WORD spt, 
    br->BR_BPB.BPB_SecPerFAT   = fatsz;
    br->BR_BPB.BPB_SecPerTrack = spt;
    br->BR_BPB.BPB_Heads       = heads;
-   br->BR_BPB.BPB_HiddenSec   = vol_start;
+   br->BR_BPB.BPB_HiddenSec   = vol_start + hsec_offset;
    br->BR_BPB.BPB_TotalSec    = 0;
    br->BR_BPB.BPB_TotalSecBig = 0;
 

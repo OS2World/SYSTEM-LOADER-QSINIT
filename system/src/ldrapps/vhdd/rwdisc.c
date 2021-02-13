@@ -16,10 +16,10 @@
 
 #define VHDD_OFSDD           0x0001   ///< 32-bit sector number
 
-/// "qs_emudisk" class data
+/// "qs_dyndisk" class data
 typedef struct {
    u32t           sign;
-   qs_emudisk  selfptr;    // pointer to own instance
+   qs_dyndisk  selfptr;    // pointer to own instance
    s32t         qsdisk;
    io_handle        df;    // disk file
    char        *dfname;    // disk file name
@@ -35,6 +35,7 @@ typedef struct {
    bit_map      bmused;    // sector presence hint bitmap
    bit_map      bmfree;    // free sectors hint bitmap
    qs_extdisk    einfo;    // attached to this disk ext.info class
+   int              ro;    // image file is r/o
 } diskdata;
 
 typedef struct {
@@ -87,7 +88,7 @@ static u32t ed_sectorindex(diskdata *di, u64t sector, u32t hintidx) {
 static int flush_slices(diskdata *di) {
    /* function can`t use hint bitmaps, they can be outdated at this moment
       (and no reason to use it here) */
-   if (!di->df) return 0; else
+   if (!di->df || di->ro) return 0; else
    if (!di->slices) return 0; else {
       // step size
       u64t rsize = (SLICE_SECTORS<<di->lshift) + (SLICE_SECTORS<<di->idxshift);
@@ -182,22 +183,13 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
          di->idxshift = mhdr.flags&VHDD_OFSDD ? 2 : 3;
 
          di->info.TotalSectors = sectors;
-         di->info.Cylinders    = 1024;
-         di->info.Heads        = 31;
-         di->info.SectOnTrack  = 17;
-
-         while (di->info.Cylinders*di->info.SectOnTrack*di->info.Heads < di->info.TotalSectors) {
-            if (di->info.SectOnTrack<63) {
-               di->info.SectOnTrack = (di->info.SectOnTrack + 1 & 0xF0) * 2 - 1; continue;
-            }
-            if (di->info.Heads<255) {
-               di->info.Heads = (di->info.Heads + 1 & 0xF0) * 2 - 1; continue;
-            }
-            break;
-         }
-         di->info.Cylinders = di->info.TotalSectors / (di->info.Heads*di->info.SectOnTrack);
-
          di->info.SectorSize   = sectorsize;
+         di->info.Cylinders    = 0;
+         di->info.Heads        = 0;
+         di->info.SectOnTrack  = 0;
+         // fill missing chs values
+         dsk_fakechs(&di->info);
+
          di->lshift = shift;
          di->slices = 1;
          di->index  = malloc(SLICE_SECTORS<<di->idxshift);
@@ -216,6 +208,7 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
          di->dfname = _fullpath(0, fname, 0);
          mem_modblock(di->dfname);
          di->freehint = 0;
+         di->ro       = 0;
          // build hints for feature use
          if (!build_hints(di)) {
             io_close(di->df);
@@ -232,13 +225,25 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
 static qserr _exicc dsk_close(EXI_DATA);
 
 /// open existing image file
-static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
+static qserr _exicc dsk_open(EXI_DATA, const char *fname, const char *options) {
    qserr  rc;
+   int    ro = 0;
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
    if (di->df) return E_SYS_INITED;
+   // "ro" is the only supported option
+   if (options)
+      if (stricmp(options,"readonly")==0 || stricmp(options,"ro")==0) ro = 1;
+         else return E_SYS_UNSUPPORTED;
    // open file
-   rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN, &di->df, 0);
+   rc = ro ? E_SYS_ACCESS : io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|
+                                    IOFM_WRITE|IOFM_SHARE_REN, &di->df, 0);
+   // deny read prevents second open even in r/o mode
+   if (rc==E_SYS_ACCESS) {
+      rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ, &di->df, 0);
+      if (!rc) ro = 1;
+   }
+
    if (!rc) {
       file_header  mhdr;
       u32t    ii, rsize;
@@ -285,6 +290,7 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
          // save full file name
          di->dfname = _fullpath(0, fname, 0);
          mem_modblock(di->dfname);
+         di->ro     = ro;
          // build hints for feature use
          if (!build_hints(di)) { dsk_close(data, 0); rc = E_SYS_NOMEM; }
       }
@@ -293,7 +299,9 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname) {
 }
 
 /// query "disk" info
-static qserr _exicc dsk_query(EXI_DATA, disk_geo_data *info, char *fname, u32t *sectors, u32t *used) {
+static qserr _exicc dsk_query(EXI_DATA, disk_geo_data *info, char *fname,
+                              u32t *sectors, u32t *used, u32t *state)
+{
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    if (info)
       if (di->df) memcpy(info, &di->info, sizeof(disk_geo_data));
@@ -302,6 +310,7 @@ static qserr _exicc dsk_query(EXI_DATA, disk_geo_data *info, char *fname, u32t *
       if (di->dfname) strcpy(fname, di->dfname); else *fname = 0;
    if (sectors) *sectors = di->slices * SLICE_SECTORS;
    if (used)    *used    = di->index ? di->bmfree->total(0) : 0;
+   if (state)   *state   = EDSTATE_NOCACHE | (di->ro?EDSTATE_RO:0);
    return 0;
 }
 
@@ -473,6 +482,8 @@ static u32t _exicc dsk_write(EXI_DATA, u64t sector, u32t count, void *usrdata) {
    instance_ret(diskdata,di,0);
    // no file?
    if (!di->df) return 0;
+   // r/o file?
+   if (di->ro) return 0;
    // check limits
    if (sector>=di->info.TotalSectors) return 0;
    if (sector+count>di->info.TotalSectors) count = di->info.TotalSectors - sector;
@@ -581,7 +592,7 @@ static qserr _exicc dsk_umount(EXI_DATA) {
 static u32t _std dsk_compact_int(void *data, int freeF6, int refresh) {
    u8t  *sptr;
    instance_ret(diskdata,di,0);
-   if (!di->df||!di->index||!di->slices) return 0;
+   if (!di->df||!di->index||!di->slices||di->ro) return 0;
    // flush it first!
    flush_slices(di);
 
@@ -659,11 +670,12 @@ static qserr _exicc dsk_close(EXI_DATA) {
    di->dfname = 0;
    di->index  = 0;
    di->slices = 0;
+   di->ro     = 0;
    return 0;
 }
 
 /** enable/disable tracing of this disk instance calls.
-    By default tracing of qs_emudisk (self) is enabled, but tracing of
+    By default tracing of qs_dyndisk (self) is enabled, but tracing of
     internal bitmaps is disabled */
 static void _exicc dsk_trace(EXI_DATA, int self, int bitmaps) {
    instance_void(diskdata,di);
@@ -687,6 +699,7 @@ static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
    instance_ret(diskdata, di, E_SYS_INVOBJECT);
    if (!geo) return E_SYS_ZEROPTR;
    if (!di->df) return E_DSK_NOTMOUNTED;
+   if (di->ro) return E_DSK_WP;
    if (di->info.TotalSectors != geo->TotalSectors) return E_SYS_INVPARM;
    if (di->info.SectorSize != geo->SectorSize) return E_SYS_INVPARM;
 
@@ -713,7 +726,7 @@ static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
    return 0;
 }
 
-static void *qs_emudisk_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
+static void *qs_dyndisk_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
    dsk_write, dsk_compact, dsk_mount, dsk_disk, dsk_umount, dsk_close,
    dsk_trace, dsk_setgeo };
 
@@ -749,6 +762,11 @@ static void _std dsk_done(void *instance, void *data) {
 }
 
 u32t init_rwdisk(void) {
-   return exi_register(VHDD_VHDD, qs_emudisk_list, sizeof(qs_emudisk_list)/
+   // something forgotten! interface part is not match to implementation
+   if (sizeof(_qs_dyndisk)!=sizeof(qs_dyndisk_list)) {
+      log_printf(VHDD_VHDD ": function list mismatch!\n");
+      return 0;
+   }
+   return exi_register(VHDD_VHDD, qs_dyndisk_list, sizeof(qs_dyndisk_list)/
       sizeof(void*), sizeof(diskdata), 0, dsk_init, dsk_done, 0);
 }

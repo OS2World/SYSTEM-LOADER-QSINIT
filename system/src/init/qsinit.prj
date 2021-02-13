@@ -29,6 +29,7 @@ name=qsinit
 ; 0.25 - rev 475, task list added
 ; 0.26 - rev 486, JFS r/o support
 ; 0.27 - rev 501, revision 500 reached ;), r/o mounting
+; 0.28 - rev 522, just TEN years :)
 
 ;
 ; some notes about current crazy linking + WASM:

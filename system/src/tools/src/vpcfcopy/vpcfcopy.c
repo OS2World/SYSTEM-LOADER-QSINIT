@@ -466,7 +466,7 @@ void create_disk(char *imgname, char *sizestr, disk_fmt fmt) {
 #if 0
       printf("formatting to FAT: start sector %X, %X sectors\n", vol_start, vol_size);
 #endif      
-      fmres = format(vol_start, vol_size, unitsz, heads, spt, rootdir);
+      fmres = format(vol_start, vol_size, unitsz, heads, spt, rootdir, 0);
       if (fmres<0) {
          printf("mkfs error %i\n", -fmres);
          if (!phys_io) {
@@ -920,7 +920,7 @@ void format_EF(char *imgname) {
          // for volume serial number
          set_fattime(time(0));
 
-         fmtres = format(0, disk_size, 0, dst.heads, dst.spt, 512);
+         fmtres = format(0, disk_size, 0, dst.heads, dst.spt, 512, disk_start);
          if (fmtres<0) printf("mkfs error %i\n", -fmtres);
       }
    }

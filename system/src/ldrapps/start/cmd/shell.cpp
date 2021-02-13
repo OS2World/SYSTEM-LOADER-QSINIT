@@ -29,7 +29,7 @@ static const char *internal_commands = "IF\nECHO\nGOTO\nGETKEY\nCLS\n"
                     "PUSHKEY\nSET\nFOR\nSHIFT\nREM\nPAUSE\nEXIT\nCALL",
                   // index in this list is used in env_getvar_int()
                   *internal_variables = "CD\nDATE\nTIME\nRANDOM\nSAFEMODE\n"
-                    "LINES\nCOLUMNS\nRAMDISK\nDBPORT\nMTMODE\nPAEMODE";
+                    "LINES\nCOLUMNS\nRAMDISK\nDBPORT\nMTMODE\nPAEMODE\nSESNO";
 
 struct session_info {
    u32t          sign;
@@ -154,6 +154,9 @@ static spstr env_getvar_int(spstr &ename, int shint) {
       case 10:   // PAEMODE
          eval = in_pagemode;
          break;
+      case 11:   // SESNO
+         eval = se_sesno();
+         break;
       default:
          env_lock();
          eval = getenv(ename());
@@ -251,7 +254,8 @@ u32t shl_extcall(spstr &cmd, TStrings &plist) {
    }
 }
 
-u32t cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb) {
+extern "C"
+u32t _std START_EXPORT(cmd_shellcall)(cmd_eproc func, const char *argsa, str_list *argsb) {
    if (!func) return EINVAL;
    spstr cmdname;
    mt_swlock();
@@ -468,7 +472,26 @@ static u32t cmd_process(spstr ln, session_info *si) {
          if (_not) plist.Delete(0);
          spstr next(plist[0].upper());
 
-         if (next=="EXIST"||next=="ERRORLEVEL"||next=="LOADED") {
+         if (plist.Count()<3) {
+            printf("Incomplete IF statement in line %d\n",si->nextline);
+         } else
+         if (next=="EXIST"||next=="ERRORLEVEL"||next=="LOADED"||next=="SIZE") {
+            int usedargs = 2;
+            if (next[1]=='I') {
+               u64t size;
+               if (bootvol) {
+                  size = hlp_fopen(plist[1]());
+                  if (size!=FFFF) hlp_fclose(); else size = 0;
+               } else {
+                  io_handle_info fi;
+                  qserr iores = io_pathinfo(plist[1](), &fi);
+
+                  if (iores || (fi.attrs&IOFA_DIR)) size = 0; else
+                     size = fi.size;
+               }
+               usedargs++;
+               exec = size >= str2uint64(plist[2]());
+            } else
             if (next[1]=='O') {
                exec = mod_query(plist[1](),MODQ_NOINCR)!=0;
             } else
@@ -486,9 +509,8 @@ static u32t cmd_process(spstr ln, session_info *si) {
             }
             if (_not) exec=!exec;
             if (exec) {
-               ps2=parm.wordpos(3+_not+icase+bootvol+isdir);
-               if (ps2>0) parm=parm.right(parm.length()-ps2).trim(); else
-                  parm.clear();
+               plist.Delete(0,usedargs);
+               parm = plist.MergeCmdLine();
             }
          } else {
             int quot=0, arg2=parm.wordpos(1+_not+icase);
@@ -534,11 +556,16 @@ static u32t cmd_process(spstr ln, session_info *si) {
             }
    } else
    if (cmd=="GETKEY") {
-      ii = parm.Int();
+      int ps = parm.upper().pos("/R");
+      if (ps>=0) {
+         parm.del(ps,2);
+         key_clear();
+      }
+      ii = parm.trim().Int();
       if (ii) {
          ii = key_wait(ii);
          // get default value
-         if (ii==0 && plist.Count()>1) ii = plist[1].Dword();
+         if (ii==0 && plist.Count()>1) ii = parm.word_Dword(2);
       } else
          ii = key_read();
       set_errorlevel(ii);

@@ -291,6 +291,7 @@ void _std START_EXPORT(mod_dumptree)(printf_function pfn) {
    pfn("==================\n");
 }
 
+// must be called with owned mod_secondary->ldr_mutex!
 static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
    module_information *rc, *rp;
    u32t   mcnt = 0, ii,
@@ -298,7 +299,6 @@ static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
    module  *md;
    char    *cb;
 
-   if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
    md = mod_list;
    while (md) {
       mcnt++;
@@ -345,7 +345,6 @@ static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
       }
       rp++;
    }
-   if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
    *pmodl = rc;
    return mcnt;
 }
@@ -354,7 +353,11 @@ static u32t mod_enum_int(module_information **pmodl, u32t moresize) {
     @param [out] pmodl   List of modules, must be releases via free().
     @return number of modules in returning list */
 u32t _std mod_enum(module_information **pmodl) {
-   return mod_enum_int(pmodl,0);
+   u32t res;
+   if (in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
+   res = mod_enum_int(pmodl,0);
+   if (in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
+   return res;
 }
 
 qserr _std mod_objectinfo(u32t mod, u32t object, u32t *addr, u32t *size,
@@ -383,6 +386,10 @@ qserr _std mod_objectinfo(u32t mod, u32t object, u32t *addr, u32t *size,
 
 u32t _std mod_processenum(process_information **ppdl) {
    u32t  *pl, pcnt;
+   /* mt_muxcapture() is mt_waitobject() actually and it resets the lock, so
+      we need to get it BEFORE mt_swlock() */
+   if (ppdl && in_mtmode) mt_muxcapture(mod_secondary->ldr_mutex);
+
    mt_swlock();
    pl   = mod_pidlist();
    pcnt = memchrd(pl, 0, mem_blocksize(pl)>>2) - pl;
@@ -400,7 +407,7 @@ u32t _std mod_processenum(process_information **ppdl) {
          during chaining */
       for (ii=0; ii<pcnt; ii++) {
          process_context *pq = mod_pidctx(pl[ii]);
-         mt_prcdata      *pd = (mt_prcdata*)(mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT],
+         mt_prcdata      *pd = (mt_prcdata*)pq->rtbuf[RTBUF_PROCDAT],
                          *pc = pd->piFirstChild;
          char           *cdv = pd->piCurDir[pd->piCurDrive];
          u32t       childcnt = 0;
@@ -486,6 +493,6 @@ u32t _std mod_processenum(process_information **ppdl) {
       free(pl);
    }
    mt_swunlock();
+   if (ppdl && in_mtmode) mt_muxrelease(mod_secondary->ldr_mutex);
    return pcnt;
 }
-

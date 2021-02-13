@@ -377,6 +377,22 @@ int _std str_findentry(str_list *list, const char *str, u32t pos, int icase) {
    return -1;
 }
 
+char* _std str_keyvalue(const char *src, char **key) {
+   if (key) *key = 0;
+   if (!src) return 0;
+   spstr str(src);
+   // replace tabs to spaces
+   str.replacechar('\t', ' ');
+   if (key) {
+      spstr keystr = str.word(1,"=").trim();
+      *key = strdup(keystr());
+   }
+   l pos = str.cpos('=');
+   if (pos<0) return (char*)src + str.length();
+   while (str[++pos]==' ') ;
+   return (char*)src + pos;
+}
+
 void _std log_printlist(char *info, str_list*list) {
    u32t ii, cnt = list?list->count:0;
    log_printf("%s [%08X, %d items]\n", info?info:"", list, cnt);
@@ -612,10 +628,15 @@ static sto_entry *sto_find(const char *entry) {
 
 u32t _std sto_dword(const char *entry) {
    MTLOCK_THIS_FUNC _lk;
+   static u32t mask[4] = {0, 0xFF, 0xFFFF, 0xFFFFFF};
+   u32t       value;
+
 
    sto_entry *ste = sto_find(entry);
    if (!ste) return 0;
-   return ste->isalloc && ste->size<=4?ste->ddvalue:*((u32t*)ste->data);
+   value = ste->isalloc && ste->size<=4?ste->ddvalue:*((u32t*)ste->data);
+   if (ste->size>=4) return value;
+   return value & mask[ste->size];
 }
 
 /// get pointer to stored data
@@ -646,6 +667,26 @@ u32t  _std sto_size(const char *entry) {
 
    sto_entry *ste = sto_find(entry);
    return ste?ste->size:0;
+}
+
+str_list* _std sto_list(const char *match, int type) {
+   if (!storage) return 0;
+
+   MTLOCK_THIS_FUNC _lk;
+   TStrings res;
+   u32t      ii;
+
+   for (ii=0; ii<storage->Count(); ii++)
+      if (!match || !*match || _matchpattern(match,(*storage)[ii]()))
+         if (type) {
+            sto_entry *ste = storage->Objects(ii);
+            res.Add((ste->isalloc?'*':'@') + (*storage)[ii]);
+         } else
+            res.Add((*storage)[ii]);
+
+   if (!res.Count()) return 0;
+
+   return str_getlist_local(res.Str);
 }
 
 extern "C"

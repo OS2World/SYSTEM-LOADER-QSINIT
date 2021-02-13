@@ -5,7 +5,7 @@ export QS_BIN=$QS_ROOT/tbin
 export QS_APPINC=$QS_BASE/ldrapps/hc
 export QS_ARCH=QSINIT.LDI
 export QS_NAME=QSINIT
-export QS_VERSION=0.27
+export QS_VERSION=0.28
 export BUILD_HERE=unx
 
 export PATH=$QS_BASE/tools/t_$BUILD_HERE:$QS_BASE/tools:$PATH:$WATCOM/binl

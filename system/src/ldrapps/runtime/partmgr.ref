@@ -59,6 +59,7 @@ exports = {
    _dsk_datatype     = { index =  65  group = "dmhelp" format = "upu@ui"  }
    _dsk_sectorsize   = { index =  66  group = "dmhelp" format = "u@u"     }
    _dsk_checkbm      = { index =  67  group = "dmhelp" format = "@u@uio&*@u&*p" }
+   _dsk_setbpbdrive  = { index =  68  group = "dmhelp" format = "@u@uuc" }
 
    _exit_bootmbr     = { index =  70  group = "exit"   format = "i@u@u"   } # boot
    _exit_bootvbr     = { index =  71  group = "exit"   format = "i@uicp"  }
@@ -78,5 +79,5 @@ exports = {
    _lvm_present      = { index = 192  group = "lvm"    format = "@ui"     }
    _lvm_wipeall      = { index = 193  group = "lvm"    format = "@u@u"    }
    _lvm_setvalue     = { index = 194  group = "lvm"    format = "@u@uu@u@u" }
+   _lvm_ismounted    = { index = 195  group = "lvm"    format = "c@uu"    }
 }
-

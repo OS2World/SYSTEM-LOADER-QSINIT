@@ -6,11 +6,11 @@ exports = {
 }
 
 class = {
-   name = qs_emudisk
+   name = qs_dyndisk
    entries = {
       make    = "@uppsu@q"
-      open    = "@upps"
-      query   = "@uppp&s&*u&*u"
+      open    = "@uppss"
+      query   = "@uppp&s&*u&*u&*@u"
       read    = "upp@qup"
       write   = "upp@qup"
       compact = "uppi"
@@ -27,8 +27,8 @@ class = {
    name = qs_vhddisk
    entries = {
       make    = "@uppsu@q"
-      open    = "@upps"
-      query   = "@uppp&s&*u&*u"
+      open    = "@uppss"
+      query   = "@uppp&s&*u&*u&*@u"
       read    = "upp@qup"
       write   = "upp@qup"
       compact = "uppi"
@@ -42,7 +42,24 @@ class = {
 }
 
 class = {
-   name = qs_emudisk_ext
+   name = qs_bindisk
+   entries = {
+      make    = "@uppsu@q"
+      open    = "@uppss"
+      query   = "@uppp&s&*u&*u&*@u"
+      read    = "upp@qup"
+      write   = "upp@qup"
+      compact = "uppi"
+      mount   = "@upp"
+      disk    = "@upp"
+      umount  = "@upp"
+      close   = "@upp"
+      trace   = "vppii"
+      setgeo  = "@uppp"
+   }
+}
+class = {
+   name = qs_dyndisk_ext
    entries = {
       getgeo  = "uppp"
       setgeo  = "uppp"

@@ -734,6 +734,35 @@ sigljmp_thunk   proc    near                                    ;
                 push    ecx                                     ;
                 call    __longjmp                               ;
 sigljmp_thunk   endp                                            ;
+;----------------------------------------------------------------
+;double _std modf (double value, double *iptr);
+chop            proc     near                                   ;
+                push     eax                                    ; allocate temporary
+                fstcw    word ptr [esp]                         ; get control word
+                fwait                                           ;
+                push     dword ptr [esp]                        ; remember old control word
+                mov      byte ptr [esp+1],1Fh                   ; set control word to truncate
+                fldcw    word ptr [esp]                         ; load new control word
+                frndint                                         ; truncate top of stack
+                fldcw    word ptr [esp+4]                       ; restore old control word
+                fwait                                           ;
+                add      esp,8                                  ;
+                ret                                             ;
+chop            endp                                            ;
+
+                public  _modf
+_modf           proc    near                                    ;
+                push    eax                                     ;
+                fld     qword ptr [esp+8]                       ;
+                fld     st(0)                                   ; duplicate
+                call    chop                                    ; integer part
+                fsub    st(1),st(0)                             ; subtract integer part from x
+                mov     eax,[esp+16]                            ;
+                fstp    qword ptr [eax]                         ; integer part
+                pop     eax                                     ;
+                fwait                                           ;
+                ret     12                                      ;
+_modf           endp                                            ;
 
 CODE32          ends
 

@@ -14,11 +14,13 @@
 #define MAX_LIN_USED          16   // # of VMAlloc blocks can be used
 #define MAX_IO_USED           16   // # of ioctl i/o buffers (64k)
 #define UNEXPECTED_ERROR   0xBAD   // internal error code
+#define SIGNMASK      0x55AA55AA
 
 // OS/4 & QSINIT imports (can be 0!)
 struct LoaderInfoData     far *ldri = 0;   // loader info struct (OS/4 & QS)
 struct ExportFixupData    far *expd = 0;   // doshlp internal data (QS only)
 void (far *PrintLog)(char far*,...) = 0;   // loader log simple printf (OS/4 & QS)
+DHPrnFn                     BPrintF = 0;
 
 void init(InitPacket far *pkt);
 void read_args(char far *cmdline);
@@ -61,6 +63,10 @@ u32t                  ioctl_ppl = 0;   // phys addr of the same buffer
 u32t                hook_handle = 0;
 volatile u16t      nest_counter = 0;
 volatile u16t           locksfn = 0;
+
+#define BPRN_LEN              64
+static char   bprnbuf[BPRN_LEN];       // screen message buffer
+static u16t             bprnpos = 0;   // message buffer position
 
 extern volatile u32t  pIORBHead;
 extern volatile u8t     dis_nmi;
@@ -138,6 +144,12 @@ static u16t alloc_contig(u16t pages, u16t sel, u32t near *physaddr, LIN near *li
    return rc;
 }
 
+static void far __cdecl bprn_charout(char ch) {
+   if (bprnpos>=BPRN_LEN-1) return;
+   bprnbuf[bprnpos++] = ch;
+   bprnbuf[bprnpos]   = 0;
+}
+
 static void vioprint(char *str) {
    if (verbose) {
       msgtab.MsgStrings[0] = (char far *)str;
@@ -196,22 +208,29 @@ void _loadds _stdcall strategy(ReqPacket far *pkt) {
 void init(InitPacket far *pkt) {
    InitArgs far *iap = (InitArgs far *)pkt->Pointer_2;
    u16t      ipktsel = SELECTOROF(iap), rc;
+   u32t      ldrsign;
    // make pointer to DOSHLP code (constant value for all OS/2 versions)
-   u32t far  *os4ldr = MAKEP (DOSHLP_CODESEL,0);
+   u32t far  *doshlp = MAKEP (DOSHLP_CODESEL,0);
    // devhelp
    DevHelp = pkt->Pointer_1;
-   // check OS/4 loader signature at DOSHLP:0 seg
-   if (*os4ldr==OS4MAGIC) {
-      ldri = (struct LoaderInfoData far *)++os4ldr;
+   ldrsign = *doshlp^SIGNMASK;
+   // check loader signature at DOSHLP:0 seg
+   if (ldrsign==(LDRINFO_MAGIC^SIGNMASK) || ldrsign==(OS4MAGIC^SIGNMASK)) {
+      ldri = (struct LoaderInfoData far *)++doshlp;
       // check OS/4 loader info struct size
       if (ldri->StructSize>=FIELDOFFSET(struct LoaderInfoData,ConfigExt)) {
          SELECTOROF(PrintLog) = DOSHLP_CODESEL;
          OFFSETOF  (PrintLog) = ldri->PrintFOffset;
-         // is this QSINIT?
+         // is this QSINIT/AOSLDR?
          expd = (struct ExportFixupData far*)((u8t far*)ldri + ldri->StructSize);
          /* there is no signature in QS prior to hd4disk, but we use it only
             for query our`s ram info, so no difference */
          if (expd->InfoSign==EXPDATA_SIGN) {
+            u16t bfofs = get_bprint(expd);
+            if (bfofs) {
+               SELECTOROF(BPrintF) = DOSHLP_CODESEL;
+               OFFSETOF  (BPrintF) = bfofs;
+            }
             dskpage   = expd->HD4Page;
             if (dskpage) is_native = 1;
          }
@@ -309,14 +328,25 @@ void init(InitPacket far *pkt) {
                }
          }
          if (!rc) {
+            /* add one page for the header, this should fix the messages
+               like 511Mb and 1023Mb ;) */
+            u32t sizemb = diskh->h4_pages+1>>(20-PAGESHIFT);
             // some logging and printing
-            log_print("%ld Mb disk, %lx sectors\n", diskh->h4_pages>>(20-PAGESHIFT),
-               diskh->h4_pages<<3);
+            log_print("%ld Mb disk, %lx sectors\n", sizemb, diskh->h4_pages<<3);
             if (ioctl_only) log_str("IOCTL-only mode on\n"); else
             if (strat1) log_str("STRAT1 mode on\n");
 
-            if (verbose) 
-               vioprint(ioctl_only ? "Ram storage here.\n" : "Ram disk here.\n");
+            if (verbose) {
+               if (BPrintF) {
+                  bprnpos = 0;
+                  (*BPrintF)(bprn_charout, "%ld Mb PAE ram %s installed.\n",
+                     sizemb, (char far*)(ioctl_only?"storage":"disk"));
+                  vioprint(bprnbuf);
+               } else
+                  // loader has no print with charout
+                  vioprint(ioctl_only ? "PAE ram storage here.\n" :
+                                        "PAE ram disk here.\n");
+            }
             // inform switch code about disk location
             setdisk(dskpage, diskhp, pbuf64k);
          }
@@ -380,6 +410,9 @@ void read_args(char far *cmdline) {
                   strat1 = 1;
                   ainfo.MaxHWSGList = 1;
                   break;
+               case 'H': // hide it (for GPT.FLT testing basically)
+                  ainfo.UnitInfo[0].UnitFlags |= UF_NODASD_SUPT;
+                  break;
             }
          }
       }
@@ -394,7 +427,7 @@ void ioctl(IOCTLPacket far *iopkt) {
 
    u32t lflags = 0;
    u8t    func = iopkt->Function;
-   u16t  va_rc = DevHelp_VerifyAccess(SELECTOROF(iopkt->DataPacket), 
+   u16t  va_rc = DevHelp_VerifyAccess(SELECTOROF(iopkt->DataPacket),
       size[func-IOCTL_F_FIRST], OFFSETOF(iopkt->DataPacket), VERIFY_READWRITE);
 
    if (va_rc) {

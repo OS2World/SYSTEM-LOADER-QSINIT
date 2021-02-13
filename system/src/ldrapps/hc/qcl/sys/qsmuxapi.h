@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 
+#include "qstask.h"
+
 typedef u32t  mux_handle_int;
 typedef u32t  evt_handle_int;
 
@@ -47,6 +49,13 @@ typedef int     _std (*qe_availfunc) (qshandle queue, u32t *ppid, u32t *sft_no);
     @return 1 to continue enumeration, 0 to cancel */
 typedef int     _std (*qe_pdenumfunc)(mt_prcdata *pd, void *usrdata);
 
+/** return zero term list of scheduled events for this queue.
+    Call this in MT lock to guarantee, that all eid will remain valid until
+    you process it.
+    @param        queue   queue handle
+    @return zero if no scheduled events, else thread(!) owned heap block */
+typedef qe_eid* _std (*qe_getschfunc)(qshandle queue);
+
 typedef struct {
    int        state;
    u32t         pid;
@@ -64,7 +73,7 @@ typedef struct {
 typedef struct qs_sysmutex_s {
    /// common init call.
    void      _exicc (*init   )(qs_muxcvtfunc sf1, qe_availfunc sf2,
-                               qshandle sys_q);
+                               qshandle sys_q, qe_getschfunc sf3);
    /// create mutex/event.
    qserr     _exicc (*create )(mux_handle_int *res, u32t sft_no, int event,
                                int signaled);
@@ -86,7 +95,7 @@ typedef struct qs_sysmutex_s {
        Only one callback per function address is possible, next call with the
        same address will replace target time and "usrdata".
 
-       Up to 4 (four) callbacks in system can be installed.
+       Up to 4 (four) callbacks in the system can be installed.
 
        @param  at           Time to fire (use 0 to deinstall this callback)
        @param  cb           Callback function address
@@ -127,6 +136,7 @@ typedef struct qs_fpustate_s {
 #define SYSQ_DCNOTIFY       0x00004  ///< data cache timer notification
 #define SYSQ_FREE           0x00005  ///< free memory block (a=ptr, b=heap(1/0), c=sender)
 #define SYSQ_ALARM          0x00006  ///< alarm signal (a=pid, b=tid, scheduled)
+#define SYSQ_SCHEDAT        0x00007  ///< scheduled command (a=cmdline)
 //@}
 
 #ifdef __cplusplus

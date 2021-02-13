@@ -1,7 +1,8 @@
 #include "lvmdlat.h"
 #include "diskedit.h"
-#ifdef __QSINIT__
 #include "lvmdat.h"
+#ifndef __QSINIT__
+#include <ctype.h>
 #endif
 
 const char *longLine = "컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴컴�";
@@ -140,7 +141,6 @@ TDLATDialog::TDLATDialog(void *sector, unsigned long sectorsize) :
    control = new TButton(TRect(51, 2, 61, 4), "O~K~", cmOK, bfDefault);
    insert(control);
 
-#ifdef __QSINIT__
    DLA_Table_Sector *dls = (DLA_Table_Sector*)sector;
    setstrn(elDiskName, dls->Disk_Name, LVM_NAME_SIZE);
    elInstFlags->setData(&dls->Install_Flags);
@@ -179,7 +179,6 @@ TDLATDialog::TDLATDialog(void *sector, unsigned long sectorsize) :
    txErrText = new TColoredText(TRect(40, 1, 54, 2), errText[errcode], errcode?0x7C:0x7A);
    insert(txErrText);
 
-#endif
    selectNext(False);
 }
 
@@ -188,7 +187,6 @@ void TDLATDialog::handleEvent( TEvent& event) {
 }
 
 void TDLATDialog::UpdateBuffer() {
-#ifdef __QSINIT__
    DLA_Table_Sector *dls = (DLA_Table_Sector*)sectorBuf;
    char  buf[32];
    long    value;
@@ -229,7 +227,6 @@ void TDLATDialog::UpdateBuffer() {
    dls->DLA_Signature2 = DLA_TABLE_SIGNATURE2;
    dls->DLA_CRC = 0;
    dls->DLA_CRC = lvm_crc32(LVM_INITCRC, dls, sectorSize);
-#endif
 }
 
 Boolean TDLATDialog::valid(ushort command) {

@@ -1,10 +1,9 @@
 //
 // QSINIT
-// Virtual PC fixed size images
+// plain binary file images
 // ------------------------------------------------------------------
 //
 #include "vhdd.h"
-#include "qsdm.h"
 #include "sys/fs/msvhd.h"
 
 /// "qs_vhddisk" class data
@@ -13,97 +12,44 @@ typedef struct {
    qs_dyndisk  selfptr;    // pointer to own instance
    s32t         qsdisk;
    io_handle        df;    // disk file
+   u64t       startpos;
    char        *dfname;    // disk file name
    int              ro;
    disk_geo_data  info;
    qs_extdisk    einfo;    // attached to this disk ext.info class
-   vhd_footer     fhdr;
+   u8t        secshift;    // bit shift for the sector size (9..12)
 } diskdata;
-
-static u32t vpc_checksum(vhd_footer* buf, u32t len) {
-   u32t res = 0;
-   int   ii;
-   for (ii=0; ii<len; ii++) res+=((u8t*)buf)[ii];
-   return ~res;
-}
 
 static qserr _exicc dsk_close(EXI_DATA);
 
 /// create new image file
 static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t sectors) {
-   qserr    rc;
+   qserr     rc;
+   int   sshift = bsf32(sectorsize);
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
    if (di->df) return E_SYS_INITED;
-   if (sectorsize!=512) return E_DSK_SSIZE;
-   // we have no support for such huge partitions
+   // non-zero single bit in range 512..4096
+   if (sshift!=bsr32(sectorsize) || sshift<9 || sshift>12) return E_DSK_SSIZE;
+   // we have no support for such a huge partition
    if (sectors>=FFFF) return E_SYS_TOOLARGE;
    // create it (with "delete on close" flag initially), but disallow replacement
    rc = io_open(fname, IOFM_CREATE_NEW|IOFM_READ|IOFM_WRITE|IOFM_SHARE_REN|
                 IOFM_CLOSE_DEL, &di->df, 0);
    if (!rc) {
-      u32t  nsec = sectors,   // cast it to 32bit, thanks to limit above
-            cyls = 1024, spt = 17, heads = 3, cyls_bios;
-      u16t  heads_bios;
+      di->info.TotalSectors = sectors;
+      di->info.SectorSize   = sectorsize;
+      di->info.Heads        = 0;
+      di->info.SectOnTrack  = 0;
+      di->info.Cylinders    = 0;
+      // fill missing chs values
+      rc = dsk_fakechs(&di->info);
 
-      while (cyls*spt*heads < nsec) {
-         if (spt<63)    { spt   = (spt   + 1 & 0xF0) * 2 - 1; continue; }
-         if (heads<255) { heads = (heads + 1) * 2 - 1; continue; }
-         break;
-      }
-      cyls = nsec / (spt*heads);
-      if (cyls<65535) nsec = cyls*spt*heads;
-      // vhd wants dumb bios geometry in header, at least, as QEMU says
-      if (heads>16) {
-         heads_bios = 16;
-         cyls_bios  = nsec / (spt*16);
-         while (cyls_bios*heads_bios*spt < cyls*spt*heads) cyls_bios++;
-      } else {
-         heads_bios = heads;
-         cyls_bios  = cyls;
-      }
-      rc = io_setsize(di->df, (u64t)nsec+1<<9);
-      if (!rc) {
-         // write VHD header (footer, actually)
-         time_t     crtime = time(0) - VHD_TIME_BASE;
-         
-         memset(&di->fhdr, 0, sizeof(vhd_footer));
-         memcpy(&di->fhdr.creator, "conectix", 8);
-         memcpy(&di->fhdr.appname, "vpc ", 4);
-         memcpy(&di->fhdr.osname , "Wi2k", 4);
-         di->fhdr.features = bswap32(2);
-         di->fhdr.version  = bswap32(0x10000);
-         di->fhdr.nextdata = FFFF64;
-         di->fhdr.crtime   = bswap32(crtime);
-         di->fhdr.major    = bswap16(5);
-         di->fhdr.minor    = bswap16(3);
-         di->fhdr.org_size = bswap64(nsec << 9);
-         di->fhdr.cur_size = di->fhdr.org_size;
-         di->fhdr.cyls     = bswap16(cyls_bios);
-         di->fhdr.heads    = heads_bios;
-         di->fhdr.spt      = spt;
-         di->fhdr.type     = bswap32(2);
-         
-         dsk_makeguid(&di->fhdr.uuid);
-         
-         di->fhdr.checksum = bswap32(vpc_checksum(&di->fhdr, sizeof(vhd_footer)));
-         
-         if (io_seek(di->df, -512, IO_SEEK_END)==FFFF64)
-            rc = io_lasterror(di->df);
-         else {
-            // make sector zero-filled to be safe with all of VHD users
-            void *sb = calloc_thread(512, 1);
-            memcpy(sb, &di->fhdr, sizeof(vhd_footer));
-            if (io_write(di->df, sb, 512)!=512) rc = E_DSK_ERRWRITE;
-            free(sb);
-         }
-      }
+      if (!rc) rc = io_setsize(di->df, sectors<<sshift);
+
       if (rc) dsk_close(data, 0); else {
-         di->info.TotalSectors = nsec;
-         di->info.SectorSize   = 512;
-         di->info.Cylinders    = cyls_bios;
-         di->info.Heads        = heads_bios;
-         di->info.SectOnTrack  = spt; 
+         di->startpos = 0;
+         di->secshift = sshift;
          // detach file to make it process-independent
          io_setstate (di->df, IOFS_DETACHED, 1);
          // reset "delete on close" because of success
@@ -117,17 +63,43 @@ static qserr _exicc dsk_make(EXI_DATA, const char *fname, u32t sectorsize, u64t 
    return rc;
 }
 
-/// open existing image file
 static qserr _exicc dsk_open(EXI_DATA, const char *fname, const char *options) {
-   qserr  rc;
-   int    ro = 0;
+   qserr         rc;
+   str_list   *opts = 0;
+   u32t    sectorsz = 512,
+             imglen = 0,     // length in sectors
+                spt = 0,
+              heads = 0;
+   u64t      offset = 0;
+   int       sshift = 9,
+                 ro = 0;
+
    instance_ret(diskdata,di,E_SYS_INVOBJECT);
    // already opened?
    if (di->df) return E_SYS_INITED;
-   // "ro" is the only supported option
-   if (options)
-      if (stricmp(options,"readonly")==0 || stricmp(options,"ro")==0) ro = 1;
-         else return E_SYS_UNSUPPORTED;
+
+   if (options) {
+      char *key;
+      opts = str_split(options,";");
+      key  = str_findkey(opts, "sector", 0);
+      if (key) {
+         sectorsz = str2ulong(key);
+         sshift   = bsf32(sectorsz);
+         if (sshift!=bsr32(sectorsz) || sshift<9 || sshift>12) return E_DSK_SSIZE;
+      }
+      key = str_findkey(opts, "offset", 0);
+      if (key) offset = str2uint64(key);
+      key = str_findkey(opts, "size", 0);
+      if (key) imglen = str2ulong(key);
+      key = str_findkey(opts, "spt", 0);
+      if (key) spt = str2ulong(key);
+      key = str_findkey(opts, "heads", 0);
+      if (key) heads = str2ulong(key);
+      if (spt>255 || heads>255) return E_DSK_INVCHS;
+      // forces read-only mode
+      if (str_findentry(opts,"ro",0,1)>=0 || str_findentry(opts,"readonly",0,1)>=0)
+        ro = 1;
+   }
    // open file
    rc = ro ? E_SYS_ACCESS : io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ|
                                     IOFM_WRITE|IOFM_SHARE_REN, &di->df, 0);
@@ -136,42 +108,39 @@ static qserr _exicc dsk_open(EXI_DATA, const char *fname, const char *options) {
       rc = io_open(fname, IOFM_OPEN_EXISTING|IOFM_READ, &di->df, 0);
       if (!rc) ro = 1;
    }
-   if (!rc)
-      if (io_seek(di->df, -512, IO_SEEK_END)==FFFF64) rc = io_lasterror(di->df); else
-      if (io_read(di->df, &di->fhdr, sizeof(vhd_footer))!=sizeof(vhd_footer))
-         rc = E_DSK_ERRREAD;
-      else
-      if (memcmp(&di->fhdr.creator, "conectix", 8) || bswap32(di->fhdr.type)!=2)
-         rc = E_SYS_BADFMT;
-      else {
-         u64t sz;
-         rc = io_size(di->df, &sz);
 
-         if (!rc) {
-            di->info.TotalSectors = bswap64(di->fhdr.cur_size)>>9;
-            di->info.SectorSize   = 512;
-            di->info.Cylinders    = bswap16(di->fhdr.cyls);
-            di->info.Heads        = di->fhdr.heads;
-            di->info.SectOnTrack  = di->fhdr.spt;
-            // even if this case is impossible - just check it here
-            if (di->info.TotalSectors>=FFFF) {
-               log_it(3, "VHD is too large!\n");
-               rc = E_SYS_BADFMT;
-            } else
-            if (sz>>9 < di->info.TotalSectors+1) {
-               log_it(3, "VHD size is invalid (%s) -> %Lu<%Lu!\n", fname, (u64t)sz>>9, di->info.TotalSectors+1);
-               rc = E_SYS_BADFMT;
-            }
+   if (!rc) {
+      u64t sz;
+      rc = io_size(di->df, &sz);
+
+      if (!rc) {
+         // at least one sector after offset
+         if (imglen && offset+((u64t)imglen<<sshift) > sz ||
+            offset+sectorsz > sz) rc = E_SYS_EOF;
+         else {
+            if (!imglen) imglen = sz - offset >> sshift;
+
+            di->info.TotalSectors = imglen;
+            di->info.SectorSize   = sectorsz;
+            di->info.Heads        = heads;
+            di->info.SectOnTrack  = spt;
+            di->info.Cylinders    = 0;
+            // fill missing chs values
+            rc = dsk_fakechs(&di->info);
+
             if (!rc) {
+               di->startpos = offset;
+               di->secshift = sshift;
+               di->ro       = ro;
                // save full file name
-               di->dfname = _fullpath(0, fname, 0);
+               di->dfname   = _fullpath(0, fname, 0);
                mem_modblock(di->dfname);
-               di->ro     = ro;
                // detach file to make it process-independent
                io_setstate (di->df, IOFS_DETACHED, 1);
             }
          }
       }
+   }
    if (rc) dsk_close(data, 0);
    return rc;
 }
@@ -204,8 +173,9 @@ static u32t io_common(diskdata *di, u32t sector, u32t count, void *buf,
    if (sector+count>di->info.TotalSectors) count = di->info.TotalSectors - sector;
 
    if (count) {
-      if (io_seek(di->df, (u64t)sector<<9, IO_SEEK_SET)==FFFF64) return 0;
-      return io(di->df, buf, count<<9) >> 9;
+      if (io_seek(di->df, di->startpos + ((u64t)sector<<di->secshift),
+        IO_SEEK_SET)==FFFF64) return 0;
+      return io(di->df, buf, count<<di->secshift) >> di->secshift;
    }
    return 0;
 }
@@ -234,8 +204,8 @@ static s32t _exicc dsk_mount(EXI_DATA) {
    dp.qd_spt         = di->info.SectOnTrack;
    dp.qd_extread     = diskio_read;
    dp.qd_extwrite    = diskio_write;
-   dp.qd_sectorsize  = 512;
-   dp.qd_sectorshift = 9;
+   dp.qd_sectorsize  = di->info.SectorSize;
+   dp.qd_sectorshift = di->secshift;
 
    if (cid_ext) {
       qs_extdisk  eptr = (qs_extdisk)exi_createid(cid_ext, EXIF_SHARED);
@@ -310,45 +280,26 @@ static qserr _exicc dsk_setgeo(EXI_DATA, disk_geo_data *geo) {
    if (di->info.TotalSectors != geo->TotalSectors) return E_SYS_INVPARM;
    if (di->info.SectorSize != geo->SectorSize) return E_SYS_INVPARM;
 
-   // check CHS (VHD has limits for it)
-   if (!geo->Heads || geo->Heads>16 || !geo->SectOnTrack ||
-      geo->SectOnTrack>255 || !geo->Cylinders) return E_SYS_INVPARM;
-   else {
-      // 0xFFFF looks dangerous, so limit it to 65564
-      u16t cyls = geo->Cylinders>=0xFFFF ? 0xFFFE : geo->Cylinders;
+   // check CHS (at least minimal)
+   if (!geo->Heads || geo->Heads>255 || !geo->SectOnTrack ||
+      geo->SectOnTrack>255 || !geo->Cylinders || (u64t)geo->Cylinders *
+         geo->Heads * geo->SectOnTrack > geo->TotalSectors) return E_SYS_INVPARM;
 
-      if (io_seek(di->df, -512, IO_SEEK_END)==FFFF64)
-         return io_lasterror(di->df);
-
-      di->fhdr.cyls     = bswap16(cyls);
-      di->fhdr.heads    = geo->Heads;
-      di->fhdr.spt      = geo->SectOnTrack;
-      di->fhdr.checksum = 0;
-      di->fhdr.checksum = bswap32(vpc_checksum(&di->fhdr, sizeof(vhd_footer)));
-
-      if (io_write(di->df, &di->fhdr, sizeof(vhd_footer))!=sizeof(vhd_footer))
-         return E_DSK_ERRWRITE;
-      /* even if we wrote truncated value into the footer, we store
-         it full in own data until unmount.
-         nothing special depends on it, because setgeo exists for changing
-         "sectors per track" value basically (by dmgr clone command)
-       */
-      memcpy(&di->info, geo, sizeof(disk_geo_data));
-      // update CHS value in system info if file is mounted as disk now
-      if (di->qsdisk>=0) {
-         struct qs_diskinfo *qdi = hlp_diskstruct(di->qsdisk, 0);
-         // this is WRONG! patching it in system struct directly!
-         if (qdi) {
-            qdi->qd_cyls  = geo->Cylinders;
-            qdi->qd_heads = geo->Heads;
-            qdi->qd_spt   = geo->SectOnTrack;
-         }
+   memcpy(&di->info, geo, sizeof(disk_geo_data));
+   // if disk is mounted - update CHS value in system info
+   if (di->qsdisk>=0) {
+      struct qs_diskinfo *qdi = hlp_diskstruct(di->qsdisk, 0);
+      // this is WRONG! patching it in the system struct directly!
+      if (qdi) {
+         qdi->qd_cyls  = geo->Cylinders;
+         qdi->qd_heads = geo->Heads;
+         qdi->qd_spt   = geo->SectOnTrack;
       }
    }
    return 0;
 }
 
-static void *qs_dyndisk_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
+static void *qs_binimg_list[] = { dsk_make, dsk_open, dsk_query, dsk_read,
    dsk_write, dsk_compact, dsk_mount, dsk_disk, dsk_umount, dsk_close,
    dsk_trace, dsk_setgeo };
 
@@ -360,6 +311,8 @@ static void _std dsk_init(void *instance, void *data) {
    di->dfname    = 0;
    di->selfptr   = instance;
    di->einfo     = 0;
+   di->startpos  = 0;
+   di->secshift  = 0;
    /// force mutex for every instance!
    exi_mtsafe(instance, 1);
 }
@@ -374,12 +327,12 @@ static void _std dsk_done(void *instance, void *data) {
    memset(di, 0, sizeof(diskdata));
 }
 
-u32t init_vhdisk(void) {
+u32t init_bfdisk(void) {
    // something forgotten! interface part is not match to implementation
-   if (sizeof(_qs_dyndisk)!=sizeof(qs_dyndisk_list)) {
-      log_printf(VHDD_VHD_F ": function list mismatch!\n");
+   if (sizeof(_qs_dyndisk)!=sizeof(qs_binimg_list)) {
+      log_printf(VHDD_VHD_B ": function list mismatch!\n");
       return 0;
    }
-   return exi_register(VHDD_VHD_F, qs_dyndisk_list, sizeof(qs_dyndisk_list)/
+   return exi_register(VHDD_VHD_B, qs_binimg_list, sizeof(qs_binimg_list)/
       sizeof(void*), sizeof(diskdata), 0, dsk_init, dsk_done, 0);
 }

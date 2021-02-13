@@ -319,6 +319,8 @@ exports = {
    __bgetcmd         = { index =699  group = "clib"    format = "i&si"  }
    _exit_with_popup  = { index =680  group = "clib"    format = "Vsi"   }
    _getwordpos       = { index =681  group = "string"  format = "ussi"  }
+   _modf             = { index =682  group = "math"    format = "DD&*D" }
+   __bindump         = { index =683  group = "string"  format = "sppqbbbbi" }
 
    # memory manager
 
@@ -356,12 +358,13 @@ exports = {
    _str_gettostr     = { index =147  group = "strlist" format = "sps"   }
    _str_mergeargs    = { index =148  group = "strlist" format = "sp"    }
    _str_fromptr      = { index =149  group = "strlist" format = "ppi"   }
-   _str_parseargs    = { index =450  group = "strlist" format = "ppuisp." }
+   _str_parseargs    = { index =450  group = "strlist" format = "ppu@usp." }
    _str_delentry     = { index =451  group = "strlist" format = "vpu"   }
    _str_length       = { index =452  group = "vio"     format = "us"    }
    _str_findkey      = { index =453  group = "strlist" format = "sps!*u" }
    _str_settext      = { index =454  group = "strlist" format = "psu"   }
    _str_findentry    = { index =455  group = "strlist" format = "ipsui" }
+   _str_keyvalue     = { index =456  group = "clib"    format = "ss&*s" }
 
    # shell
 
@@ -375,8 +378,12 @@ exports = {
    _cmd_getflags     = { index =157  group = "shell"   format = "@up"   }
    _cmd_shellquery   = { index =158  group = "shell"   format = "is"    }
    _cmd_shellqall    = { index =159  group = "shell"   format = "pi"    }
+   _cmd_modeget      = { index =160  group = "shell"   format = "ps"    }
    _cmd_shellhelp    = { index =161  group = "shell"   format = "isb"   }
-   _cmd_shellcall    = { index =162  group = "shell"   format = "upsp"  }
+   _cmd_shellcall    = {
+                         index =162  group = "shell"   format = "upsp"  
+                         expname = "__cmd_shellcall"
+                       }
    _cmd_shellerr     = { index =163  group = "shell"   format = "vuis"  }
    _cmd_shellgetmsg  = { index =164  group = "shell"   format = "ps"    }
    _cmd_printf       = { index =165  group = "shell"   format = "is."   }
@@ -522,6 +529,8 @@ exports = {
    _vio_setmodeid    = { index =257  group = "vio"     format = "@u@u"  }
    _vio_showlist     = { index =258  group = "vio"     format = "usp@u" }
    _vio_drawshadow   = { index =259  group = "vio"     format = "vuuuu" }
+   _vio_strout_spec  = { index =670  group = "vio"     format = "@us"   }
+   _vio_querymodeid  = { index =671  group = "vio"     format = "@u@up" }
 
    # storage
 
@@ -532,6 +541,7 @@ exports = {
    _sto_flush        = { index =264  group = "storage" format = "vv"    }
    _sto_datacopy     = { index =265  group = "storage" format = "ps&*u" }
    _sto_savedword    = { index =266  group = "storage" format = "vsu"   }
+   _sto_list         = { index =267  group = "storage" format = "psi"   }
 
    # sys helpers
 
@@ -603,7 +613,8 @@ exports = {
    _pag_physunmap    = { index =301  group = "system"  format = "up"    }
    _pag_enable       = { index =302  group = "system"  format = "@uv"   }
    _pag_printall     = { index =303  group = "system"  format = "vp"    }
-   _pag_query        = { index =304  group = "system"  format = "up"    }
+   _pag_query        = { index =304  group = "system"  format = "@up"   }
+   _pag_queryrange   = { index =305  group = "system"  format = "@upu"  }
 
    # disk/volume functions
 
@@ -612,7 +623,7 @@ exports = {
    _hlp_volinfo      = { index =332  group = "disk"    format = "u@cp"  }
    _hlp_disktype     = { index =333  group = "disk"    format = "u@u"   }
    _dsk_strtodisk    = { index =334  group = "disk"    format = "@us"   }
-   # ordinal 335 reserved (moved to QSINIT)
+   _dsk_fakechs      = { index =335  group = "disk"    format = "@up"   }
    _dsk_disktostr    = { index =336  group = "disk"    format = "s@up"  }
    _dsk_formatsize   = { index =337  group = "disk"    format = "su@qip" }
    _hlp_unmountall   = { index =338  group = "disk"    format = "u@u"   }
@@ -756,9 +767,14 @@ exports = {
    _io_flush         = { index =613  group = "io"      format = "@u@u"  }
    _io_close         = { index =614  group = "io"      format = "@u@u"  
                           expname = "__io_close" }
-   _io_size          = { index =615  group = "io"      format = "@u@u&*@q" }
-   _io_setsize       = { index =616  group = "io"      format = "@u@u@q" }
-   _io_setstate      = { index =617  group = "io"      format = "@u@u@uu" }
+   _io_size          = { index =615  group = "io"      format = "@u@u&*@q"
+                         expname = "__io_size" }
+   _io_setsize       = {
+                         index =616  group = "io"      format = "@u@u@q"
+                         expname = "__io_setsize" }
+   _io_setstate      = { 
+                         index =617  group = "io"      format = "@u@u@uu"
+                         expname = "__io_setstate" }
    _io_getstate      = { index =618  group = "io"      format = "@u@u&*@u" }
    _io_lasterror     = { index =619  group = "io"      format = "@u@u"  }
    _io_info          = { index =620  group = "io"      format = "@u@up" }
@@ -815,6 +831,7 @@ exports = {
    _qe_reschedule    = { index =710  group = "queue"   format = "@u@u@q" }
    _qe_unschedule    = { index =711  group = "queue"   format = "p@u"   }
    _qe_close         = { index =712  group = "queue"   format = "@u@u"  }
+   _qe_getschedule   = { index =713  group = "queue"   format = "p@u"   }
 
    # fpu helpers
    _fpu_statesize    = { index =720  group = "fpu"     format = "uv"    }

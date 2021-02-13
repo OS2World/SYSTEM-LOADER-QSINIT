@@ -18,12 +18,11 @@
 #include "../../hc/qsshell.h"
 
 #define K_OPTS_CNT   8
-#define DEB_OPTS_CNT 3
+#define DEB_OPTS_CNT 2
 
 static const char *k_opts_param[K_OPTS_CNT] = { "PRELOAD", "ALTE", "NOLOGO",
    "NOREV", "DEFMSG", "VIEWMEM", "NOAF" ,"NOMTRR" };
-static const char *deb_opts_param[DEB_OPTS_CNT] = { "CTRLC", "FULLCABLE",
-   "VERBOSE" };
+static const char *deb_opts_param[DEB_OPTS_CNT] = { "CTRLC", "FULLCABLE" };
 
 static TStaticText *reptext_common(TStaticText *txo, const char *str,
                                    int const_bounds, int color)
@@ -174,6 +173,13 @@ int SetupBootDlg(TKernBootDlg *dlg, char *kernel, char *opts) {
       nm = opts_get(deb_opts_param[ii]);
       if (nm) dlg->deb_opts->press(ii);
    }
+   nm=opts_get("OHTRACE");
+   if (nm) {
+      ii = atoi(nm);
+      if (ii&1) dlg->deb_opts->press(2);
+      if (ii&2) dlg->deb_opts->press(3);
+   }
+
    nm=opts_get("CFGEXT");
    if (nm) setstr(dlg->k_cfgext,nm);
    nm=opts_get("LOGSIZE");
@@ -229,9 +235,9 @@ int SetupBootDlg(TKernBootDlg *dlg, char *kernel, char *opts) {
       u32t  disk;
       long index = vol_index((dlg->source?dlg->source:'A')-'A', &disk);
       if (index<0) istr = sprintf_dyn("unknown partition"); else {
-         lvm_partition_data pd;
-         if (lvm_partinfo(disk, index, &pd)) {
-            istr = sprintf_dyn("LVM %c:\n%s partition %u", pd.Letter,
+         char lltr = lvm_ismounted(disk, index);
+         if (lltr) {
+            istr = sprintf_dyn("LVM %c:\n%s partition %u", lltr,
                strupr(dsk_disktostr(disk,0)), index);
          } else {
             istr = sprintf_dyn("LVM info absent\n%s partition %u",
@@ -375,6 +381,15 @@ void RunKernelBoot(TKernBootDlg *dlg) {
           opts = strcat_dyn(opts,buf);
        }
    }
+   ii=0;
+   if (dlg->deb_opts->mark(2)) ii|=1;
+   if (dlg->deb_opts->mark(3)) ii|=2;
+   if (ii) {
+      char sb[24];
+      snprintf(sb, 24, "OHTRACE=%u,", ii);
+      opts = strcat_dyn(opts, sb);
+   }
+
    if (opts) {
       vl = opts+strlen(opts)-1;
       if (*vl==',') *vl = 0;

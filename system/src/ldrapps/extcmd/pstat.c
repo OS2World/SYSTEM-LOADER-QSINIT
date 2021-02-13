@@ -12,19 +12,19 @@ static void _std heap_dump(printf_function pfn) { mem_dumplog(pfn,0); }
 
 u32t _std shl_ps(const char *cmd, str_list *args) {
    int  rc=-1, nopause=0, l_thr=0, l_mod=0, l_all=0, l_pages=0;
-   static char *argstr   = "/t|/m|/a|/np|/da";
-   static short argval[] = { 1, 1, 1, 1, 0x1FFC};  // 2..12 bit mask
+   static char *argstr   = "t|m|a|np|da";
+   static short argval[] = {1,1,1,1, 0x1FFC};  // 2..12 bit mask
    // help overrides any other keys
    if (str_findkey(args, "/?", 0)) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
-   args = str_parseargs(args, 0, 1, argstr, argval, &l_thr, &l_mod, &l_all,
-                        &nopause, &l_pages);
+   args = str_parseargs(args, 0, SPA_RETLIST|SPA_NOSLASH, argstr, argval,
+                        &l_thr, &l_mod, &l_all, &nopause, &l_pages);
    // get /dX keys
    while (args->count) {
       char *key = args->item[0];
-      if (key[0]=='/' && toupper(key[1])=='D') {
+      if ((*key=='/' || *key=='-') && toupper(key[1])=='D') {
          int index = atoi(key+2);
          if (index<2 || index>12) {
             cmd_printf("Invalid page index specified!\n");

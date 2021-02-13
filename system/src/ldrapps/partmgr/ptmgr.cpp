@@ -150,6 +150,7 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t pts, u32t afl,
       hlp_disksize(disk,&ssize,0);
       // drop CHS flags on GPT disk
       if (gptdisk) afl &= ~(DPAL_CHSSTART|DPAL_CHSEND|DPAL_ESPC);
+         else afl &= ~DPAL_CYLSIZE;
 
       if (pts) {
          // calc partition size
@@ -218,15 +219,44 @@ qserr _std dsk_ptalign(u32t disk, u32t freeidx, u32t pts, u32t afl,
          }
          stpos = epos - ptsize;
       }
-      // AF align, but on GPT disks only
-      if (gptdisk && (afl&DPAL_AF)) {
-         u32t nsec  = 4096 / ssize;
-         if (stpos % nsec) { // nsec is always power of 2
-            u64t stpa = stpos + nsec - 1 & ~((u64t)nsec - 1);
-            ptsize   -= stpa - stpos;
-            stpos     = stpa;
+      if (gptdisk)
+         // size align on GPT disk (only only for partitions >1Mb of sectors
+         if ((afl&DPAL_CYLSIZE) && ptsize>=_1MB) {
+            u32t  nsec = afl&DPAL_AF ? 4096/ssize : 1, pass,
+                nalign = nsec * 255 * 63;
+            u64t nsize = ptsize / nalign * nalign - 63, nchk, npos;
+            // first try the bigger size, then the smaller
+            for (pass=0; pass<2; pass++) {
+               npos = stpos;
+               nchk = nsize;
+               if (!pass) nchk+=nalign;
+
+               if (npos % nsec)
+                  if (atstart)
+                     npos = npos + nsec - 1 & ~((u64t)nsec - 1);
+                  else
+                     npos &= ~((u64t)nsec - 1);
+
+               if (npos+nchk <= epos && npos>=fi[freeidx].StartSector) {
+                  stpos  = npos;
+                  ptsize = nchk;
+                  break;
+               }
+            }
+            log_it(2, "AC: %08LX <- %08LX..%08LX -> %08LX (%i,%u)\n",
+               fi[freeidx].StartSector, stpos, stpos+ptsize, epos, atstart, nsec);
+
+         } else 
+         // AF align on GPT disk
+         if (afl&DPAL_AF) {
+            u32t nsec = 4096 / ssize;
+
+            if (stpos % nsec) { // nsec is always power of 2
+               u64t stpa = stpos + nsec - 1 & ~((u64t)nsec - 1);
+               ptsize   -= stpa - stpos;
+               stpos     = stpa;
+            }
          }
-      }
       *start = stpos;
       *size  = ptsize;
    }

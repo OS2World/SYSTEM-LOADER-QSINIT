@@ -728,6 +728,38 @@ qserr _std vio_setmodeid(u32t mode_id) {
    return rc;
 }
 
+qserr _std vio_querymodeid(u32t mode_id, vio_mode_info *mib) {
+   // check - is we`re the ruler?
+   if (VHTable[VHI_ACTIVE]!=&bvio) return E_SYS_SOFTFAULT;
+   // check device number word in mode_id
+   u32t dev_id = mode_id>>16;
+   if (dev_id>=SYS_HANDLERS) return E_SYS_INVPARM;
+   // check mode info buffer
+   if (!mib) return E_SYS_ZEROPTR;
+   if (mib->size!=VIO_MI_SHORT && mib->size!=VIO_MI_FULL) return E_SYS_INVPARM;
+
+   MTLOCK_THIS_FUNC lk;
+   if (!VH[dev_id]) return E_CON_NODEVICE;
+   se_sysdata* se = get_se(se_sesno());
+   if (se->vs_selfno==SESN_DETACHED) return E_CON_DETACHED;
+
+   vio_mode_info *mi = vio_modeinfo(0, 0, dev_id), *mp;
+   if (!mi) return E_CON_MODERR;
+
+   qserr rc = E_CON_BADMODEID;
+
+   for (mp=mi; mp->size; mp++)
+      if (mp->mode_id==mode_id) {
+         u32t sz = mib->size;
+         memcpy(mib, mp, sz);
+         mib->size = sz;
+         rc = 0;
+         break;
+      }
+   free(mi);
+   return rc;
+}
+
 /// update VSF_FOREGROUND for all sessions - MUST be called in MT lock
 static void se_updforeflag(void) {
    for (u32t ii=1; ii<=Sessions.Max(); ii++) {

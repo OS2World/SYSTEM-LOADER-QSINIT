@@ -309,10 +309,39 @@ static qserr _exicc cmt_checkpidtid (EXI_DATA, mt_pid pid, mt_tid tid, u32t *sta
 static qserr _exicc cmt_tasklist    (EXI_DATA, u32t devmask)
 {  return se_tasklist(devmask); }
 
+static qserr _exicc cmt_shedcmd     (EXI_DATA, clock_t clk, const char *cmd,
+                                     qe_eid *eid)
+{
+   u32t len = cmd ? strlen(cmd) : 0;
+   if (!len) return E_SYS_INVPARM;
+   if (!mt_on) {
+      qserr res = mt_initialize();
+      if (res) return res;
+   }
+   if (mt_on) {
+      /* command line is owned by this module, this means that it can be lost
+         if thread killed just after this line ;) or user will not free
+         event->a after unschedule the event */
+      char  *cmc = malloc(len+1);
+      qe_eid  id;
+      memcpy(cmc, cmd, len+1);
+      // sys queue is detached, so we can post into it here
+      id = qe_schedule(sys_q, clk, SYSQ_SCHEDAT, (long)cmc, 0, 0);
+      // should never occurs if mt_on is ON
+      if (!id) {
+         free(cmc);
+         return E_SYS_SOFTFAULT;
+      }
+      if (eid) *eid = id;
+      return 0;
+   }
+   return E_MT_DISABLED;
+}
+
 static void *methods_list[] = { cmt_initialize, cmt_state, cmt_getmodpid,
    cmt_waitobject, cmt_thcreate, cmt_thsuspend, cmt_thresume, cmt_thstop,
    cmt_thexit, cmt_execse, cmt_createfiber, cmt_switchfiber, cmt_sendsignal,
-   cmt_setsignal, cmt_stop, cmt_checkpidtid, cmt_tasklist };
+   cmt_setsignal, cmt_stop, cmt_checkpidtid, cmt_tasklist, cmt_shedcmd };
 
 /* Shell commands */
 
@@ -428,7 +457,7 @@ u32t _std shl_stop(const char *cmd, str_list *args) {
          cmd_shellhelp(cmd,CLR_HELP);
          return 0;
       }
-      args = str_parseargs(args, 0, 1, argstr, argval, &tree, &quiet);
+      args = str_parseargs(args, 0, SPA_RETLIST, argstr, argval, &tree, &quiet);
 
       if (args->count>0) {
          u32t ii;
@@ -453,6 +482,231 @@ u32t _std shl_stop(const char *cmd, str_list *args) {
       }
    }
    cmd_shellerr(EMSG_CLIB, EINVAL, 0);
+   return EINVAL;
+}
+
+u32t _std shl_at(const char *cmd, str_list *args) {
+   int quiet=0;
+   if (args->count>0) {
+      int rc=-1, mode=0, pos=0, pause=1;
+      char *varname = 0;
+      // help overrides any other keys
+      if (str_findkey(args, "/?", 0)) {
+         cmd_shellhelp(cmd,CLR_HELP);
+         return 0;
+      }
+      /* str_parseargs() cannot be used here since it can find the same key in
+         the command to launch */
+      while (pos<args->count) {
+         char *str = args->item[pos++];
+         if (*str!='/' && *str!='-') { pos--; break; } else
+            if (stricmp(++str,"q")==0) quiet = 0; else
+               if (stricmp(str,"d")==0) mode = 1; else
+                  if (stricmp(str,"del")==0) mode = 1; else
+                     if (stricmp(str,"list")==0) mode = 2; else
+                        if (stricmp(str,"np")==0) pause = 0; else
+                           if (strnicmp(str,"v:",2)==0) varname = str+2; else
+                              { pos--; break; }
+      }
+      // invalid arg combination
+      if (mode && varname) ; else
+      // no error
+      if (pos<args->count) {
+         if (mode==0) {
+            u64t cldiff = 0;
+            if (args->item[pos][0]=='+') {
+               u32t  diff;
+               char    dt; 
+               if (sscanf(args->item[pos]+1, "%u%c", &diff, &dt)==2) {
+                  cldiff = diff;
+                  switch (toupper(dt)) {
+                     case 'D': cldiff *= 24;
+                     case 'H': cldiff *= 60;
+                     case 'M': cldiff *= 60;
+                     case 'S': cldiff *= CLOCKS_PER_SEC;
+                               break;
+                     default : pos = -1;
+                  }
+                  // error?
+                  if (pos<0) cldiff = 0; else pos++;
+               }
+            } else {
+               time_t    now = time(0);
+               struct tm tme;
+               localtime_r(&now, &tme);
+               // check for time string
+               if (isdigit(args->item[pos][0])) {
+                  if (strccnt(args->item[pos],'.')==2) {
+                     if (sscanf(args->item[pos], "%u.%u.%4u", &tme.tm_mday,
+                        &tme.tm_mon, &tme.tm_year)==3 && tme.tm_mday<=31 &&
+                           tme.tm_mon<13 && tme.tm_year>1900)
+                     {
+                        tme.tm_year -= 1900;
+                        if (tme.tm_mon) tme.tm_mon--;
+                        pos++;
+                     } else {
+                        if (!quiet) printf("Date format is invalid\n");
+                        pos=-1; quiet=1;
+                     }
+                  }
+                  if (pos>=0) {
+                     int ddot = strccnt(args->item[pos],':'), acnt;
+                     if (ddot==1 || ddot==2) {
+                        tme.tm_sec = 0;
+                        acnt = sscanf(args->item[pos], "%2u:%2u:%2u", &tme.tm_hour,
+                                      &tme.tm_min, &tme.tm_sec);
+                        if ((acnt==2 || acnt==3) && tme.tm_hour<24 && tme.tm_min<60
+                           && tme.tm_sec<60) pos++; else {
+                              if (!quiet) printf("Time format is invalid\n");
+                              pos=-1; quiet=1;
+                           }
+                     }
+                  }
+               }
+               if (pos>=0) {
+                  time_t dst = mktime(&tme);
+                  cldiff = dst<=now ? 1LL : (u64t)(dst-now)*CLOCKS_PER_SEC;
+               }
+            }
+            // time is valid
+            if (cldiff)
+               if (pos<args->count) {
+                  qe_eid    eid;
+                  str_list *lst = str_copylines(args, pos, args->count);
+                  char    *lcmd = str_mergeargs(lst);
+                  free(lst);
+                  rc = cmt_shedcmd(0,0, sys_clock()+cldiff, lcmd, &eid);
+                  free(lcmd);
+                  
+                  if (!rc && !quiet)
+                     if (eid!=QEID_POSTED) printf("Command scheduled with id %u\n", eid);
+                        else printf("Command launched since time is passed\n");
+                  // set shell variable
+                  if (varname)
+                     if (rc || eid==QEID_POSTED) unsetenv(varname); else {
+                        char id[24];
+                        ultoa(eid, id, 10);
+                        setenv (varname, id, 1);
+                     }
+               } else
+               if (!quiet) {
+                  printf("Command line is empty!\n");
+                  quiet=1;
+               }
+         } else
+         if (mode==1) {
+            u32t id = str2ulong(args->item[pos]);
+            if (id) {
+               // this is memory addr, something like at /d 10 will just hang us
+               qe_event *ev = id>_16MB ? qe_unschedule(id) : 0;
+               if (ev) {
+                  // check that ev->a is a real heap block
+                  if (ev->a && mem_getobjinfo((void*)ev->a,0,0)) free((void*)ev->a);
+                  free(ev);
+               } else
+               if (!quiet) printf("There is no command with such ID!\n");
+               rc = 0;
+            }
+         }
+      } else
+      if (mode==2) {
+         // list all tasks
+         ptr_list   tl = 0;
+         u32t       ii;
+         if (mt_on) {
+            qe_eid  *list;
+            // lock it to get solid data
+            mt_swlock();
+            list = hlp_qslist(sys_q);
+            if (list) {
+               ii = 0;
+               while (list[ii]) {
+                  qe_event *ev = qe_getschedule(list[ii]);
+                  if (ev && ev->code==SYSQ_SCHEDAT) {
+                     char tstr[32];
+                     int  flen;
+                     qsclock now = sys_clock();
+            
+                     if (ev->evtime<=now) strcpy(tstr, "passed"); else {
+                        u32t diff = (ev->evtime - now) / CLOCKS_PER_SEC;
+                        if (diff/10==0) strcpy(tstr, "< 10 sec"); else
+                        if (diff<120) sprintf(tstr, "%u sec", diff); else
+                        if (diff/60<120) sprintf(tstr, "%u min", diff/60); else {
+                           struct tm ttm, nowtm;
+                           time_t   tnow = time(0),
+                                      tt = tnow + diff;
+                           int   sameday;
+            
+                           localtime_r(&tt, &ttm);
+                           localtime_r(&tnow, &nowtm);
+                           sameday = nowtm.tm_year==ttm.tm_year && nowtm.tm_mon==
+                                     ttm.tm_mon && nowtm.tm_mday==ttm.tm_mday;
+                           strftime(tstr, 32, sameday?"%T":"%d.%m.%Y %T", &ttm);
+                        }
+                     }
+                     // align time to center
+                     flen = 20 - strlen(tstr) >> 1;
+                     while (flen--) strcat(tstr, " ");
+            
+                     if (!tl) tl = NEW(ptr_list);
+                     tl->add(sprintf_dyn("%10u ³ %20s ³ %s", list[ii], tstr, ev->a));
+                  }
+                  ii++;
+               }
+            }
+            mt_swunlock();
+            if (list) free(list);
+         }
+
+         if (tl) {
+            cmd_printseq(0, pause?PRNSEQ_INIT:PRNSEQ_INITNOPAUSE, 0);
+            cmd_printf(//" ÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
+                       "     id    ³       at time        ³ command \n"
+                       " ÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n");
+            for (ii=0; ii<tl->count(); ii++) cmd_printf("%s\n", tl->value(ii));
+
+            tl->freeitems(0,FFFF);
+            DELETE(tl);
+         } else
+            printf("There are no scheduled commands\n");
+         rc = 0;
+      } else
+      if (mode==1) {
+         // enum system queue for SYSQ_SCHEDAT and delete all entries
+         u32t  cnt = 0;
+         if (mt_on) {
+            qe_eid *list;
+            mt_swlock();
+            list = hlp_qslist(sys_q);
+            if (list) {
+               u32t ii = 0;
+               while (list[ii]) {
+                  qe_event *ev = qe_getschedule(list[ii]);
+                  if (ev && ev->code==SYSQ_SCHEDAT) {
+                     if ((ev = qe_unschedule(list[ii]))) {
+                        if (ev->a) free((void*)ev->a);
+                        free(ev);
+                        cnt++;
+                     }
+                  }
+                  ii++;
+               }
+            }
+            mt_swunlock();
+            if (list) free(list);
+         }
+         if (!quiet)
+            if (cnt) printf("%u schedule%s deleted\n", cnt, cnt==1?"":"s");
+               else printf("There are no scheduled commands\n");
+         rc = 0;
+      }
+
+      if (rc>=0) {
+         if (rc && !quiet) cmd_shellerr(EMSG_QS, rc, 0);
+         return 0;
+      }
+   }
+   if (!quiet) cmd_shellerr(EMSG_CLIB, EINVAL, 0);
    return EINVAL;
 }
 
@@ -486,7 +740,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       if (!_memset || !_memcpy || !_usleep || !_sys_selquery || !mt_startcb ||
          !mt_pexitcb || !fpu_intdata || !_se_dataptr)
       {
-         log_printf("unable to import APIs!\n");
+         log_printf("unable to import direct API!\n");
          return 0;
       }
       pxcpt_top   = mt_exechooks.mtcb_pxcpttop;
@@ -503,6 +757,7 @@ unsigned __cdecl LibMain(unsigned hmod, unsigned termination) {
       cmd_shelladd("DETACH", shl_detach);
       cmd_shelladd("START", shl_start);
       cmd_shelladd("STOP", shl_stop);
+      cmd_shelladd("AT", shl_at);
    }
    return 1;
 }

@@ -195,12 +195,20 @@ _hlp_serialin   endp                                            ;
 
 ; init debug com port
 ;----------------------------------------------------------------
-; void _std serial_init(u16t port);
+; u32t _std serial_init(u16t port);
                 public  _serial_init                            ;
 _serial_init    proc    near                                    ;
+                xor     eax,eax                                 ; rc
                 mov     dx,[esp+4]                              ;
                 or      dx,dx                                   ;
                 jz      @@esi_exit                              ;
+
+                inc     dx                                      ; read int enable register
+                in      al, dx                                  ;
+                inc     al                                      ; lines float?
+                jz      @@esi_exit                              ;
+                dec     dx
+
                 push    edx                                     ;
                 push    _BaudRate                               ;
                 push    edx                                     ;
@@ -211,8 +219,9 @@ _serial_init    proc    near                                    ;
                 or      al,3                                    ; RTS/DSR set
                 out     dx,al                                   ;
                 add     dx,COM_IEN-COM_MCR                      ;
-                xor     al,al                                   ; disable interrupts
+                xor     eax,eax                                 ; disable interrupts
                 out     dx,al                                   ;
+                inc     al                                      ; return 0/1
 @@esi_exit:
                 ret     4                                       ;
 _serial_init    endp                                            ;

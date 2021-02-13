@@ -66,20 +66,23 @@ int shl_dbcard(const spstr &setup, printf_function pfn) {
                      flush = 1;
                   }
                   // change/set new port
-                  if (port!=now) hlp_seroutset(port,rate);
-                  // flush all current log entries to this port if required
-                  if (flush) {
-                     TPtrStrings ft;
-                     u32t        ii;
-                     char       *cp = log_gettext(3);
-                     ft.SetText(cp);
-                     free(cp);
-                     for (ii=0; ii<ft.Count(); ii++) {
-                        hlp_seroutstr((char*)ft[ii]());
-                        hlp_seroutstr("\n");
+                  if (port!=now)
+                     if (!hlp_seroutset(port,rate)) rc = 0;
+                  if (rc!=0) {
+                     // flush all current log entries to this port if required
+                     if (flush) {
+                        TPtrStrings ft;
+                        u32t        ii;
+                        char       *cp = log_gettext(3);
+                        ft.SetText(cp);
+                        free(cp);
+                        for (ii=0; ii<ft.Count(); ii++) {
+                           hlp_seroutstr((char*)ft[ii]());
+                           hlp_seroutstr("\n");
+                        }
                      }
+                     pfn("COM port %04hX at %s, rate %d!\n", port, locstr, rate);
                   }
-                  pfn("COM port %04hX at %s, rate %d!\n", port, locstr, rate);
                }
             } else {
                pfn("Address index %d on device %s is not I/O port!\n", ioidx, locstr);
@@ -102,9 +105,9 @@ u32t _std shl_sm(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd, CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/q|/np";
-      static short argval[] = { 1,  1};
-      process_args(al, argstr, argval, &quiet, &nopause);
+      static char *argstr   = "q|np";
+      static short argval[] = {1, 1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &nopause);
       al.TrimEmptyLines();
       if (al.Count()) {
          u32t devlist = 0;

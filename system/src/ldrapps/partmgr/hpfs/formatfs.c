@@ -437,22 +437,21 @@ qserr _std hpfs_format(u8t vol, u32t flags, read_callback cbprint) {
    // allow floppies and big floppies
    if (volidx<0 && di.StartSector) return E_PTE_PINDEX;
    if (volidx>=0) {
+      u32t ptflags = 0;
       if (dsk_isgpt(di.Disk,volidx)==1) {
          // GPT partition
-         flags |=DFMT_NOPTYPE;
-         hidden = di.StartSector>=_4GBLL ? FFFF : di.StartSector;
+         flags  |= DFMT_NOPTYPE;
+         ptflags = DPTF_PRIMARY;
+         hidden  = di.StartSector>=_4GBLL ? FFFF : di.StartSector;
       } else {
-         lvm_partition_data lvd;
-         u32t             flags;
          // MBR or hybrid partition
-         dsk_ptquery(di.Disk,volidx,0,0,0,&flags,&hidden);
+         dsk_ptquery(di.Disk, volidx, 0, 0, 0, &ptflags, &hidden);
          if (hidden==FFFF) return E_PTE_EXTERR;
-         // query drive letter for the primary partition
-         if (flags&DPTF_PRIMARY)
-            if (lvm_partinfo(di.Disk, volidx, &lvd)) {
-               drivel = toupper(lvd.Letter);
-               if (drivel<'C' || drivel>'Z') drivel = 0;
-            }
+      }
+      // query drive letter for the primary partition (this can be GPT too)
+      if (ptflags & DPTF_PRIMARY) {
+         drivel = lvm_ismounted(di.Disk, volidx);
+         if (drivel<'C' || drivel>'Z') drivel = 0;
       }
    }
    // turn off align for floppies

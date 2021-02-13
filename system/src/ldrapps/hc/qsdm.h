@@ -111,6 +111,14 @@ qserr _std dsk_newvbr(u32t disk, u64t sector, u32t type, const char *name);
     @return boolean (success flag) */
 int   _std dsk_debugvbr(u32t disk, u64t sector);
 
+/** update LVM drive letter in the BPB of a HPFS/JFS volume.
+    This function is called internally during LVM drive letter setup.
+    @param disk     disk number
+    @param index    partition index
+    @param drive    'C'..'Z' only
+    @return 0 if success, else error code */
+qserr _std dsk_setbpbdrive(u32t disk, u32t index, char drive);
+
 /** delete 55AA signature from two last bytes of sector.
     Any other data remain unchanged.
     @param disk     disk number
@@ -324,13 +332,14 @@ char* _std dsk_disktostr(u32t disk, char *buffer);
 u32t  _std dsk_strtodisk(const char *str);
 
 /** format disk size to short string.
-    Returned string cannot be longer than 8 chars (it have 5 digits max:
-    "99999 kb", but "100 mb").
+    Returned string cannot be longer than 8 chars (5 digits max: "99999 kb",
+    but "100 mb").
     @param sectsize   disk sector size
     @param disksize   number of sectors
     @param width      min width of output string (left-padded with spaces), use 0 to ignore.
-    @param buf        buffer for result, can be 0 for static (unique per thread). At least 9 bytes.
-    @return buf or static buffer pointer with result string */
+    @param buf        buffer for result, can be 0 for static (unique per
+                      thread), at least 9 bytes.
+    @return buf or static buffer pointer with the result string */
 char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf);
 
 /** return existing partition table geometry.
@@ -343,6 +352,17 @@ char* _std dsk_formatsize(u32t sectsize, u64t disksize, int width, char *buf);
                             error.
     @result 0 on success or error code. */
 qserr _std dsk_getptgeo(u32t disk, disk_geo_data *geo);
+
+/** calculate fake CHS values.
+    All values in "geo" arg, that should be calculated - must be zeroed, only
+    TotalSectors field must be non-zero, for any other default values assumed.
+
+    If SectOnTrack / Heads are non-zero - they are used in calculation as
+    a constant.
+
+    @param [in,out] geo     Disk geometry data.
+    @result 0 on success or error code. */
+qserr _std dsk_fakechs(disk_geo_data *geo);
 
 /** init empty hard disk (write MBR partition table signature).
     @param disk     Disk number.
@@ -447,9 +467,10 @@ qserr _std dsk_extdelete(u32t disk);
 #define DPAL_AF        0x0008   ///< align start to 4k (advanced format)
 #define DPAL_ESPC      0x0010   ///< allocate at the end of free space
 #define DPAL_LOGICAL   0x0020   ///< logical partition (optional, for AF only)
+#define DPAL_CYLSIZE   0x0040   ///< align size to hypotetic cylinder (GPT only)
 //@}
 
-/** Convert free space to aligned start sector/size for new partition creation.
+/** Convert free space to aligned start sector/size for a new partition.
     DPAL_AF ignored without DPAL_ESPC flag on MBR disks. You must also
     supply valid DPAL_LOGICAL flag value in this case (flag used only
     for AF alignment).
@@ -671,6 +692,11 @@ u32t  _std lvm_usedletters(void);
 
 /** assign drive letter for LVM volume.
     This is OS/2 drive letter, not QSINIT.
+
+    Note, that function accepts ArcaOS GUID on GPT disks too (GPT.FLT naming
+    convention is used. E_SYS_READONLY returned if letter defined in GPT.CFG,
+    i.e. inaccesible for edit).
+
     @param disk     disk number
     @param index    partition index
     @param letter   drive letter to set ('A'..'Z' or 0 for no letter).
@@ -728,6 +754,13 @@ qserr _std lvm_wipeall(u32t disk);
     @param [out]    index    Partition index, 0 for disk name search.
     @return 0 on success or error code. E_LVM_NAME returned if no such name. */
 qserr _std lvm_findname(const char *name, u32t nametype, u32t *disk, u32t *index);
+
+/** check for LVM drive letter on the selected partition.
+    Function supports GPT too.
+    @param disk           disk number
+    @param index          partition index
+    @return 0 if not mounted or error occured, else 'A'..'Z' or '*'. */
+char  _std lvm_ismounted(u32t disk, u32t index);
 
 //===================================================================
 //  GPT specific functions
@@ -830,9 +863,18 @@ qserr _std dsk_gptinit(u32t disk);
     @param size     Size of new partition in sectors, can be 0 for full free
                     block size.
     @param flags    Flags for creation (only DFBA_PRIMARY accepted).
-    @param guid     Partition type GUID. Can be 0 ("Windows Data" assumed).
+    @param guid     Partition type GUID. Can be 0 ("Windows Data" assumed),
+                    also some special values accepted (CGUID_* below).
     @return 0 on success, or error code. */
 qserr _std dsk_gptcreate(u32t disk, u64t start, u64t size, u32t flags, void *guid);
+
+/// @name some special values for dsk_gptcreate() guid
+//@{
+#define CGUID_WINDATA  ((void*)0) ///< use "Windows Data" guid
+#define CGUID_LINDATA  ((void*)1) ///< use "Linux Data" guid
+#define CGUID_OS2DATA  ((void*)2) ///< use "ArcaOS Data" guid
+#define CGUID_EFISYS   ((void*)3) ///< use "EFI System" guid
+//@}
 
 /** set active partition (GPT disks).
     This function enum all partitions and DROP "BIOS Bootable" attribute, then
@@ -850,10 +892,12 @@ qserr _std dsk_gptactive(u32t disk, u32t index);
 #define GPTN_DISK      0x0000     ///< disk GUID
 #define GPTN_PARTITION 0x0001     ///< partition GUID
 #define GPTN_PARTTYPE  0x0002     ///< partition type GUID
+#define GPTN_LETTER    0x0003     ///< drive letter
 //@}
 
 /** search for partition by its name.
-    @param [in]     guid     GUID to search.
+    @param [in]     guid     Data to search: ptr to drive letter str for
+                             GPTN_LETTER, ptr to GUID for any other type
     @param [in]     guidtype GUID type (GPTN_*).
                              For GPTN_PARTTYPE argument first found partition
                              will be returned.

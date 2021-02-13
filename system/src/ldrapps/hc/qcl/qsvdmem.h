@@ -27,6 +27,7 @@ extern "C" {
 #define VFDF_HPFS       0x00100       ///< format partition(s) to HPFS
 #define VFDF_PERSIST    0x00200       ///< try to use existing RAM disk
 #define VFDF_EXACTSIZE  0x00400       ///< disk size must be equal to minsize value
+#define VFDF_GPT        0x00800       ///< use GPT partition table
 //@}
 
 /** PAE ram disk shared class.

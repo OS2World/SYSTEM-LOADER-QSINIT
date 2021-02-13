@@ -100,8 +100,8 @@ class TDMgrDialog : public TWalkDiskDialog {
 
           actp_first, actp_boot, actp_delete, actp_format, actp_active,
           actp_mount, actp_unmount, actp_letter, actp_rename, actp_clone,
-          actp_makelp, actp_makepp, actp_setgptt, actp_view, actp_bootcode,
-          actp_inst, actp_dirty, actp_bootos2, actp_label
+          actp_makelp, actp_makepp, actp_setgptt, actp_aosgpt, actp_view,
+          actp_bootcode, actp_inst, actp_dirty, actp_bootos2, actp_label
         } action;
 
    virtual void FreeDiskData();

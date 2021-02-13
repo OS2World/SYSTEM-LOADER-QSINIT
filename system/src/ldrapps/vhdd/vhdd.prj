@@ -40,6 +40,7 @@ copy=cp
 
 [files]
 rwdisc.c vhdd.c vhdf.c ../../init/inc/dskinfo.inc
+vhdbin.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

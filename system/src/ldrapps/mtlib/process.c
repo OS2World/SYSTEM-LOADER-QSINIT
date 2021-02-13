@@ -407,9 +407,10 @@ u32t _std mt_exec(process_context *pq) {
 
    if (pt_current->tiParent->piMiscFlags&PFLM_CHAINEXIT) {
       /* replacement start - SYSQ_SESSIONFREE handling in START will RESUME
-         it, this prevent handle mixing between two processes with same PID */
+         it, this should prevent handle mixing between two processes with
+         the same PID */
       // pd->piList[0]->tiState = THRD_RUNNING;
-      // nobody able to query exit code of replaced process (current)
+      // nobody is able to query exit code of the replaced process (current)
       mod_stop(0,0,0);
       return 0;
    } else
@@ -468,12 +469,12 @@ u32t _std mt_exit(process_context *pq) {
    return org_exit(pq);
 }
 
-// called from main thread launch code
+// called from the main thread`s launching code
 void mod_start_cb(void) {
    mod_secondary->start_cb();
 }
 
-/* interception of current process tree when we entering MT mode */
+/// interception of the current process tree when we entering MT mode
 void init_process_data(void) {
    mt_prcdata *current;
    // top module context
@@ -693,7 +694,7 @@ qserr _std mt_suspendthread(mt_pid pid, mt_tid tid, u32t waitstate_ms) {
    if (th->tiState==THRD_RUNNING && !th->tiFirstMutex) {
       th->tiState = THRD_SUSPENDED;
       /* self-suspend: well - switch out of here.
-         lock is reset by the switch_context() call */
+         lock is cleared by the switch_context() call */
       if (th==pt_current) {
          switch_context(0, SWITCH_SUSPEND);
          return 0;
@@ -775,7 +776,7 @@ void _std mt_exitthread_int(u32t result) {
    mt_thrdata  *th;
    mt_prcdata  *pd;
 
-   // this lock will be cleared in any of switch_context() below
+   // this lock will be cleared in any switch_context() below
    mt_swlock();
    th = (mt_thrdata*)pt_current;
    pd = th->tiParent;

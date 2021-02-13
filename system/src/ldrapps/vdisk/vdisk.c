@@ -101,7 +101,8 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
       return 0;
    } else {
       u32t  minsize=0, maxsize=0, nolow=0, nohigh=0, nofmt=0, nopt=0, nofat32=0,
-             divpos=0, fat32=0, ii, dh = 0, hpfs=0, load = 0, persist = 0, exact = 0;
+             divpos=0, fat32=0, ii, dh = 0, hpfs=0, load = 0, persist = 0,
+             exact = 0, gpt = 0;
       char     ltr1=0, ltr2=0, *vhdname = 0;
       int   divpcnt=0;   // divide pos in percents
 
@@ -144,6 +145,8 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
                else
             if (stricmp(args->item[ii],"nopt")==0) nopt = 1;
                else
+            if (stricmp(args->item[ii],"gpt")==0) gpt = 1;
+               else
             if (stricmp(args->item[ii],"persist")==0) persist = 1;
                else
             if (stricmp(args->item[ii],"load")==0) {
@@ -175,10 +178,11 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
                }
                if (!ltr1) ltr1 = ltr; else ltr2 = ltr;
             }
-            if (nopt && divpos) { errmsg("Both NOPT and DIV keys used!\n"); break; }
-            if (nolow && nohigh) { errmsg("Both NOLOW and NOHIGH keys used!\n"); break; }
-            if (nofat32 && fat32) { errmsg("Both NOFAT32 and FAT32 keys used!\n"); break; }
-            if (hpfs && fat32) { errmsg("Both HPFS and FAT32 keys used!\n"); break; }
+            if (nopt && gpt) { errmsg("Both NOPT and GPT keys are used!\n"); break; }
+            if (nopt && divpos) { errmsg("Both NOPT and DIV keys are used!\n"); break; }
+            if (nolow && nohigh) { errmsg("Both NOLOW and NOHIGH keys are used!\n"); break; }
+            if (nofat32 && fat32) { errmsg("Both NOFAT32 and FAT32 keys are used!\n"); break; }
+            if (hpfs && fat32) { errmsg("Both HPFS and FAT32 keys are used!\n"); break; }
             if (load && (minsize || maxsize || fat32 || hpfs || divpos || ltr1)) {
                errmsg("Image LOAD can be combined with NOLOW/NOHIGH only!\n");
                break;
@@ -215,6 +219,7 @@ u32t _std shl_ramdisk(const char *cmd, str_list *args) {
          } else {
             if (minsize && exact) ii|=VFDF_EXACTSIZE;
             if (persist) ii|=VFDF_PERSIST;
+            if (gpt)     ii|=VFDF_GPT;
 
             if (nopt )   ii|=VFDF_EMPTY; else
             if (nofmt)   ii|=VFDF_NOFMT; else

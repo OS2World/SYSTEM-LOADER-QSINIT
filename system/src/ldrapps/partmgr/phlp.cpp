@@ -6,8 +6,10 @@
 #include "qsint.h"
 #include "qsmod.h"
 #include <stdlib.h>
+#include <direct.h>
 #include "vioext.h"
 #include "qcl/qscache.h"
+#include "qcl/qslist.h"
 #include "dskinfo.h"
 #include "qsio.h"
 
@@ -169,7 +171,7 @@ dsk_mapblock* _std dsk_getmap(u32t disk) {
                   break;
                }
           // get lvm drive letter
-          if (ii < hi->pt_view)
+          if (ii < hi->pt_view) {
              if (!lvm_dlatpos(disk, ii, &recidx, &dlatidx)) {
                 DLA_Entry *de = &hi->dlat[recidx>>2].DLA_Array[dlatidx];
                 if (de->Drive_Letter) {
@@ -178,6 +180,18 @@ dsk_mapblock* _std dsk_getmap(u32t disk) {
                 }
                 if (de->On_Boot_Manager_Menu) rc[ii].Flags|=DMAP_BMBOOT;
              }
+          } else {
+             dsk_gptpartinfo  gpti;
+             if (!dsk_gptpinfo(disk, ii, &gpti)) {
+                char drive = 0;
+
+                if (!dsk_gptletter(&gpti, -1, &drive))
+                   if (drive) {
+                      rc[ii].Flags   |= DMAP_LVMDRIVE;
+                      rc[ii].DriveLVM = drive;
+                   }
+             }
+          }
       }
       // copy free space
       for (ii=0; ii<hi->fsp_size; ii++) {
@@ -623,6 +637,31 @@ u32t _std dsk_ismounted(u32t disk, long index) {
    return 0;
 }
 
+char _std lvm_ismounted(u32t disk, u32t index) {
+   FUNC_LOCK  lk;
+   hdd_info  *hi = get_by_disk(disk);
+   if (!hi) return 0;
+   // scan disk at least once
+   dsk_ptrescan(disk,0);
+
+   if (dsk_isgpt(disk,index)>0) {
+      dsk_gptpartinfo  gpti;
+      if (!dsk_gptpinfo(disk, index, &gpti)) {
+         char drive = 0;
+         if (!dsk_gptletter(&gpti, -1, &drive))
+            if (drive) return drive;
+      }
+   } else 
+   if (index < hi->pt_view) {
+      u32t  recidx, dlatidx;
+      if (!lvm_dlatpos(disk, index, &recidx, &dlatidx)) {
+         DLA_Entry *de = &hi->dlat[recidx>>2].DLA_Array[dlatidx];
+         if (de->Drive_Letter) return de->Drive_Letter;
+      }
+   }
+   return 0;
+}
+
 qserr _std vol_mount(u8t *vol, u32t disk, long index, u32t flags) {
    FUNC_LOCK  lk;
    hdd_info  *hi = get_by_disk(disk);
@@ -873,6 +912,107 @@ qserr _std dsk_gptdinfo(u32t disk, dsk_gptdiskinfo *dinfo) {
    return 0;
 }
 
+
+qserr dsk_gptletter(dsk_gptpartinfo *pi, int nltr, char *pltr) {
+   char  drive =  0;
+   int     src =  0,
+       namepos = -1;
+
+   if (!pi) return E_SYS_ZEROPTR;
+   if (nltr>='a' && nltr<='z') nltr = toupper(nltr);
+   // check drive letter arg
+   if (nltr>0 && nltr!='*' && (nltr<'A' || nltr>'Z')) return E_SYS_INVPARM;
+
+   if (!memcmp(&pi->TypeGUID, &os2guid, 16)) {
+      drive = pi->Attr >> 56 & 0x1F;
+      if (drive)
+         if (drive==27) drive = '*'; else
+            drive = drive<=26 ? '@'+drive : 0;
+      src = 1;
+   } else {
+      drive = gptcfg_query(&pi->GUID);
+      if (drive) src = 2; else
+
+      if (!memcmp(&pi->TypeGUID, &windataguid, 16) ||
+          !memcmp(&pi->TypeGUID, &lindataguid, 16) ||
+          !memcmp(&pi->TypeGUID, &efiguid, 16))
+      {
+         u32t idx = (sizeof(pi->Name) >> 1) - 1;
+         while (idx>2)
+            if (!pi->Name[idx]) idx--; else
+               if (pi->Name[idx]==']' && pi->Name[idx-2]=='[') {
+                  char lt = pi->Name[idx-1];
+                  if (lt=='*' || lt>='C' && lt<='Z' || lt==' ') {
+                     drive   = lt==' ' ? 0 : lt;
+                     namepos = idx-1;
+                     src     = 3; 
+                     break;
+                  }
+               } else
+                  break;
+      }
+   }
+
+   if (pltr) *pltr = drive;
+   // [x] notation denies A: & B:
+   if (src==3 && (nltr=='A' || nltr=='B')) return E_LVM_LETTER;
+
+   if (nltr>=0)
+      if (src==1) {
+         pi->Attr &= 0xE0FFFFFFFFFFFFFFLL;
+         pi->Attr |= (u64t)((nltr=='*'?27:(!nltr?0:nltr-'@')) & 0x1F) << 56;
+      } else
+      // GPT.CFG cannot be edited (at least now)
+      if (src==2) return E_SYS_READONLY; else
+      if (src==3) {
+         pi->Name[namepos] = nltr>0 ? nltr : ' ';
+      }
+
+   return src ? 0 : E_SYS_NOTFOUND;
+}
+
+/** update LVM drive letter in the BPB of a HPFS/JFS volume.
+    @param  disk         disk number
+    @param  index        partition index
+    @param  drive        'C'..'Z' only
+    @return error code. */
+qserr _std dsk_setbpbdrive(u32t disk, u32t index, char drive) {
+   qserr  res = E_SYS_SOFTFAULT;
+   drive = toupper(drive);
+   if (drive<'C' || drive>'Z') res = E_LVM_LETTER; else {
+      u64t   start, size;
+      
+      if (!dsk_ptquery64(disk, index, &start, &size, 0, 0))
+         res = E_PTE_PINDEX;
+      else {
+         char        fsname[16];
+         struct Boot_Record *br = (struct Boot_Record*)malloc_th(MAX_SECTOR_SIZE);
+         u32t            bstype = dsk_ptqueryfs(disk, start, fsname, (u8t*)br);
+
+         if (bstype!=DSKST_BOOTBPB || strcmp(fsname,"HPFS") && strcmp(fsname,"JFS"))
+            res = E_DSK_FSMISMATCH;
+         else {
+            u8t sign = br->BR_EBPB.EBPB_Sign;
+            // check signature
+            if (sign==0x28 || sign==0x29) {
+               if (br->BR_EBPB.EBPB_Dirty != (u32t)drive - 'C' + 0x80) {
+                  br->BR_EBPB.EBPB_Dirty = (u32t)drive - 'C' + 0x80;
+
+                  log_printf("Set VBR to %c: disk %02X, index %u, fs %s\n",
+                     drive, disk, index, fsname);
+
+                  res = hlp_diskwrite(disk, start, 1, br) ? 0 : E_DSK_ERRWRITE;
+               } else // drive letter value match to requested
+                  res = 0;
+            } else
+               res = E_DSK_FSMISMATCH;
+         }
+         free(br);
+      }
+   }
+   return res;
+}
+
 int dsk_vhddmade(u32t disk) {
    if (hlp_diskmode(disk,HDM_QUERY)&HDM_EMULATED) {
       qs_extdisk edsk = hlp_diskclass(disk, 0);
@@ -923,6 +1063,96 @@ void cache_envstart(void) {
                if (qcl && lst->count>1 && isdigit(lst->item[1][0]))
                   qcl->setsize_str(lst->item[1]);
          free(lst);
+      }
+   }
+}
+
+/* ------------------------------------------------------------------------ */
+static int gptcfg_loaded = -1;
+static ptr_list   gptcfg =  0;
+
+typedef struct {
+   u32t     guid[4];
+   char      ltr;
+} gptcfg_rec;
+
+// can be called only from a single scanning thread, so no any sync here
+int gptcfg_load(void) {
+   if (gptcfg_loaded>=0) return gptcfg_loaded;
+   // is OS2 exists on the boot volume? If not - there is no reason to try
+   if (hlp_isdir("A:\\OS2")) {
+      static const char *estrname = "_GPTCFGSearch_";
+      char   fp[QS_MAXPATH+1];
+
+      setenv(estrname, "A:\\;A:\\OS2;A:\\OS2\\BOOT", 1);
+      _searchenv("GPT.CFG", estrname, fp);
+      unsetenv(estrname);
+
+      if (fp[0]) {
+         u32t  len, ii;
+         void *cfg = freadfull(fp, &len);
+         if (cfg) {
+            // file should not be so large
+            if (len<_64KB) {
+               str_list *lst = str_settext((char*)cfg, len);
+
+               for (ii=0; ii<lst->count; ii++) {
+                  char  *line = lst->item[ii];
+                  u32t   guid[4];
+
+                  if (line[0]==';') continue;
+                  trimleft(line, " \t");
+                  if (!dsk_strtoguid(line, &guid)) continue;
+                  line += 36;
+                  while (*line==' ' || *line=='\t') line++;
+                  if (*line++!='=') continue;
+                  while (*line==' ' || *line=='\t') line++;
+                  if (line[0] && line[1]==':') {
+                     char ltr = toupper(line[0]);
+
+                     if (ltr>='A' && ltr<='Z') {
+                        // module owned block
+                        gptcfg_rec *rec = (gptcfg_rec*)malloc(sizeof(gptcfg_rec));
+                        if (!gptcfg) gptcfg = NEW_GM(ptr_list);
+
+                        memcpy(&rec->guid, &guid, 16);
+                        rec->ltr = ltr;
+                        gptcfg->add(rec);
+                     }
+                  }
+               }
+               free(lst);
+            }
+            hlp_memfree(cfg);
+            return gptcfg_loaded = gptcfg ? 1 : 0;
+         }
+      }
+   }
+   return gptcfg_loaded = 0;
+}
+
+char gptcfg_query(void *guid) {
+   // instance it thread-safe
+   if (gptcfg) {
+      u32t count = gptcfg->count(), ii;
+
+      for (ii=0; ii<count; ii++) {
+         gptcfg_rec *rec = (gptcfg_rec*)gptcfg->value(ii);
+         if (rec && !memcmp(guid, &rec->guid, 16)) return rec->ltr;
+      }
+   }
+   return 0;
+}
+
+void gptcfg_free(void) {
+   if (gptcfg_loaded>0) {
+      ptr_list  lst = gptcfg;
+      gptcfg        = 0;
+      gptcfg_loaded = -1;
+
+      if (lst) {
+         lst->freeitems(0,FFFF);
+         DELETE(lst);
       }
    }
 }

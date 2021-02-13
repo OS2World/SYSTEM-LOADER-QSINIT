@@ -18,11 +18,11 @@ extern "C" {
     There is no floating point support on early stages (START module provides
     FP support).
     @code
-    %b modified in comparation with default syntax:
-       %12Lb  - print 12 qwords from specified address
-       %12lb  - print 12 dwords from specified address
-       %12hb  - print 12 shorts from specified address
-       %#12b  - print 12 0xbytes from specified address
+    %b modified in comparation with the default syntax:
+       %12Lb  - print 12 qwords at specified address
+       %12lb  - print 12 dwords at specified address
+       %12hb  - print 12 shorts at specified address
+       %#12b  - print 12 0xbytes at specified address
     @endcode
 */
 int   __cdecl   snprintf(char *buf, u32t count, const char *fmt, ...);

@@ -168,7 +168,8 @@ void TSysApp::OpenPosDiskWindow(ul disk, uq sector) {
 
 void TSysApp::DiskInit(u32t dsk, int makegpt) {
    if (CanChangeDisk(dsk)) {
-      u64t sz = dsk_size64(dsk, 0);
+      u32t secsize;
+      u64t sz = dsk_size64(dsk, &secsize);
 #ifdef __QSINIT__
       u32t rc = dsk_ptrescan(dsk, 0);
       
@@ -177,7 +178,9 @@ void TSysApp::DiskInit(u32t dsk, int makegpt) {
          if (makegpt) {
             rc = dsk_gptinit(dsk);
          } else {
-            int islvm = askDlg(sz>63*255*65535?MSGA_LVM512:MSGA_LVMSMALL)?1:0;
+            // do not ask about LVM for disk with 1/2/4k sector size
+            int islvm = secsize==512 &&
+                        askDlg(sz>63*255*65535?MSGA_LVM512:MSGA_LVMSMALL)?1:0;
             // ask about secondary HDD boot disk serial
             if (dsk && islvm && !askDlg(MSGA_PRIMARY)) islvm = 2;
             // create disk

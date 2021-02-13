@@ -914,7 +914,7 @@ void TSysApp::Unmount(u8t vol) {
 #endif
 }
 
-void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
+void FillDiskInfo(TDialog* dlg, u32t disk, long index, int addvolname) {
    TView   *control;
    char     str[36];
    u32t  sectorsize = 0;
@@ -925,10 +925,13 @@ void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
    ptsize = hlp_disksize64(disk, &sectorsize);
    if (index>=0) {
       dsk_ptquery64(disk, index, 0, &ptsize, filesys, 0);
-      lvm_partition_data pi;
-      if (lvm_partinfo(disk, index, &pi)) {
-         strncpy(volname, pi.VolName, 20);
-         volname[20] = 0;
+
+      if (addvolname) {
+         lvm_partition_data pi;
+         if (lvm_partinfo(disk, index, &pi)) {
+            strncpy(volname, pi.VolName, 20);
+            volname[20] = 0;
+         }
       }
    } else
       dsk_ptqueryfs(disk, 0, filesys, 0);
@@ -953,12 +956,26 @@ void FillDiskInfo(TDialog* dlg, u32t disk, long index) {
    control = new TColoredText(TRect(3, 5, 4+strlen(str), 6), str, 0x7F);
    dlg->insert(control);
 
-   if (volname[0]) {
+   if (addvolname && volname[0]) {
       strcpy(str, "LVM name : ");
       strcat(str, volname);
       control = new TColoredText(TRect(3, 6, 4+strlen(str), 7), str, 0x7F);
       dlg->insert(control);
    }
+}
+
+TSItem *TSysApp::FillDriveList(Boolean qsmode, u32t usedmask) {
+   TSItem *list = 0, *next;
+   for (char ltr=qsmode?'C':'?'; ltr<='Z'; ltr++)
+      if (ltr<='@' || (1<<ltr-'A'&usedmask)==0) {
+         char tmp[4];
+         tmp[0] = ltr=='?'?'-':(ltr=='@'?'*':ltr);
+         tmp[1] = ltr<='@'?0:':';
+         tmp[2] = 0;
+         TSItem *item = new TSItem(tmp,0);
+         if (!list) next = list = item; else { next->next = item; next = item; }
+      }
+   return list;
 }
 
 void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
@@ -991,18 +1008,9 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
    dlg->helpCtx = qsmode ? hcQSDrive : hcLVMDrive;
    dlg->insert(elDrive);
 
-   TSItem *list = 0, *next;
-   for (char ltr=qsmode?'C':'@'; ltr<='Z'; ltr++)
-      if (ltr=='@' || (1<<ltr-'A'&usedmask)==0) {
-         char tmp[4];
-         tmp[0] = ltr=='@'?'-':ltr;
-         tmp[1] = ltr=='@'?0:':';
-         tmp[2] = 0;
-         TSItem *item = new TSItem(tmp,0);
-         if (!list) next = list = item; else { next->next = item; next = item; }
-      }
+   TSItem      *list = FillDriveList(qsmode, usedmask);
    TCombo *cbDrvName = new TCombo(TRect(31+dlofs, 3, 34+dlofs, 4), elDrive,
-      cbxOnlyList | cbxDisposesList | cbxNoTransfer, list);
+                         cbxOnlyList | cbxDisposesList | cbxNoTransfer, list);
    dlg->insert(cbDrvName);
    dlg->insert(new TLabel(TRect(25+dlofs, 2, 34+dlofs, 3), "to ~d~rive", elDrive));
 
@@ -1034,7 +1042,7 @@ void TSysApp::MountDlg(Boolean qsmode, u32t disk, long index, char letter) {
       char rcbuf[24];
       elDrive->getData(rcbuf);
       char ltr = rcbuf[0];
-      if ((ltr<'A' || ltr>'Z') && ltr!='-') errDlg(MSGE_INVVALUE); else {
+      if ((ltr<'A' || ltr>'Z') && ltr!='-' && ltr!='*') errDlg(MSGE_INVVALUE); else {
 #ifdef __QSINIT__
          if (qsmode) {
             u8t     wl = ltr - 'A';
@@ -1535,7 +1543,7 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
    destroy(fo);
 
    if (res) {
-      qs_emudisk ed = NEW(qs_emudisk);
+      qs_dyndisk ed = NEW(qs_dyndisk);
       if (!ed) { errDlg(MSGE_NOVHDD); return 0; }
 
       disk_geo_data  rdi;
@@ -1554,8 +1562,8 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
             res = 0;
 
          if (!res) {
-            // open file and check result
-            res = rest ? ed->open(imgname) :
+            // open file and check for result
+            res = rest ? ed->open(imgname, 0) :
                          ed->make(imgname, rdi.SectorSize, rdi.TotalSectors);
             if (res)
                switch (res) {
@@ -1574,7 +1582,7 @@ int TSysApp::SaveRestVHDD(u32t disk, int rest) {
          disk_geo_data  vdi;
          memset(&vdi, 0, sizeof(disk_geo_data));
 
-         ed->query(&vdi, 0, 0, 0);
+         ed->query(&vdi, 0, 0, 0, 0);
          if (vdi.SectorSize != rdi.SectorSize) res = MSGE_SECSIZEMATCH; else
             if (vdi.TotalSectors != rdi.TotalSectors) res = MSGE_NSECMATCH;
                else res = 0;

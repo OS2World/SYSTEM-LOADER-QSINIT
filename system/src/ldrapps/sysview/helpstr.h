@@ -13,8 +13,8 @@ const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Manual selection of OS/2 boot drive letter (optional)",
   "Allow Ctrl-C check by kernel debugger (slow down the debug kernel)",
   "COM port link cable with hardware flow control support",
-  "Verbose kernel log (internal)",
-  "Push service key for OS/2 kernel",
+  "Turn on OEMHLP$ calls trace",
+  "Turn on OEMHLP$ PCI functions trace",
   "Debug COM port address", "Debug COM port baud rate",
   "Alternative kernel SYM file name (up to 11 chars)",
   "Import kernel file from REV_ARCH.ZIP in the root of boot disk",
@@ -154,7 +154,9 @@ const char *Hints[HELP_LASTHLPIDX - 2000 + 1]= {
   "Mount volume as read-only",
   "Mount for sector level i/o only (i.e. deny filesystem detection)",
   "Set or update volume label",
-  "","","","","",""
+  "Push service key for OS/2 kernel",
+  "Enter emulated partition type here (01..FF, 0 for auto)",
+  "","","",""
   };
 
 const char *EmptyStr="";

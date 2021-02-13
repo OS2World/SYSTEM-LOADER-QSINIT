@@ -6,6 +6,7 @@
 #define QSINIT_STORAGE
 
 #include "qstypes.h"
+#include "qsshell.h"
 #pragma pack(1)
 
 #ifdef __cplusplus
@@ -38,6 +39,16 @@ void  _std sto_save(const char *entry, void *data, u32t len, int copy);
     @param  entry  Key name.
     @param  value  Dword value. */
 void  _std sto_savedword(const char *entry, u32t value);
+
+/** list storage keys. 
+    @param  match  Match pattern (in ren syntax, i.e., "cmd_h_*"), empty/0
+                   means full list
+    @param  type   Return variable type in 1st name character (name starts from
+                   2nd in this case). @ means pointer to a value, * - regular
+                   value.
+    @return string list with existing key names in the application owned heap
+            block, 0 can be returned if list is empty */
+str_list* _std sto_list(const char *match, int type);
 
 /// delete key
 #define sto_del(entry) sto_save(entry, 0, 0, 0)

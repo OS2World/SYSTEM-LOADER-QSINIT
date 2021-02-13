@@ -1789,7 +1789,13 @@ _exit_efi       label   near
                 xor     eax,eax                                 ;
                 ret                                             ;
 _sys_setxcpt64  endp                                            ;
-endif
+endif                                                           ;
+
+                public  _hlp_rmemode                            ;
+_hlp_rmemode    proc    near                                    ;
+                xor     eax,eax                                 ;
+                ret                                             ;
+_hlp_rmemode    endp                                            ;
 
 ;----------------------------------------------------------------
 ; void _std vio_writebuf(u32t col, u32t line, u32t width, u32t height, void *buf, u32t pitch)

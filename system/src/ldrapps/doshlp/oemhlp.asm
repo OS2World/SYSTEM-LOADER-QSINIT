@@ -3,9 +3,6 @@
 ; oemhlp "driver" code
 ;
 
-                ; 1 - ordinary debug, 2 - all oemhlp, except PCI
-                ; 3 - all & PCI calls
-                oemhlp_debug = 0
                 ; 0 - use saved device list, supplied by bootos2.exe
                 ; 1 - walk over PCI config space & search
                 oemhlp_walk  = 1
@@ -20,13 +17,7 @@
                 include inc/qsconst.inc                         ;
                 include inc/qstypes.inc                         ;
                 include inc/devsym.inc                          ; ioctl reference
-
-if oemhlp_debug GT 0
                 include inc/debug.inc                           ;
-else
-dbg16print      macro   FmtStr,args                             ;
-                endm                                            ;
-endif
 
 OEMHLP_DATA     segment                                         ;
 ;
@@ -280,13 +271,17 @@ OEMHLPStrategy  proc    far                                     ;
                 push    es                                      ;
                 push    bx                                      ;
                 push    dx                                      ;
-if oemhlp_debug GT 1
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRACE ; trace on?
+                jz      @@oemstrat_t1skip                       ;
                 dbg16print <"OEMHLP strat %x",10>,<ax>          ;
+@@oemstrat_t1skip:
                 call    OEMHLPTable[si]                         ; process request
+
+                test    byte ptr cs:External.FlagsEx,EXPFX_OHTRACE ; trace on?
+                jz      @@oemstrat_t2skip                       ;
                 dbg16print <"OEMHLP strat rc %x",10>,<ax>       ;
-else
-                call    OEMHLPTable[si]                         ; process request
-endif
+@@oemstrat_t2skip:
                 pop     dx                                      ;
                 pop     bx                                      ;
                 pop     es                                      ;
@@ -324,15 +319,18 @@ FN_IOCTL        proc    near                                    ;
                 lea     esi,[eax*2]                             ;
                 cmp     si,IOCTLTable_Size                      ;
                 jnc     FN_ERR                                  ;
-if oemhlp_debug GT 1
+
                 cmp     al,11                                   ;
                 jz      @@fiocd_skip                            ;
+                test    byte ptr External.FlagsEx,EXPFX_OHTRACE ; trace on?
+                jz      @@fiocd_skip                            ;
                 dbg16print <"OEMHLP ioctl %x",10>,<ax>          ;
+                push    di                                      ;
                 call    IOCTLTable[si]                          ;
+                pop     di                                      ;
                 dbg16print <"OEMHLP ioctl rc %x",10>,<ax>       ;
                 ret                                             ;
 @@fiocd_skip:
-endif
                 push    di                                      ;
                 call    IOCTLTable[si]                          ;
                 pop     di                                      ;
@@ -567,9 +565,11 @@ GET_DBCS_INFO   proc    near                                    ;
                 push    es                                      ;
                 les     di,es:[bx].GIOParaPack                  ;
                 mov     ax,word ptr es:[di]                     ; Fn #
-if oemhlp_debug GT 1
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRACE ; trace on?
+                jz      @@dbcsi_skiptrace                       ;
                 dbg16print <"OEMHLP dbcs info Fn %x",10>,<ax>   ;
-endif
+@@dbcsi_skiptrace:
                 pop     es                                      ;
                 les     di,es:[bx].GIODataPack                  ;
                 or      ax,ax                                   ;
@@ -762,6 +762,14 @@ FN_LOGWRITE     proc    near                                    ;
                 mov     word ptr es:[bx].NumSectorsRW,ax        ; 0 bytes written
                 ret                                             ;
 @@WRPrint:
+                test    byte ptr External.FlagsEx,EXPFX_OHTRAP  ; trap enabled?
+                jz      @@WRPrint2                              ;
+                cmp     si,4                                    ;
+                jc      @@WRPrint2                              ; int 3 on "1111" string
+                cmp     dword ptr es:[di], 31313131h            ;
+                jnz     @@WRPrint2                              ;
+                int     3                                       ;
+@@WRPrint2:
                 mov     dx,si                                   ; cx - input buffer size
                 mov     si,di                                   ;
 @@WRLoop:
@@ -874,9 +882,10 @@ PciCall         proc    near                                    ;
                 jc      @@pcc_err                               ; invalid subfn
                 call    PCITable[eax]                           ;
 @@pcc_exit:
-if oemhlp_debug GT 2
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pcc_notrace                           ;
                 dbg16print <"Leaving PciCall: rc %x",10>,<ax>   ;
-endif
+@@pcc_notrace:
                 pop     fs                                      ;
                 pop     ebx                                     ;
                 pop     ecx                                     ;
@@ -925,7 +934,10 @@ PCIGetBiosInfo  proc    near                                    ;
                 enter   12,0                                    ;
                 VrfyPCIData PCI_PBI_DATA_SIZE                   ;
                 jc      PCIFuncErr                              ;
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pcgbi_notrace                         ;
                 dbg16print <"GetBiosInfo",10>                   ;
+@@pcgbi_notrace:
                 mov     es,@@selDataPack                        ; fill data packet
                 mov     bx,@@offDataPack                        ;
                 mov     es:[bx].pbi_bReturn,0                   ;
@@ -1059,10 +1071,12 @@ PCIFindClassCode proc    near                                   ;
                 mov     bx,@@offParmPack                        ;
                 mov     dl,fs:[bx].pfcc_bIndex                  ;
                 mov     eax,fs:[bx].pfcc_ulClassCode            ;
-if oemhlp_debug GT 2
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      pci_find_notrace1                       ;
                 xor     dh,dh                                   ;
                 dbg16print <"FindClassCode: %lx %d",10>,<dx,eax> ;
-endif
+pci_find_notrace1:
 if oemhlp_walk GT 0
                 mov     di,0FF00h                               ; read dword at 8
                 shl     eax,8                                   ; and ignore low byte
@@ -1092,15 +1106,16 @@ endif ; oemhlp_walk > 0
                 mov     byte ptr es:[bx].pfcc_bBusNum,al        ;
                 mov     byte ptr es:[bx].pfcc_bDevFunc,ah       ;
                 ; ------------ debug -----------
-if oemhlp_debug GT 2
-                mov     cx,ax
-                mov     dx,ax
-                xor     dh,dh
-                xchg    ah,al
-                and     ax,7
-                shr     cx,11
-                dbg16print <"Device: %d.%d.%d",10>,<ax,cx,dx>
-endif ; oemhlp_debug > 2
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      pci_find_notrace2                       ;
+                mov     cx,ax                                   ;
+                mov     dx,ax                                   ;
+                xor     dh,dh                                   ;
+                xchg    ah,al                                   ;
+                and     ax,7                                    ;
+                shr     cx,11                                   ;
+                dbg16print <"Device: %d.%d.%d",10>,<ax,cx,dx>   ;
+pci_find_notrace2:
                 ; ------------------------------
                 xor     ax,ax                                   ; error code
                 mov     es,@@selReqPack                         ;
@@ -1124,11 +1139,11 @@ if oemhlp_walk GT 0
 else
                 mov     di,External.PCIVendorList               ;
 endif
-if oemhlp_debug GT 2
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      pci_find_common                         ; common processing
                 xor     dh,dh                                   ;
                 dbg16print <"FindDevice: %lx %d",10>,<dx,eax>   ;
-endif
-                jmp     pci_find_common                         ; common processing
+                jmp     pci_find_common                         ; -- " -- " -- " --
 PCIFindClassCode endp
 
 ;
@@ -1140,9 +1155,11 @@ PCIReadConfig   proc    near                                    ;
                 jc      PCIFuncErr                              ;
                 VrfyPCIParm PCI_PRC_PARM_SIZE                   ; verify access
                 jc      PCIFuncErr                              ;
-if oemhlp_debug GT 2
-                dbg16print <"PCIReadConfig",10>                 ;
-endif
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pcir_notrace1                         ;
+                dbg16print <"PCIRead",10>                       ;
+@@pcir_notrace1:
 ;
 ; here we come into deadlock:
 ; * reading of missing device can cause lock on older PCs
@@ -1170,9 +1187,11 @@ endif
                 shl     eax,16                                  ;
                 mov     ah,fs:[bx].prc_bDevFunc                 ;
                 mov     al,fs:[bx].prc_bConfigReg               ;
-if oemhlp_debug GT 2
-                dbg16print <"PCIReadConfig: %lx",10>,<eax>      ;
-endif
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pcir_notrace2                         ;
+                dbg16print <"PCIRead: %lx",10>,<eax>            ;
+@@pcir_notrace2:
                 mov     dx,PCI_ADDR_PORT                        ;
                 pushf                                           ; just for
                 cli                                             ; safeness
@@ -1213,9 +1232,11 @@ endif
                 mov     bx,@@offDataPack                        ;
                 mov     es:[bx].prc_bReturn,0                   ;
                 mov     es:[bx].prc_ulData,eax                  ;
-if oemhlp_debug GT 2
-                dbg16print <"PCIReadConfig: rc: %lx",10>,<eax>  ;
-endif
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pcir_notrace3                         ;
+                dbg16print <"PCIRead: rc: %lx",10>,<eax>        ;
+@@pcir_notrace3:
                 xor     ax,ax                                   ; error code
                 mov     es,@@selReqPack                         ;
                 leave                                           ;
@@ -1231,9 +1252,11 @@ PCIWriteConfig  proc    near                                    ;
                 jc      PCIFuncErr                              ;
                 VrfyPCIParm PCI_PWC_PARM_SIZE                   ; verify access
                 jc      PCIFuncErr                              ;
-if oemhlp_debug GT 2
-                dbg16print <"PCIWriteConfig",10>                ;
-endif
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pciw_notrace1                         ;
+                dbg16print <"PCIWrite",10>                      ;
+@@pciw_notrace1:
                 mov     fs,@@selParmPack                        ; device is in
                 mov     bx,@@offParmPack                        ; out list?
                 call    PCIVerifyArg                            ;
@@ -1243,9 +1266,11 @@ endif
                 shl     eax,16                                  ;
                 mov     ah,fs:[bx].prc_bDevFunc                 ;
                 mov     al,fs:[bx].prc_bConfigReg               ;
-if oemhlp_debug GT 2
-                dbg16print <"PCIWriteConfig: %lx",10>,<eax>     ;
-endif
+
+                test    byte ptr External.FlagsEx,EXPFX_OHTRPCI ; PCI trace on?
+                jz      @@pciw_notrace2                         ;
+                dbg16print <"PCIWrite: %lx",10>,<eax>           ;
+@@pciw_notrace2:
                 mov     dx,PCI_ADDR_PORT                        ;
                 pushf                                           ; just for
                 cli                                             ; safeness
@@ -1501,6 +1526,8 @@ DI20:
 @@DI_DumpBufOk:
                 mov     External.DumpBufLin,eax                 ;
 @@DI_DumpBufErr:
+                test    byte ptr External.FlagsEx,EXPFX_OHTRACE ; trace on?
+                jz      @@DI_NoDump                             ;
                 dbg16print <"DumpBuf: %lx %lx",10>,<External.DumpBufPhys,eax> ;
 @@DI_NoDump:
                 mov     word ptr [pINIT],offset FN_ERR          ; init done

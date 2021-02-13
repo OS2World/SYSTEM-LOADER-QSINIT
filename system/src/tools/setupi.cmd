@@ -14,7 +14,7 @@ set INCLUDE=%QS_BASE%\hc
 set QS_APPINC=%QS_BASE%\ldrapps\hc
 set QS_ARCH=QSINIT.LDI
 set QS_NAME=QSINIT
-set QS_VERSION=0.27
+set QS_VERSION=0.28
 
 rem detect build OS
 if "%OS%".=="Windows_NT". goto Win

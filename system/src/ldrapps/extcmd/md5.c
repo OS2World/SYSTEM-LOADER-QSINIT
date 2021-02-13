@@ -309,15 +309,16 @@ u32t getsfn(FILE *ff) {
 
 u32t _std shl_md5(const char *cmd, str_list *args) {
    int rc=-1, nopause=0, check=0, crc=0;
-   static char *argstr   = "/np|/check|/c|/crc|/crc32";
-   static short argval[] = {  1,   1,   1,   1,     1};
+   static char *argstr   = "np|check|c|crc|crc32";
+   static short argval[] = { 1,  1,  1, 1,     1};
    char            *arg0 = 0;
    // help overrides any other keys
    if (str_findkey(args, "/?", 0)) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
-   args = str_parseargs(args, 0, 1, argstr, argval, &nopause, &check,
+   args = str_parseargs(args, 0, SPA_RETLIST|SPA_NOSLASH, argstr, argval,
+                        &nopause, &check,
       &check, &crc, &crc);
    // process command
    if (args->count>0) {
@@ -408,9 +409,7 @@ u32t _std shl_md5(const char *cmd, str_list *args) {
                   rc = ENOMEM;
             }
             if (rc>=0 && quiet) {
-               char  errlvl[12];
-               _utoa(rc, errlvl, 10);
-               setenv("ERRORLEVEL", errlvl, 1);
+               env_setvar("ERRORLEVEL", rc);
                rc = 0;
             }
          }

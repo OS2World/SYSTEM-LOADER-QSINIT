@@ -22,11 +22,11 @@ typedef struct {
    u16t       DPFlags;
 } DHDriveParams;
 
-typedef int   (_std *fplvm_partinfo)(u32t disk, u32t index, lvm_partition_data *info);
+typedef char  (_std *fplvm_ismounted)(u32t disk, u32t index);
 typedef long  (_std *fpvol_index)(u8t vol, u32t *disk);
 
 static u32t   partmgr = 0;
-static fplvm_partinfo   plvm_partinfo   = 0;
+static fplvm_ismounted  plvm_ismounted  = 0;
 static fpvol_index      pvol_index      = 0;
 // variables for switch code setup
 u32t         paeppd, swcode;
@@ -42,7 +42,7 @@ void error_exit(int code, const char *message);
 static void dmgr_free(void) {
    if (partmgr) {
       mod_free(partmgr);
-      plvm_partinfo = 0;
+      plvm_ismounted = 0;
       pvol_index = 0;
       partmgr = 0;
    }
@@ -54,12 +54,12 @@ static int dmgr_load(void) {
       if (!partmgr) partmgr = mod_searchload(MODNAME_DMGR, 0, 0);
       // query functions & install unload proc
       if (partmgr) {
-         plvm_partinfo   = (fplvm_partinfo)   mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_partinfo,0);
+         plvm_ismounted  = (fplvm_ismounted)  mod_getfuncptr(partmgr,ORD_PARTMGR_lvm_ismounted,0);
          pvol_index      = (fpvol_index)      mod_getfuncptr(partmgr,ORD_PARTMGR_vol_index,0);
          atexit(dmgr_free);
       }
    }
-   return partmgr && plvm_partinfo && pvol_index?1:0;
+   return partmgr && plvm_ismounted && pvol_index?1:0;
 }
 
 void print_bpb(struct Disk_BPB *bpb) {
@@ -128,10 +128,8 @@ int replace_bpb(u8t vol, struct Disk_BPB *pbpb, u8t *pbootflags,
    if (dmgr_load()) {
       long vidx = pvol_index(vol, 0);
       if (vidx>=0) {
-         lvm_partition_data li;
-         if (plvm_partinfo(vi.Disk, vidx, &li))
-            if (li.Letter && li.Letter>'C')
-               pbpb->BPB_BootLetter = 0x80+(li.Letter-'C');
+         char ltr = plvm_ismounted(vi.Disk, vidx);
+         if (ltr && ltr>'C') pbpb->BPB_BootLetter = 0x80+(ltr-'C');
       }
    }
    return 1;

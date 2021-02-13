@@ -8,7 +8,7 @@ void shl_printmtrr(int nopause) {
    u32t flags, state, addrbits, idx,
         regs = hlp_mtrrquery(&flags, &state, &addrbits);
    if (!regs) {
-      cmd_printseq("\nThere is no MTRR registers available.", 0, 0);
+      cmd_printseq("\nThere are no MTRR registers available.", 0, 0);
    } else {
       static const char *mtstr[] = { "uncacheable", "write combining", "???",
          "???", "write-through", "write-protected", "writeback", "???"};
@@ -86,7 +86,7 @@ u32t _std shl_mtrr(const char *cmd, str_list *args) {
          cmd_shellhelp(cmd,CLR_HELP);
          return 0;
       }
-      args = str_parseargs(args, 0, 1, argstr, argval, &nopause, &tolog);
+      args = str_parseargs(args, 0, SPA_RETLIST, argstr, argval, &nopause, &tolog);
       // command is non-empty
       while (args->count>0) {
          int  state_setup = 0;
@@ -225,8 +225,8 @@ u32t _std shl_mem(const char *cmd, str_list *args) {
       cmd_shellhelp(cmd,CLR_HELP);
       return 0;
    }
-   args = str_parseargs(args, 0, 1, argstr, argval, &acpitable, &os2table, 
-                        &mtrr, &nopause, &tolog, &hide, &save, &clear);
+   args = str_parseargs(args, 0, SPA_RETLIST, argstr, argval, &acpitable,
+                        &os2table, &mtrr, &nopause, &tolog, &hide, &save, &clear);
 
    if (save && !hide && (args->count==3 || args->count==2 &&
       stricmp(args->item[1],"ALL")==0) && !acpitable && !os2table && !mtrr)

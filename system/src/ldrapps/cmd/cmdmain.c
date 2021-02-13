@@ -150,6 +150,7 @@ u32t execute_command(char *cmd, int timer) {
 /// ctrl-c signal handler
 void _std ctrlc_processing(int sig) {
    printf("\nProcess terminated\n");
+   key_clear();
    if (interactive) {
       u32t mod = mod_load(apppath, 0, 0, 0);
       if (mod) {

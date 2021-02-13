@@ -21,13 +21,15 @@ static u32t     mux_classid = 0;
 qs_sysmutex     mux_hlpinst = 0;
 qs_muxcvtfunc    hlp_cvtmux = 0;
 qe_availfunc     hlp_qavail = 0;
+qe_getschfunc    hlp_qslist = 0;
 
 /// common init call.
 static void _exicc mutex_init(EXI_DATA, qs_muxcvtfunc sf1, qe_availfunc sf2,
-   qshandle sys_queue)
+   qshandle sys_queue, qe_getschfunc sf3)
 {
    hlp_cvtmux = sf1;
    hlp_qavail = sf2;
+   hlp_qslist = sf3;
    sys_q      = sys_queue;
 }
 
@@ -77,7 +79,7 @@ static qserr _exicc muxev_create(EXI_DATA, mux_handle_int *res, u32t sft_no,
 
 /** event action.
     warning! w_check_conditions() calls it with action==QEVA_RESET,
-    this mean interrupt time call! */
+    this means interrupt time call! */
 qserr _exicc event_action(EXI_DATA, evt_handle_int evh, u32t action) {
    event_instance_ret(evh, ev, E_SYS_INVOBJECT);
    // process requested action
@@ -183,7 +185,7 @@ static qserr _exicc muxev_free(EXI_DATA, mux_handle_int muxh, int force) {
    if (sign==MUTEX_SIGN) {
       mutex_data *mx = (mutex_data*)muxh;
       /* should be free (this function called from module unload callback
-         in _parent_ process, in this moment mutex must be released) */
+         in _parent_ process, at this moment mutex must be released) */
       if (mx->owner)
          if (!force) return E_MT_SEMBUSY; else
             log_it(0, "Free mutex (sft %u), but it owned by pid %u tid %u!\n",
@@ -289,8 +291,8 @@ void register_mutex_class(void) {
       log_printf("Function list mismatch\n");
       _throw_(xcpt_align);
    }
-   /* register private(unnamed) class and making it EXCLUSIVE because we
-      have only one instance for the START module */
+   /* register private(unnamed) class and make it EXCLUSIVE because we
+      have only ONE instance for the START module */
    mux_classid = exi_register(0, m_list, sizeof(m_list)/sizeof(void*), 0,
                               EXIC_EXCLUSIVE, 0, 0, 0);
    mux_hlpinst = exi_createid(mux_classid, EXIF_SHARED);

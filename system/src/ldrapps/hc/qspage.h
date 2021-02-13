@@ -44,18 +44,24 @@ u32t  _std pag_physunmap(void *address);
     @retval E_SYS_EFIHOST      this is EFI host and EFI`s 64-bit paging active */
 qserr _std pag_enable(void);
 
-/// @name pag_query() result code
+/// @name pag_query() result bits
 //@{
-#define PGEA_UNKNOWN         (  0)  ///< unable to determine
-#define PGEA_NOTPRESENT      (  1)  ///< page not present
-#define PGEA_READ            (  2)  ///< read access ok
-#define PGEA_WRITE           (  3)  ///< write access ok
+#define PGEA_UNKNOWN         (0x01)  ///< unable to determine
+#define PGEA_NOTPRESENT      (0x02)  ///< page not present
+#define PGEA_READ            (0x04)  ///< read access ok
+#define PGEA_WRITE           (0x08)  ///< write access ok
+#define PGEA_RW              (PGEA_READ|PGEA_WRITE)
 //@}
 
 /** test access of specified page.
     @param  addr     Address to test
     @return PGEA_* value. */
 u32t  _std pag_query(void *addr);
+
+/** test access for a memory range.
+    @return bit mask of PGEA_* values, each bit means presence of a page with
+            such type */
+u32t  _std pag_queryrange(void *addr, u32t length);
 
 #ifdef __cplusplus
 }

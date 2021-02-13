@@ -90,8 +90,8 @@ int create_msg_pools(char *rpool, int *rsize, char *dpool, int *dsize) {
    do {
       u16t *mpos = (u16t*)(hdr+1);
       u32t    ii;
-      int   rrem = MSG_POOL_LIMIT,
-            drem = MSG_POOL_LIMIT;
+      int   rrem = MSG_POOL_LIMIT - 4,
+            drem = MSG_POOL_LIMIT - 4;
       if (mf_size<sizeof(msg_header)) break;
       if (hdr->msgcount!=MSGF_SIZE) {
          log_printf("msg: # mismatch (%u)\n", hdr->msgcount);
@@ -135,8 +135,13 @@ int create_msg_pools(char *rpool, int *rsize, char *dpool, int *dsize) {
          rc = ii==hdr->msgcount-1;
       }
       if (rc) {
-         *rsize = MSG_POOL_LIMIT - rrem;
-         *dsize = MSG_POOL_LIMIT - drem;
+         ii = MSG_POOL_LIMIT - 4 - rrem;
+         *(u32t*)(rpool+ii) = 0;
+         *rsize = ii + 4;
+         
+         ii = MSG_POOL_LIMIT - 4 - drem;
+         *(u32t*)(dpool+ii) = 0;
+         *dsize = ii + 4;
       }
    } while (0);
 

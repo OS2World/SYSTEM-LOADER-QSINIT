@@ -7,7 +7,8 @@
 static spstr aname, dname;
 static int   atype = 1,
               bebo = 0,
-               lxo = 0;
+               lxo = 0,
+              sign = 0;
 static d    srcofs = 0,
            srcsize = 0;
 void        *sdptr = 0;
@@ -21,6 +22,7 @@ static void about(void) {
           "   -an=str           array name (in output code)\n"
           "   -cn=str           data length const name (in output code)\n"
           "   -type=str         array element size: byte, word, dword\n"
+          "   -s                use signed values\n"
           "   -bebo             big endian (for word/dword array size)\n"
           "   -lxo=value        use object \"value\" (1..x) from LX file as source\n"
           "   -ofs=value        start from offset \"value\" of source\n"
@@ -83,6 +85,8 @@ int main(int argc, char *argv[]) {
    }
    ii=args.IndexOfName("-bebo");
    if (ii>=0) { bebo=1; args.Delete(ii); }
+   ii=args.IndexOfName("-s");
+   if (ii>=0) { sign=1; args.Delete(ii); }
    ii=args.IndexOfName("-lxo");
    if (ii>=0) { 
       lxo = args.Value(ii).Int();
@@ -137,9 +141,9 @@ int main(int argc, char *argv[]) {
    str.sprintf("#define %s\t",dname());
    out.Add(str);
    switch (atype) {
-      case 1:out.Add("\nunsigned char ");  arraysz = srcsize; break;
-      case 2:out.Add("\nunsigned short "); arraysz = Round2(srcsize)/2; break;
-      case 4:out.Add("\nunsigned long ");  arraysz = Round4(srcsize)/4; break;
+      case 1:out.Add(sign?"\nsigned char ":"\nunsigned char ");  arraysz = srcsize; break;
+      case 2:out.Add(sign?"\nsigned short ":"\nunsigned short "); arraysz = Round2(srcsize)/2; break;
+      case 4:out.Add(sign?"\nlong ":"\nunsigned long ");  arraysz = Round4(srcsize)/4; break;
    }
    str.sprintf("(%u)",arraysz);
    out[1]+=str;
@@ -151,18 +155,25 @@ int main(int argc, char *argv[]) {
    for (ps=0; ps<arraysz; ps++) {
       char buf[32];
       switch (atype) {
-         case 1:sprintf(buf," 0x%02X,", *mp++); break;
+         case 1:
+            if (sign) sprintf(buf," %d,", (s8)*mp++); else
+               sprintf(buf," 0x%02X,", *mp++);
+            break;
          case 2: {
             w value = *(w*)mp;
-            if (bebo) value = _swapword(value);
-            sprintf(buf," 0x%04X,", value); 
+            if (sign) sprintf(buf," %d,", (s16)value); else {
+              if (bebo) value = _swapword(value);
+              sprintf(buf," 0x%04X,", value); 
+            }
             mp+=2; 
             break;
          }
          case 4: {
             d value = *(d*)mp;
-            if (bebo) value = _swapdword(value);
-            sprintf(buf," 0x%08X,", value);
+            if (sign) sprintf(buf," %d,", value); else {
+              if (bebo) value = _swapdword(value);
+              sprintf(buf," 0x%08X,", value);
+            }
             mp+=4; 
             break;
          }

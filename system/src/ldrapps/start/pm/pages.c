@@ -303,9 +303,9 @@ qserr _std pag_enable(void) {
 u32t _std pag_query(void *addr) {
    u32t va = (u32t)addr;
    // on EFI entire 4Gb should be mirrored
-   if (hlp_hosttype()==QSHT_EFI) return PGEA_WRITE; else
+   if (hlp_hosttype()==QSHT_EFI) return PGEA_RW; else
    // 1st page is beyond of DS segment in plain mode
-   if (!in_pagemode) return va<PAGESIZE?PGEA_NOTPRESENT:PGEA_WRITE; else {
+   if (!in_pagemode) return va<PAGESIZE?PGEA_NOTPRESENT:PGEA_RW; else {
    // else decoding PAE page tables
       u32t  cr3v = getcr3();
       u64t *pdpt = (u64t*)(cr3v&~(1<<CR3PAE_PDPSHL-1)),
@@ -314,14 +314,29 @@ u32t _std pag_query(void *addr) {
               pv = *pde;
 
       if ((pv&PT_PRESENT)==0) return PGEA_NOTPRESENT; else
-      if (pv&PD_BIGPAGE) return pv&PT_WRITE?PGEA_WRITE:PGEA_READ; else {
+      if (pv&PD_BIGPAGE) return pv&PT_WRITE?PGEA_RW:PGEA_READ; else {
          u64t  paddr = pv & ((u64t)1<<PT64_MAXADDR)-PAGESIZE;
          u64t    *pt = (u64t*)paddr + ((va&PD2M_MASK)>>PT_ADDRSHL), ptv;
          // ????
          if (paddr>=_4GBLL) return PGEA_UNKNOWN;
          ptv = *pt;
          if ((ptv&PT_PRESENT)==0) return PGEA_NOTPRESENT; else
-            return ptv&PT_WRITE?PGEA_WRITE:PGEA_READ;
+            return ptv&PT_WRITE?PGEA_RW:PGEA_READ;
       }
    }
+}
+
+u32t _std pag_queryrange(void *addr, u32t length) {
+   u32t ptr = (u32t)addr & ~PAGEMASK,
+        res = 0;
+
+   length += (u32t)addr & PAGEMASK;
+   length  = PAGEROUND(length) >> PAGESHIFT;
+
+   if (!length) return PGEA_UNKNOWN;
+   while (length--) {
+      res |= pag_query((void*)ptr);
+      ptr += PAGESIZE;
+   }
+   return res;
 }

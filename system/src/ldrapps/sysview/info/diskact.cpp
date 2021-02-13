@@ -23,6 +23,8 @@
 #define TXINFO_RED   0x7C
 #define TXINFO_BLUE  0x79
 
+extern u32t os2guid[4];
+
 TWalkDiskDialog::TWalkDiskDialog(const TRect &bounds, const char *aTitle) :
    TDialog(bounds, aTitle), TWindowInit(TWalkDiskDialog::initFrame)
 {
@@ -441,7 +443,7 @@ TDMgrDialog::~TDMgrDialog() {
 void TDMgrDialog::UpdateAll(Boolean rescan) {
 #ifdef __QSINIT__
    // check VHDD module presence
-   qs_emudisk ed = NEW(qs_emudisk);
+   qs_dyndisk ed = NEW(qs_dyndisk);
    no_vhdd       = !ed;
    DELETE(ed);
 #endif
@@ -506,8 +508,9 @@ void TDMgrDialog::AddAction(TCollection *list, u8t action) {
       0,
       "Boot", "Delete", "Format", "Make active", "Mount", "Unmount",
       "LVM drive letter", "LVM options", "Clone", "Create logical",
-      "Create primary", "GPT options", "Sector view", "Update bootstrap code",
-      "Install QSINIT", "Dirty state", "Boot OS/2", "Set label" };
+      "Create primary", "GPT options", "LVM drive letter", "Sector view",
+      "Update bootstrap code", "Install QSINIT", "Dirty state", "Boot OS/2",
+      "Set label" };
 
    if (action==actp_first) return; else
    if (action<actp_first) {
@@ -669,7 +672,12 @@ void TDMgrDialog::UpdateActionList(Boolean empty) {
          }
          AddAction(lst_a, actp_clone);
          // change type guid on GPT
-         if (ddta[cur_disk].is_gpt) AddAction(lst_a, actp_setgptt);
+         if (ddta[cur_disk].is_gpt) {
+            AddAction(lst_a, actp_setgptt);
+            // aos guid settings
+            if (!memcmp(&ddta[cur_disk].gp[Index].TypeGUID, &os2guid, 16))
+               AddAction(lst_a, actp_aosgpt);
+         }
          // deny some actions on EFI boot partition
          int efihost = hlp_hosttype()==QSHT_EFI,
              efiboot = efihost && drv=='0'||drv=='A';
@@ -855,6 +863,10 @@ Boolean TDMgrDialog::valid(ushort command) {
                   break;
                case actp_setgptt :
                   SysApp.SetGPTType(cur_disk, Index);
+                  rescan = True;
+                  break;
+               case actp_aosgpt  :
+                  SysApp.SetupAOSGUID(cur_disk, Index, ddta[cur_disk].mb[cur_part].DriveLVM);
                   rescan = True;
                   break;
                case actp_rename  :

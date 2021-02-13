@@ -152,6 +152,13 @@ void      cache_envstart(void);
 /// free internally used CACHE instance
 void      cache_free(void);
 
+/// try to search for GPT.CFG
+int       gptcfg_load(void);
+/// check if GUID is listed in the loaded GPT.CFG
+char      gptcfg_query(void *guid);
+/// free GPT.CFG data
+void      gptcfg_free(void);
+
 #define ACTION_SETACTIVE       0
 #define ACTION_SETTYPE         1   ///< arg is new type
 #define ACTION_DELETE          2   ///< arg is start sector (for additional check)
@@ -222,6 +229,29 @@ void      scan_lock  (void);
 void      scan_unlock(void);
 
 qserr     _setdisksize(u32t disk, u64t size, u32t sector);
+
+extern u32t      os2guid[4],
+             windataguid[4],
+             lindataguid[4],
+                 efiguid[4];
+
+/** query/set drive letter for GPT partition.
+    (this dsk_gptpartinfo should be flushed then via dsk_gptpset())
+
+    Attempting to assign drive letter for a partition, listed in GPT.CFG will
+    return E_SYS_READONLY error.
+
+    Function returns E_SYS_NOTFOUND in a common case of missing drive letter.
+    If drive letter is not assigned, but supported - result will be 0 with 0
+    in *drive.
+
+    Drive letter assigning ignores duplicate names!
+
+    @param  pi           partition information
+    @param  newdrive     new drive letter (0, '*', 'A'..'Z, -1 to query)
+    @param  [out] drive  current drive letter (ptr can be 0)
+    @return error code or 0 */
+qserr     dsk_gptletter(dsk_gptpartinfo *pi, int newdrive, char *drive);
 
 #ifdef __cplusplus
 }

@@ -89,6 +89,26 @@ typedef struct qs_mtlib_s {
                                bit 0 for the screen).
        @return error value or 0. */
    qserr    _exicc (*tasklist)    (u32t devmask);
+
+   /** schedule command execution at the specified time.
+       Command is just a suffix for START shell command, so feel free to
+       use /b /t and /d at the start of it.
+
+       Command can be cancelled via qe_unschedule(eid) call. In this case
+       both returned qe_event* and (char*)qe_event->a must be free()-ed by
+       caller.
+       If returned eid == QEID_POSTED then specified time is passed and
+       command should already be launched.
+
+       Function starts MT mode on first use.
+
+       @param  clk             system clock when command must be launched
+       @param  cmd             command line
+       @param  [out] eid       event id on success, ptr can be 0
+       @retval 0               on success
+       @retval E_MT_DISABLED   library disabled by "set MTLIB = off"
+       @return E_SYS_INVPARM   command line is empty */
+   qserr    _exicc (*shedcmd)     (clock_t clk, const char *cmd, qe_eid *eid);
 } _qs_mtlib, *qs_mtlib;
 
 #ifdef __cplusplus

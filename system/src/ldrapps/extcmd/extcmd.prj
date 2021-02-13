@@ -47,7 +47,7 @@ copy=cp
 ..\..\hc\inc\pci.inc
 ..\..\hc\inc\seldesc.inc
 ..\..\init\inc\qspdata.inc
-extcmd.c mtrrmem.c pci.c md5.c vhtty.c extdlg.c pstat.c
+extcmd.c mtrrmem.c pci.c md5.c vhtty.c extdlg.c pstat.c setini.c
 
 [make_footer]
 $(outdir) : .DIRECTORY

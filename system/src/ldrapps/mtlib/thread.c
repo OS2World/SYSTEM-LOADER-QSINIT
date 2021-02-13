@@ -201,9 +201,9 @@ void mt_freefiber(mt_thrdata *th, u32t index) {
       u32t  esp = get_esp(),
            base = (u32t)fd->fiStack;
       /* we cannot free stack on which we executing just NOW, but this occurs
-         if we`re called from the switch_context() during deletion of current
+         if we`re called from the switch_context() during deletion of the current
          thread/fiber.
-         Ask system thread to release it later - this is safe, because this
+         Ask the system thread to release it later - this is safe, because this
          stack will be swapped out forever at the end of switch_context(). */
       if (base<=esp && base+fd->fiStackSize>esp)
          qe_postevent(sys_q, SYSQ_FREE, base, fd->fiStackSize<_64KB, (u32t)&mt_freefiber);

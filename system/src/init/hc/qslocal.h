@@ -32,7 +32,7 @@ u32t       env_length  (const char *env);
 void       mem_procexit(process_context *pq);
 u32t       hlp_fopen2  (const char *name, int allow_pxe);
 // serial port init, has no lock inside!
-void  _std serial_init (u16t port);
+u32t  _std serial_init (u16t port);
 void       init_host   (void);
 
 /// secondary function table, from "start" module
@@ -57,6 +57,7 @@ extern u32t         cvio_ttylines;
 extern void             *init_env;
 
 extern u16t                cp_num;
+extern u32t              qs16base; // base addr of 16-bit part
 
 #ifndef EFI_BUILD
 /// check/reset BIOS Ctrl-Break flag in 040:0071h

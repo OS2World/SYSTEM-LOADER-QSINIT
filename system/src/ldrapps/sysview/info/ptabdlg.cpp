@@ -13,30 +13,21 @@
 #define step_x      (19)
 #define cmGotoRec0  (1000)
 
-class TPTypeByte : public TInputLong {
-   unsigned long  prevValue;
-   TColoredText  *cmControl;
-   void updateComment();
-public:
-   TPTypeByte(const TRect& bounds, TColoredText *attComment,
-      const char* labelName = 0) : TInputLong(bounds, 3, 0, 255, 
-         ilPureHex|ilHex, labelName) 
-            { prevValue = 0xFFFFFFFF; cmControl = attComment; }
-   virtual void handleEvent(TEvent& event);
-   virtual void setData(void *rec);
-};
-
 void TPTypeByte::updateComment() {
    unsigned long qv;
    getData(&qv);
    if (qv != prevValue) {
       char *msg = 0, topic[16];
+      if (!qv && type0text) {
+         sprintf(topic, " %-11s", type0text);
+      } else {
 #ifdef __QSINIT__
-      sprintf(topic, "_PTE_%02X", qv);
-      msg = cmd_shellgetmsg(topic);
+         sprintf(topic, "_PTE_%02X", qv);
+         msg = cmd_shellgetmsg(topic);
 #endif
-      sprintf(topic, " %-11s", msg?msg:"Other");
-      if (msg) free(msg);
+         sprintf(topic, " %-11s", msg?msg:"Other");
+         if (msg) free(msg);
+      }
       replace_coltxt(&cmControl, topic);
       prevValue = qv;
    }

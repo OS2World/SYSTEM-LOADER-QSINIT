@@ -28,6 +28,11 @@ typedef struct {
    u64t     length;
 } dsk_pos;
 
+u32t      os2guid[4] = {0x90B6FF38, 0x4358B98F, 0xF3481FA2, 0xD38A4A5B},
+      windataguid[4] = {0xEBD0A0A2, 0x4433B9E5, 0xB668C087, 0xC79926B7},
+      lindataguid[4] = {0x0FC63DAF, 0x47728483, 0x693D798E, 0xE47D47D8},
+          efiguid[4] = {0xC12A7328, 0x11D2F81F, 0xA0004BBA, 0x3BC93EC9};
+
 // grow by 4 records
 static void grow_mbr(hdd_info *di) {
    long sz = di->pt_size + 4,
@@ -647,6 +652,8 @@ static u32t scan_disk(hdd_info *drec) {
       DELETE(ptl);
    }
 
+   if (drec->gpt_present) gptcfg_load();
+
    if (drec->lba_error)
       log_it(3, "%d pt lba pos errors on disk %X\n", drec->lba_error, drec->disk);
    return rc;
@@ -783,9 +790,9 @@ static void scan_disk_mt(hdd_info *drec) {
       ctd.size      = sizeof(mt_ctdata);
       ctd.stacksize = _64KB;
       ctd.pid       = 1;
-      /* create thread with session 0, else it will have caller`s session!!!
-         such case is very bad, because "lost session" may remain on the
-         screen until thread exit (45 seconds!) */
+      /* create detached thread else it will have the caller`s session!!!
+         such a case is very bad, because "lost session" may remain on the
+         screen until this thread exit (45 seconds!) */
       service_tid = mtlib->thcreate(scan_thread, MTCT_NOFPU|MTCT_DETACHED, &ctd, 0);
       // just panic, should never occurs
       if (!service_tid) _throwmsg_("partmgr: scan thread start error!");
@@ -878,7 +885,8 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
    if (args->count>=pos+1) {
       static char *argstr   = "force|/v";
       static short argval[] = {    1, 1};
-      str_list *rcargs = str_parseargs(args, pos, 1, argstr, argval, &force, &verbose);
+      str_list *rcargs = str_parseargs(args, pos, SPA_RETLIST, argstr, argval,
+                                       &force, &verbose);
       ii = rcargs->count;
       free(rcargs);
       // we must get empty list, else unknown keys here
@@ -907,25 +915,31 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
 
          if (disk==FFFF) { // dmgr list
             disk_geo_data  gdata;
-            char    *stext, namebuf, sizebuf[32],
-                  *dskname = dsk_disktostr(dsk,0);
+            char          *stext, namebuf, sizebuf[32], robuf[16],
+                        *dskname = dsk_disktostr(dsk,0);
+            qs_extdisk      edsk = hlp_diskclass(dsk, 0);
+            int               ro = 0;
             sizebuf[0] = 0;
+            robuf  [0] = 0;
             // at least LVM info should be updated
             if (force) dsk_ptrescan(dsk,1);
+            if (edsk)
+               if (edsk->state(EDSTATE_QUERY) & EDSTATE_RO) ro = 1;
 
             hlp_disksize(dsk, 0, &gdata);
             if (gdata.TotalSectors) {
                stext = get_sizestr(gdata.SectorSize, gdata.TotalSectors);
-               if (verbose) sprintf(sizebuf, "(%Lu sectors)", gdata.TotalSectors);
+               if (verbose) sprintf(sizebuf, " (%Lu sectors)", gdata.TotalSectors);
+               if (ro) strcpy(robuf, " (readonly)");
             } else {
                stext = "    no info";
             }
-            if (shellprn(verbose?" %cDD %i =>%-4s: %s%s%s %s":" %cDD %i =>%-4s: %s%s%s",
+
+            if (shellprn(verbose?" %cDD %i =>%-4s: %s%s%s%s%s":" %cDD %i =>%-4s: %s%s%s%s%s",
                dsk&QDSK_FLOPPY?'F':'H', dsk&QDSK_DISKMASK, dskname, ioredir?"":ANSI_WHITE,
-                  stext, ioredir?"":ANSI_RESET, sizebuf)) break;
+                  stext, ioredir?"":ANSI_RESET, sizebuf, robuf)) break;
             if (verbose) {
                disk_geo_data ldata;
-               qs_extdisk     edsk;
                char        str[96];
                int           islvm = lvm_checkinfo(dsk)==0;
                if (islvm)
@@ -937,7 +951,6 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   sprintf(str+strlen(str), ", LVM: %d x %d x %d",
                      ldata.Cylinders, ldata.Heads, ldata.SectOnTrack);
                if (shellprt(str)) break;
-               edsk = hlp_diskclass(dsk, 0);
                if (edsk) {
                   char *einfo = edsk->getname();
                   if (einfo) {
@@ -1047,6 +1060,10 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
             }
          }
          if (hi->gpt_present) {
+            u32t wide = ioredir ? 1000 : 0;
+
+            if (!wide) vio_getmode(&wide, 0);
+
             // query mounted volumes if it was not done in 
             if (!hi->pt_view)
                for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
@@ -1054,18 +1071,19 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                out = strcat_dyn(out, "\n");
          
             out = strcat_dyn(out,
-               " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
-               "  ## ³ fs info ³   size   ³ mount ³    LBA    ³ attr ³        type            \n"
-               " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n");
+               " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
+               "  ## ³ fs info ³   size   ³ mount ³    LBA    ³ LVM ³ attr ³      type        \n"
+               " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n");
          
             for (ii = 0; ii<hi->gpt_view; ii++)
                // print both GPT and hybrid partitions here
                if (dsk_isgpt(disk, ii) > 0) {
                   dsk_gptpartinfo  gpi;
                   char       pdesc[16], mounted[64], guidstr[40], *ptstr, *pline,
-                             eflags[8];
+                             eflags[8], lvmvol[8];
                   u64t   psize, pstart;
                   u32t              kk;
+                  char          letter;
          
                   static const s8t part_flags[] = { GPTATTR_SYSTEM, GPTATTR_IGNORE,
                      GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN, 
@@ -1083,12 +1101,21 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                      if (vi[kk].StartSector && vi[kk].Disk==disk)
                         if (vi[kk].StartSector==pstart)
                            snprintf(mounted, 64, "%c:/%c:",'0'+kk,'A'+kk);
-         
+
                   eflags[0] = 0;
+                  lvmvol[0] = 0;
+                  if (!dsk_gptletter(&gpi, -1, &letter))
+                     if (letter)
+                        snprintf(lvmvol, sizeof(lvmvol), "  %c: ", letter);
+
                   if (gpi.Attr) {
                      char *epf = eflags;
+                     u64t attr = gpi.Attr;
+                     // use only valid bits for a non-windows volume
+                     if (memcmp(&windataguid, &gpi.TypeGUID, 16)) attr &= 7;
+
                      for (kk = 0; part_flags[kk]>=0; kk++)
-                        if ((u64t)1<<part_flags[kk] & gpi.Attr) *epf++ = part_char[kk];
+                        if ((u64t)1<<part_flags[kk] & attr) *epf++ = part_char[kk];
                      *epf = 0;
                      // align Attr string to center
                      kk = strlen(eflags);
@@ -1098,10 +1125,15 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                         *epf = 0;
                      }
                   }
-                  pline = sprintf_dyn("  %2d ³ %-8s³%s ³ %s ³%10.9LX ³%6s³ %s\n",
+
+                  pline = sprintf_dyn("  %2d ³ %-8s³%s ³ %s ³%10.9LX ³%5s³%6s³ ",
                      ii, pdesc, get_sizestr(hi->info.SectorSize, psize)+2,
-                        *mounted?mounted:"     ", pstart, eflags, ptstr?ptstr:"");
+                        *mounted?mounted:"     ", pstart, lvmvol, eflags);
+                  if (ptstr) pline = strcat_dyn(pline, ptstr);
+                  // cut it!
+                  if (strlen(ptstr) > wide-2) ptstr[wide-2] = 0;
                   out = strcat_dyn(out, pline);
+                  out = strcat_dyn(out, "\n");
                   if (ptstr) free(ptstr);
                   free(pline);
                }

@@ -5,6 +5,7 @@ exports = {
    _shl_detach          = { index = 1   group="shell"   format="usp"     }
    _shl_start           = { index = 2   group="shell"   format="usp"     }
    _shl_stop            = { index = 3   group="shell"   format="usp"     }
+   _shl_at              = { index = 4   group="shell"   format="usp"     }
    
    _mt_createthread     = { index = 10  group="mt"      format="up@upp"  }
    _mt_exitthread       = { index = 11  group="mt"      format="Vu"      }
@@ -51,5 +52,6 @@ class = {
       stop         = "@uppuiu"
       checkpidtid  = "@uppuu&*@u"
       tasklist     = "@upp@u"
+      shedcmd      = "@upp@qs&*@u"
    }
 }

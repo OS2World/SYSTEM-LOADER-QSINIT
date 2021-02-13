@@ -303,6 +303,8 @@ qe_availfunc     hlp_qavail;      ///< queue check helper from START
 extern
 qs_muxcvtfunc    hlp_cvtmux;      ///< mutex check helper from START
 extern
+qe_getschfunc    hlp_qslist;      ///< queue schedules query helper from START
+extern
 qs_sysmutex     mux_hlpinst;      ///< mutex helper instance for START module
 
 typedef struct _we_list_entry {

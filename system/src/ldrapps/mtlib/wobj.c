@@ -173,7 +173,7 @@ void w_term(mt_thrdata *wth, u32t newstate) {
 }
 
 /* warning! called from timer interrupt!
-   Any call, catched by TRACE in code below can trap us! */
+   Any call, catched by TRACE in the code below can/will trap us! */
 int w_check_conditions(u32t pid, u32t tid, we_list_entry *special) {
    we_list_entry *we = we_first;
    u64t          now = hlp_tscread();

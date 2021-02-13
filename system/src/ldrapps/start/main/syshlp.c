@@ -1059,8 +1059,8 @@ u32t  _std hlp_copytoflat(void* dst, u32t offs, u32t sel, u32t len) {
          u32t cpsize = PAGEROUND(offs) - offs;
          if (!cpsize) cpsize = PAGESIZE;
          if (cpsize>len) cpsize = len;
-
-         if (pag_query(sptr)<=PGEA_NOTPRESENT) break;
+         // unaccessible data?
+         if (pag_query(sptr) & (PGEA_UNKNOWN|PGEA_NOTPRESENT)) break;
          memcpy0(dptr, sptr, cpsize);
          dptr += cpsize;
          sptr += cpsize; offs = (u32t)sptr;

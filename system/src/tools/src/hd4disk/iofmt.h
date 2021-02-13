@@ -333,6 +333,6 @@ void IORB_NotifyCall(IORBH far *pIORB);
    "call    far ptr es:[di+1Ch]" \
    "add     sp,4"                \
    parm [es di] \
-   modify exact [ax bx cx dx];
+   modify exact [ax bx cx dx es];
 
 #endif // QS_DDIOFMT_H

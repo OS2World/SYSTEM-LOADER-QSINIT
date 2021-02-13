@@ -118,18 +118,37 @@ int       _std str_findentry(str_list *list, const char *str, u32t pos, int icas
     @endcode
     @param lst      list with arguments
     @param firstarg start position of first argument in the list
-    @param ret_list return updated arg list (newly allocated!)
+    @param flags    options (SPA_* below)
     @param args     arguments in form: "/boot|/q|/a" or "+h|-h|+a|-a"
     @param values   array of SHORT values for EVERY argument in args
     @param ...      pointers to INT variables to setup
     @return 0 if ret_list==0 else NEW list with removed known arguments,
             this list must be released by free() call. Note, that list
             returned even with str_list.count=0. */
-str_list* _std str_parseargs(str_list *lst, u32t firstarg, int ret_list,
+str_list* _std str_parseargs(str_list *lst, u32t firstarg, u32t flags,
                              char* args, short *values, ...);
+
+/// @name str_parseargs() flags
+//@{
+#define SPA_RETLIST       0x00000001   ///< return updated arg list (newly allocated!)
+#define SPA_NOSLASH       0x00000002   ///< all keys in args are without '/'
+#define SPA_NODASH        0x00000004   ///< do not accept '-' instead of '/'
+//@}
+
 
 /// print str_list to log
 void      _std log_printlist(char *info, str_list*list);
+
+/** split key = value string to the key and the value.
+    Function searches for '=' then trim all space characters (' ', '\t') around
+    key and value and returns a pointer to the value. If no '=' in the string -
+    pointer to the terminating zero returned.
+
+    A *copy* of the key in the application owned heap block is saved in "key",
+    if it is non-zero. This block should be released by user.
+
+    @return pointer to value (in the source string!). */
+char*     _std str_keyvalue(const char *str, char **key);
 
 /** calculate string length without embedded ANSI sequences.
     @param str      source string
@@ -187,14 +206,14 @@ cmd_state _std cmd_init (const char *cmds, const char *args);
     @return handle for cmd_run(), cmd_close(). */
 cmd_state _std cmd_initbatch(const str_list* cmds, const str_list* args);
 
-#define CMDR_ONESTEP    0x0001        ///< run one step
-#define CMDR_ECHOOFF    0x0002        ///< echo is off by default
-#define CMDR_NESTCALL   0x0004        ///< internal, do not use
-#define CMDR_DETACH     0x0008        ///< any process launch must be detached
+#define CMDR_ONESTEP    0x0001         ///< run one step
+#define CMDR_ECHOOFF    0x0002         ///< echo is off by default
+#define CMDR_NESTCALL   0x0004         ///< internal, do not use
+#define CMDR_DETACH     0x0008         ///< any process launch must be detached
 
-#define CMDR_RETERROR   0xFFFFFFFF    ///< exit code: internal error
-#define CMDR_RETEND     0xFFFFFFFE    ///< exit code: execution finished
-#define CMDR_NOFILE     0xFFFFFFFD    ///< exit code: missing file (in cmd_exec())
+#define CMDR_RETERROR   0xFFFFFFFF     ///< exit code: internal error
+#define CMDR_RETEND     0xFFFFFFFE     ///< exit code: execution finished
+#define CMDR_NOFILE     0xFFFFFFFD     ///< exit code: missing file (in cmd_exec())
 
 /// exec batch file (complete or one step)
 u32t      _std cmd_run  (cmd_state cmdenv, u32t flags);
@@ -235,11 +254,11 @@ int       _std cmd_shellquery(const char *name);
 
 /// @name cmd_argtype() result
 //@{
-#define ARGT_FILE         0x0001    ///< any file except batch
-#define ARGT_BATCHFILE    0x0002    ///< .cmd or .bat file
-#define ARGT_DISKSTR      0x0003    ///< A: B: 1:
-#define ARGT_SHELLCMD     0x0004    ///< shell command
-#define ARGT_UNKNOWN      0x0005    ///< failed to determine string type
+#define ARGT_FILE         0x0001       ///< any file except batch
+#define ARGT_BATCHFILE    0x0002       ///< .cmd or .bat file
+#define ARGT_DISKSTR      0x0003       ///< A: B: 1:
+#define ARGT_SHELLCMD     0x0004       ///< shell command
+#define ARGT_UNKNOWN      0x0005       ///< failed to determine string type
 //@}
 
 /** query type of argument.
@@ -306,8 +325,8 @@ int    __cdecl cmd_printf(const char *fmt, ...);
     @return string list in the application owned heap block */
 str_list* _std cmd_splittext(const char *text, u32t width, u32t flags);
 
-#define SplitText_NoAnsi   1    ///< disable ansi line length calculation
-#define SplitText_HelpMode 2    ///< help printing, with & as soft-cr
+#define SplitText_NoAnsi   1           ///< disable ansi line length calculation
+#define SplitText_HelpMode 2           ///< help printing, with & as soft-cr
 
 /** print help message from msg.ini.
     This function init pause line counter and print text with pauses.
@@ -347,8 +366,8 @@ u32t      _std cmd_shellcall(cmd_eproc func, const char *argsa, str_list *argsb)
     @param prefix      message prefix */
 void      _std cmd_shellerr(u32t errtype, int errorcode, const char *prefix);
 
-#define EMSG_QS      0x0000           ///< QSINIT error codes (qserr.h)
-#define EMSG_CLIB    0x0001           ///< clib error codes (errno.h)
+#define EMSG_QS      0x0000            ///< QSINIT error codes (qserr.h)
+#define EMSG_CLIB    0x0001            ///< clib error codes (errno.h)
 
 /** get common error message.
     @param errtype     error type (EMSG_* constant)
@@ -378,6 +397,15 @@ cmd_eproc _std cmd_modeadd(const char *name, cmd_eproc proc);
     @return 0 or command proc, which became active for this device. */
 cmd_eproc _std cmd_modermv(const char *name, cmd_eproc proc);
 
+/** get current active proc for the MODE device.
+    If no device handler loaded then function searches for the handler as
+    described in cmd_modeadd() and returns zero only if command handler for
+    this device is not found.
+
+    @param name     device name
+    @return 0 if device handler not found or command proc */
+cmd_eproc _std cmd_modeget(const char *name);
+
 /// query list of all supported devices in MODE command
 str_list* _std cmd_modeqall(void);
 
@@ -399,7 +427,8 @@ qserr     _std cmd_historywipe(void);
 
     @attention Any shell command, executed via shl_* functions will use
                CURRENT process context, i.e. it will have access to any
-               files, locked by your process and so on ...
+               files, locked by your process, your current process
+               environment and so on ...
 
     @param cmd      "COPY" string
     @param args     arguments.
@@ -499,6 +528,12 @@ u32t      _std shl_ps     (const char *cmd, str_list *args);
 u32t      _std shl_ver    (const char *cmd, str_list *args);
 /// MD5 command.
 u32t      _std shl_md5    (const char *cmd, str_list *args);
+/// AT command.
+u32t      _std shl_at     (const char *cmd, str_list *args);
+/// SETINI command.
+u32t      _std shl_setini (const char *cmd, str_list *args);
+/// SETKEY command.
+u32t      _std shl_setkey (const char *cmd, str_list *args);
 
 #ifdef __cplusplus
 }

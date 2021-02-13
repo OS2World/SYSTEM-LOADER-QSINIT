@@ -38,6 +38,9 @@
   actual. For example, my current PC`s BIOS clears 1Mb above 4Gb border on
   every boot - this makes it void. But, in many cases it works.
 
+  GPT partition table can be created instead of MBR (you need GPT.FLT to
+  access this disk then).
+
   Some examples of RAMDISK command syntax:
 
   1. use all memory above 4Gb and no memory below 4Gb.
@@ -124,6 +127,13 @@
            STRAT1 is ancient, simple and fast method - but it works only
            with FAT and HPFS filesystems. Old versions of FAT32 just trap
            the system on trying to mount and JFS is unable to mount too.
+
+           Note, that if you plan to use ramdisk for a swap file :) - STRAT1
+           is much better because it shows very high speed in most cases.
+
+      /n - disable NMI during i/o (not needed, actually)
+
+      /h - hide disk via UF_NODASD_SUPT flag (dev.only feature)
 
   For more details QSINIT loader log must be on (driver prints some messages
 into it).

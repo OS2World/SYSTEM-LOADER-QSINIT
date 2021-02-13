@@ -259,6 +259,25 @@ int _std qe_available_spec(qshandle queue, u32t *ppid, u32t *sft_no) {
    return -1;
 }
 
+qe_eid* _std qe_getschedlist(qshandle queue) {
+   sft_entry      *fe;
+   qe_eid       *rlist = 0;
+   // there is no lock in io_check_handle_spec(), as well as no access check
+   mt_swlock();
+   if (!io_check_handle_spec(queue, IOHT_QUEUE, 0, &fe)) {
+      sys_queue *qi = (sys_queue*)fe->que.qi;
+      u32t    evcnt = qi->fq.Count();
+
+      if (evcnt) {
+         rlist = (qe_eid*)malloc_thread((evcnt + 1) * sizeof(qe_eid));
+         rlist[evcnt] = 0;
+         memcpy(rlist, qi->fq.Value(), evcnt * sizeof(qe_eid));
+      }
+   }
+   mt_swunlock();
+   return rlist;
+}
+
 // call for io_dumpsft() dump, MT lock assumed
 extern "C"
 int _std qe_available_info(void *pi, u32t *n_sched) {
@@ -341,7 +360,8 @@ int _std qe_available(qshandle queue) {
 // assumes MT locked state
 static qe_eid pushto(qshandle owner, sys_queue *qi, qe_event *src, clock_t at = 0) {
    /* here we allocate block in this module context, this makes it global. All
-      of event returning functions will change owner to the current process */
+      of event returning functions will change owner to the current process.
+      Also note, that qe_getschedule() uses mem_dup() on it. */
    qe_event *ev = (qe_event*)malloc(sizeof(qe_event));
    qe_eid   res = QEID_POSTED;
    clock_t  now = sys_clock();
@@ -409,9 +429,11 @@ qe_eid _std qe_schedule(qshandle queue, clock_t attime, u32t code,
 
 qe_eid _std qe_reschedule(qe_eid eventid, clock_t attime) {
    sft_entry     *fe;
-   qserr         err;
+   qserr         err = 0;
    qe_eid        res = 0;
    sched_event *ev_l = (sched_event*)eventid;
+   // double lock to prevent ev_l modification
+   mt_swlock();
    // check eventID
    if (!eventid || eventid==QEID_POSTED || ev_l->sign!=SQWE_SIGN)
       err = E_SYS_INVPARM;
@@ -428,14 +450,17 @@ qe_eid _std qe_reschedule(qe_eid eventid, clock_t attime) {
       mt_swunlock();
       delete ev_l;
    }
+   mt_swunlock();
    return res;
 }
 
 qe_event* _std qe_unschedule(qe_eid eventid) {
    sft_entry     *fe;
-   qserr         err;
+   qserr         err = 0;
    qe_event   *retev = 0;
    sched_event *ev_l = (sched_event*)eventid;
+   // double lock to prevent ev_l modification
+   mt_swlock();
    // check eventID
    if (!eventid || eventid==QEID_POSTED || ev_l->sign!=SQWE_SIGN)
       err = E_SYS_INVPARM;
@@ -450,7 +475,30 @@ qe_event* _std qe_unschedule(qe_eid eventid) {
       retev->id = 0;
       delete ev_l;
    }
+   mt_swunlock();
    // make it caller process owned
    if (retev) mem_localblock(retev);
+   return retev;
+}
+
+qe_event* _std qe_getschedule(qe_eid eventid) {
+   sft_entry     *fe;
+   qserr         err = 0;
+   qe_event   *retev = 0;
+   sched_event *ev_l = (sched_event*)eventid;
+   // double lock to prevent ev_l modification
+   mt_swlock();
+   // check eventID
+   if (!eventid || eventid==QEID_POSTED || ev_l->sign!=SQWE_SIGN)
+      err = E_SYS_INVPARM;
+   // this call LOCKs us if err==0
+   if (!err) err = io_check_handle(ev_l->owner, IOHT_QUEUE, 0, &fe);
+   if (!err) {
+      retev = (qe_event*)mem_dup(ev_l->ev);
+      // make it caller`s owned
+      mem_localblock(retev);
+      mt_swunlock();
+   }
+   mt_swunlock();
    return retev;
 }

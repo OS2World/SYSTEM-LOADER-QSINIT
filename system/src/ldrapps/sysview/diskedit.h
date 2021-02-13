@@ -34,7 +34,7 @@ int  CheckBootDlg (TKernBootDlg *dlg);
 void RunKernelBoot(TKernBootDlg *dlg);
 void SetupLdrBootDlg(TLdrBootDialog *dlg, char *file);
 
-void FillDiskInfo(TDialog* dlg, u32t disk, long index);
+void FillDiskInfo(TDialog* dlg, u32t disk, long index, int volname = 1);
 
 char *getstr (TInputLine *ln);
 u32t  getuint(TInputLine *ln);
@@ -213,12 +213,15 @@ public:
   void   ChangeDirty(u8t vol, u32t disk, long index);
   void   CreatePartition(u32t disk, u32t index, int logical);
   void   MountDlg(Boolean qsmode, u32t disk, long index, char letter = 0);
+  void   SetupAOSGUID(u32t disk, u32t index, char letter = 0);
   void   SetGPTType(u32t disk, u32t index);
   void   LVMRename(u32t disk, u32t index);
   /// use 0xFFFF in goHelpCtx to helpCtx of current TGroup, not common control
   void   OpenHelp(ushort goHelpCtx, int dlgmode = 0);
   /// return 1 on success, -1 on cancel pressed in "format" mode.
   int    SetCodepage(int format);
+
+  TSItem*FillDriveList(Boolean qsmode, u32t usedmask);
 
   int    IsSysWindows(TView *, TAppWindowType *wtype = 0);
   void   CloseAll();
@@ -329,6 +332,7 @@ public:
 #define MSGE_FILEOPENED   (45)
 #define MSGE_FSUNSUITABLE (46)
 #define MSGE_BADNAME      (47)
+#define MSGE_WRONGGUID    (48)
 
 extern TSysApp SysApp;
 

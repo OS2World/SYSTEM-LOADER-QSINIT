@@ -345,6 +345,7 @@ static u32t _exicc gc_info(EXI_DATA, vio_mode_info **mout, char *prnname) {
                mi->gmask   = ci->gmask;
                mi->bmask   = ci->bmask;
                mi->amask   = ci->amask;
+               mi->gmpitch = ci->mempitch;
                mi->flags   = VMF_GRAPHMODE|(ci->bits==8?VMF_VGAPALETTE:0)|
                              (ci->flags&CON_FONTxMASK)>>CON2VMF_FSCALE;
             }

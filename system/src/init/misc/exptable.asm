@@ -206,6 +206,7 @@
                 extrn   _exit_efi       :near
                 extrn   _memcpyw        :near
                 extrn   _key_clear      :near
+                extrn   _hlp_rmemode    :near
 
 nextord macro ordinal                                           ; set next ordinal
                 dw      ordinal                                 ; number
@@ -369,7 +370,7 @@ _exptable_data:
                 dd      offset _hlp_selfree                     ;
                 dd      offset _hlp_selsetup                    ;
                 dd      offset _hlp_selbase                     ;
-                dd      0                                       ;
+                dd      offset _hlp_rmemode                     ;
                 dd      offset _hlp_segtoflat                   ;
                 dd      offset _sys_getint                      ;
                 dd      offset _sys_setint                      ;

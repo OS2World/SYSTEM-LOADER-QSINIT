@@ -186,3 +186,103 @@ void TSysApp::SetGPTType(u32t disk, u32t index) {
       destroy(dlg);
    }
 }
+
+TAOSGUIDDlg::TAOSGUIDDlg(unsigned long disk, unsigned long index, char letter) :
+       TDialog(TRect(14, 7, 65, 15), "ArcaOS GUID settings"),
+       TWindowInit(TAOSGUIDDlg::initFrame)
+{
+   options |= ofCenterX | ofCenterY;
+
+   elDrive = new TInputLine(TRect(31, 2, 35, 3), 11);
+   elDrive->helpCtx = hcLVMDrive;
+   insert(elDrive);
+#ifdef __QSINIT__
+   TSItem *list = SysApp.FillDriveList(False, lvm_usedletters());
+   cbDrvName    = new TCombo(TRect(35, 2, 38, 3), (TInputLine*)elDrive,
+                  cbxOnlyList | cbxDisposesList | cbxNoTransfer, list);
+   insert(cbDrvName);
+
+   insert(new TLabel(TRect(23, 2, 30, 3), "Drive:", elDrive));
+
+   TColoredText *pttext = new TColoredText(TRect(31, 5, 49, 6), "", 0x3F);
+   insert(pttext);
+   elType = new TPTypeByte(TRect(31, 4, 35, 5), pttext, "Type");
+   elType->helpCtx = hcAOSGuidType;
+   elType->type0text = "auto";
+   insert(elType);
+   insert(new TLabel(TRect(23, 4, 30, 5), "Type", elType));
+
+   insert(new TButton(TRect(41, 2, 49, 4), "~O~k", cmOK, bfDefault));
+
+   FillDiskInfo(this, disk, index, 0);
+
+   char str[16];
+   if (letter) {
+      sprintf(str, "%c:", toupper(letter));
+      setstr(elDrive, str);
+   }
+   dsk_gptpartinfo pi;
+   long ptbyte = 0;
+   if (!dsk_gptpinfo(disk, index, &pi)) ptbyte = (u8t)(pi.Attr >> 48);
+   elType->setData(&ptbyte);
+   orgbyte  = ptbyte;
+   orgdrive = letter;
+#endif
+   selectNext(False);
+}
+
+TAOSGUIDDlg::~TAOSGUIDDlg() {
+}
+
+void TAOSGUIDDlg::handleEvent(TEvent& event) {
+   TDialog::handleEvent(event);
+}
+
+Boolean TAOSGUIDDlg::valid(ushort command) {
+   Boolean rslt = TDialog::valid(command);
+   if (rslt && (command == cmOK)) {
+   }
+   return rslt;
+}
+
+u32t os2guid[4] = {0x90B6FF38, 0x4358B98F, 0xF3481FA2, 0xD38A4A5B};
+
+void TSysApp::SetupAOSGUID(u32t disk, u32t index, char letter) {
+#ifdef __QSINIT__
+   dsk_gptpartinfo pi;
+   u32t err = dsk_gptpinfo(disk, index, &pi);
+
+   if (!err) {
+      if (memcmp(&pi.TypeGUID,&os2guid,16)) {
+         errDlg(MSGE_WRONGGUID);
+      } else {
+         TAOSGUIDDlg *dlg = new TAOSGUIDDlg(disk, index, letter);
+         
+         if (execView(dlg)==cmOK) {
+            char rcbuf[24];
+            // update drive letter
+            dlg->elDrive->getData(rcbuf);
+            char ltr = rcbuf[0];
+            if (ltr!=dlg->orgdrive)
+               if ((ltr<'A' || ltr>'Z') && ltr!='-'&& ltr!='*') errDlg(MSGE_INVVALUE);
+                  else err = lvm_assignletter(disk, index, ltr=='-'?0:ltr, 0);
+            // update type
+            if (!err) {
+               long value;
+               dlg->elType->getData(&value);
+               if (value != dlg->orgbyte) {
+                  err = dsk_gptpinfo(disk, index, &pi);
+                  if (!err) {
+                     pi.Attr &= 0xFF00FFFFFFFFFFFFLL;
+                     pi.Attr |= (u64t)(u8t)value << 48;
+                     err = dsk_gptpset(disk, index, &pi);
+                  }
+               }
+            }
+         }
+         destroy(dlg);
+      }
+   }
+   if (err) PrintPTErr(err);
+#endif
+}

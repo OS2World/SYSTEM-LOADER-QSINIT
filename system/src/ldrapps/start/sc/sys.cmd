@@ -5,7 +5,10 @@ rem --===========--
 if "%1".=="". goto about
 md b:\boot.tmp
 pushd b:\boot.tmp
+setkey getf zip QSINIT.LDI
+if exist QSINIT.LDI goto zipkey_ok
 copy /boot /q QSINIT.LDI QSINIT.LDI
+:zipkey_ok
 copy /boot /q QSINIT QSINIT
 if not exist QSINIT copy /boot /q OS2LDR QSINIT
 if not exist QSINIT copy /q b:\OS2LDR QSINIT
@@ -44,7 +47,7 @@ goto fini
 :read_err
 if "%HOSTTYPE%"=="EFI" goto efi
 echo
-echo System files missing on boot disk!?
+echo System files missing on a boot disk!?
 echo
 goto fini
 :efi

@@ -127,6 +127,7 @@ EFDStructSize   dw      ?                                       ; this struct si
 DumpHubOrder    dw      ?                                       ; > order of disk search for OS2DUMP
 PCILastBus      db      ?                                       ; > PCI last bus
 NCpuRun         db      ?                                       ; # of initialized CPUs
+BPrintFOfs      dw      ?                                       ; offset of _bprintf16
 ExportFixupData ends
 
 ; ExportFixupData.Flags bits (loader information & state)
@@ -152,6 +153,11 @@ DUMPHAB_BIOS    equ     2                                       ;
 EXPFX_NEWDUMP   equ     1                                       ; new OS2DUMP loaded
 EXPFX_FORCEDUMP equ     2                                       ; force system dump in SCREEN01.SYS init
 EXPFX_DUMPSRCH  equ     4                                       ; enable volume search logic in dump
+EXPFX_OHTRACE   equ     8                                       ; trace OEMHLP$ calls
+EXPFX_OHTRPCI   equ    10h                                      ; trace OEMHLP$ PCI calls
+EXPFX_OHTSHIFT  equ     3                                       ; bit shift for the trace value above
+EXPFX_OHTRAP    equ    20h                                      ; enable test OEMHLP$ trap on "1111" string
+EXPFX_VDMBUF    equ    40h                                      ; not used in QSINIT
 
 ; sys_isavail() values (stored in ExportFixupData.CpuFBits above)
 ;cc #ifndef SFEA_INVM
@@ -362,5 +368,20 @@ gsic_fl1        db      ?                                       ;
 gsic_fl2        db      ?                                       ;
 gsic_reserved   db      8 dup (?)                               ;
 GSIC_Packet     ends                                            ;
+
+; get offset of bprintf16(), return zero if loader is too old (no function)
+;cc #define get_bprint(efd) \
+;cc    (((efd)->Flags & EXPF_FLAGSEX) && \
+;cc       (efd)->EFDStructSize>FIELDOFFSET(struct ExportFixupData, BPrintFOfs) \
+;cc          ? (efd)->BPrintFOfs : 0)
+
+; types for printf16() and bprintf16() (16-bit compiler only)
+; read \system\src\init\misc\prn16.asm for details
+;cc #if defined(__WATCOMC__) && !defined(__386__)
+;cc typedef void far __cdecl (*DHSeroutPrnFn)(char far *fmt,...);
+;
+;cc typedef void far __cdecl (*DHCharoutFn)(char);
+;cc typedef void far __cdecl (*DHPrnFn)(DHCharoutFn charout, char far *fmt,...);
+;cc #endif
 
 ;cc #endif // QS_DOSHLP_HEADER

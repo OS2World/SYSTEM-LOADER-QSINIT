@@ -12,6 +12,8 @@ exports = {
    _shl_log          = { index = 13  group = "shell"   format = "usp"   }
    _shl_ps           = { index = 14  group = "shell"   format = "usp"   }
    _shl_md5          = { index = 15  group = "shell"   format = "usp"   }
+   _shl_setini       = { index = 16  group = "shell"   format = "usp"   }
+   _shl_setkey       = { index = 17  group = "shell"   format = "usp"   }
 }
 
 

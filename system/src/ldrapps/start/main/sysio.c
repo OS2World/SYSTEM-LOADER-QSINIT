@@ -7,6 +7,7 @@
 #include "qsutil.h"
 #include "qsint.h"
 #include "qcl/sys/qsvolapi.h"
+#include "qcl/sys/qsedinfo.h"
 #include "qcl/qslist.h"
 #include "syslocal.h"
 #include "qsstor.h"
@@ -502,8 +503,11 @@ qserr _std START_EXPORT(io_open)(const char *name, u32t mode, io_handle *pfh, u3
                   return rc;
                }
             }
-         } else
-           fh->std.xh = xh;
+         } else {
+            fh->std.xh  = xh;
+            fh->std.eof = 0;
+            fh->std.efe = 1;
+         }
          if (!rc) *pfh = IOH_HBIT+ifno;
       }
    }
@@ -700,13 +704,23 @@ static u32t io_common(io_handle ifh, void *buffer, u32t size, int read) {
          // save no error while in lock
          fh->lasterr = 0;
 
-         /* UNLOCK stream i/o because of speed. But lock it back after,
-            to save the error code */
-         mt_swunlock();
-         err = (read?dev->read:dev->write)(dh,buffer,&size);
-         // and lock it back to save the error code
-         if (err) io_save_error(ifh, IOHT_STREAM, chktime, err);
-         return size;
+         if (read && fh->std.efe && fh->std.eof) err = E_SYS_EOF; else {
+            /* UNLOCK stream i/o because of speed. But lock it back after,
+               to save the error code */
+            mt_swunlock();
+            err = (read?dev->read:dev->write)(dh,buffer,&size);
+            // check for EOF
+            if (read && !err && size && fh->std.efe) {
+               char *ep = memchr((char*)buffer, 0x1A, size);
+               if (ep) {
+                  size = ep - (char*)buffer;
+                  fh->std.eof = 1;
+               }
+            }
+            // and lock it back to save the error code
+            if (err) io_save_error(ifh, IOHT_STREAM, chktime, err);
+            return size;
+         }
       }
    }
    fh->lasterr = err;
@@ -945,11 +959,12 @@ qserr _std START_EXPORT(io_close)(io_handle ifh) {
    return err;
 }
 
-qserr _std io_size(io_handle ifh, u64t *size) {
+qserr _std START_EXPORT(io_size)(io_handle ifh, u64t *size) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
    if (!size) return E_SYS_ZEROPTR;
+   *size = 0;
    // this call LOCKs us if err==0
    err = io_check_handle(ifh, IOHT_FILE, &fh, &fe);
    if (err) return 0;
@@ -963,7 +978,7 @@ qserr _std io_size(io_handle ifh, u64t *size) {
    return err;
 }
 
-qserr _std io_setsize(io_handle ifh, u64t newsize) {
+qserr _std START_EXPORT(io_setsize)(io_handle ifh, u64t newsize) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
@@ -981,7 +996,7 @@ qserr _std io_setsize(io_handle ifh, u64t newsize) {
    return err;
 }
 
-qserr _std io_setstate(qshandle ifh, u32t flags, u32t value) {
+qserr _std START_EXPORT(io_setstate)(qshandle ifh, u32t flags, u32t value) {
    io_handle_data *fh;
    sft_entry      *fe;
    qserr          err;
@@ -993,15 +1008,18 @@ qserr _std io_setstate(qshandle ifh, u32t flags, u32t value) {
       return E_SYS_INCOMPPARAMS;
    // just one known flag now!
    if ((flags&~(IOFS_DETACHED|IOFS_DELONCLOSE|IOFS_RENONCLOSE|IOFS_SECTORIO|
-      IOFS_INHERIT))) return E_SYS_INVPARM;
+      IOFS_INHERIT|IOFS_CHAREOF|IOFS_CHAREFE))) return E_SYS_INVPARM;
    // this call LOCKs us if err==0
    err = io_check_handle(ifh, IOHT_FILE|IOHT_DISK|IOHT_STREAM|IOHT_MUTEX|
                          IOHT_QUEUE|IOHT_EVENT, &fh, &fe);
    if (err) return E_SYS_INVPARM;
-   // some options is for file only
+   // some options is for a file only
    if ((flags&(IOFS_DELONCLOSE|IOFS_RENONCLOSE|IOFS_SECTORIO)) && fe->type!=IOHT_FILE)
       err = E_SYS_INVHTYPE; else
-   // and not broken file!
+   // and some for a device
+   if ((flags&(IOFS_CHAREOF|IOFS_CHAREFE)) && fe->type!=IOHT_STREAM)
+      err = E_SYS_INVHTYPE; else
+   // and file is not broken!
    if ((flags&(IOFS_DELONCLOSE|IOFS_RENONCLOSE|IOFS_SECTORIO)) && fe->broken)
       err = E_SYS_BROKENFILE; else
    if ((flags&IOFS_INHERIT) && (fe->type&IOHT_DUP)==0) err = E_SYS_INVHTYPE;
@@ -1024,6 +1042,8 @@ qserr _std io_setstate(qshandle ifh, u32t flags, u32t value) {
       if (flags&IOFS_SECTORIO)
          if (value) fh->file.omode|=IOFM_SECTOR_IO; else
             fh->file.omode&=~IOFM_SECTOR_IO;
+      if (flags&IOFS_CHAREOF) fh->std.eof = value?1:0;
+      if (flags&IOFS_CHAREFE) fh->std.efe = value?1:0;
    }
    mt_swunlock();
    return err;
@@ -1050,6 +1070,10 @@ qserr _std io_getstate(qshandle ifh, u32t *flags) {
       if (fe->file.del)  *flags|=IOFS_DELONCLOSE;
 
       if (fh->file.omode&IOFM_SECTOR_IO) *flags|=IOFS_SECTORIO;
+   } else
+   if (fe->type==IOHT_STREAM) {
+      if (fh->std.eof) *flags|=IOFS_CHAREOF;
+      if (fh->std.efe) *flags|=IOFS_CHAREFE;
    }
    mt_swunlock();
    return err;
@@ -1319,8 +1343,13 @@ qserr _std io_pathinfo(const char *path, io_handle_info *info) {
 
             info->attrs  = IOFA_DEVICE;
             info->fileno = fe->pub_fno;
-            info->size   = fh ? fe->std.dev->avail(fh->std.xh) : 0;
             info->vsize  = info->size;
+            // always return zero if EOF received and text mode active
+            if (fh)
+               info->size = fh->std.efe && fh->std.eof ? 0 :
+                            fe->std.dev->avail(fh->std.xh);
+            else
+               info->size = 0;
 
             info->vol    = 0xFF;
 
@@ -1809,11 +1838,18 @@ qserr _std io_mount(u8t drive, u32t disk, u64t sector, u64t count, u32t flags) {
       // check for init, size and sector count overflow
       if (!tsz||sector>=tsz||sector+count>tsz||sector+count<sector)
          return E_SYS_INVPARM;
+
       /* lock it!
          bad way, but at least now it guarantees atomic mount */
       mt_swlock();
       // unmount current
       hlp_unmountvol(drive);
+      // force r/o if disk reports self as r/o
+      if ((disk & QDSK_VOLUME)==0) {
+         qs_extdisk edsk = hlp_diskclass(disk, 0);
+         if (edsk)
+            if (edsk->state(EDSTATE_QUERY) & EDSTATE_RO) flags|=IOM_READONLY;
+      }
       // disk parameters for fs i/o
       vdta->disk       = disk;
       vdta->start      = sector;

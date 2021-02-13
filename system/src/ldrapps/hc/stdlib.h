@@ -414,6 +414,24 @@ int    __stdcall _replacepattern(const char *frompattern, const char *topattern,
 int    __stdcall patch_binary(u8t *addr, u32t len, u32t times, void *str, u32t slen,
                               u32t poffs, void*pstr, u32t plen, u32t *stoplen);
 
+/** make binary dump string.
+@code
+    String format:
+      00000XXXX: 41 42 43 00 00 00 00 00 00 00 00 00 ?? ?? ?? ??  ABC........
+@endcode
+    @param  buf       Buffer of enough length (can be 0, the application owned
+                      heap block is retunrned in this case)
+    @param  addr      Source data
+    @param  ofs       Offset value for the address position
+    @param  owdt      Width of the offset field
+    @param  lwdt      Number of data bytes per line (0 equal to default 16)
+    @param  len       Number of bytes to print (==lwdt for the full line)
+    @param  rlen      # of readable bytes (if <len - remaining indicated by ??)
+    @param  asc       Print ASC view (only 0x20..0x7E codes)
+    @return formatted string (must be free() if buf==0) */
+char*  __stdcall _bindump(char *buf, u8t *addr, u64t ofs, u8t owdt, u8t lwdt,
+                          u8t len, u8t rlen, int asc);
+
 /** random function.
     Seed initialized on module loading and individually for each module,
     it can be accessed via _RandSeed variable.

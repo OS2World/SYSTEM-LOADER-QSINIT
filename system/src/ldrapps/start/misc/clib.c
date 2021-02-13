@@ -382,6 +382,53 @@ u32t __stdcall replacechar(char *str, char from, char to) {
   }
 }
 
+char* __stdcall _bindump(char *buf, u8t *addr, u64t ofs, u8t owdt, u8t lwdt,
+                         u8t len, u8t rlen, int asc)
+{
+   char *res, fmt[8];
+   u32t bpos, apos, ii, olen;
+   // fix parameters
+   if (!lwdt) lwdt = 16;
+   if (owdt>16) owdt = 16; else {
+      if (!owdt)
+         if (!len) owdt = 4; else owdt = (bsr64(ofs) >> 4) + 1;
+      if (owdt<2) owdt = 2;
+   }
+   if (len>lwdt) len = lwdt;
+   if (rlen>len) rlen = len;
+
+   bpos = owdt + 2;
+   apos = bpos + lwdt * 3 + 1;
+   olen = apos + lwdt;
+
+   if (buf) res = buf; else {
+      res = (char*)malloc_th(olen + 1);
+      mem_localblock(res);
+   }
+   memset(res, ' ', olen);
+   res[olen] = 0;
+
+   sprintf(fmt, "%%0%uX", owdt);
+   sprintf(res, fmt, ofs);
+   res[owdt] = ':';
+   if (rlen) {
+      sprintf(fmt, "%%%ub", rlen);
+      // replace zero back to space
+      res[bpos + sprintf(res+bpos, fmt, addr)] = ' ';
+   }
+   if (len - rlen)
+      for (ii=rlen; ii<len; ii++) {
+         res[bpos+ii*3]   = '?';
+         res[bpos+ii*3+1] = '?';
+      }
+   if (asc)
+      for (ii=0; ii<rlen; ii++) // exclude % too
+         res[apos+ii] = addr[ii]>=' ' && addr[ii]<0x7F && addr[ii]!='%'?
+                        addr[ii] : '.';
+   return res;
+}
+
+
 void __stdcall setbits(void *dst, u32t pos, u32t count, u32t flags) {
    if (count&&dst) {
       if (flags&SBIT_STREAM) { // bit stream bits array

@@ -535,15 +535,14 @@ u16t DevHelp_ProcBlock(u32t EventId, u32t WaitTime, u16t IntWaitFlag);
    parm caller nomemory [ax bx] [di cx] [dh] \
    modify nomemory exact [ax bx cx dl di];
 
-u16t DevHelp_ProcRun(u32t EventId, u16t far *AwakeCount);
+// return awake count!
+u16t DevHelp_ProcRun(u32t EventId);
 #pragma aux DevHelp_ProcRun = \
    "mov     dl,5"           \
    "xchg    ax,bx"          \
    "call    dword ptr [DevHelp]" \
-   "mov     es:[si],ax"     \
-   "sub     ax,ax"          \
    value [ax]               \
-   parm caller nomemory [ax bx] [es si] \
+   parm caller nomemory [ax bx] \
    modify exact [ax bx dl];
 
 u16t DevHelp_PullParticular(u8t near *Queue, PBYTE ReqPktAddr);
@@ -1079,6 +1078,74 @@ u32t DevHelp_GetDSLin(void);
    "shld    edx,eax,16"     \
    value [dx ax]            \
    modify exact [ax si dx];
+
+u16t DevHelp_OpenFile(char far *FileName, u32t far *FileSize);
+#pragma aux DevHelp_OpenFile = \
+   "mov     dl,7Fh"         \
+   "sub     sp,10"          \
+   "movzx   esp,sp"         \
+   "mov     word ptr [esp],8" \
+   "mov     eax,[esp+10]"   \
+   "mov     [esp+2],eax"    \
+   "mov     ax,ss"          \
+   "mov     es,ax"          \
+   "mov     di,sp"          \
+   "call    dword ptr [DevHelp]" \
+   "jc      error"          \
+   "mov     edx,[esp+6]"    \
+   "les     di,[esp+14]"    \
+   "mov     es:[di],edx"    \
+   "xor     ax,ax"          \
+"error:"                    \
+   "add     sp,10"          \
+   value [ax]               \
+   parm caller []           \
+   modify exact [ax dx di es];
+
+u16t DevHelp_ReadFile(void far *Buffer, u32t Length);
+#pragma aux DevHelp_ReadFile = \
+   "mov     dl,81h"         \
+   "push    8"              \
+   "mov     ax,ss"          \
+   "mov     es,ax"          \
+   "mov     di,sp"          \
+   "call    dword ptr [DevHelp]" \
+   "jc      error"          \
+   "xor     ax,ax"          \
+"error:"                    \
+   "add     sp,2"           \
+   value [ax]               \
+   parm caller []           \
+   modify exact [ax dx di es];
+
+u16t DevHelp_ReadFileAt(void far *Buffer, u32t Length, u32t Position);
+#pragma aux DevHelp_ReadFileAt = \
+   "mov     dl,82h"         \
+   "push    12"             \
+   "mov     ax,ss"          \
+   "mov     es,ax"          \
+   "mov     di,sp"          \
+   "call    dword ptr [DevHelp]" \
+   "jc      error"          \
+   "xor     ax,ax"          \
+"error:"                    \
+   "add     sp,2"           \
+   value [ax]               \
+   parm caller []           \
+   modify exact [ax dx di es];
+
+void DevHelp_CloseFile(void);
+#pragma aux DevHelp_CloseFile = \
+   "mov     dl,80h"         \
+   "push    0"              \
+   "push    2"              \
+   "mov     ax,ss"          \
+   "mov     es,ax"          \
+   "mov     di,sp"          \
+   "call    dword ptr [DevHelp]" \
+   "add     sp,4"           \
+   parm caller nomemory []  \
+   modify exact [ax dx di es];
 
 #ifdef __cplusplus
 }

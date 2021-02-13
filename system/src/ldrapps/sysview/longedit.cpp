@@ -435,7 +435,7 @@ Boolean TLongEditor::valid(ushort command) {
 }
 
 // need to call freeVcl() before this to read full clcount number of clusters
-void TLongEditor::updateVcl() {
+void TLongEditor::updateVcl(unsigned char *chsave, unsigned long chofs) {
    if (!uinfo.clustersize) return;
    int  lines = uinfo.clustersize>>4;  // number of lines
    if (uinfo.showtitles) lines++;
@@ -467,6 +467,15 @@ void TLongEditor::updateVcl() {
          clcount++;
       }
    }
+   // apply saved sector changes
+   if (chsave && chofs<csvis) {
+      if (!changed) {
+         changed = (uchar*)malloc(csvis<<clshift);
+         memcpy(changed, vcl, csvis<<clshift);
+      }
+      memcpy(changed + (chofs<<clshift), chsave, uinfo.clustersize);
+   }
+
    showCursor();
 }
 
@@ -567,6 +576,15 @@ int TLongEditor::truncateData() {
          return 1;
       }
    return 0;
+}
+
+unsigned long TLongEditor::changedPos() {
+   unsigned long dpos = bcmp(changed, vcl, clcount<<clshift);
+   // last cluster updates check
+   if (!dpos && uinfo.setsize && ilcbytes!=uinfo.lcbytes &&
+      uinfo.clusters-1-clstart<clcount)
+         dpos = uinfo.clusters-1-clstart << clshift;
+   return dpos;
 }
 
 void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
@@ -737,11 +755,7 @@ void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
    }
    // changed would be allocated when only new data present too
    if (changed && !easy_nav) {
-      unsigned long dpos = bcmp(changed, vcl, clcount<<clshift);
-      // last cluster updates check
-      if (!dpos && uinfo.setsize && ilcbytes!=uinfo.lcbytes &&
-         uinfo.clusters-1-clstart<clcount)
-            dpos = uinfo.clusters-1-clstart << clshift;
+      unsigned long dpos = changedPos();
 
       if (dpos) {
          le_cluster_t     actcl = clstart + (dpos>>clshift);
@@ -772,10 +786,27 @@ void TLongEditor::processKey(posmoveType mv, le_cluster_t cluster) {
    draw |= clstart_n!=clstart || clline!=clline_n;
 
    if (clstart_n!=clstart) {
+      unsigned char *chcopy = 0;
+      unsigned long  chdiff = 0;
+      // easy_nav by arrow down forces cluster change
+      if (changed && easy_nav && clstart_n==clstart+1) {
+         chdiff = changedPos();
+         if (chdiff) {
+            chdiff >>= clshift;
+            // should never be 0, backup "changed" for the current sector
+            if (chdiff) {
+               chcopy = (unsigned char*)malloc(uinfo.clustersize);
+               memcpy(chcopy, changed + (chdiff<<clshift), uinfo.clustersize);
+               // will be this pos
+               chdiff--;
+            }
+         }
+      }
       freeVcl();
       clstart = clstart_n;
       clline  = clline_n;
-      updateVcl();
+      updateVcl(chcopy, chdiff);
+      if (chcopy) free(chcopy);
    } else
    if (clline!=clline_n) {
       clline = clline_n;

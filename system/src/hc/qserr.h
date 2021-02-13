@@ -83,11 +83,12 @@
 #define E_DSK_SELTYPE       (E_TYPE_DSK+0x0013)  ///< failed to select FAT type (16 or 32)
 #define E_DSK_CLSIZE        (E_TYPE_DSK+0x0014)  ///< wrong cluster size parameter
 #define E_DSK_CNAMELEN      (E_TYPE_DSK+0x0015)  ///< custom boot file name length too long
-#define E_DSK_FSMISMATCH    (E_TYPE_DSK+0x0016)  ///< file system type mismatch (dsk_newvbr())
+#define E_DSK_FSMISMATCH    (E_TYPE_DSK+0x0016)  ///< file system type mismatch
 #define E_DSK_FILESIZE      (E_TYPE_DSK+0x0017)  ///< file size is not match file system information
 #define E_DSK_FILEALLOC     (E_TYPE_DSK+0x0018)  ///< file allocation data is incorrect
 #define E_DSK_FSSTRUCT      (E_TYPE_DSK+0x0019)  ///< file system structures are invalid or damaged
 #define E_DSK_NOTPHYS       (E_TYPE_DSK+0x001A)  ///< volume is not a physical disk
+#define E_DSK_INVCHS        (E_TYPE_DSK+0x001B)  ///< invalid CHS geometry values
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_PTE_FLOPPY        (E_TYPE_PTE+0x0001)  ///< big floppy, pt is empty
@@ -178,6 +179,7 @@
 #define E_MT_THREADLIMIT    (E_TYPE_MT +0x0011)  ///< too many threads per process (>4k)
 #define E_MT_SUSPENDED      (E_TYPE_MT +0x0012)  ///< thread is suspended
 #define E_MT_WAITACTIVE     (E_TYPE_MT +0x0013)  ///< someone waits for this mutex or event
+#define E_MT_PARTIALSTOP    (E_TYPE_MT +0x0014)  ///< some processes in the tree was not deleted
 
 /* = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = */
 #define E_CON_MODERR        (E_TYPE_CON+0x0001)  ///< video mode is not supported

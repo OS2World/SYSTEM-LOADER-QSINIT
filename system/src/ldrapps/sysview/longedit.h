@@ -74,7 +74,7 @@ protected:
    int         pos10,pos60;
    unsigned long  ilcbytes;   ///< initial value of lcbytes in last cluster
 
-   void updateVcl();
+   void updateVcl(uchar *chsave = 0, unsigned long chofs = 0);
    void freeVcl();
    /// read/write op for cluster (with error dialogs)
    int  rwAction(le_cluster_t cluster, void *data, int write);
@@ -84,6 +84,8 @@ protected:
    /** total number of lines beween this position & the end of viewable data.
        Usable for the last clusters only (to avoid overflow in result) */
    unsigned long untilEOV(le_cluster_t cluster, int line);
+   /// find position of changed data in vcl
+   unsigned long changedPos();
 public:
    TLongEditor(const TRect& bounds);
 

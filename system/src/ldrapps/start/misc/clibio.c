@@ -208,7 +208,7 @@ FILE* __stdcall freopen(const char *filename, const char *mode, FILE *fp) {
    nfp = fopen(filename, mode);
    if (!nfp) return 0;
    /* exchange file infos.
-      "ff" shuld be here, because of alias headers for std handles */
+      "ff" should be here, because of alias headers for std handles */
    memxchg(nfp, ff, sizeof(FileInfo));
    // and close old handle
    fclose(nfp);

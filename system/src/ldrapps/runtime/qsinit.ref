@@ -134,6 +134,7 @@ exports = {
   _hlp_selfree     = { index=141 group="system" format="u@h"   }  # free selector
   _hlp_selsetup    = { index=142 group="system" format="u@h@u@u@u" } # setup selector
   _hlp_selbase     = { index=143 }                                # query selector base & limit
+  _hlp_rmemode     = { index=144 }                                #
   _hlp_segtoflat   = { index=145 }                                # convert RM segment to flat
   _sys_getint      = { index=146 group="system" format="ub&@*q" } # get interrupt vector
   _sys_setint      = { index=147 group="system" format="ib@*qu" } # set interrupt vector

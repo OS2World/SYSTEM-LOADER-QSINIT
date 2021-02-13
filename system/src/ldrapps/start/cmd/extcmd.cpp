@@ -129,38 +129,47 @@ u32t __cdecl cmd_printseq(const char *fmt, int flags, u8t color, ...) {
    return res;
 }
 
-int ask_yn(int allow_all) {
+int ask_yn(int allow_all, int allow_skip) {
    u16t chv = 0;
    while (1) {
       chv = key_read();
       char cch = toupper(chv&0xFF);
-      if (cch=='A') return 2;
+      if (allow_skip && cch=='S') return 3;
+      if (allow_all && cch=='A') return 2;
       if (cch=='Y') return 1;
       if (cch=='N') return 0;
       if (cch==27)  return -1;
    }
 }
 
-static void process_args_common(TPtrStrings &al, char* args, short *values,
-   va_list argptr)
+static void process_args_common(TPtrStrings &al, u32t flags, char* args,
+   short *values, va_list argptr)
 {
-   char  arg[128], *ap = args;
+   char  arg[144], *ap = args;
+   int   noslash = flags&SPA_NOSLASH ? 1 : 0;
    // a bit of safeness
-   if (strlen(args)>=128) { log_it(3, "too long args!"); return; }
+   if (strlen(args)>=144) { log_it(3, "too long args!"); return; }
 
    while (*ap) {
       char *ep = strchr(ap,'|');
       int  *vp = va_arg(argptr,int*);
+      if (noslash) arg[0] = '/';
       if (ep) {
-         strncpy(arg, ap, ep-ap);
-         arg[ep-ap] = 0;
+         strncpy(arg+noslash, ap, ep-ap);
+         arg[ep-ap+noslash] = 0;
          ap = ep+1;
       } else {
-         strcpy(arg, ap);
+         strcpy(arg+noslash, ap);
          ap += strlen(ap);
       }
       int idx = al.IndexOfName(arg);
       if (idx>=0) { *vp = *values; al.Delete(idx); }
+      // accept '-key' as well as '/key'
+      if (arg[0]=='/' && !(flags&SPA_NODASH)) {
+         arg[0] = '-';
+         idx = al.IndexOfName(arg);
+         if (idx>=0) { *vp = *values; al.Delete(idx); }
+      }
       values++;
    }
 }
@@ -169,15 +178,15 @@ static void args2list(str_list *lst, TPtrStrings &al) {
    str_getstrs(lst,al);
 }
 
-void process_args(TPtrStrings &al, char* args, short *values, ...) {
+void process_args(TPtrStrings &al, u32t flags, char* args, short *values, ...) {
    va_list   argptr;
 
    va_start(argptr, values);
-   process_args_common(al, args, values, argptr);
+   process_args_common(al, flags, args, values, argptr);
    va_end(argptr);
 }
 
-str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
+str_list* str_parseargs(str_list *lst, u32t firstarg, u32t flags, char* args,
    short *values, ...)
 {
    va_list   argptr;
@@ -185,9 +194,9 @@ str_list* str_parseargs(str_list *lst, u32t firstarg, int ret_list, char* args,
 
    str_getstrs2(lst,al,firstarg);
    va_start(argptr, values);
-   process_args_common(al, args, values, argptr);
+   process_args_common(al, flags, args, values, argptr);
    va_end(argptr);
-   return ret_list?str_getlist_local(al.Str):0;
+   return flags&SPA_RETLIST ? str_getlist_local(al.Str) : 0;
 }
 
 #define AllowSet " ^\r\n"
@@ -264,7 +273,7 @@ static void _std freadfull_callback(u32t percent, u32t readed) {
       u32t cols = 80,
             len = strlen(cp);
       vio_getmode(&cols, 0);
-      // we need to cut long file name (one per load)
+      // we need to cut long file name (once per load)
       if (len>cols-24) {
          char *dp = cp+len-cols+24+3;
          cp[0]='.'; cp[1]='.'; cp[2]='.';
@@ -301,9 +310,9 @@ u32t _std shl_copy(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/boot|/q|/a|/beep";
-      static short argval[] = {    1, 1, 1,    1};
-      process_args(al, argstr, argval, &frombp, &quiet, &cpattr, &beep);
+      static char *argstr   = "boot|q|a|beep";
+      static short argval[] = {   1,1,1,   1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &frombp, &quiet, &cpattr, &beep);
 
       al.TrimEmptyLines();
       if (al.Count()>=2) {
@@ -505,9 +514,9 @@ u32t _std shl_type(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/boot|/np";
-      static short argval[] = {    1,  1};
-      process_args(al, argstr, argval, &frombp, &nopause);
+      static char *argstr   = "boot|np";
+      static short argval[] = {   1, 1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &frombp, &nopause);
 
       al.TrimEmptyLines();
       if (al.Count()>=1) {
@@ -722,9 +731,10 @@ u32t _std shl_dir(const char *cmd, str_list *args) {
    int idx = al.IndexOf("/?");
    if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
    // process args
-   static char *argstr   = "/s|/np|/b|/tc|/w";
-   static short argval[] = { 1,  1, 1, 1, 1};
-   process_args(al, argstr, argval, &subdirs, &nopause, &shortfmt, &crtime, &wide);
+   static char *argstr   = "s|np|b|tc|w";
+   static short argval[] = {1, 1,1, 1,1};
+   process_args(al, SPA_NOSLASH, argstr, argval, &subdirs, &nopause, &shortfmt,
+                &crtime, &wide);
 
    al.TrimEmptyLines();
    if (!al.Count()) al<<spstr(".");
@@ -852,7 +862,7 @@ u32t _std shl_restart(const char *cmd, str_list *args) {
       // process args
       static char *argstr   = "/nosend";
       static short argval[] = { 1 };
-      process_args(al, argstr, argval, &nosend);
+      process_args(al, 0, argstr, argval, &nosend);
 
       // process
       al.TrimEmptyLines();
@@ -1037,9 +1047,9 @@ u32t _std shl_del(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/p|/f|/s|/q|/e|/qn|/np|/nb|/ad|/af|/i";
-      static short argval[] = { 1, 1, 1, 1, 1,  1,  1,  0,  0,  1, 1};
-      process_args(al, argstr, argval,
+      static char *argstr   = "p|f|s|q|e|qn|np|nb|ad|af|i";
+      static short argval[] = {1,1,1,1,1, 1, 1, 0, 0, 1,1};
+      process_args(al, SPA_NOSLASH, argstr, argval,
                    &askall, &force, &subdir, &quiet, &edirs, &nquiet,
                    &nopause, &breakable, &fileonly, &fileonly, &ignore);
 
@@ -1170,9 +1180,9 @@ u32t _std shl_beep(const char *cmd, str_list *args) {
       idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/w|/b";
-      static short argval[] = { 1, 1};
-      process_args(al, argstr, argval, &wait, &before);
+      static char *argstr   = "w|b";
+      static short argval[] = {1,1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &wait, &before);
    }
    pause_println(0,1);
    if (before)
@@ -1202,9 +1212,9 @@ u32t _std shl_rmdir(const char *cmd, str_list *args) {
    int idx = al.IndexOf("/?");
    if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
    // process args
-   static char *argstr   = "/q|/s";
-   static short argval[] = { 1, 1};
-   process_args(al, argstr, argval, &quiet, &subdir);
+   static char *argstr   = "q|s";
+   static short argval[] = {1,1};
+   process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &subdir);
    // process command
    al.TrimEmptyLines();
    if (al.Count()>=1)
@@ -1233,7 +1243,7 @@ u32t _std shl_rmdir(const char *cmd, str_list *args) {
 }
 
 u32t _std shl_loadmod(const char *cmd, str_list *args) {
-   int rc=-1, quiet=0, unload=0, verb=0, list=0, nopause = 0;
+   int rc=-1, quiet=0, unload=0, list=0, nopause = 0;
    if (args->count>0) {
       TPtrStrings     al;
       ansi_push_set ansi(1);
@@ -1243,9 +1253,10 @@ u32t _std shl_loadmod(const char *cmd, str_list *args) {
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/q|/u|/list|/l|/np";
-      static short argval[] = { 1, 1, 1,    1, 1,  1};
-      process_args(al, argstr, argval, &quiet, &unload, &list, &list, &nopause);
+      static char *argstr   = "q|u|list|l|np";
+      static short argval[] = {1,1, 1,  1, 1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &unload, &list,
+                   &list, &nopause);
       // process command
       al.TrimEmptyLines();
       // wrong args?
@@ -1453,9 +1464,9 @@ u32t _std shl_trace(const char *cmd, str_list *args) {
       // is help?
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
-      static char *argstr   = "/q|/np";
-      static short argval[] = { 1,  1};
-      process_args(al, argstr, argval, &quiet, &nopause);
+      static char *argstr   = "q|np";
+      static short argval[] = {1, 1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &nopause);
 
       if (al.Count()>0) {
          al[0].upper();
@@ -1643,9 +1654,9 @@ u32t _std shl_date(const char *cmd, str_list *args) {
       idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/q|/s";
-      static short argval[] = { 1, 1};
-      process_args(al, argstr, argval, &quiet, &setd);
+      static char *argstr   = "q|s";
+      static short argval[] = {1,1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &setd);
    }
    if (al.Count()==0 || al.Count()==1 && !setd) {
       if (al.Count()==0 && !quiet) {
@@ -1716,9 +1727,9 @@ u32t _std shl_time(const char *cmd, str_list *args) {
       idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "/q|/s";
-      static short argval[] = { 1, 1};
-      process_args(al, argstr, argval, &quiet, &setd);
+      static char *argstr   = "q|s";
+      static short argval[] = {1,1};
+      process_args(al, SPA_NOSLASH, argstr, argval, &quiet, &setd);
    }
    if (al.Count()==0 || al.Count()==1 && !setd) {
       if (al.Count()==0 && !quiet) {
@@ -1811,6 +1822,32 @@ u32t _std shl_msgbox(const char *cmd, str_list *args) {
    return 0;
 }
 
+// query/load handler for the "mode" device
+cmd_eproc _std cmd_modeget(const char *dev) {
+   cmd_eproc proc = cmd_modermv(dev,0);
+   // no proc for this device type - trying to load it
+   if (!proc) {
+      spstr ename, mdname;
+      ename.sprintf("MODE_%s_HANDLER",dev);
+      ename = getenv(ename());
+      ename.trim();
+      if (!ename) {
+         mdname = ecmd_readstr("MODE", dev);
+         if (mdname.trim().length())
+            ename = ecmd_readstr("MODULES", mdname());
+      }
+      // load module from env. var OR extcmd.ini list
+      if (ename.trim().length()) {
+         u32t error = 0;
+         if (!load_module(ename, &error)) {
+            log_it(2,"unable to load MODE %s handler, error %u\n", dev, error);
+         } else
+            proc = cmd_modermv(dev,0);
+      }
+   }
+   return proc;
+}
+
 u32t _std shl_mode(const char *cmd, str_list *args) {
    int rc=-1, idx, flags=0, ii;
    TPtrStrings al;
@@ -1823,27 +1860,28 @@ u32t _std shl_mode(const char *cmd, str_list *args) {
       idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
 
-      if (al.Count()>=2) {
-         cmd_eproc proc = cmd_modermv(al[0](),0);
-         // no proc for this device type - trying to load it
-         if (!proc) {
-            spstr ename, mdname;
-            ename.sprintf("MODE_%s_HANDLER",al[0]());
-            ename = getenv(ename());
-            ename.trim();
-            if (!ename) {
-               mdname = ecmd_readstr("MODE", al[0]());
-               if (mdname.trim().length()) ename = ecmd_readstr("MODULES", mdname());
-            }
-            // load module from env. var OR extcmd.ini list
-            if (ename.trim().length()) {
-               u32t error = 0;
-               if (!load_module(ename, &error)) {
-                  log_it(2,"unable to load MODE %s handler, error %u\n", al[0](), error);
-               } else
-                  proc = cmd_modermv(al[0](),0);
+      // mode x,y support
+      if (al.Count() && isdigit(al[0][0])) {
+         spstr ln = al.GetTextToStr(" ");
+         if (ln.words(",")==2) {
+            u32t cols = ln.word_Dword(1,","),
+                lines = ln.word_Dword(2,",");
+
+            if (cols && lines) {
+               cmd_eproc proc = cmd_modeget("CON");
+               if (!proc) {
+                  rc = vio_setmodeex(cols,lines) ? 0 : ENODEV;
+               } else {
+                  char ln[32];
+                  snprintf(ln, sizeof(ln), "CON cols=%u lines=%u", cols, lines);
+
+                  return cmd_shellcall(proc, ln, 0);
+               }
             }
          }
+      } else 
+      if (al.Count()>=2) {
+         cmd_eproc proc = cmd_modeget(al[0]());
          if (!proc) rc = ENODEV;
             else
          return cmd_shellcall(proc, 0, args);
@@ -1895,7 +1933,7 @@ u32t _std shl_mode_sys(const char *cmd, str_list *args) {
                 cmv = al.DwordValue("CM");
          // call this first, else DBCARD will use wrong BAUD
          if (port || baud) {
-            if (!hlp_seroutset(port, baud)) printf("Invalid baud rate.\n");
+            if (!hlp_seroutset(port, baud)) printf("Invalid port or baud rate value.\n");
             rc = 0;
          }
          if (cmv) {
@@ -2050,9 +2088,9 @@ u32t _std shl_log(const char *cmd, str_list *args) {
       // is help?
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
-      static char *argstr   = "/f|/d|/np|/nt|/nc";
-      static short argval[] = { 1, 1,  1, 0, 0};
-      process_args(al, argstr, argval,
+      static char *argstr   = "f|d|np|nt|nc";
+      static short argval[] = {1,1, 1, 0, 0};
+      process_args(al, SPA_NOSLASH, argstr, argval,
                    &useflags, &usedate, &nopause, &usetime, &usecolor);
 
       idx = al.IndexOfName("/l");
@@ -2139,7 +2177,7 @@ u32t _std shl_attrib(const char *cmd, str_list *args) {
       static char *argstr   = "/s|/d|/np|+r|-r|+s|-s|+h|-h|+a|-a|/q";
       static short argval[] = { 1, 1,  1, 1,-1, 1,-1, 1,-1, 1,-1, 1};
 
-      process_args(al, argstr, argval,
+      process_args(al, SPA_NODASH, argstr, argval,
                    &subdir, &idirs, &nopause, &a_R, &a_R, &a_S, &a_S,
                    &a_H, &a_H, &a_A, &a_A, &quiet);
       al.TrimEmptyLines();
@@ -2362,7 +2400,7 @@ u32t _std shl_reboot(const char *cmd, str_list *args) {
       // process args
       static char *argstr   = "/q|WARM|COLD";
       static short argval[] = { 1,   1,   0};
-      process_args(al, argstr, argval, &quiet, &warm, &warm);
+      process_args(al, 0, argstr, argval, &quiet, &warm, &warm);
       al.TrimEmptyLines();
    }
    if (al.Count()==0) {

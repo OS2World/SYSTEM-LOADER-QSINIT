@@ -3,7 +3,10 @@
 ; 16bit tiny print subset
 ; note: used both in qsinit & doshlp binary
 ;
-; void __cdecl printf16(char far *fmt,...);
+; void far __cdecl printf16(char far *fmt,...);
+; or
+; typedef void far __cdecl (*bcharoutf)(char);
+; void far __cdecl bprintf16(bcharoutf charout, char far *fmt,...);
 ;
 ;   %x       - print argument as a hex word (16 bit)
 ;   %d       - print argument as decimal word (16 bit)
@@ -36,17 +39,30 @@ endm
 endif
 ; ----------------------------------
                 assume  cs:nothing, ds:nothing, es:nothing, ss:nothing
+                public  _bprintf16
+_bprintf16      label   far
+                push    bp                                      ;
+                mov     bp,sp                                   ;
+                push    1                                       ; use charout fn
+                pushf                                           ;
+                pushad                                          ;
+                push    ds                                      ;
+                lds     si,[bp+10]                              ; fmt string
+                mov     di,14                                   ; parameters
+                jmp     @@dhp_common
 
                 public  _printf16
 _printf16       proc    far                                     ;
                 push    bp                                      ;
                 mov     bp,sp                                   ;
+                push    0                                       ; use serial print
                 pushf                                           ;
                 pushad                                          ;
                 push    ds                                      ;
-                push    gs                                      ;
                 lds     si,[bp+6]                               ; fmt string
                 mov     di,10                                   ; parameters
+@@dhp_common:
+                push    gs                                      ;
                 xor     ebx,ebx                                 ; 3 high bytes must be cleared!
 @@dhp_charloop_ah:
                 xor     ah,ah                                   ; clean prev. char
@@ -100,7 +116,7 @@ _printf16       proc    far                                     ;
                 jz      @@dhp_uns_hi                            ;
 @@dhp_uns_zero:
                 add     al,'0'                                  ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 inc     si                                      ; chars printed flag
 @@dhp_uns_hi:
                 mov     eax,0CCCCCCCDh                          ; div 10
@@ -131,15 +147,15 @@ ifdef DOSHLP_BUILD
                 cmp     dl,'t'                                  ;
                 jnz     @@dhp_fmt_noeol                         ;
                 mov     al,9                                    ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 inc     si                                      ;
                 jmp     @@dhp_charloop_ah                       ;
 @@dhp_escape_n:
                 inc     si                                      ;
                 mov     al,13                                   ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 mov     al,10                                   ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 jmp     @@dhp_charloop_ah                       ;
 endif
 @@dhp_char:
@@ -158,8 +174,28 @@ endif
                 dec     si                                      ;
 @@dhp_fmt_noeol:
                 mov     ah,al                                   ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 jmp     @@dhp_charloop                          ;
+@@dhp_printchar:
+                test    byte ptr [bp-2],1                       ;
+                jz      @@dhp_printchar_serial                  ;
+                push    ax                                      ; save regs
+                push    dx                                      ; according to
+                push    ecx                                     ; 16-bit call.conv
+                push    ebx                                     ;
+                push    es                                      ;
+                push    ax                                      ;
+                call    far ptr [bp+6]                          ;
+                pop     ax                                      ; cdecl
+                pop     es                                      ;
+                pop     ebx                                     ;
+                pop     ecx                                     ;
+                pop     dx                                      ;
+                pop     ax                                      ;
+                retn                                            ;
+@@dhp_printchar_serial:
+                print_char                                      ;
+                retn                                            ;
 @@dhp_string:
                 call    @@dhp_getint                            ; print %s
                 push    si                                      ;
@@ -169,7 +205,7 @@ endif
                 lods    byte ptr gs:[si]                        ;
                 or      al,al                                   ;
                 jz      @@dhp_stringend                         ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 loop    @@dhp_stringloop                        ;
 @@dhp_stringend:
                 pop     si                                      ;
@@ -192,7 +228,7 @@ endif
                 and     dh,0Fh                                  ;
                 mov     bl,dh                                   ;
                 mov     al,cs:dhp_ABCDEF[bx]                    ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 cmp     dl,80h                                  ;
                 clc                                             ;
                 jnz     @@dhp_hexloopchar                       ;
@@ -218,12 +254,12 @@ endif
                 and     dh,0Fh                                  ;
                 mov     bl,dh                                   ;
                 mov     al,cs:dhp_ABCDEF[bx]                    ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 cmp     dl,80h                                  ;
                 clc                                             ;
                 jnz     @@dhp_binloopbyte                       ;
                 mov     al,' '                                  ;
-                print_char                                      ;
+                call    @@dhp_printchar                         ;
                 loop    @@dhp_binloop                           ;
                 pop     si                                      ;
                 jmp     @@dhp_charloop_ah                       ;

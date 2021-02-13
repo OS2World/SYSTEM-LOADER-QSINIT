@@ -120,8 +120,6 @@ static u32t _std vol_scansurface(u32t disk, int checkonly, u64t startsector,
 }
 
 qserr _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint) {
-   static u16t vst[] = { 1024,  512, 256, 128,  64,   32,  16,   8,   4,   2,  0};
-   static u16t cst[] = {32768,16384,8192,4096,2048,16384,8192,4096,2048,1024,512};
    u32t ii, clusters, fatsize, reserved, dirsize, pfcnt, *pf, fmt,
          fatcnt = flags&DFMT_ONEFAT ?1:2, sectin4k, badcnt = 0,
          hidden = 0, rootsize;
@@ -179,9 +177,29 @@ qserr _std vol_format(u8t vol, u32t flags, u32t unitsize, read_callback cbprint)
       unitsize = 65536;
    // cluster size auto selection
    if (!unitsize) {
-      u32t vs = di.TotalSectors / (2000 / (di.SectorSize / 512));
-      for (ii = 0; vs < vst[ii]; ii++) ;
-      unitsize = cst[ii];
+      if ((u64t)di.TotalSectors*di.SectorSize < (u64t)_2GB && di.SectorSize<=_1KB) {
+         // use IBM algorithm for a "common FAT"
+         static u16t vsz[] = { 16, 128, 256, 512, 1024, 2048, 0};
+         static u16t csz[] = {  8,   4,   8,  16,   32,   64, 0};
+         // default
+         u32t sperc = 4,
+                tsz = di.TotalSectors*di.SectorSize;
+
+         if (tsz <= _2GB-_1MB) tsz += _1MB - 1;
+         tsz /= _1MB;
+
+         for (ii=0; vsz[ii]; ii++)
+            if (tsz < vsz[ii]) { sperc = csz[ii]; break; }
+
+         unitsize = sperc*di.SectorSize;
+      } else {
+         static u16t vst[] = { 1024,  512, 256, 128,  64,   32,  16,   8,   4,   2,  0};
+         static u16t cst[] = {32768,16384,8192,4096,2048,16384,8192,4096,2048,1024,512};
+
+         u32t vs = di.TotalSectors / (2000 / (di.SectorSize / 512));
+         for (ii = 0; vs < vst[ii]; ii++) ;
+         unitsize = cst[ii];
+      }
    }
    // sectors per cluster
    unitsize /= di.SectorSize;

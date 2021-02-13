@@ -30,7 +30,7 @@ ld=@wlink
 aflags=-mf -4p -zq -i=%(QS_BASE)\hc -fo=
 
 cflags_common=-5s -zri -fp5 -fpi87 -s -mf -DNO_TV_STREAMS \
-              -DTV2 -i=..\tv\hc -i=$(outdir) -os -fo=
+              -DTV2 -i=..\tv\hc -i=$(outdir) -i=..\partmgr -os -fo=
 cflags_tv=-DMAXSTR=1024 -DNT_CDECL= -zld -j -zq -zm -bm -w2 -u__QSINIT__
 
 cppflags=-i=%(QS_APPINC)\rt -i=bootopt -i=tvext -i=info -zv $(cflags)
@@ -47,7 +47,7 @@ spdefs=-DSRT -DNO_SP_ASSERTS -DNO_IOSTREAM_IO -DNO_HUGELIST -DNO_RANDOM -DNO_SP_
 [vars.*.0]
 &lnk0=$(outdir)\$(name).lnk
 cflags=-u__NT__ -u__OS2__ -fi=%(QS_MHDR) %(QS_CFLAGS) \
-       -ox -i=%(QS_WCCINC) -i=..\partmgr $(cflags_common)
+       -ox -i=%(QS_WCCINC) $(cflags_common)
 outdir=$(bld_dir)\$(config)
 
 [vars.os/2]
