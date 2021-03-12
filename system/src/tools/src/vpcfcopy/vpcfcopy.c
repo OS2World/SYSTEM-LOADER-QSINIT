@@ -745,10 +745,13 @@ void print_info(char *imgname) {
          if (fat.csize==1) sprintf(label, "%u", 1<<disk_shift); else
             fmtsize(fat.csize, 4, label);
          printf("Cluster size  : %s\n", label);
+         printf("Clusters      : %u\n", fat.n_fatent-2);
          printf("FAT copies    : %u\n", fat.n_fats);
+
+         printf("Data area     : %08X\n", disk_start+fat.database);
       }
       if (fat.fs_type==FS_FAT12 || fat.fs_type==FS_FAT16)
-      printf("Root entries  : %u\n", fat.n_rootdir);
+         printf("Root entries  : %u\n", fat.n_rootdir);
 
       rc = f_getlabel(diskspath, label, &serial);
       if (rc==FR_OK && label[0])

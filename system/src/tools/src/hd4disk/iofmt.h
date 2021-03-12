@@ -149,6 +149,16 @@ typedef struct {
 } GEOMETRY, far *PGEOMETRY;
 
 typedef struct {
+   u32t             TotalSectors;
+   u16t           BytesPerSector;
+   u16t                 Reserved;
+   u16t                 NumHeads;
+   u32t           TotalCylinders;
+   u16t          SectorsPerTrack;
+   u64t          ullTotalSectors;
+} GEOMETRY64, far *PGEOMETRY64;
+
+typedef struct {
    IORBH                   iorbh;     // IORB Header
    PGEOMETRY           pGeometry;     // geometry block
    u16t              GeometryLen;     // length of geometry block
@@ -183,6 +193,20 @@ typedef struct {
    u16t                    Flags;
 } IORB_EXECUTEIO, far *PIORB_EXECUTEIO;
 
+typedef struct {
+   IORBH                   iorbh;     // IORB Header
+   u16t                  cSGList;     // Count of S/G list elements
+   PSCATGATENTRY         pSGList;     // far ptr to S/G List
+   u32t                 ppSGList;     // physical addr of S/G List
+   u32t                      RBA;
+   u16t               BlockCount;     // Block Count
+   u16t            BlocksXferred;     // Block Done Count
+   u16t                BlockSize;     // Size of a block in bytes
+   u16t                    Flags;
+   u64t                   ullRBA;     // RBA Starting Address
+} IORB_EXECUTEIO64, far *PIORB_EXECUTEIO64;
+
+#define MAX_IORB_SIZE             128
 
 /* IORB CommandCode and CommandModifier codes.
    CommandCode prefixed by IOCC and CommandModifier by IOCM.
@@ -241,6 +265,9 @@ typedef struct {
 #define IOCM_REPORT_RESOURCES     0x0001  // O (M) ATA/ATAPI Devices
 
 #define MAX_IOCC_COMMAND  IOCC_ADAPTER_PASSTHRU
+
+#define IOCC_GEOMETRY_64          0x0013
+#define IOCC_EXECUTE_IO_64        0x0014
 
 // unit status for IORB_UNIT_STATUS.IOCM_GET_UNIT_STATUS->UnitStatus
 #define US_READY                  0x0001  // Unit ready
@@ -325,14 +352,35 @@ typedef struct {
 #define IOERR_DEVICE_NONSPECIFIC  IOERR_DEVICE+8
 #define IOERR_DEVICE_ULTRA_CRC    IOERR_DEVICE+IOERR_RETRY+9
 
+/* DHGETDOSV_DEVICECLASSTABLE */
+#define MAXDEVCLASSNAMELEN        16 // maximum length of the DevClass Name
+#define MAXDEVCLASSTABLES          2 // maximum number of DevClass tables
+#define MAXDISKDCENTRIES          32 // maximum number of entries in DISK table
+struct DevClassTableEntry {
+   u16t                 DCOffset;
+   u16t               DCSelector;
+   u16t                  DCFlags;
+   u8t                    DCName[MAXDEVCLASSNAMELEN];
+};
+typedef struct DevClassTableEntry DevClassEntry;
+
+struct DevClassTableStruc {
+   u16t                  DCCount;
+   u16t               DCMaxCount;
+   DevClassEntry  DCTableEntries[1];
+};
+typedef struct DevClassTableStruc DevClassTable;
+
 
 void IORB_NotifyCall(IORBH far *pIORB);
 #pragma aux IORB_NotifyCall = \
+   "push    bp"                  \
    "push    es"                  \
    "push    di"                  \
    "call    far ptr es:[di+1Ch]" \
    "add     sp,4"                \
+   "pop     bp"                  \
    parm [es di] \
-   modify exact [ax bx cx dx es];
+   modify exact [ax bx cx dx si di es];
 
 #endif // QS_DDIOFMT_H

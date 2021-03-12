@@ -4,6 +4,10 @@
 @rem * make [x] clean  - clean                        *
 @rem * make [x] nolink - make without linking         *
 @rem **************************************************
+@rem * use                                            *
+@rem *   set toolprjkey=-od                           *
+@rem * to build DOS version (pmode/w)                 *
+@rem **************************************************
 @echo off
 rem --------------
 set prjname=vpcfcopy

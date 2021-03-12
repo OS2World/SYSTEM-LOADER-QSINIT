@@ -714,7 +714,7 @@ extern "C" u32t* _std START_EXPORT(mod_pidlist)(void) {
       }
    }
    /* function should be catched and replaced by MTLIB, so just return 0 to
-      hang in user code in case of malfunction. */
+      hang in user code in a case of malfunction. */
    return rc;
 }
 

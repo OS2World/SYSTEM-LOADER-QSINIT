@@ -80,6 +80,9 @@ u32t _std con_fontavail(int width, int height);
     @return zero if no font found or application owned heap block with binary data */
 void*_std con_fontcopy(int width, int height);
 
+/// refresh font cache for the current active mode
+void _std con_fontupdate(void);
+
 /** Install screenshot handler.
     The same as MKSHOT ON shell command.
 

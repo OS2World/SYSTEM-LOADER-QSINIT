@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
    fdata = hlp_freadfull("OS2LDR.CFG", &flen, 0);
    if (!fdata) return 1;
 
-   cfg   = str_settext((char*)fdata, flen);
+   cfg   = str_settext((char*)fdata, flen, 0);
    hlp_memfree(fdata);
    // save non-zero value to flag "we are called at least once"
    sto_savedword(RUN_ONCE_KEY, 1);

@@ -221,6 +221,18 @@ pa_eax          dd      ?
 pushad_s        ends
 
 ; --------------------------------------------------------------
+pusha_s         struc
+pa_di           dw      ?
+pa_si           dw      ?
+pa_bp           dw      ?
+pa_sp           dw      ?
+pa_bx           dw      ?
+pa_dx           dw      ?
+pa_cx           dw      ?
+pa_ax           dw      ?
+pusha_s         ends
+
+; --------------------------------------------------------------
 ; load flat addr from selector data to eax
 seladdr         macro   source
                 mov     al,[source].d_extaddr                   ;

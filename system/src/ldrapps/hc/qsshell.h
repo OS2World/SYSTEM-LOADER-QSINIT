@@ -33,8 +33,13 @@ str_list* _std str_split    (const char *str, const char *separators);
 /** split text file to items.
     @param text         source text file witn \n or \r\n EOLs
     @param len          length of "text", can be 0 for null-term. string
+    @param flags        STRSET_* options below
     @return string list, must be freed by single free() call */
-str_list* _std str_settext  (const char *text, u32t len);
+str_list* _std str_settext  (const char *text, u32t len, u32t flags);
+
+#define STRSET_NOTRIMR  0x001      ///< do not trim right spaces
+#define STRSET_NOTRIML  0x002      ///< do not trim left spaces
+#define STRSET_NOTRIM   (STRSET_NOTRIML|STRSET_NOTRIMR)
 
 /// create list from array of char*
 str_list* _std str_fromptr  (char **list, int size);

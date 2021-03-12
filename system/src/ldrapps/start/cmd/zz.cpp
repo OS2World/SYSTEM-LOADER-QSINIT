@@ -14,18 +14,19 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
    int rc=-1;
    if (args->count>0) {
       int testmode=0, force=0, quiet=0, nopause=-1, frombp=0,
-          fromstor=0, view=0, beep=0, preload = 0;
+          fromstor=0, view=0, beep=0, preload=0, nopath=0;
       TPtrStrings al;
       str_getstrs(args,al);
       // is help?
       int idx = al.IndexOf("/?");
       if (idx>=0) { cmd_shellhelp(cmd,CLR_HELP); return 0; }
       // process args
-      static char *argstr   = "t|o|s|c|q|p|boot|key|test|view|np|list|v|beep";
-      static short argval[] = {1,1,-1,1,1,0,  1,  1,   1,   1, 1,   1,1,   1};
+      static char *argstr   = "t|o|s|c|q|p|boot|key|test|view|np|list|v|beep|e";
+      static short argval[] = {1,1,-1,1,1,0,  1,  1,   1,   1, 1,   1,1,   1,1};
       process_args(al, SPA_NOSLASH, argstr, argval,
                    &testmode, &force, &force, &preload, &quiet, &nopause, &frombp,
-                   &fromstor, &testmode, &view, &nopause, &view, &view, &beep);
+                   &fromstor, &testmode, &view, &nopause, &view, &view, &beep,
+                   &nopath);
       al.TrimEmptyLines();
       // by default pause off in "unzip" mode and on in "list"
       if (nopause==-1) nopause = view?0:1;
@@ -141,7 +142,11 @@ u32t _std shl_unzip(const char *cmd, str_list *args) {
                   total_c  += zip.compressed;
                   pause_println(line, nopause?-1:0);
                } else {
-                  if (is_dir) cname.dellast();
+                  if (is_dir) cname.dellast(); else
+                     if (nopath) {
+                        int pos = cname.crpos('\\');
+                        if (pos>=0) cname.del(0,pos+1);
+                     }
                   // ignore directory creation if file names supplied
                   if (al.Count()==0) ext_ok=1; else
                   for (int ii=0;ii<al.Count();ii++)

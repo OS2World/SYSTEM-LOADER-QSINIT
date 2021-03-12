@@ -126,9 +126,10 @@ void _std con_fontadd(int width, int height, void *data) {
          fb->x = width;
          fb->y = height;
          sysfnt->add(fb);
+         // do not need to add modes at replacement
+         ok = 1;
       }
       memcpy(&fb->bin, data, height*256*bpln);
-      ok = 1;
    }
    mt_swunlock();
    if (ok) con_addfontmodes(width, height);

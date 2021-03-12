@@ -7,7 +7,6 @@
 #include "conint.h"
 #include "qspage.h"
 #include "vio.h"
-#include "vbedata.h"
 #include "cpudef.h"
 #include "qsxcpt.h"
 #include "qshm.h"

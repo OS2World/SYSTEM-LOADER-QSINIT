@@ -126,13 +126,8 @@ u32t _std shl_mount(const char *cmd, str_list *args) {
                lvmi[0] = 0;
 
                if (idx>=0) {
-                  int   lvm = lvm_checkinfo(dsk);
-                  // LVM is ok or, at least, without fatal errors
-                  if (!lvm || lvm==E_LVM_NOBLOCK || lvm==E_LVM_NOPART) {
-                     lvm_partition_data pti;
-                     if (lvm_partinfo(dsk, idx, &pti))
-                        if (pti.Letter) sprintf(lvmi, "(LVM:%c)", pti.Letter);
-                  }
+                  char ltr = lvm_ismounted(dsk,idx);
+                  if (ltr) sprintf(lvmi, "(LVM:%c)", ltr);
                }
                if (vfs) dname[0] = 0; else dsk_disktostr(dsk, dname);
                if (verbose) {

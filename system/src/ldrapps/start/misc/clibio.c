@@ -645,8 +645,9 @@ void* __stdcall freadfull(const char *name, unsigned long *bufsize) {
    err = io_open(name, IOFM_OPEN_EXISTING|IOFM_READ|IOFM_SHARE_READ, &fh, 0);
    if (err) { set_errno_qserr(err); return 0; }
    err = io_size(fh, &fsz);
-   if (err || fsz>x7FFF) {
-      if (err) set_errno_qserr(err); else set_errno(ENOMEM);
+   if (err || fsz>x7FFF || !fsz) {
+      if (err) set_errno_qserr(err); else set_errno(fsz ? ENOMEM : ENODATA);
+      io_close(fh);
       return 0;
    }
    res = hlp_memallocsig(fsz, "file", QSMA_RETERR|QSMA_LOCAL);

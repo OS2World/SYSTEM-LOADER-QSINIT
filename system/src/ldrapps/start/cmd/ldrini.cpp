@@ -224,11 +224,22 @@ str_list* __stdcall str_split(const char *str,const char *separators) {
    return str_getlist_local(lst.Str);
 }
 
-str_list* _std str_settext(const char *text, u32t len) {
-   TStrings lst;
+str_list* _std str_settext(const char *text, u32t len, u32t flags) {
+   TStrings  lst;
+   str_list *lsp;
    lst.SetText(text,len);
-   for (int ii=0;ii<=lst.Max();ii++) lst[ii].trimright();
-   return str_getlist_local(lst.Str);
+   // drop wrong bits
+   flags &= STRSET_NOTRIM;
+   // both rigth and left - str_getlist() will trim it
+   if (!flags) return str_getlist_local(lst.Str);
+   // trim ony left/rigth
+   if (flags & STRSET_NOTRIM)
+      for (int ii=0;ii<=lst.Max();ii++)
+         if (!(flags&STRSET_NOTRIMR)) lst[ii].trimright(); else
+            if (!(flags&STRSET_NOTRIML)) lst[ii].trimleft();
+   lsp = str_getlistpure(lst.Str);
+   mem_localblock(lsp);
+   return lsp;
 }
 
 str_list* __stdcall str_splitargs(const char *str) {

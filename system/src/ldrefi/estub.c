@@ -22,8 +22,8 @@ u32t          mfs_rmcmode = 0;
 stoinit_entry   storage_w[STO_BUF_LEN];
 struct Disk_BPB   BootBPB; // empty BPB (for now)
 extern u32t         sel64;
-extern u32t     acpitable, smbios, smbios3, mpstab;
-static u32t          btab[SYSTAB_SYSID];
+extern u32t     acpitable, smbios, smbios3, mpstab, edidtable;
+static u32t          btab[SYSTAB_EDID+1];
 
 void get_idt(struct lidt64_s *idt);
 #ifdef __WATCOMC__
@@ -38,6 +38,8 @@ void init_host(void) {
    btab[SYSTAB_SMBIOS]  = smbios;
    btab[SYSTAB_SMBIOS3] = smbios3;
    btab[SYSTAB_MP]      = mpstab;
+   btab[SYSTAB_EDID]    = edidtable;
+
    // save known tables for the sys_gettable() function
    sto_save(STOKEY_BIOSTAB, &btab, sizeof(btab), 0);
 }

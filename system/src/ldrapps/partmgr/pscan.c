@@ -1069,12 +1069,12 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                for (ii = 0; ii<DISK_COUNT; ii++) hlp_volinfo(ii, vi+ii);
             else
                out = strcat_dyn(out, "\n");
-         
+
             out = strcat_dyn(out,
                " ÄÄÄÄÂÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n"
                "  ## ³ fs info ³   size   ³ mount ³    LBA    ³ LVM ³ attr ³      type        \n"
                " ÄÄÄÄÅÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÅÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ \n");
-         
+
             for (ii = 0; ii<hi->gpt_view; ii++)
                // print both GPT and hybrid partitions here
                if (dsk_isgpt(disk, ii) > 0) {
@@ -1084,18 +1084,18 @@ u32t shl_dm_list(const char *cmd, str_list *args, u32t disk, u32t pos) {
                   u64t   psize, pstart;
                   u32t              kk;
                   char          letter;
-         
+
                   static const s8t part_flags[] = { GPTATTR_SYSTEM, GPTATTR_IGNORE,
                      GPTATTR_BIOSBOOT, GPTATTR_MS_RO, GPTATTR_MS_HIDDEN, 
                         GPTATTR_MS_NOMNT, -1};
                   static const char  *part_char = "SIBRHN";
-                  
+
                   dsk_ptquery64(disk, ii, &pstart, &psize, pdesc, 0);
                   // query printable partition type
                   dsk_gptpinfo(disk, ii, &gpi);
                   dsk_guidtostr(gpi.TypeGUID, guidstr);
                   ptstr = guidstr[0] ? cmd_shellgetmsg(guidstr) : 0;
-         
+
                   mounted[0] = 0;
                   for (kk = 0; kk<DISK_COUNT; kk++)
                      if (vi[kk].StartSector && vi[kk].Disk==disk)

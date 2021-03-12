@@ -1175,7 +1175,7 @@ str_list *get_config_sys(void) {
 
       cfgfile = get_raw_config_sys(&cfglen,cfgname);
       if (cfgfile) {
-         config_sys = str_settext(cfgfile, cfglen);
+         config_sys = str_settext(cfgfile, cfglen, 0);
          hlp_memfree(cfgfile);
       } else
          log_printf("Warning! Unable to find \"%s\"!\n", cfgname);

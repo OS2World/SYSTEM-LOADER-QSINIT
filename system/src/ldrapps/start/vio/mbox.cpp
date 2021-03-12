@@ -280,7 +280,7 @@ drawagain:
 #ifdef COLOR_SEL
       if (keyl>='1'&&keyl<='4') act = keyl-'1';
 #endif
-      if (keyl==27) { // esc
+      if (keyl==27 || !keymode) { // esc or any key if no buttons
          dlgres = 0;
          break;
       } else

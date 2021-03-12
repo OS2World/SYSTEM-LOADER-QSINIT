@@ -99,7 +99,7 @@ int     _std exi_share(void *instance, int global);
     Function returns error (-1) if mutex is busy at the time of disable call.
 
     Class registration can also ask for the global single mutex for all class
-    instances and such mode does not controlled by class user. In this case
+    instances and such mode does not controlled by the class user. In this case
     function will always return value of 2.
 
     @param  instance   Pointer to instance.
@@ -109,7 +109,7 @@ int     _std exi_mtsafe(void *instance, int enable);
 
 /** increase instance mutex lock counter manually.
     Note, that user should not touch instance mutex by default - all locking
-    preformed automatically during any method call. This call and exi_unlock()
+    performed automatically during any method call. This call and exi_unlock()
     pair is for the case when a group of actions with instance must be locked.
 
     Number of exi_unlock() calls must be equal to number of exi_lock().
@@ -216,8 +216,8 @@ typedef void _std (*exi_pinitdone)(void *instance, void *userdata);
     EXIC_EXCLUSIVE means that this class can have no more than ONE instance
     per system.
 
-    Namespace for classes is *global*. Even for class, which marked private -
-    no duplicate name allowed.
+    Namespace for classes is *global*. Even for a class that marked as private
+    no duplicate name is allowed.
 
     @param  classname   Class name. Can be 0, in this case unique random name
                         will be auto-generated.

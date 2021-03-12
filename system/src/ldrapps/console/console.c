@@ -306,6 +306,37 @@ int con_addtextmode(u32t fntx, u32t fnty, u32t modex, u32t modey) {
    return 0;
 }
 
+static void dump_edit(int quiet) {
+   bios_table_ptr etab;
+   if (!sys_gettable(SYSTAB_EDID, &etab)) {
+      struct EDIDData *ed = (struct  EDIDData*)etab.addr;
+      if (ed) {
+         char   mfc[4];
+         u16t   mfv = ed->EDManufacturer << 8 | (ed->EDManufacturer >> 8 & 0xFF);
+         cmd_printf("EDID data%s:\n", etab.status & SYSTABST_BADCRC ? " (crc mismatch)" : "");
+         
+         mfc[0] = (mfv>>10 & 0x1F) + 'A' - 1;
+         mfc[1] = (mfv>>5 & 0x1F) + 'A' - 1;
+         mfc[2] = (mfv & 0x1F) + 'A' - 1;
+         mfc[3] = 0;
+         
+         cmd_printf("\tEDID Version     : %d\n", ed->EDVersion);
+         cmd_printf("\tEDID Revision    : %d\n",  ed->EDRevision);
+         cmd_printf("\tVendor           : %s\n", mfc);
+         cmd_printf("\tProduct ID       : %0X\n", ed->EDProductCode);
+         if (ed->EDSerial!=FFFF)
+            cmd_printf("\tSerial Number    : %02X\n",  ed->EDSerial);
+         cmd_printf("\tManufacture Time : %u week of %u\n", ed->EDWeek, ed->EDYear + 1990);
+         cmd_printf("\tVideo Input      : %s\n", ed->EDVideoInput&0x80 ? "Digital" : "Analog" );
+         cmd_printf("\tMax Horizonal    : %u cm\n", ed->EDMaxHorzSize);
+         cmd_printf("\tMax Vertical     : %u cm\n", ed->EDMaxVertSize);
+         cmd_printf("\tGamma            : %u.%02u\n", 1+ed->EDGamma/100, ed->EDGamma%100);
+         return;
+      }
+   }
+   if (!quiet) cmd_printf("Failed to query EDID!\n");
+}
+
 u32t _std shl_mkshot(const char *cmd, str_list *args) {
    int rc = EINVAL;
    if (args->count==1 && strcmp(args->item[0],"/?")==0) {
@@ -395,6 +426,10 @@ u32t _std con_handler(const char *cmd, str_list *args) {
       } else
       if (stricmp(fp,"RESET")==0) {
          vio_resetmode();
+         rc = 0;
+      } else
+      if (stricmp(fp,"EDID")==0) {
+         dump_edit(str_findkey(args, "/q", 0) ? 1 : 0);
          rc = 0;
       } else
       if (stricmp(fp,"SELECT")==0) {

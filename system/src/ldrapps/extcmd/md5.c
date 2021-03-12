@@ -333,7 +333,7 @@ u32t _std shl_md5(const char *cmd, str_list *args) {
             void *cfdata = freadfull(args->item[quiet], &cflen);
             // should be al least ENOENT & ENOMEM
             if (!cfdata) rc = errno; else {
-               str_list *cf = str_settext((char*)cfdata, cflen);
+               str_list *cf = str_settext((char*)cfdata, cflen, 0);
                hlp_memfree(cfdata);
 
                if (cf) {

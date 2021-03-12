@@ -6,7 +6,7 @@
 // QSINIT.LDI & INI file. START module will replace this code to common
 // FAT handling as fast as it can.
 // 
-// There is no long names for FAT12/16/32!
+// There are no long names for FAT12/16/32!
 //
 #include "qslocal.h"
 #include "parttab.h"

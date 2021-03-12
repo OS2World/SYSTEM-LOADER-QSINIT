@@ -278,7 +278,7 @@ u32t _std shl_log(const char *cmd, str_list *args) {
                   free(cp);
                } else {
                   u32t      ii;
-                  str_list *ft = str_settext(cp, 0);
+                  str_list *ft = str_settext(cp, 0, 0);
                   free(cp);
 
                   for (ii=0; ii<ft->count; ii++) {

@@ -43,6 +43,8 @@ mode con list
 echo
 mode con gmlist /v
 echo
+mode con edid
+echo
 echo - <<Mounted volumes>> ----------
 mount list /v
 echo

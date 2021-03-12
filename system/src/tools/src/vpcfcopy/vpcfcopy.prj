@@ -51,18 +51,23 @@ dbtype=-d0
 
 [vars.os/2]
 target=os2v2
-oskey=-bt=os2 -DSP_OS2
+oskey=-bt=os2
 exedir=..\..\t_os2
 cflags=-i=..\..\..\ldrapps\sysview -DPHYS_IO $(cflags)
 
 [vars.win32]
 target=nt
-oskey=-bt=nt -DSP_WIN32
+oskey=-bt=nt
 exedir=..\..\t_nt
+
+[vars.dos]
+target=pmodew
+oskey=-bt=dos
+exedir=..\..\t_dos
 
 [vars.linux]
 target=linux
-oskey=-bt=linux -DSP_LINUX
+oskey=-bt=linux
 exedir=..\..\t_unx
 cp=cp
 moddesc=

@@ -198,7 +198,10 @@ int main(int argc,char *argv[]) {
    }
    /* save memlimit for OS/2 boot (setup can change WB to UC for a small part 
       of memory in 4th Gb - and we truncate access to this memory in OS/2 */
-   sto_savedword(STOKEY_MEMLIM, memlimit);
+   if (memlimit) {
+      u32t orglimit = sto_dword(STOKEY_MEMLIM);
+      if (!orglimit || memlimit<orglimit) sto_savedword(STOKEY_MEMLIM, memlimit);
+   }
 
    if (mtrr) { free(mtrr); mtrr=0; }
    return 0;

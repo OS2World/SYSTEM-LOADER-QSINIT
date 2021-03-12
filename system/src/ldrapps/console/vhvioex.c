@@ -241,6 +241,20 @@ void evio_shutdown() {
    if (fnt_data) { free(fnt_data); fnt_data = 0; }
 }
 
+void _std con_fontupdate(void) {
+   mt_swlock();
+   if (fnt_data && fnt_x && fnt_y) {
+      u32t *nfnt = con_buildfont(fnt_x, fnt_y);
+
+      if (nfnt) {
+         free(fnt_data);
+         fnt_data = nfnt;
+         log_it(3, "mode font changed (%ux%u)\n", fnt_x, fnt_y);
+      }
+   }
+   mt_swunlock();
+}
+
 static qserr _exicc gc_setmode(EXI_DATA, u32t cols, u32t lines, void *extmem) {
    if (extmem) return E_SYS_INVPARM;
    if (setmode_locked) return E_CON_DETACHED;

@@ -65,6 +65,7 @@ _int12msize     dd      0
 _smbios         dd      0
 _smbios3        dd      0
 _mpstab         dd      0
+_edidtable      dd      0
 exp64_tab_end   label   near
 
                 public  _phmembase, _highbase
@@ -74,6 +75,6 @@ exp64_tab_end   label   near
                 public  _flat32cs, _ret64offset, _highlen, _safeMode
                 public  _cvio_ttylines, xcptret, _qs_bootlen, _qs_bootstart
                 public  _qd_bootdisk, _countsIn55ms, _acpitable, _int12msize
-                public  _smbios3, _mpstab
+                public  _smbios3, _mpstab, _edidtable
 _DATA           ends
                 end

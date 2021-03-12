@@ -18,4 +18,5 @@ exports = {
    _con_fontadd     = { index=35 group="font"   format="viip"   } # add/replace font
    _con_fontavail   = { index=36 group="font"   format="uii"    } # query font presence
    _con_fontcopy    = { index=37 group="font"   format="pii"    } # query font bits
+   _con_fontupdate  = { index=38 group="font"   format="vv"     } 
 }

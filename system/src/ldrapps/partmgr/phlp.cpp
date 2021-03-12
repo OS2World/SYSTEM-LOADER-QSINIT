@@ -1094,7 +1094,7 @@ int gptcfg_load(void) {
          if (cfg) {
             // file should not be so large
             if (len<_64KB) {
-               str_list *lst = str_settext((char*)cfg, len);
+               str_list *lst = str_settext((char*)cfg, len, 0);
 
                for (ii=0; ii<lst->count; ii++) {
                   char  *line = lst->item[ii];

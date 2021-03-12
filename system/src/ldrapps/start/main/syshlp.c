@@ -52,7 +52,7 @@ static u32t      acpi_table = 0;
 qshandle             mhimux = 0;        // mutex for sys_memhicopy()
 u8t            fpu_savetype = 0;
 
-#define SYSTAB_SIZE    (SYSTAB_SYSID+1)
+#define SYSTAB_SIZE    (SYSTAB_EDID+1)
 static bios_table_ptr  btab[SYSTAB_SIZE];
 
 extern char            _std   aboutstr[];
@@ -1235,13 +1235,13 @@ typedef struct {
    u32t    ofs;
 } BiosTableDef;
 
-static BiosTableDef ctbl[SYSTAB_SIZE] = {
+static BiosTableDef ctbl[SYSTAB_EDID] = {
    {"\x8RSD PTR ",   0}, {"\4_SM_" , 0x10000}, {"\5_SM3_", 0x10000},
    {"\5_DMI_", 0x10000}, {"\4$PnP" , 0x10000}, {"\4_32_" ,       0},
    {"\4$PIR" , 0x10000}, {"\4_MP_" ,       0}, {"\7_SYSID_",     0} };
 
 static int _checktable(u32t table, u8t *ptr) {
-   if (table<SYSTAB_SIZE)
+   if (table<SYSTAB_EDID)
    if (memcmp(ptr, ctbl[table].sign+1, ctbl[table].sign[0])==0) {
       u32t len = 0;
       int  sum = -1;
@@ -1285,11 +1285,51 @@ static int _checktable(u32t table, u8t *ptr) {
          if (sum<0) sum = _sum(ptr,len);
          btab[table].addr   = (u32t)ptr;
          btab[table].length = len;
-         btab[table].status = sum>0?0:1;
+         btab[table].status = sum>0?0:SYSTABST_BADCRC;
          return 1;
       }
    }
    return 0;
+}
+
+static void edid_sum(void) {
+   u8t *ptr = (u8t*)btab[SYSTAB_EDID].addr;
+   if (ptr) {
+      int sum = _sum(ptr,128);
+      btab[SYSTAB_EDID].length = 128;
+      /* it surely can be stored in EFI non-resident block,
+         so it is "local" on both platforms */
+      btab[SYSTAB_EDID].status = (sum>0?0:SYSTABST_BADCRC) | SYSTABST_LOCAL;
+   }
+}
+
+static void edid_bios(void) {
+   if (!btab[SYSTAB_EDID].addr) {
+      rmcallregs_t r;
+      u16t       rmb = boot_info.diskbuf_seg;
+      u32t       baseaddr;
+      u8t       *buf = (u8t*)malloc(128),
+                *rmp = (u8t*)hlp_segtoflat(rmb);
+
+      memset(&r, 0, sizeof(r));
+      r.r_eax = 0x4F15;
+      r.r_ebx = 1;
+      r.r_es = rmb;
+      // lock MT to prevent any disk i/o buffer use from other threads
+      mt_swlock();
+      hlp_rmcallreg(0x10, &r, 0);
+      if ((u16t)r.r_eax==0x4F) {
+         memcpy(buf, rmp, 128);
+         btab[SYSTAB_EDID].addr = (u32t)buf;
+      } else
+         free(buf);
+      mt_swunlock();
+      edid_sum();
+   }
+#if 0
+   if (btab[SYSTAB_EDID].addr)
+      log_it(2,"edid: %12b %X\n", btab[SYSTAB_EDID].addr, btab[SYSTAB_EDID].status);
+#endif
 }
 
 /** get BIOS table address and length.
@@ -1318,6 +1358,8 @@ qserr _std sys_gettable(u32t table, bios_table_ptr *data) {
          // addresses from UEFI host
          for (ii=0; ii<SYSTAB_SIZE; ii++)
             if (btab[ii].addr)
+               if (ii==SYSTAB_EDID) edid_sum();
+                  else
                if (!_checktable(ii, (u8t*)btab[ii].addr)) btab[ii].addr = 0;
          // scan XBDA for ACPI address
          if (!btab[SYSTAB_ACPI].addr)
@@ -1330,7 +1372,7 @@ qserr _std sys_gettable(u32t table, bios_table_ptr *data) {
          for (ofs=0; ofs<=0x1FFF0; ofs+=16) {
             u8t *ptr = mem+ofs;
          
-            for (ii=0; ii<SYSTAB_SIZE; ii++)
+            for (ii=0; ii<SYSTAB_SIZE-1; ii++)
                if (!btab[ii].addr && ofs>=ctbl[ii].ofs && ctbl[ii].sign[1]==*ptr)
                   if (_checktable(ii,ptr)) {
                      // seek forward
@@ -1345,9 +1387,12 @@ qserr _std sys_gettable(u32t table, bios_table_ptr *data) {
          log_it(2,"Exception in sys_gettable(), ofs %X\n", ofs);
       }
       _endcatch_
-
       tab_inited = 1;
    }
+   // ask int 10h for EDID only if user asks for it
+   if (table==SYSTAB_EDID && !btab[SYSTAB_EDID].addr && hlp_hosttype()==QSHT_BIOS)
+      edid_bios();
+
    if (!btab[table].addr) return E_SYS_NOTFOUND;
    if (data) memcpy(data, btab+table, sizeof(bios_table_ptr));
    return 0;

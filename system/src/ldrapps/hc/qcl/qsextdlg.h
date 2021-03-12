@@ -107,8 +107,8 @@ typedef struct qs_extcmd_s {
 #define BTDT_HDD            1  ///< show HDD list only
 #define BTDT_ALL            2  ///< show all partitions in plain list
 #define BTDT_DISKTREE       3  ///< show all partitions, but with submenu for every HDD
-#define BTDT_FLTLVM     0x400  ///< add QS drive letter column at 1st pos
-#define BTDT_FLTQS      0x800  ///< add QS drive letter column at 1st pos
+#define BTDT_FLTLVM     0x400  ///< filter volumes with selected LVM drive letters
+#define BTDT_FLTQS      0x800  ///< filter volumes with selected QS drive letters
 #define BTDT_NOEMU     0x1000  ///< skip emulated HDDs in enumeration
 #define BTDT_QSM       0x2000  ///< include only mounted to QSINIT
 #define BTDT_NOQSM     0x4000  ///< exclude all mounted to QSINIT

@@ -362,7 +362,7 @@ exports = {
    _str_delentry     = { index =451  group = "strlist" format = "vpu"   }
    _str_length       = { index =452  group = "vio"     format = "us"    }
    _str_findkey      = { index =453  group = "strlist" format = "sps!*u" }
-   _str_settext      = { index =454  group = "strlist" format = "psu"   }
+   _str_settext      = { index =454  group = "strlist" format = "psu@u" }
    _str_findentry    = { index =455  group = "strlist" format = "ipsui" }
    _str_keyvalue     = { index =456  group = "clib"    format = "ss&*s" }
 

@@ -9,6 +9,7 @@
 #include "console.h"
 #include "graphdef.h"
 #include "qcl/qslist.h"
+#include "vbedata.h"
 #include "qsvdata.h"
 #include "malloc.h"
 #include "qsint.h"

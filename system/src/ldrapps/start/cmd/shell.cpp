@@ -89,12 +89,12 @@ cmd_state _std cmd_initbatch(const str_list* cmds,const str_list* args) {
 
 static void check_embedded(void) {
    // this should be called on the first line of START.CMD
-   if (!embedded) embedded = str_settext(internal_commands,0);
+   if (!embedded) embedded = str_settext(internal_commands,0,0);
 }
 
 static void check_intvars(void) {
    // this should be called on the first line of START.CMD
-   if (!intvars) intvars = str_settext(internal_variables,0);
+   if (!intvars) intvars = str_settext(internal_variables,0,0);
 }
 
 static spstr env_getvar_int(spstr &ename, int shint) {
@@ -475,9 +475,11 @@ static u32t cmd_process(spstr ln, session_info *si) {
          if (plist.Count()<3) {
             printf("Incomplete IF statement in line %d\n",si->nextline);
          } else
-         if (next=="EXIST"||next=="ERRORLEVEL"||next=="LOADED"||next=="SIZE") {
+         if (next=="EXIST"||next=="ERRORLEVEL"||next=="LOADED"||next=="SIZE"||
+            next=="FILESYSTEM")
+         {
             int usedargs = 2;
-            if (next[1]=='I') {
+            if (next[2]=='Z') {
                u64t size;
                if (bootvol) {
                   size = hlp_fopen(plist[1]());
@@ -492,10 +494,10 @@ static u32t cmd_process(spstr ln, session_info *si) {
                usedargs++;
                exec = size >= str2uint64(plist[2]());
             } else
-            if (next[1]=='O') {
+            if (next[2]=='A') {
                exec = mod_query(plist[1](),MODQ_NOINCR)!=0;
             } else
-            if (next[1]=='X') {
+            if (next[2]=='I') {
                if (bootvol) {
                   exec = hlp_fexist(plist[1]())?1:0;
                } else {
@@ -504,6 +506,25 @@ static u32t cmd_process(spstr ln, session_info *si) {
                   // without /d it accepts any type, with /d - dirs only
                   exec = iores==0 && (!isdir || (fi.attrs&IOFA_DIR));
                }
+            } else
+            if (next[2]=='L') {
+               exec = fullpath(plist[1]);
+
+               if (exec) {
+                  disk_volume_data vi;
+                  u8t vol = toupper(plist[1][0]) - 'A';
+
+                  exec = io_volinfo(vol,&vi)==0;
+
+                  if (exec) {
+                     if (!vi.FsVer) vi.FsName[0] = 0;
+                     exec = !stricmp(vi.FsName, plist[2]());
+                     // allow FAT16/FAT32 for FAT string
+                     if (!exec && plist[2].upper()=="FAT")
+                        exec = !strnicmp(vi.FsName, "FAT", 3);
+                  }
+               }
+               usedargs++;
             } else {
                exec = atoi(getenv("ERRORLEVEL"))>=plist[1].Int();
             }

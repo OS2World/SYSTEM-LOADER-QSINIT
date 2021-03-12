@@ -123,16 +123,22 @@ u32t     _std sys_acpiroot(void);
 #define SYSTAB_IRQROUTE        6    ///< PCI Interrupt Routing
 #define SYSTAB_MP              7    ///< Intel Multiprocessor Configuration
 #define SYSTAB_SYSID           8    ///< SYSID
+#define SYSTAB_EDID            9    ///< EDID (local copy)
 //@}
 
 typedef struct {
    u32t      addr;                  ///< physical address
    u32t    length;                  ///< table length
-   u16t    status;                  ///< bit 0 = 1 means control sum mismatch
+   u16t    status;                  ///< see SYSTABST_* below
 } bios_table_ptr;
+
+#define SYSTABST_BADCRC    0x001    /// control sum mismatch
+#define SYSTABST_LOCAL     0x002    /// table is local copy (pointer valid only in QSINIT)
 
 /** get BIOS table address and length.
     Note, that some tables are missing on EFI host (at least ACPI should exist).
+    Some tables (EDID) should be copied before exit QSINIT (SYSTABST_LOCAL).
+
     @param       table  table number (SYSTAB_xxxxx above)
     @param [out] data   buffer for requested data.
     @return zero on success, E_SYS_NOTFOUND is table is not found */

@@ -12,6 +12,8 @@
 /** convert TStrings to string list for usage in pure C code.
     warning! it trims spaces in the supplied source list! */
 str_list* str_getlist(TStringVector &lst);
+/// the same as str_getlist() but returns list one in one
+str_list* str_getlistpure(TStringVector &lst);
 
 /// convert string list to TStrings
 template <class F> 

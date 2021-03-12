@@ -65,7 +65,7 @@ u32t _std shl_setini(const char *cmd, str_list *args) {
                u32t fsz;
                void *fd = hlp_freadfull(ininame, &fsz, 0);
                if (!fd) rc = ENOENT; else {
-                  text = str_settext((char*)fd, fsz);
+                  text = str_settext((char*)fd, fsz, 0);
                   hlp_memfree(fd);
 
                   if (ifl) {
@@ -80,7 +80,7 @@ u32t _std shl_setini(const char *cmd, str_list *args) {
                   u32t fsz;
                   void *fd = freadfull(ininame, &fsz);
                   if (fd) {
-                     text = str_settext((char*)fd, fsz);
+                     text = str_settext((char*)fd, fsz,0);
                      hlp_memfree(fd);
                   } else
                   if (newfile) {

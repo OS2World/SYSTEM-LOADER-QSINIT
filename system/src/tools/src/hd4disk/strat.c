@@ -613,38 +613,51 @@ void far _loadds _cdecl iohandler(PIORB pIORB) {
                }
                break;
 
+            case IOCC_GEOMETRY_64     :
             case IOCC_GEOMETRY        :
                if (scode==IOCM_GET_MEDIA_GEOMETRY || scode==IOCM_GET_DEVICE_GEOMETRY) {
                   PIORB_GEOMETRY cpDG = (PIORB_GEOMETRY)pIORB;
-                  PGEOMETRY      pgeo = cpDG->pGeometry;
+                  PGEOMETRY64    pgeo = (PGEOMETRY64)cpDG->pGeometry;
 
-                  pgeo->TotalSectors    = diskh->h4_pages<<3; // pages*8
-                  pgeo->BytesPerSector  = 512;
-                  pgeo->Reserved        = 0;
-                  pgeo->NumHeads        = diskh->h4_heads;
-                  pgeo->TotalCylinders  = diskh->h4_cyls;
-                  pgeo->SectorsPerTrack = diskh->h4_spt;
+                  if (ccode==IOCC_GEOMETRY_64 && cpDG->GeometryLen!=sizeof(GEOMETRY64))
+                     error = IOERR_CMD_SYNTAX;
+                  else {
+                     pgeo->BytesPerSector  = 512;
+                     pgeo->Reserved        = 0;
+                     pgeo->NumHeads        = diskh->h4_heads;
+                     pgeo->TotalCylinders  = diskh->h4_cyls;
+                     pgeo->SectorsPerTrack = diskh->h4_spt;
+
+                     if (ccode==IOCC_GEOMETRY_64) {
+                        pgeo->ullTotalSectors = diskh->h4_pages<<3;
+                        pgeo->TotalSectors    = 0;
+                     } else
+                        pgeo->TotalSectors    = diskh->h4_pages<<3; // pages*8
+                  }
                } else
                   error = IOERR_CMD_NOT_SUPPORTED;
                break;
 
+            case IOCC_EXECUTE_IO_64   :
             case IOCC_EXECUTE_IO      :
                if (scode && scode<=IOCM_WRITE_VERIFY && scode!=IOCM_READ_PREFETCH) {
-                  PIORB_EXECUTEIO cpIO = (PIORB_EXECUTEIO)pIORB;
+                  PIORB_EXECUTEIO64 cpIO = (PIORB_EXECUTEIO64)pIORB;
 
                   if (rcont & IORB_CHS_ADDRESSING) {
                      error = IOERR_ADAPTER_REQ_NOT_SUPPORTED;
                      debug_str("chs!\n");
                   } else
                   if (cpIO->BlockSize==512) {
+                     u32t RBA = ccode==IOCC_EXECUTE_IO_64 ? (u32t)cpIO->ullRBA :
+                                                                  cpIO->RBA;
                      cpIO->BlocksXferred = 0;
 
                      if (cpIO->cSGList && cpIO->ppSGList && cpIO->BlockCount) {
                         u16t iorc;
 #ifdef LOG_IOREQ
-                        log_print("iohandler %lx %d\n", cpIO->RBA, cpIO->BlockCount);
+                        log_print("iohandler %lx %d\n", RBA, cpIO->BlockCount);
 #endif
-                        iorc = paeio(cpIO->ppSGList, cpIO->cSGList, cpIO->RBA,
+                        iorc = paeio(cpIO->ppSGList, cpIO->cSGList, RBA,
                            cpIO->BlockCount, scode>IOCM_READ_PREFETCH);
 
                         if (iorc) error = iorc; else
@@ -657,7 +670,7 @@ void far _loadds _cdecl iohandler(PIORB pIORB) {
                   if (error) {
                      u16t ii;
                      PSCATGATENTRY pt = cpIO->pSGList;
-                     log_print("iohandler %lx %d -> rc %d\n", cpIO->RBA, cpIO->BlockCount, error);
+                     log_print("iohandler %lx %d -> rc %d\n", RBA, cpIO->BlockCount, error);
 
                      for (ii=0; ii<cpIO->cSGList; ii++) {
                         log_print("sge: %d. %lx %lx\n", ii, pt[ii].ppXferBuf, pt[ii].XferBufLen);

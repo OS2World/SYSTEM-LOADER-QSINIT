@@ -53,7 +53,8 @@
 ;    * get FIRST found UEFI in MBR as GPT main header
 ;    * searches in GPT records for "BIOS Bootable" attribute bit, gets first
 ;    * checks bytes per sector BPB field and for 512/1024/2048/4096 value
-;      assumes BPB in the boot sector and updates "Hidden Sectors" value in it
+;      assumes BPB in the boot sector and updates "Hidden Sectors" value in
+;      it + saves I13X flag to 3000:0
 ;    * no fixups in code
 ;
 ; tools\bootset.exe compilation assumes FAT sector at 200h, FAT32 at 400h
